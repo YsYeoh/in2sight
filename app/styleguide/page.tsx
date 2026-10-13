@@ -2,6 +2,7 @@ import { getTranslations } from 'next-intl/server';
 import { PrefsBar } from '@/components/shared/PrefsBar';
 import { formatCompact, formatDate, formatDelta, formatNumber, formatPercent, formatTime } from '@/lib/format';
 import { getPrefs } from '@/lib/prefs.server';
+import { Gallery } from './Gallery';
 
 const SWATCHES = ['background', 'surface', 'surface-2', 'border', 'foreground', 'muted-foreground', 'primary', 'primary-foreground', 'accent', 'success', 'warning', 'danger'];
 const SAMPLE_INSTANT = new Date('2026-10-13T16:02:00Z');
@@ -60,6 +61,8 @@ export default async function StyleguidePage() {
         </dl>
         <p className="mt-3 text-muted-foreground">{t('greeting', { name: 'Yong Sen' })}</p>
       </section>
+
+      <Gallery />
     </main>
   );
 }

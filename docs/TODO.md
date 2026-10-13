@@ -48,13 +48,15 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] `lib/analysis`: growth, top posts, format comparison, best-time heatmap, per-tag, flags (+ vitest)
 
 ## 5. UI foundation (before pages)
-- [ ] Tailwind + shadcn/ui, `components/shared/*` (AppShell, DataTable, StatCard, ChartCard, EmptyState, PageHeader)
-- [ ] **`/styleguide` page first**: every component in every theme × light/dark × density × radius, EN/中文, at 360 / 768 / 1280 widths — compare against the approved mockups
+- [x] Tailwind + shadcn/ui, FormField/PageHeader/EmptyState/ResponsiveDialog/AppShell (Plan 2)
+- [ ] DataTable, StatCard, ChartCard (Plan 6)
+- [ ] /styleguide gallery: primitives done (Plan 2); charts/tables/motion added in Plan 6
 - [x] Theme tokens + 4 themes (Ink, Sunset, Forest, Mono) × light/dark; radius presets; text-contrast test (chart colours are checked visually in the styleguide)
 - [x] next-intl with en + zh-CN, key/placeholder parity test, language switcher (PrefsBar)
 - [x] `lib/format.ts` (date/time/number per user settings)
 - [ ] `lib/metrics.ts` registry (Plan 2/6)
-- [ ] Responsive shell: bottom tab bar / icon rail / sidebar; DataTable card mode; bottom-sheet dialogs; touch targets
+- [x] Responsive shell: bottom tab bar / icon rail / sidebar; bottom-sheet dialogs; touch targets
+- [ ] DataTable card mode (Plan 6)
 - [ ] PWA: manifest, icons, service worker (static + offline page only), install prompt; motion gating (reduced-motion, mobile, Save-Data)
 
 ## 6. UI pages (use `frontend-design`)
