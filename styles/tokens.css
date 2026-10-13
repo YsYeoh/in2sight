@@ -1,0 +1,46 @@
+/*
+ * in2sight design tokens.
+ * Source of truth for values: docs/mockups/kit.css. Verified by tests/tokens.test.ts.
+ * Selected by attributes on <html>: data-theme, data-mode, data-density, data-radius.
+ * NOTE: tests locate blocks by their exact selector text followed by "{" — keep this formatting.
+ */
+
+/* ---- Palettes: theme × mode ---- */
+:root[data-theme="ink"][data-mode="light"]{--background:#F8FAFC;--surface:#FFFFFF;--border:#E2E8F0;--foreground:#0F172A;--muted-foreground:#64748B;--primary:#4F46E5;--primary-foreground:#FFFFFF;--chart-1:#4F46E5;--chart-2:#0EA5E9;--chart-3:#10B981;--chart-4:#F59E0B;--chart-5:#EC4899;--chart-6:#8B5CF6;}
+:root[data-theme="ink"][data-mode="dark"]{--background:#0B1020;--surface:#131A2E;--border:#243049;--foreground:#E6EAF5;--muted-foreground:#94A3B8;--primary:#818CF8;--primary-foreground:#0B1020;--chart-1:#818CF8;--chart-2:#38BDF8;--chart-3:#34D399;--chart-4:#FBBF24;--chart-5:#F472B6;--chart-6:#A78BFA;}
+:root[data-theme="sunset"][data-mode="light"]{--background:#FFF8F5;--surface:#FFFFFF;--border:#F1DDD4;--foreground:#2A1810;--muted-foreground:#8A6F63;--primary:#D6245F;--primary-foreground:#FFFFFF;--chart-1:#D6245F;--chart-2:#F97316;--chart-3:#EAB308;--chart-4:#14B8A6;--chart-5:#6366F1;--chart-6:#A855F7;}
+:root[data-theme="sunset"][data-mode="dark"]{--background:#1A1011;--surface:#241619;--border:#3C2428;--foreground:#F6E9E4;--muted-foreground:#C4A59A;--primary:#FF6B9A;--primary-foreground:#1A1011;--chart-1:#FF6B9A;--chart-2:#FB923C;--chart-3:#FACC15;--chart-4:#2DD4BF;--chart-5:#818CF8;--chart-6:#C084FC;}
+:root[data-theme="forest"][data-mode="light"]{--background:#F6F8F5;--surface:#FFFFFF;--border:#DCE4DA;--foreground:#112016;--muted-foreground:#5F6F63;--primary:#15803D;--primary-foreground:#FFFFFF;--chart-1:#15803D;--chart-2:#0891B2;--chart-3:#CA8A04;--chart-4:#DC2626;--chart-5:#7C3AED;--chart-6:#DB2777;}
+:root[data-theme="forest"][data-mode="dark"]{--background:#0C1510;--surface:#131F18;--border:#223428;--foreground:#E4EFE7;--muted-foreground:#9BB1A1;--primary:#4ADE80;--primary-foreground:#0C1510;--chart-1:#4ADE80;--chart-2:#22D3EE;--chart-3:#FACC15;--chart-4:#F87171;--chart-5:#A78BFA;--chart-6:#F472B6;}
+:root[data-theme="mono"][data-mode="light"]{--background:#FAFAFA;--surface:#FFFFFF;--border:#E4E4E7;--foreground:#09090B;--muted-foreground:#71717A;--primary:#18181B;--primary-foreground:#FFFFFF;--chart-1:#2563EB;--chart-2:#F97316;--chart-3:#16A34A;--chart-4:#DC2626;--chart-5:#9333EA;--chart-6:#0891B2;}
+:root[data-theme="mono"][data-mode="dark"]{--background:#09090B;--surface:#111113;--border:#27272A;--foreground:#FAFAFA;--muted-foreground:#A1A1AA;--primary:#FAFAFA;--primary-foreground:#09090B;--chart-1:#60A5FA;--chart-2:#FB923C;--chart-3:#4ADE80;--chart-4:#F87171;--chart-5:#C084FC;--chart-6:#22D3EE;}
+
+/* ---- Mode-level semantic colours (shared by all themes) ---- */
+:root[data-mode="light"]{--success:#15803D;--warning:#B45309;--danger:#B91C1C;--shadow:0 8px 24px rgb(15 23 42 / 0.12);}
+:root[data-mode="dark"]{--success:#4ADE80;--warning:#FBBF24;--danger:#F87171;--shadow:0 8px 24px rgb(0 0 0 / 0.5);}
+
+/* ---- Derived tokens + defaults (dense, soft) ---- */
+:root{
+  --ring:var(--primary);
+  --surface-2:color-mix(in srgb,var(--foreground) 4%,var(--surface));
+  --hover:color-mix(in srgb,var(--foreground) 6%,var(--surface));
+  --accent:color-mix(in srgb,var(--primary) 12%,var(--surface));
+  --accent-fg:var(--primary);
+  --pg:16px;--pc:12px;--gp:12px;--ctl:30px;--ctl-sm:24px;--row:30px;--fb:13px;--lb:11px;--fh:13px;--fv:22px;
+  --rs:8px;--rm:12px;--rl:16px;
+}
+
+/* ---- Density: page pad, card pad, gap, control h, small control h, table row, body/label/heading/KPI font ---- */
+:root[data-density="dense"]{--pg:16px;--pc:12px;--gp:12px;--ctl:30px;--ctl-sm:24px;--row:30px;--fb:13px;--lb:11px;--fh:13px;--fv:22px;}
+:root[data-density="comfortable"]{--pg:24px;--pc:16px;--gp:16px;--ctl:36px;--ctl-sm:28px;--row:40px;--fb:14px;--lb:12px;--fh:15px;--fv:28px;}
+
+/* ---- Radius: rs = controls, rm = cards/tables, rl = dialogs ---- */
+:root[data-radius="sharp"]{--rs:4px;--rm:8px;--rl:12px;}
+:root[data-radius="soft"]{--rs:8px;--rm:12px;--rl:16px;}
+:root[data-radius="round"]{--rs:12px;--rm:16px;--rl:24px;}
+
+/* ---- Touch devices: never smaller than 40px controls ---- */
+@media (pointer:coarse){
+  :root,:root[data-density="dense"]{--ctl:40px;--ctl-sm:32px;--row:44px;}
+  :root[data-density="comfortable"]{--ctl:44px;--ctl-sm:36px;--row:48px;}
+}
