@@ -27,7 +27,8 @@ export function UserMenu({ email, signOutAction }: { email?: string; signOutActi
           <>
             <DropdownMenuSeparator />
             <form action={signOutAction}>
-              <DropdownMenuItem asChild>
+              {/* keep the menu open on select so the form is still mounted when the browser submits it */}
+              <DropdownMenuItem asChild onSelect={(e) => e.preventDefault()}>
                 <button type="submit" className="w-full">
                   <LogOut aria-hidden /> {t('signOut')}
                 </button>

@@ -8,11 +8,11 @@ import { UserMenu } from '@/components/shared/UserMenu';
 import { NAV_ITEMS, isActive } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
-function Brand({ className }: { className?: string }) {
+function Brand({ className, wordClassName }: { className?: string; wordClassName?: string }) {
   return (
     <span className={cn('flex items-center gap-2 font-semibold', className)}>
-      <span aria-hidden className="size-6 rounded-lg bg-[conic-gradient(from_210deg,var(--chart-1),var(--chart-5),var(--chart-4),var(--chart-1))]" />
-      in2sight
+      <span aria-hidden className="size-6 shrink-0 rounded-lg bg-[conic-gradient(from_210deg,var(--chart-1),var(--chart-5),var(--chart-4),var(--chart-1))]" />
+      <span className={wordClassName}>in2sight</span>
     </span>
   );
 }
@@ -24,7 +24,7 @@ export function AppShell({ children, userEmail, signOutAction }: { children: Rea
     <div className="min-h-dvh bg-background">
       {/* md: icon rail, lg: full sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-14 flex-col gap-1 border-r border-border bg-card p-2 md:flex lg:w-56">
-        <Brand className="mb-3 px-1.5 pt-1" />
+        <Brand className="mb-3 px-1.5 pt-1" wordClassName="max-lg:sr-only" />
         <nav aria-label={t('sidebar')} className="flex flex-col gap-1">
           {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
             <Link
