@@ -1,0 +1,43 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "empty": "No data yet"
+  },
+  "nav": {
+    "overview": "Overview",
+    "accounts": "Accounts",
+    "tags": "Tags",
+    "settings": "Settings"
+  },
+  "prefs": {
+    "theme": "Theme",
+    "mode": "Mode",
+    "light": "Light",
+    "dark": "Dark",
+    "density": "Density",
+    "dense": "Dense",
+    "comfortable": "Comfortable",
+    "radius": "Corners",
+    "sharp": "Sharp",
+    "soft": "Soft",
+    "round": "Round",
+    "language": "Language",
+    "dateFormat": "Date format"
+  },
+  "styleguide": {
+    "title": "Style guide",
+    "intro": "Live preview of the design tokens and formats. Changes are saved to your preferences.",
+    "tokens": "Colour tokens",
+    "chart": "Chart series",
+    "formats": "Formats",
+    "sampleDate": "Date",
+    "sampleTime": "Time",
+    "sampleNumber": "Number",
+    "sampleCompact": "Compact",
+    "samplePercent": "Percent",
+    "sampleDelta": "Change",
+    "greeting": "Welcome back, {name}"
+  }
+}
