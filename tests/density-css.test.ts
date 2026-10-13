@@ -29,4 +29,10 @@ describe('density wiring', () => {
       .join('\n');
     for (const slot of new Set(slots)) expect(ui, `no component renders data-slot="${slot}"`).toContain(`data-slot="${slot}"`);
   });
+
+  it('density.css is un-layered and globals imports it without layer()', () => {
+    expect(density.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/@layer/);
+    expect(globals).toMatch(/@import\s+["'][^"']*density\.css["']\s*;/);
+    expect(globals).not.toMatch(/density\.css["']\s*layer\(/);
+  });
 });
