@@ -5,7 +5,7 @@ Private dashboard that pulls Instagram insights (Meta API) for the owner's multi
 Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_SETUP.md` (owner setup). Keep TODO checked off as work lands. If the code and spec disagree, stop and ask which is right.
 
 ## Commands
-- `npm run dev` — dev server (http://localhost:3000, redirects to `/styleguide` until real pages exist)
+- `npm run dev` — dev server (http://localhost:3000; `/` redirects to `/overview`, which goes to `/login` or `/setup`; `/styleguide` stays available)
 - `npm test` — Vitest (unit + component tests in `tests/`); `npm run test:watch` while developing
 - `npm run check` — lint + typecheck + tests + build; must pass before any task is called done
 - `npm run check:env` — checks `.env.local` variable names and formats (never prints values)
