@@ -10,7 +10,15 @@
     "overview": "Overview",
     "accounts": "Accounts",
     "tags": "Tags",
-    "settings": "Settings"
+    "settings": "Settings",
+    "sidebar": "Main navigation",
+    "tabs": "Main tabs"
+  },
+  "shell": {
+    "toggleMode": "Toggle dark mode",
+    "userMenu": "Account menu",
+    "settings": "Settings",
+    "signOut": "Sign out"
   },
   "prefs": {
     "theme": "Theme",
