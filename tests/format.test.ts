@@ -87,6 +87,12 @@ describe('formatNumber', () => {
     expect(formatNumber(2, P, { minimumFractionDigits: 1 })).toBe('2.0');
   });
 
+  it('never prints a signed zero but keeps the sign of genuine negatives', () => {
+    expect(formatNumber(-0.004, P)).toBe('0');
+    expect(formatNumber(-0.004, P, { maximumFractionDigits: 1, minimumFractionDigits: 1 })).toBe('0.0');
+    expect(formatNumber(-0.4, P)).toBe('-0.4');
+  });
+
   it.each([null, undefined, NaN, Infinity, -Infinity])('shows an em dash for %j', (v) => {
     expect(formatNumber(v as never, P)).toBe('—');
   });
@@ -111,6 +117,10 @@ describe('formatCompact', () => {
     expect(formatCompact(12480, with_({ numberFormat: '1.234,5' }))).toBe('12,5K');
   });
 
+  it('never prints a signed zero', () => {
+    expect(formatCompact(-0.4, P)).toBe('0');
+  });
+
   it('shows an em dash for missing data', () => {
     expect(formatCompact(null, P)).toBe('—');
     expect(formatCompact(NaN, P)).toBe('—');
@@ -122,6 +132,10 @@ describe('formatPercent', () => {
     expect(formatPercent(0.048, P)).toBe('4.8%');
     expect(formatPercent(0.5, P, 0)).toBe('50%');
     expect(formatPercent(0.048, with_({ numberFormat: '1.234,5' }))).toBe('4,8%');
+  });
+
+  it('never prints a signed zero', () => {
+    expect(formatPercent(-0.00001, P)).toBe('0.0%');
   });
 
   it('shows an em dash for missing data', () => {
