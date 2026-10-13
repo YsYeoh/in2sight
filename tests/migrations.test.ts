@@ -41,7 +41,8 @@ describe('migrations', () => {
 
   it('privileged functions are not executable by public', () => {
     for (const fn of ['is_owner', 'claim_ownership']) {
-      expect(all).toMatch(new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${fn}\\(\\)\\s+from\\s+public`, 'i'));
+      // anon needs its own revoke: Supabase grants it execute directly, `from public` does not cover it
+      expect(all).toMatch(new RegExp(`revoke\\s+(?:all|execute)\\s+on\\s+function\\s+public\\.${fn}\\(\\)\\s+from\\s+public\\s*,\\s*anon`, 'i'));
       expect(all).toMatch(new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\(\\)\\s+to\\s+authenticated`, 'i'));
     }
   });
