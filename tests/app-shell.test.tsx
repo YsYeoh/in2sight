@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it, vi } from 'vitest';
@@ -97,5 +97,22 @@ describe('AppShell', () => {
     setup({ userEmail: 'owner@example.com', signOutAction: async () => {} });
     await userEvent.click(screen.getByRole('button', { name: 'Account menu' }));
     expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+  });
+
+  it('collapses the brand to the dot in the tablet icon rail but keeps the word in the phone header', () => {
+    setup();
+    const railWord = within(document.querySelector('aside')!).getByText('in2sight');
+    expect(railWord.className).toContain('max-lg:sr-only');
+    expect(railWord.previousElementSibling!.className).toContain('shrink-0');
+    const headerWord = within(screen.getByRole('banner')).getByText('in2sight');
+    expect(headerWord.className).not.toContain('sr-only');
+  });
+
+  it('sign out invokes the provided action exactly once', async () => {
+    const signOutAction = vi.fn(async () => {});
+    setup({ userEmail: 'owner@example.com', signOutAction });
+    await userEvent.click(screen.getByRole('button', { name: 'Account menu' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
+    await waitFor(() => expect(signOutAction).toHaveBeenCalledTimes(1));
   });
 });
