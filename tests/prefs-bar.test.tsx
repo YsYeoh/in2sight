@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
 import zh from '@/messages/zh-CN.json';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
@@ -18,6 +18,16 @@ function setup(persist = vi.fn(), locale: 'en' | 'zh-CN' = 'en') {
   );
   return persist;
 }
+
+// jsdom lacks the pointer-capture / scroll APIs Radix Select uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
 
 describe('PrefsBar', () => {
   it('marks the current theme as pressed and switches theme on click', async () => {
@@ -68,8 +78,7 @@ describe('PrefsBar', () => {
   });
 
   it('choosing a timezone persists it', async () => {
-    // jsdom lacks the pointer-capture / scroll APIs Radix Select uses
-    Object.assign(Element.prototype, { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} });
+    Object.assign(Element.prototype, DOM_STUBS);
     const persist = setup();
     await userEvent.click(screen.getByRole('combobox', { name: 'Timezone' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Europe/London' }));
