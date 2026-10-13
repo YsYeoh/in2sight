@@ -14,7 +14,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 
 ## 1. Foundation
 - [x] Next.js (TS, App Router) scaffold
-- [ ] Deploy to Vercel (Plan 3)
+- [ ] Deploy to Vercel (owner does this — docs/SETUP.md)
 - [ ] Supabase migrations: all tables in SPEC §5 + RLS
 - [x] Supabase Auth: single owner login (sign-ups disabled); middleware guards all pages (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 - [x] 2FA: TOTP enroll/verify UI in Settings → Account; middleware enforces AAL2 once enrolled (code done; live verification pending — docs/RUNBOOK_AUTH.md)
