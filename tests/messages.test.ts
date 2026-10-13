@@ -35,4 +35,13 @@ describe('message catalogs', () => {
     const same = Object.keys(fe).filter((k) => fe[k] === fz[k] && /[A-Za-z]{4,}/.test(fe[k]));
     expect(same, `untranslated keys: ${same.join(', ')}`).toEqual([]);
   });
+
+  it('zh-CN setup strings use full-width punctuation', () => {
+    for (const [k, v] of Object.entries(fz)) if (k.startsWith('setup.')) expect(v, k).not.toMatch(/[():]/);
+  });
+
+  it('both recovery hints point to the auth runbook', () => {
+    expect(fe['settings.twoFactor.recovery']).toContain('docs/RUNBOOK_AUTH.md');
+    expect(fz['settings.twoFactor.recovery']).toContain('docs/RUNBOOK_AUTH.md');
+  });
 });
