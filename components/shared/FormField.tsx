@@ -21,8 +21,9 @@ interface FormFieldProps {
 
 export function FormField({ id, label, hint, error, required, className, children }: FormFieldProps) {
   const uid = useId();
-  const messageId = `${id}-${error ? 'error' : 'hint'}-${uid}`;
-  const hasMessage = Boolean(error || hint);
+  const errorId = `${id}-error-${uid}`;
+  const hintId = `${id}-hint-${uid}`;
+  const describedBy = [error ? errorId : null, hint ? hintId : null].filter(Boolean).join(' ') || undefined;
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
       <Label htmlFor={id}>
@@ -31,16 +32,17 @@ export function FormField({ id, label, hint, error, required, className, childre
       </Label>
       {children({
         id,
-        'aria-describedby': hasMessage ? messageId : undefined,
+        'aria-describedby': describedBy,
         'aria-invalid': error ? true : undefined,
         required,
       })}
       {error ? (
-        <p id={messageId} role="alert" className="text-xs text-destructive">
+        <p id={errorId} role="alert" className="text-xs text-destructive">
           {error}
         </p>
-      ) : hint ? (
-        <p id={messageId} className="text-xs text-muted-foreground">
+      ) : null}
+      {hint ? (
+        <p id={hintId} className={cn('text-xs text-muted-foreground', error && 'sr-only')}>
           {hint}
         </p>
       ) : null}
