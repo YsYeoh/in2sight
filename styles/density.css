@@ -73,3 +73,11 @@
 [data-slot="dropdown-menu-radio-item"] {
   min-height: var(--ctl-sm);
 }
+/* iOS Safari zooms the page when a focused text field is < 16px */
+@media (pointer: coarse) {
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="select-trigger"] {
+    font-size: max(16px, var(--fb));
+  }
+}
