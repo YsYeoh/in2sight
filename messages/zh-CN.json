@@ -155,7 +155,7 @@
       "disable": "停用",
       "disableTitle": "停用两步验证？",
       "disableBody": "之后你的账号将仅由密码保护。",
-      "recovery": "设备丢失？请在 Supabase 控制台（Authentication → Users）中移除该验证因素。详见 docs/SETUP_SUPABASE.md。",
+      "recovery": "设备丢失？请在 Supabase 控制台（Authentication → Users）中移除该验证因素。详见 docs/RUNBOOK_AUTH.md 的“恢复”一节。",
       "errorUnexpected": "出了点问题，请重试。",
       "errorNeedsAal2": "请先使用验证器验证码重新登录，再更改两步验证设置。"
     },
@@ -187,8 +187,8 @@
   },
   "setup": {
     "title": "快好了",
-    "body": "登录前需要先配置 Supabase 连接。请把下列变量添加到 .env.local(以及 Vercel)后刷新页面。",
-    "docs": "分步指南:docs/SETUP.md",
-    "check": "检查配置:"
+    "body": "登录前需要先配置 Supabase 连接。请把下列变量添加到 .env.local（以及 Vercel）后刷新页面。",
+    "docs": "分步指南：docs/SETUP.md",
+    "check": "检查配置："
   }
 }

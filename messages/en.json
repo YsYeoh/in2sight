@@ -155,7 +155,7 @@
       "disable": "Disable",
       "disableTitle": "Disable two-factor authentication?",
       "disableBody": "Your account will only be protected by your password.",
-      "recovery": "Lost your device? Remove the factor in the Supabase dashboard (Authentication → Users). See docs/SETUP_SUPABASE.md.",
+      "recovery": "Lost your device? Remove the factor in the Supabase dashboard (Authentication → Users). See docs/RUNBOOK_AUTH.md (Recovery section).",
       "errorUnexpected": "Something went wrong. Try again.",
       "errorNeedsAal2": "Sign in again with your authenticator code to change two-factor settings."
     },
