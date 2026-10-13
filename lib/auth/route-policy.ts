@@ -18,6 +18,7 @@ export function decideRoute({ pathname, configured, signedIn, aal, mfaRequired }
   if (!configured) return pathname === '/setup' || pathname === '/styleguide' ? NEXT : go('/setup');
   if (SELF_AUTHENTICATED.some((re) => re.test(pathname))) return NEXT;
   if (!signedIn) return pathname === '/login' ? NEXT : go('/login');
+  if (pathname === '/auth/signout') return NEXT; // ends the session of a signed-in non-owner, whatever their 2FA state
 
   const needsMfa = mfaRequired && aal !== 'aal2';
   if (needsMfa) return pathname === '/login/verify' ? NEXT : go('/login/verify');

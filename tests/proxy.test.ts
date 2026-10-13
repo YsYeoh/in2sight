@@ -56,6 +56,14 @@ describe('proxy', () => {
     expect(new URL(res.headers.get('location')!).pathname).toBe('/login/verify');
   });
 
+  it('lets a signed-in session with a pending 2FA code reach /auth/signout', async () => {
+    state.sub = 'u1';
+    state.next = 'aal2';
+    const res = await proxy(req('/auth/signout'));
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.status).toBe(200);
+  });
+
   it('copies refreshed session cookies onto a redirect response', async () => {
     state.setCookie = true;
     const res = await proxy(req('/accounts'));
@@ -95,7 +103,7 @@ describe('matcher', () => {
   // path-to-regexp treats this pattern like a plain anchored RegExp
   const re = new RegExp('^' + config.matcher[0] + '$');
   it('runs the proxy for app routes, including look-alikes of the skipped files', () => {
-    for (const path of ['/', '/overview', '/login', '/api/x', '/exports/png', '/api/foo-ico', '/offline-anything', '/swxjs', '/faviconxico']) {
+    for (const path of ['/', '/overview', '/login', '/api/x', '/exports/png', '/api/foo-ico', '/offline-anything', '/swxjs', '/faviconxico', '/auth/signout']) {
       expect(re.test(path), path).toBe(true);
     }
   });

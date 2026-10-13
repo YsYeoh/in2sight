@@ -69,9 +69,20 @@ describe('signed in, 2FA verified (aal2)', () => {
   });
 });
 
+describe('/auth/signout (the way out for a signed-in non-owner)', () => {
+  it('is reachable for every signed-in state, including a pending 2FA code', () => {
+    for (const aal of ['aal1', 'aal2', null] as const)
+      for (const mfaRequired of [true, false]) expect(d({ pathname: '/auth/signout', signedIn: true, aal, mfaRequired })).toEqual(next);
+  });
+  it('sends a signed-out visitor to /login and an unconfigured app to /setup', () => {
+    expect(d({ pathname: '/auth/signout' })).toEqual(to('/login'));
+    expect(d({ pathname: '/auth/signout', configured: false })).toEqual(to('/setup'));
+  });
+});
+
 describe('invariants', () => {
   it('never redirects to the page it is already on (no loops) and only to known destinations', () => {
-    const paths = ['/', '/login', '/login/verify', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags', '/api/cron/sync'];
+    const paths = ['/', '/login', '/login/verify', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags', '/api/cron/sync', '/auth/signout'];
     for (const configured of [true, false])
       for (const signedIn of [true, false])
         for (const aal of ['aal1', 'aal2', null] as const)
@@ -86,7 +97,7 @@ describe('invariants', () => {
   });
 
   it('every redirect target is itself allowed for that visitor (one hop settles)', () => {
-    const paths = ['/', '/login', '/login/verify', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags'];
+    const paths = ['/', '/login', '/login/verify', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags', '/auth/signout'];
     for (const configured of [true, false])
       for (const signedIn of [true, false])
         for (const aal of ['aal1', 'aal2', null] as const)
