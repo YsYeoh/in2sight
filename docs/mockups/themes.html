@@ -1,0 +1,53 @@
+<h2>Which 4 themes for launch?</h2>
+<p class="subtitle">Each theme has a light and a dark variant. Same layout, only tokens change. Click to mark favourites (multi-select), then tell me what to swap.</p>
+
+<style>
+  .tg{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .tc{border:2px solid transparent;border-radius:12px;padding:12px;background:#0000000a;cursor:pointer}
+  .tc.selected{border-color:#2563eb}
+  .tc h3{margin:0 0 8px;font-size:15px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .pn{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:10px;padding:10px;font:12px/1.4 system-ui,sans-serif}
+  .pn .row{display:flex;gap:8px}
+  .pn .side{width:22px;border-radius:6px;background:var(--sf);border:1px solid var(--bd)}
+  .pn .card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:8px;flex:1}
+  .pn .k{color:var(--mu);font-size:10px}
+  .pn .v{font-size:18px;font-weight:600}
+  .pn .up{color:var(--c3);font-size:10px}
+  .pn .btn{display:inline-block;background:var(--pr);color:var(--pf);border-radius:6px;padding:3px 8px;font-size:11px;margin-top:6px}
+  .pn .chip{display:inline-block;border:1px solid var(--bd);border-radius:999px;padding:1px 7px;font-size:10px;color:var(--mu);margin-left:4px}
+  .pn .dots{display:flex;gap:4px;margin-top:8px}
+  .pn .dots i{width:12px;height:12px;border-radius:50%;display:block}
+  .pn .lbl{font-size:10px;color:var(--mu);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+</style>
+
+<div class="cards tg" data-multiselect id="themes"></div>
+
+<script>
+const T=[
+ ['ink','Ink','Calm indigo on cool slate. Safe, professional default.',
+  {bg:'#F8FAFC',sf:'#FFFFFF',bd:'#E2E8F0',fg:'#0F172A',mu:'#64748B',pr:'#4F46E5',pf:'#FFFFFF',c:['#4F46E5','#0EA5E9','#10B981','#F59E0B','#EC4899','#8B5CF6']},
+  {bg:'#0B1020',sf:'#131A2E',bd:'#243049',fg:'#E6EAF5',mu:'#94A3B8',pr:'#818CF8',pf:'#0B1020',c:['#818CF8','#38BDF8','#34D399','#FBBF24','#F472B6','#A78BFA']}],
+ ['sunset','Sunset','Warm rose and cream. Friendly, close to Instagram’s feel.',
+  {bg:'#FFF8F5',sf:'#FFFFFF',bd:'#F1DDD4',fg:'#2A1810',mu:'#8A6F63',pr:'#D6245F',pf:'#FFFFFF',c:['#D6245F','#F97316','#EAB308','#14B8A6','#6366F1','#A855F7']},
+  {bg:'#1A1011',sf:'#241619',bd:'#3C2428',fg:'#F6E9E4',mu:'#C4A59A',pr:'#FF6B9A',pf:'#1A1011',c:['#FF6B9A','#FB923C','#FACC15','#2DD4BF','#818CF8','#C084FC']}],
+ ['forest','Forest','Green on soft stone. Growth-oriented, easy on the eyes.',
+  {bg:'#F6F8F5',sf:'#FFFFFF',bd:'#DCE4DA',fg:'#112016',mu:'#5F6F63',pr:'#15803D',pf:'#FFFFFF',c:['#15803D','#0891B2','#CA8A04','#DC2626','#7C3AED','#DB2777']},
+  {bg:'#0C1510',sf:'#131F18',bd:'#223428',fg:'#E4EFE7',mu:'#9BB1A1',pr:'#4ADE80',pf:'#0C1510',c:['#4ADE80','#22D3EE','#FACC15','#F87171','#A78BFA','#F472B6']}],
+ ['mono','Mono','Black and white, one neutral accent. Max contrast, report-like.',
+  {bg:'#FAFAFA',sf:'#FFFFFF',bd:'#E4E4E7',fg:'#09090B',mu:'#71717A',pr:'#18181B',pf:'#FFFFFF',c:['#2563EB','#F97316','#16A34A','#DC2626','#9333EA','#0891B2']},
+  {bg:'#09090B',sf:'#111113',bd:'#27272A',fg:'#FAFAFA',mu:'#A1A1AA',pr:'#FAFAFA',pf:'#09090B',c:['#60A5FA','#FB923C','#4ADE80','#F87171','#C084FC','#22D3EE']}]
+];
+const panel=(t,mode)=>{
+  const s=Object.entries({bg:t.bg,sf:t.sf,bd:t.bd,fg:t.fg,mu:t.mu,pr:t.pr,pf:t.pf,c3:t.c[2]}).map(([k,v])=>`--${k}:${v}`).join(';');
+  return `<div class="pn" style="${s}"><div class="lbl">${mode}</div>
+   <div class="row"><div class="side"></div><div style="flex:1">
+    <div class="card"><div class="k">Followers</div><div class="v">12.4K</div><div class="up">▲ 3.2% vs last 30d</div>
+     <svg width="100%" height="26" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline fill="none" stroke="${t.c[0]}" stroke-width="2" points="0,20 15,18 30,19 45,12 60,14 75,7 100,3"/><polyline fill="none" stroke="${t.c[1]}" stroke-width="2" points="0,22 15,21 30,20 45,19 60,17 75,15 100,13"/></svg></div>
+    <span class="btn">Connect</span><span class="chip">Tips</span><span class="chip">Promo</span>
+    <div class="dots">${t.c.map(c=>`<i style="background:${c}"></i>`).join('')}</div>
+   </div></div></div>`;
+};
+document.getElementById('themes').innerHTML=T.map(([id,name,desc,l,d])=>
+ `<div class="card tc" data-choice="${id}" onclick="toggleSelect(this)"><h3>${name}</h3><p style="margin:0 0 8px;font-size:12px;opacity:.7">${desc}</p><div class="pair">${panel(l,'Light')}${panel(d,'Dark')}</div></div>`).join('');
+</script>

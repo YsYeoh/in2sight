@@ -1,0 +1,104 @@
+<link rel="stylesheet" href="/files/kit.css">
+<link rel="stylesheet" href="/files/charts.css">
+<style>.ui .cg{display:grid;gap:var(--gp);margin-bottom:var(--gp)}.ui .c2{grid-template-columns:1fr 1fr}.ui .c3{grid-template-columns:repeat(3,1fr)}.ui .c21{grid-template-columns:2fr 1fr}.ui .c6{grid-template-columns:repeat(6,1fr)}
+@media(max-width:900px){.ui .c2,.ui .c3,.ui .c21{grid-template-columns:1fr}.ui .c6{grid-template-columns:repeat(2,1fr)}}</style>
+<div class="ui" data-theme="ink" data-mode="l" data-d="dense">
+
+<div class="sec"><h2 data-i="t_main">Chart card anatomy &amp; line chart</h2><p data-i="d_main">Title + subtitle left; metric picker, period switch and menu right; clickable legend; hover crosshair with tooltip; dashed line = previous period. Try the period switch.</p></div>
+<div class="card"><div class="card-b">
+  <div class="ch"><div><div class="tt" data-i="c_main">Reach 触达</div><div class="st" id="mainSub"></div></div>
+   <div class="row" style="gap:6px;flex-wrap:nowrap">
+    <div class="pop"><div class="select" data-menu style="height:var(--ctl-sm);width:130px;padding:0 8px"><span class="v" id="metV">Reach</span><i data-ic="down"></i></div><div class="menu right"><div class="menu-item sel" data-m="0" data-label="Reach">Reach<i class="ck" data-ic="check"></i></div><div class="menu-item" data-m="1" data-label="Views">Views<i class="ck" data-ic="check"></i></div><div class="menu-item" data-m="2" data-label="Profile visits">Profile visits<i class="ck" data-ic="check"></i></div></div></div>
+    <div class="seg" id="per"><button data-n="7">7d</button><button class="on" data-n="30">30d</button><button data-n="90">90d</button></div>
+    <div class="pop"><button class="btn ghost icon sm" data-menu><i data-ic="more"></i></button><div class="menu right"><div class="menu-item" data-toast="ok|Exported|reach.png saved."><i data-ic="download"></i>Download PNG</div><div class="menu-item" data-toast="ok|Exported|reach.csv saved."><i data-ic="download"></i>Download CSV</div></div></div>
+   </div></div>
+  <div id="cMain"></div>
+</div></div>
+<div class="spec">plot pad: left 38 · bottom 22 · top 8 · grid: 1px dashed --border · line 2px round · area gradient 30%→0 · dots r4 on hover · tooltip: radius 8, shadow, 11px · series colors --chart-1…6 in order</div>
+
+<div class="sec"><h2 data-i="t_area">Area, stacked &amp; diverging bars</h2></div>
+<div class="cg c2">
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_fol">Followers 粉丝</div><div class="st" data-i="s_fol">Area chart · daily snapshot</div></div></div><div id="cArea"></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_eng">Engagement breakdown 互动构成</div><div class="st" data-i="s_eng">Stacked bars · weekly</div></div></div><div id="cStack"></div></div></div>
+</div>
+<div class="cg c2">
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_fu">Follows vs unfollows 关注与取关</div><div class="st" data-i="s_fu">Diverging bars · 14 days</div></div></div><div id="cDiv"></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_fmt">Format comparison 内容形式对比</div><div class="st" data-i="s_fmt">Grouped bars · avg per post</div></div></div><div id="cGroup"></div></div></div>
+</div>
+
+<div class="sec"><h2 data-i="t_part">Donut, ranked bars, funnel</h2></div>
+<div class="cg c3">
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_mix">Content mix 内容占比</div><div class="st" data-i="s_mix">Hover a slice or a row</div></div></div><div id="cDonut"></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_cty">Top countries 主要国家</div><div class="st" data-i="s_cty">Ranked bars · % of followers</div></div></div><div id="cHb"></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_fn">Traffic funnel 流量漏斗</div><div class="st" data-i="s_fn">Reach → visits → link taps</div></div></div><div id="cFn"></div></div></div>
+</div>
+
+<div class="sec"><h2 data-i="t_heat">Heatmap &amp; rings</h2></div>
+<div class="cg c21">
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_best">Best time to post 最佳发布时间</div><div class="st" data-i="s_best">Avg engagement rate by weekday × hour · outlined = top 3</div></div></div><div id="cHeat"></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt" data-i="c_ring">Quality scores 质量指标</div><div class="st" data-i="s_ring">Ring gauges vs your 90-day average</div></div></div>
+    <div class="row" style="justify-content:space-around;gap:8px;padding-top:6px"><div id="r1"></div><div id="r2"></div><div id="r3"></div></div></div></div>
+</div>
+
+<div class="sec"><h2 data-i="t_kpi">KPI tiles &amp; sparklines</h2><p data-i="d_kpi">Three sparkline styles: line, area, bar. Delta pill always shows direction + comparison.</p></div>
+<div class="cg c6" id="tiles"></div>
+
+<div class="sec"><h2 data-i="t_st">Chart states</h2><p data-i="d_st">Every chart needs loading, empty and error. The empty state says why.</p></div>
+<div class="cg c3">
+  <div class="card"><div class="card-b"><div class="ch"><div class="tt">Loading</div></div><div class="col" style="gap:10px"><div class="skel" style="height:12px;width:40%"></div><div class="skel" style="height:110px"></div><div class="skel" style="height:10px;width:70%"></div></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div class="tt">Empty</div></div><div class="state"><div class="empty" style="padding:0"><div class="ico"><i data-ic="user" data-s="20"></i></div></div><b data-i="e_t">Audience data not available</b><span data-i="e_d">Instagram only shares demographics for accounts with 100+ followers.</span></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div class="tt">Error</div></div><div class="state"><div class="empty" style="padding:0"><div class="ico" style="background:color-mix(in srgb,var(--danger) 12%,var(--surface));color:var(--danger)"><i data-ic="alert" data-s="20"></i></div></div><b data-i="er_t">Couldn’t load insights</b><span data-i="er_d">Instagram returned an error. Your stored history is unaffected.</span><button class="btn secondary sm" data-toast="in|Retrying…|Fetching insights again." data-i="retry">Retry</button></div></div></div>
+</div>
+</div>
+
+<script src="/files/kit.js"></script>
+<script src="/files/charts.js"></script>
+<script>(function(){
+(window.__pl||[]).forEach(([t,f])=>document.removeEventListener(t,f));window.__pl=[];
+const on=(t,f)=>{window.__pl.push([t,f]);document.addEventListener(t,f)};
+
+UI.init({i18n:{
+ en:{t_main:'Chart card anatomy & line chart',d_main:'Title + subtitle left; metric picker, period switch and menu right; clickable legend; hover crosshair with tooltip; dashed line = previous period. Try the period switch.',c_main:'Reach',t_area:'Area, stacked & diverging bars',c_fol:'Followers',s_fol:'Area chart · daily snapshot',c_eng:'Engagement breakdown',s_eng:'Stacked bars · weekly',c_fu:'Follows vs unfollows',s_fu:'Diverging bars · 14 days',c_fmt:'Format comparison',s_fmt:'Grouped bars · avg per post',t_part:'Donut, ranked bars, funnel',c_mix:'Content mix',s_mix:'Hover a slice or a row',c_cty:'Top countries',s_cty:'Ranked bars · % of followers',c_fn:'Traffic funnel',s_fn:'Reach → visits → link taps',t_heat:'Heatmap & rings',c_best:'Best time to post',s_best:'Avg engagement rate by weekday × hour · outlined = top 3',c_ring:'Quality scores',s_ring:'Ring gauges vs your 90-day average',t_kpi:'KPI tiles & sparklines',d_kpi:'Three sparkline styles: line, area, bar. Delta pill always shows direction + comparison.',t_st:'Chart states',d_st:'Every chart needs loading, empty and error. The empty state says why.',e_t:'Audience data not available',e_d:'Instagram only shares demographics for accounts with 100+ followers.',er_t:'Couldn’t load insights',er_d:'Instagram returned an error. Your stored history is unaffected.',retry:'Retry',
+  reach:'Reach',views:'Views',visits:'Profile visits',prev:'Previous period',cur:'Current',likes:'Likes',comments:'Comments',saves:'Saves',shares:'Shares',follows:'Follows',unf:'Unfollows',reel:'Reel',car:'Carousel',img:'Image',story:'Story',vs:'vs previous',fol:'Followers',er:'Engagement rate',saver:'Save rate',compl:'Completion',tr:'Link taps',avg:'Avg reach',avgv:'Avg views',reach_k:'Reach',tap:'Link taps',pv:'Profile visits',my:'Malaysia',sg:'Singapore',id:'Indonesia',us:'United States',oth:'Other',posts:'posts',wk:'Wk',d0:'Mon',d1:'Tue',d2:'Wed',d3:'Thu',d4:'Fri',d5:'Sat',d6:'Sun',lo:'Low',hi:'High',m:'Oct'},
+ zh:{t_main:'图表卡片结构与折线图',d_main:'左侧标题和副标题;右侧指标选择、周期切换、菜单;可点击图例;悬停十字线和提示框;虚线=上一周期。试试切换周期。',c_main:'触达',t_area:'面积图、堆叠与双向柱状图',c_fol:'粉丝',s_fol:'面积图 · 每日快照',c_eng:'互动构成',s_eng:'堆叠柱状图 · 按周',c_fu:'关注与取关',s_fu:'双向柱状图 · 14 天',c_fmt:'内容形式对比',s_fmt:'分组柱状图 · 单帖平均',t_part:'环形图、排名条、漏斗',c_mix:'内容占比',s_mix:'悬停扇区或行',c_cty:'主要国家',s_cty:'排名条 · 粉丝占比',c_fn:'流量漏斗',s_fn:'触达 → 主页访问 → 链接点击',t_heat:'热力图与环形指标',c_best:'最佳发布时间',s_best:'按星期 × 小时的平均互动率 · 描边=前三',c_ring:'质量指标',s_ring:'环形指标 vs 近 90 天均值',t_kpi:'指标卡与迷你图',d_kpi:'三种迷你图:折线、面积、柱状。涨跌标签始终显示方向和对比周期。',t_st:'图表状态',d_st:'每个图表都需要加载、空、错误状态。空状态要说明原因。',e_t:'暂无受众数据',e_d:'Instagram 仅向 100 位以上粉丝的账号提供受众画像。',er_t:'无法加载数据洞察',er_d:'Instagram 返回了错误。已存储的历史数据不受影响。',retry:'重试',
+  reach:'触达',views:'播放',visits:'主页访问',prev:'上一周期',cur:'当前',likes:'点赞',comments:'评论',saves:'收藏',shares:'分享',follows:'关注',unf:'取关',reel:'短视频',car:'轮播',img:'图片',story:'快拍',vs:'对比上期',fol:'粉丝',er:'互动率',saver:'收藏率',compl:'完播率',tr:'链接点击',avg:'平均触达',avgv:'平均播放',reach_k:'触达',tap:'链接点击',pv:'主页访问',my:'马来西亚',sg:'新加坡',id:'印度尼西亚',us:'美国',oth:'其他',posts:'条',wk:'第',d0:'周一',d1:'周二',d2:'周三',d3:'周四',d4:'周五',d5:'周六',d6:'周日',lo:'低',hi:'高',m:'10月'}
+}});
+const t=k=>UI.t(k),zh=()=>UI.state.lang==='zh';
+const gen=(seed,n,base,vol,tr)=>{let x=seed,o=[];for(let i=0;i<n;i++){x=(x*9301+49297)%233280;o.push(Math.max(0,base+tr*i+(x/233280-.5)*vol))}return o};
+const dl=(i,n)=>{const d=new Date(2026,9,13-(n-1-i));return zh()?`${d.getMonth()+1}月${d.getDate()}日`:d.toLocaleDateString('en-US',{month:'short',day:'numeric'})};
+const S={n:30,m:0};
+function main(){const n=S.n,b=[6200,15500,780][S.m],nm=[t('reach'),t('views'),t('visits')][S.m],labels=[...Array(n)].map((_,i)=>dl(i,n));
+  document.getElementById('mainSub').textContent=`${labels[0]} – ${labels[n-1]} · ${t('vs')}`;
+  Charts.line(document.getElementById('cMain'),{h:210,labels,legend:true,area:true,series:[{name:nm,data:gen(7+S.m,n,b,b*.5,b*.008)},{name:t('prev'),data:gen(31+S.m,n,b*.85,b*.4,b*.004),dashed:true,color:'var(--muted-foreground)'}]});}
+function all(){
+  main();
+  const n30=30,lab=[...Array(30)].map((_,i)=>dl(i,30));
+  Charts.line(document.getElementById('cArea'),{h:190,labels:lab,area:true,series:[{name:t('fol'),data:gen(3,30,11800,120,24).map((v,i,a)=>a.slice(0,i+1).reduce((s,x)=>s,0)+v+i*8)}]});
+  const wk=[...Array(8)].map((_,i)=>`${zh()?t('wk')+(i+1)+'周':t('wk')+(i+1)}`);
+  Charts.bars(document.getElementById('cStack'),{h:190,labels:wk,stacked:true,legend:true,series:[{name:t('likes'),data:gen(5,8,3200,900,80)},{name:t('comments'),data:gen(6,8,420,150,10)},{name:t('saves'),data:gen(7,8,880,300,40)},{name:t('shares'),data:gen(8,8,520,200,25)}]});
+  const l14=[...Array(14)].map((_,i)=>dl(i,14));
+  Charts.bars(document.getElementById('cDiv'),{h:190,labels:l14,stacked:true,legend:true,series:[{name:t('follows'),data:gen(9,14,38,24,0).map(Math.round),color:'var(--chart-3)'},{name:t('unf'),data:gen(10,14,14,10,0).map(v=>-Math.round(v)),color:'var(--chart-4)'}]});
+  Charts.bars(document.getElementById('cGroup'),{h:190,labels:[t('reel'),t('car'),t('img'),t('story')],legend:true,series:[{name:t('avg'),data:[21400,9800,6100,3900]},{name:t('avgv'),data:[39200,12400,7000,4800]}]});
+  Charts.donut(document.getElementById('cDonut'),{center:{v:'128',l:t('posts')},parts:[{name:t('reel'),value:52},{name:t('car'),value:34},{name:t('img'),value:28},{name:t('story'),value:14}]});
+  Charts.hbars(document.getElementById('cHb'),{fmt:v=>v+'%',rows:[{label:t('my'),value:46},{label:t('sg'),value:21},{label:t('id'),value:9},{label:t('us'),value:6},{label:t('oth'),value:18,color:'var(--muted-foreground)'}]});
+  Charts.funnel(document.getElementById('cFn'),{steps:[{name:t('reach_k'),value:184200},{name:t('pv'),value:6204},{name:t('tap'),value:932}]});
+  const days=[0,1,2,3,4,5,6].map(i=>t('d'+i)),hrs=[...Array(24)].map((_,h)=>h);
+  Charts.heat(document.getElementById('cHeat'),{rows:days,cols:hrs,lo:t('lo'),hi:t('hi'),metric:t('er'),data:days.map((_,r)=>hrs.map(h=>Math.max(.4,2.2+4*Math.exp(-((h-(r>4?11:19.5))**2)/10)+(((r*31+h*17)%7)/7)*.9)))});
+  Charts.ring(document.getElementById('r1'),{value:4.8,max:8,text:'4.8%',label:t('er'),color:'var(--chart-1)'});
+  Charts.ring(document.getElementById('r2'),{value:3.1,max:6,text:'3.1%',label:t('saver'),color:'var(--chart-3)'});
+  Charts.ring(document.getElementById('r3'),{value:72,max:100,text:'72%',label:t('compl'),color:'var(--chart-2)'});
+  const T=[[t('fol'),'12,480',3.2,'line',1],[t('reach'),'184.2K',11.8,'area',2],[t('views'),'412.9K',8.1,'area',3],[t('visits'),'6,204',-2.4,'bar',4],[t('tr'),'932',5.0,'bar',5],[t('er'),'4.8%',0.4,'line',6]];
+  document.getElementById('tiles').innerHTML=T.map((x,i)=>`<div class="card"><div class="card-b tile"><span class="l">${x[0]}</span><span class="v">${x[1]}</span><span class="dpill ${x[2]>=0?'up':'dn'}" style="align-self:flex-start">${UI.icon(x[2]>=0?'aup':'adown',10)}${Math.abs(x[2])}%</span><div id="sk${i}" style="margin-top:6px"></div></div></div>`).join('');
+  T.forEach((x,i)=>Charts.spark(document.getElementById('sk'+i),{data:gen(i*13+2,x[3]==='bar'?14:24,20,12,x[2]>=0?.4:-.2),type:x[3],color:x[2]<0?'var(--danger)':`var(--chart-${x[4]})`,h:34}));
+}
+on('click',e=>{
+  const p=e.target.closest('#per button');if(p){S.n=+p.dataset.n;Charts.anim=true;main();return}
+  const m=e.target.closest('[data-m]');if(m){S.m=+m.dataset.m;Charts.anim=true;main()}
+});
+on('kit:change',()=>{Charts.anim=false;all()});
+on('kit:replay',()=>{Charts.anim=true;all()});
+on('kit:gsap',()=>{Charts.anim=true;all()});
+Charts.anim=false;all();
+
+})();
+</script>

@@ -1,0 +1,127 @@
+<link rel="stylesheet" href="/files/kit.css">
+<div class="ui" data-theme="ink" data-mode="l" data-d="dense">
+
+<div class="sec"><h2 data-i="t_tbl">Data table</h2><p data-i="d_tbl">Live: sort (click headers), search, filter by type, show/hide columns, select rows, page. Row = 30px dense / 40px comfortable. Header sticks while scrolling.</p></div>
+<div class="row" style="margin-bottom:8px"><span class="small muted">State:</span><div class="seg" id="stateSeg"><button class="on" data-st="data">Data</button><button data-st="loading">Loading</button><button data-st="empty">Empty</button></div></div>
+<div class="tbl-card">
+  <div class="tbl-bar">
+    <div class="group"><i data-ic="search"></i><input class="input" id="q" data-ip="p_search" placeholder="Search posts…"></div>
+    <div class="seg" id="typeSeg"><button class="on" data-ty="">All</button><button data-ty="Reel">Reel</button><button data-ty="Carousel">Carousel</button><button data-ty="Image">Image</button></div>
+    <span class="sp"></span>
+    <div class="pop"><button class="btn secondary sm" data-menu><i data-ic="sliders"></i><span data-i="columns">Columns</span></button><div class="menu right" id="colMenu"></div></div>
+    <button class="btn secondary sm" data-toast="ok|Export started|posts.csv will download shortly."><i data-ic="download"></i><span data-i="export">Export</span></button>
+  </div>
+  <div class="tbl-bulk" id="bulk"><span id="bulkN"></span><span class="sp"></span><button class="btn secondary sm"><i data-ic="tag"></i><span data-i="add_tag">Add tag</span></button><button class="btn ghost sm" id="clr" data-i="clear">Clear</button></div>
+  <div class="tbl-scroll"><table class="tbl" id="tbl"></table></div>
+  <div class="tbl-foot"><span id="info"></span><div class="row"><span data-i="rows">Rows per page</span>
+    <div class="pop"><div class="select" data-menu style="height:var(--ctl-sm);width:64px;padding:0 8px"><span class="v" id="ps">8</span><i data-ic="down"></i></div><div class="menu" style="min-width:64px;top:auto;bottom:calc(100% + 4px)"><div class="menu-item sel" data-label="8">8<i class="ck" data-ic="check"></i></div><div class="menu-item" data-label="16">16<i class="ck" data-ic="check"></i></div></div></div>
+    <div class="pager" id="pager"></div></div></div>
+</div>
+<div class="spec">toolbar pad 8×12 · header 34px sticky, 11px 500 muted · row 30/40 · cell pad-x 10 · numbers right-aligned tabular · hover: 6% foreground · selected: 12% primary · footer 11px</div>
+<div class="menu" id="rowMenu" style="position:fixed"><div class="menu-item"><i data-ic="eye"></i><span data-i="view_ig">View on Instagram</span><span class="k">↗</span></div><div class="menu-item"><i data-ic="tag"></i><span data-i="edit_tags">Edit tags</span><span class="k">T</span></div><div class="menu-item"><i data-ic="link"></i><span data-i="copy">Copy link</span></div></div>
+
+<div class="sec"><h2 data-i="t_cmp">Comparison table</h2><p data-i="d_cmp">Cross-account view: sticky first column, grouped rows, delta pills, inline sparklines.</p></div>
+<div class="tbl-card"><div class="tbl-scroll" style="max-height:none"><table class="tbl fix" id="cmp"></table></div></div>
+
+<div class="sec"><h2 data-i="t_list">Lists</h2><p data-i="d_list">Same row anatomy everywhere: leading visual · title/subtitle · meta · action. 10×12 padding, 1px dividers.</p></div>
+<div class="g2c">
+  <div class="col" style="gap:var(--gp)">
+    <div class="lbl" data-i="l_acc">Accounts, grouped &amp; collapsible</div>
+    <div class="list" id="accList"></div>
+    <div class="lbl" data-i="l_flag" style="margin-top:6px">Activity / flags</div>
+    <div class="list">
+      <div class="li"><span class="chip ok" style="height:24px;width:24px;justify-content:center;padding:0"><i data-ic="aup" data-s="12"></i></span><div class="main"><div class="t">“5 tips to grow your reach” is 2.3× your median</div><div class="s">@brandx.official · Reel</div></div><div class="meta">2h ago</div></div>
+      <div class="li"><span class="chip er" style="height:24px;width:24px;justify-content:center;padding:0"><i data-ic="adown" data-s="12"></i></span><div class="main"><div class="t">Reach down 18% vs previous 7 days</div><div class="s">@studio.two</div></div><div class="meta">Today</div></div>
+      <div class="li"><span class="chip wn" style="height:24px;width:24px;justify-content:center;padding:0"><i data-ic="clock" data-s="12"></i></span><div class="main"><div class="t">Token expires in 6 days</div><div class="s">@studio.two · needs reconnect soon</div></div><button class="btn secondary sm" data-i="reconnect">Reconnect</button></div>
+    </div>
+  </div>
+  <div class="col" style="gap:var(--gp)">
+    <div class="lbl" data-i="l_top">Leaderboard</div>
+    <div class="list" id="topList"></div>
+    <div class="lbl" style="margin-top:6px" data-i="l_tags">Manage list (tags)</div>
+    <div class="list" id="tagList"></div>
+    <div class="lbl" style="margin-top:6px" data-i="l_dl">Description list</div>
+    <dl class="dl list" style="margin:0"><dt>Username</dt><dd>@brandx.official</dd><dt>Account type</dt><dd>Creator</dd><dt>Group</dt><dd><span class="chip a">Brand X</span></dd><dt>Token</dt><dd>Valid 54 days <span class="chip ok" style="margin-left:6px"><span class="dot"></span>OK</span></dd><dt>Last sync</dt><dd>Oct 13, 16:02 (GMT+8)</dd></dl>
+  </div>
+</div>
+</div>
+
+<script src="/files/kit.js"></script>
+<script>(function(){
+(window.__pl||[]).forEach(([t,f])=>document.removeEventListener(t,f));window.__pl=[];
+const on=(t,f)=>{window.__pl.push([t,f]);document.addEventListener(t,f)};
+
+UI.init({i18n:{
+ en:{t_tbl:'Data table',d_tbl:'Live: sort (click headers), search, filter by type, show/hide columns, select rows, page. Row = 30px dense / 40px comfortable. Header sticks while scrolling.',p_search:'Search posts…',columns:'Columns',export:'Export',add_tag:'Add tag',clear:'Clear',rows:'Rows per page',view_ig:'View on Instagram',edit_tags:'Edit tags',copy:'Copy link',t_cmp:'Comparison table',d_cmp:'Cross-account view: sticky first column, grouped rows, delta pills, inline sparklines.',t_list:'Lists',d_list:'Same row anatomy everywhere: leading visual · title/subtitle · meta · action. 10×12 padding, 1px dividers.',l_acc:'Accounts, grouped & collapsible',l_flag:'Activity / flags',l_top:'Leaderboard — top posts by reach',l_tags:'Manage list (tags)',l_dl:'Description list',reconnect:'Reconnect',
+  c_caption:'Caption',c_type:'Type',c_tags:'Tags',c_reach:'Reach',c_views:'Views',c_saves:'Saves',c_shares:'Shares',c_er:'ER',c_date:'Posted',selected:'selected',of:'of',empty_t:'No posts match your filters',empty_d:'Try a different search or clear the filters.',clr_f:'Clear filters',a_acc:'Account',a_grp:'Group',a_fol:'Followers',a_reach:'Reach',a_er:'Engagement',a_posts:'Posts',a_trend:'Trend',a_stat:'Status',iso:'Isolated accounts',posts:'posts',days:'days'},
+ zh:{t_tbl:'数据表格',d_tbl:'可操作:点击表头排序、搜索、按类型筛选、显示/隐藏列、选择行、翻页。行高 紧凑 30px / 舒适 40px。滚动时表头固定。',p_search:'搜索帖子…',columns:'列',export:'导出',add_tag:'添加标签',clear:'清除',rows:'每页行数',view_ig:'在 Instagram 查看',edit_tags:'编辑标签',copy:'复制链接',t_cmp:'对比表格',d_cmp:'跨账号视图:固定首列、分组行、涨跌标签、行内迷你趋势图。',t_list:'列表',d_list:'统一的行结构:前置图形 · 标题/副标题 · 数值 · 操作。内边距 10×12,1px 分隔线。',l_acc:'账号(分组,可折叠)',l_flag:'动态 / 提醒',l_top:'排行榜 — 触达最高的帖子',l_tags:'管理列表(标签)',l_dl:'描述列表',reconnect:'重新连接',
+  c_caption:'文案',c_type:'类型',c_tags:'标签',c_reach:'触达',c_views:'播放',c_saves:'收藏',c_shares:'分享',c_er:'互动率',c_date:'发布时间',selected:'已选',of:'共',empty_t:'没有符合条件的帖子',empty_d:'换个搜索词或清除筛选试试。',clr_f:'清除筛选',a_acc:'账号',a_grp:'分组',a_fol:'粉丝',a_reach:'触达',a_er:'互动率',a_posts:'帖子',a_trend:'趋势',a_stat:'状态',iso:'独立账号',posts:'条帖子',days:'天'}
+}});
+const t=k=>UI.t(k),ic=UI.icon,$=s=>document.querySelector(s),fmt=n=>n.toLocaleString('en-US');
+/* ---- data ---- */
+let sd=11;const rnd=()=>(sd=(sd*9301+49297)%233280)/233280;
+const CAP=['5 tips to grow your reach','Behind the scenes at the studio','Weekend promo — 20% off','Customer story: Mei','How we pick suppliers','Monday motivation','New arrivals 新品','FAQ: shipping','Packaging reveal','Team intro 团队介绍','Q&A: your questions','Before / after'],TY=['Reel','Carousel','Image'],TG=['Tips','BTS','Promo','Social proof','Lifestyle'];
+const POSTS=[...Array(24)].map((_,i)=>{const reach=Math.round(2500+rnd()*46000*(1-i/34));return{id:i,cap:CAP[i%12]+(i>11?' #'+(Math.floor(i/12)+1):''),type:TY[Math.floor(rnd()*3)],tag:TG[Math.floor(rnd()*5)],reach,views:Math.round(reach*(1.4+rnd())),saves:Math.round(reach*(.01+rnd()*.03)),shares:Math.round(reach*(.005+rnd()*.02)),er:+(2+rnd()*5).toFixed(1),date:`Oct ${Math.max(1,13-i)}`}});
+const COLS=[['cap','c_caption'],['type','c_type'],['tag','c_tags'],['reach','c_reach',1],['views','c_views',1],['saves','c_saves',1],['shares','c_shares',1],['er','c_er',1],['date','c_date']];
+const S={sort:'reach',dir:-1,q:'',type:'',page:1,size:8,sel:new Set(),hide:new Set(['views']),st:'data'};
+function render(){
+  const cols=COLS.filter(c=>!S.hide.has(c[0]));
+  let rows=POSTS.filter(p=>p.cap.toLowerCase().includes(S.q.toLowerCase())&&(!S.type||p.type===S.type));
+  if(S.st==='empty')rows=[];
+  rows.sort((a,b)=>(typeof a[S.sort]==='number'?a[S.sort]-b[S.sort]:String(a[S.sort]).localeCompare(b[S.sort]))*S.dir);
+  const tot=rows.length,pages=Math.max(1,Math.ceil(tot/S.size));S.page=Math.min(S.page,pages);
+  const vis=rows.slice((S.page-1)*S.size,S.page*S.size),allSel=vis.length&&vis.every(r=>S.sel.has(r.id)),some=vis.some(r=>S.sel.has(r.id));
+  let h=`<thead><tr><th class="chk"><label class="check"><input type="checkbox" id="all" ${allSel?'checked':''}><span class="box">${ic(allSel||!some?'check':'minus')}</span></label></th><th style="width:34px"></th>`+cols.map(([k,l,n])=>`<th class="${n?'num':''} ${S.sort===k?'sorted':''}"><button class="sb" data-sort="${k}">${t(l)}${ic(S.sort===k?(S.dir>0?'aup':'adown'):'sort')}</button></th>`).join('')+'<th class="act"></th></tr></thead><tbody>';
+  if(S.st==='loading')h+=[...Array(S.size)].map(()=>`<tr>${'<td></td>'.repeat(0)}<td colspan="${cols.length+3}"><div class="skel" style="height:14px;width:${60+Math.random()*35|0}%"></div></td></tr>`).join('');
+  else if(!vis.length)h+=`<tr><td colspan="${cols.length+3}" style="height:auto"><div class="empty"><div class="ico">${ic('search',20)}</div><b style="font-weight:500">${t('empty_t')}</b><span class="small muted">${t('empty_d')}</span><button class="btn secondary sm" id="clrF" style="margin-top:6px">${t('clr_f')}</button></div></td></tr>`;
+  else h+=vis.map(p=>`<tr class="${S.sel.has(p.id)?'sel':''}"><td class="chk"><label class="check"><input type="checkbox" data-id="${p.id}" ${S.sel.has(p.id)?'checked':''}><span class="box">${ic('check')}</span></label></td><td><i class="thumb" style="background:linear-gradient(135deg,var(--chart-${p.id%5+1}),var(--chart-${(p.id+2)%5+1}))"></i></td>`+cols.map(([k,,n])=>{const v=p[k];return k==='cap'?`<td class="cap">${v}</td>`:k==='type'?`<td><span class="chip">${v}</span></td>`:k==='tag'?`<td><span class="chip a">${v}</span></td>`:k==='er'?`<td class="num">${v}%</td>`:k==='date'?`<td class="muted">${v}</td>`:`<td class="num">${fmt(v)}</td>`}).join('')+`<td class="act"><button class="btn ghost icon sm rm" data-i2="1">${ic('more')}</button></td></tr>`).join('');
+  $('#tbl').innerHTML=h+'</tbody>';
+  const al=$('#all');if(al)al.indeterminate=some&&!allSel;
+  $('#info').textContent=tot?`${(S.page-1)*S.size+1}–${Math.min(S.page*S.size,tot)} ${t('of')} ${tot}`:`0 ${t('of')} 0`;
+  $('#pager').innerHTML=`<button class="btn secondary icon sm" data-pg="${S.page-1}" ${S.page<2?'disabled':''}>${ic('left')}</button>`+[...Array(pages)].map((_,i)=>`<button class="btn ${i+1===S.page?'primary':'secondary'} sm" data-pg="${i+1}">${i+1}</button>`).join('')+`<button class="btn secondary icon sm" data-pg="${S.page+1}" ${S.page>=pages?'disabled':''}>${ic('right')}</button>`;
+  const n=S.sel.size;$('#bulk').classList.toggle('on',n>0);$('#bulkN').textContent=`${n} ${t('selected')}`;
+  $('#colMenu').innerHTML=COLS.slice(0).map(([k,l])=>`<label class="menu-item" data-keep="1"><span class="check"><input type="checkbox" data-col="${k}" ${S.hide.has(k)?'':'checked'}><span class="box">${ic('check')}</span></span>${t(l)}</label>`).join('');
+}
+on('click',e=>{
+  const s=e.target.closest('[data-sort]');if(s){const k=s.dataset.sort;S.dir=S.sort===k?-S.dir:-1;S.sort=k;render();return}
+  const pg=e.target.closest('[data-pg]');if(pg&&!pg.disabled){S.page=+pg.dataset.pg;render();return}
+  const ty=e.target.closest('[data-ty]');if(ty){S.type=ty.dataset.ty;S.page=1;render()}
+  const st=e.target.closest('[data-st]');if(st){S.st=st.dataset.st;render()}
+  if(e.target.closest('#clrF')){S.q='';S.type='';$('#q').value='';document.querySelectorAll('#typeSeg button').forEach((b,i)=>b.classList.toggle('on',i===0));render()}
+  if(e.target.closest('#clr')){S.sel.clear();render()}
+  const rm=e.target.closest('.rm');if(rm){const r=rm.getBoundingClientRect(),m=$('#rowMenu');m.style.top=r.bottom+4+'px';m.style.left=Math.min(r.right-190,innerWidth-200)+'px';m.classList.add('open');e.stopPropagation()}
+  const ps=e.target.closest('#ps')||e.target.closest('[data-label="8"],[data-label="16"]');if(ps&&ps.dataset&&ps.dataset.label){S.size=+ps.dataset.label;render()}
+});
+on('change',e=>{
+  if(e.target.id==='all'){const q=[...document.querySelectorAll('#tbl tbody input[data-id]')].map(i=>+i.dataset.id);q.forEach(id=>e.target.checked?S.sel.add(id):S.sel.delete(id));render()}
+  else if(e.target.dataset.id){e.target.checked?S.sel.add(+e.target.dataset.id):S.sel.delete(+e.target.dataset.id);render()}
+  else if(e.target.dataset.col){e.target.checked?S.hide.delete(e.target.dataset.col):S.hide.add(e.target.dataset.col);render()}
+});
+$('#q').oninput=e=>{S.q=e.target.value;S.page=1;render()};
+on('kit:change',()=>{render();cmp();lists()});
+render();
+
+/* ---- comparison table ---- */
+const sp=(s,up)=>{let x=s,a=[];for(let i=0;i<18;i++){x=(x*9301+49297)%233280;a.push(10+(x/233280)*8+(up?i*.5:-i*.2))}const mn=Math.min(...a),mx=Math.max(...a);return `<svg class="spk" viewBox="0 0 70 20" preserveAspectRatio="none"><polyline fill="none" stroke="${up?'var(--chart-1)':'var(--danger)'}" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="${a.map((v,i)=>`${i*70/17},${18-(v-mn)/(mx-mn)*16}`).join(' ')}"/></svg>`};
+const dp=v=>`<span class="dpill ${v>=0?'up':'dn'}">${ic(v>=0?'aup':'adown',10)}${Math.abs(v)}%</span>`;
+const ACC=[['Brand X',[['brandx.official','B',12480,3.2,184200,11.8,4.8,12,1,'ok'],['brandx.shop','S',5320,1.1,61200,-2.4,3.9,9,0,'ok']]],['Personal projects',[['studio.two','T',8905,5.6,97400,18.2,6.1,15,1,'wn']]],['__iso',[['old.account','O',1620,-0.8,8300,-14.5,2.2,3,0,'er']]]];
+function cmp(){
+  let h=`<thead><tr><th>${t('a_acc')}</th><th>${t('a_grp')}</th><th class="num">${t('a_fol')}</th><th class="num">Δ</th><th class="num">${t('a_reach')}</th><th class="num">Δ</th><th class="num">${t('a_er')}</th><th class="num">${t('a_posts')}</th><th>${t('a_trend')}</th><th>${t('a_stat')}</th></tr></thead><tbody>`;
+  ACC.forEach(([g,rs])=>{h+=`<tr><td colspan="10" style="height:26px;background:var(--surface-2);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground)">${g==='__iso'?t('iso'):g} · ${rs.length}</td></tr>`;
+   rs.forEach(([u,l,f,fd,r,rd,er,po,up,st],i)=>{h+=`<tr><td><div class="row" style="flex-wrap:nowrap;gap:8px"><div class="avatar sm">${l}</div><b style="font-weight:500">@${u}</b></div></td><td>${g==='__iso'?'<span class="muted">—</span>':`<span class="chip a">${g}</span>`}</td><td class="num">${fmt(f)}</td><td class="num">${dp(fd)}</td><td class="num">${fmt(r)}</td><td class="num">${dp(rd)}</td><td class="num">${er}%</td><td class="num">${po}</td><td>${sp(f%97+i,rd>=0)}</td><td><span class="chip ${st}"><span class="dot"></span>${st==='ok'?'Active':st==='wn'?'Expiring':'Error'}</span></td></tr>`})});
+  $('#cmp').innerHTML=h+'</tbody>';
+}
+cmp();
+
+/* ---- lists ---- */
+function lists(){
+  $('#accList').innerHTML=ACC.map(([g,rs])=>`<div class="list-grp"><div class="list-h" data-grp="1"><span>${g==='__iso'?t('iso'):g} · ${rs.length}</span>${ic('down')}</div>`+rs.map(([u,l,f,,,,,po,,st])=>`<div class="li"><div class="avatar ${st==='ok'?'ring':''}">${l}</div><div class="main"><div class="t">@${u}</div><div class="s">${po} ${t('posts')} · Creator</div></div><span class="chip ${st}"><span class="dot"></span>${st==='ok'?'Active':st==='wn'?'6 '+t('days'):'Error'}</span><div class="meta"><b>${fmt(f)}</b>${t('a_fol')}</div>${st==='ok'?`<button class="btn ghost icon sm">${ic('more')}</button>`:`<button class="btn secondary sm">${t('reconnect')}</button>`}</div>`).join('')+'</div>').join('');
+  const top=POSTS.slice().sort((a,b)=>b.reach-a.reach).slice(0,5),mx=top[0].reach;
+  $('#topList').innerHTML=top.map((p,i)=>`<div class="li"><span class="rank">${i+1}</span><i class="thumb" style="width:32px;height:32px;border-radius:var(--rs);display:block;background:linear-gradient(135deg,var(--chart-${p.id%5+1}),var(--chart-${(p.id+2)%5+1}))"></i><div class="main"><div class="t">${p.cap}</div><div class="rb"><i style="width:${p.reach/mx*100}%;background:var(--chart-${i%6+1})"></i></div></div><div class="meta"><b>${fmt(p.reach)}</b>${p.type}</div></div>`).join('');
+  $('#tagList').innerHTML=`<div class="list-h" style="cursor:default"><span>${TG.length} tags</span><button class="btn primary sm" style="height:22px">${ic('plus')}New tag</button></div>`+TG.map((n,i)=>`<div class="li"><span class="swatch" style="background:var(--chart-${i+1})"></span><div class="main"><div class="t">${n}</div></div><div class="meta"><b>${[9,5,8,4,6][i]}</b>posts</div><button class="btn ghost icon sm">${ic('edit')}</button><button class="btn ghost icon sm" style="color:var(--danger)">${ic('trash')}</button></div>`).join('');
+}
+lists();
+on('click',e=>{const g=e.target.closest('[data-grp]');if(g)g.parentElement.classList.toggle('closed')});
+
+})();
+</script>

@@ -1,0 +1,264 @@
+<link rel="stylesheet" href="/files/kit.css">
+<link rel="stylesheet" href="/files/charts.css">
+<style>
+.ui .app{position:relative;display:grid;grid-template-columns:216px 1fr;height:780px;border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;background:var(--background);transition:grid-template-columns .3s cubic-bezier(.3,1,.4,1)}
+.ui .app.mini{grid-template-columns:60px 1fr}
+.ui .side{background:var(--surface);border-right:1px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden}
+.ui .brand{display:flex;align-items:center;gap:10px;padding:2px 6px 12px;font-weight:600;font-size:15px;white-space:nowrap}
+.ui .logo{width:26px;height:26px;border-radius:9px;background:conic-gradient(from 210deg,var(--chart-1),var(--chart-5),var(--chart-4),var(--chart-1));position:relative;flex:none}.ui .logo::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--surface)}
+.ui .navw{position:relative;display:flex;flex-direction:column;gap:2px}
+.ui .ind{position:absolute;left:0;top:0;width:100%;height:32px;border-radius:var(--rs);background:var(--accent);z-index:0}
+.ui .nav{position:relative;z-index:1;display:flex;align-items:center;gap:10px;height:32px;padding:0 9px;border-radius:var(--rs);color:var(--muted-foreground);cursor:pointer;white-space:nowrap;font-weight:500;transition:color .15s;border:0;background:none;font:500 var(--fb) var(--font);text-align:left;width:100%}
+.ui .nav:hover{color:var(--foreground)}.ui .nav.on{color:var(--primary)}
+.ui .sg{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground);padding:14px 9px 4px;white-space:nowrap}
+.ui .pin{display:flex;align-items:center;gap:8px;height:30px;padding:0 6px;border-radius:var(--rs);cursor:pointer;color:var(--foreground);white-space:nowrap;font-size:var(--lb);border:0;background:none;font-family:var(--font);width:100%;text-align:left}
+.ui .pin:hover{background:var(--hover)}.ui .pin.on{background:var(--accent)}.ui .pin .dot{margin-left:auto;width:6px;height:6px;border-radius:50%;flex:none}
+.ui .app.mini .lab,.ui .app.mini .sg{display:none}.ui .app.mini .nav,.ui .app.mini .pin{justify-content:center;padding:0}.ui .app.mini .pin .dot{display:none}
+.ui .mainw{display:flex;flex-direction:column;min-width:0;min-height:0}
+.ui .top{height:50px;flex:none;display:flex;align-items:center;gap:10px;padding:0 var(--pg);border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface) 85%,transparent);backdrop-filter:blur(8px)}
+.ui .pmain{flex:1;overflow:auto;padding:var(--pg);min-height:0}
+.ui .pgh{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:var(--gp);flex-wrap:wrap}
+.ui .pgh .st{color:var(--muted-foreground);font-size:var(--lb);margin-top:2px}
+.ui .hero{position:relative;border-radius:var(--rm);overflow:hidden;border:1px solid var(--border);background:linear-gradient(135deg,var(--accent),var(--surface));margin-bottom:var(--gp);min-height:118px}
+.ui .hero canvas{position:absolute;inset:0;width:100%;height:100%}.ui .hero .ht{position:relative;padding:18px 20px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.ui .grid{display:grid;gap:var(--gp);margin-bottom:var(--gp)}.ui .g4{grid-template-columns:repeat(4,1fr)}.ui .g3{grid-template-columns:repeat(3,1fr)}.ui .g2{grid-template-columns:1fr 1fr}.ui .g21{grid-template-columns:2fr 1fr}.ui .g6{grid-template-columns:repeat(6,1fr)}.ui .g32{grid-template-columns:3fr 2fr}
+.ui .grp{display:flex;align-items:center;gap:8px;margin:18px 0 8px;font-size:var(--lb);text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground)}.ui .grp::after{content:"";flex:1;height:1px;background:var(--border)}
+.ui .acard{padding:var(--pc);cursor:pointer;transition:transform .2s cubic-bezier(.3,1.3,.5,1),border-color .2s,box-shadow .2s;position:relative;overflow:hidden}
+.ui .acard:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--primary) 55%,var(--border));box-shadow:0 10px 24px -10px color-mix(in srgb,var(--primary) 40%,transparent)}
+.ui .acard .big{font-size:var(--fv);font-weight:600;line-height:1.1}.ui .acard .mini3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
+.ui .acard .mini3 span{font-size:10px;color:var(--muted-foreground);display:block}.ui .acard .mini3 b{font-weight:500;font-size:var(--fb)}
+.ui .sdot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.ui .login{position:absolute;inset:0;display:grid;place-items:center;background:radial-gradient(1200px 500px at 20% -10%,var(--accent),transparent),var(--background);z-index:20}
+.ui .login canvas{position:absolute;inset:0;width:100%;height:100%}
+.ui .lcard{position:relative;width:340px;padding:24px;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:var(--rl);box-shadow:var(--shadow)}
+.ui .cal3{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-size:10px;text-align:center}.ui .cal3 span{height:34px;border-radius:calc(var(--rs)*.6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--muted-foreground);transition:background .12s}.ui .cal3 span:not(.w):hover{background:var(--hover)}.ui .cal3 .w{height:18px}.ui .cal3 .td{outline:1px solid var(--primary);color:var(--foreground)}.ui .cal3 u{display:flex;gap:2px;text-decoration:none}.ui .cal3 u i{width:5px;height:5px;border-radius:50%}
+.ui .story{position:relative;width:150px;flex:none;aspect-ratio:9/15;border-radius:var(--rm);overflow:hidden;color:#fff;font-size:11px;line-height:1.3;cursor:pointer;transition:transform .2s cubic-bezier(.3,1.3,.5,1)}.ui .story:hover{transform:translateY(-3px) scale(1.02)}
+.ui .story .o{position:absolute;inset:auto 0 0 0;padding:10px;background:linear-gradient(transparent,#000b)}.ui .story .rg{position:absolute;top:8px;right:8px}
+.ui .tcard{padding:12px;cursor:pointer;border:1.5px solid var(--border);border-radius:var(--rm);background:var(--surface);transition:all .2s;display:flex;flex-direction:column;gap:8px}.ui .tcard:hover{transform:translateY(-2px)}.ui .tcard.on{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 18%,transparent)}
+.ui .tcard .pv{height:44px;border-radius:calc(var(--rs)*.8);padding:6px;display:flex;gap:4px;align-items:flex-end}.ui .tcard .pv i{flex:1;border-radius:3px;display:block}
+.ui .swpick{display:flex;gap:8px}.ui .swpick button{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;outline:2px solid transparent;outline-offset:2px;transition:transform .15s}.ui .swpick button:hover{transform:scale(1.12)}.ui .swpick button.on{outline-color:var(--foreground)}
+.ui .okc{width:56px;height:56px;border-radius:50%;background:color-mix(in srgb,var(--success) 14%,var(--surface));color:var(--success);display:grid;place-items:center;margin:8px auto}.ui .okc svg{width:30px;height:30px;stroke-width:2.4}
+.ui .spin{animation:spin .8s linear infinite}
+@media(max-width:1100px){.ui .g4,.ui .g6{grid-template-columns:repeat(2,1fr)}.ui .g3,.ui .g2,.ui .g21,.ui .g32{grid-template-columns:1fr}}
+</style>
+
+<div class="ui" data-theme="ink" data-mode="l" data-d="dense">
+  <div class="app" id="app">
+    <div class="login" id="login"></div>
+    <aside class="side" id="side">
+      <div class="brand"><div class="logo"></div><span class="lab">in2sight</span></div>
+      <div class="navw" id="navw"><i class="ind" id="ind"></i><div id="nav"></div></div>
+      <div class="sg lab" id="sgl"></div><div id="pins"></div>
+      <span class="sp"></span>
+      <button class="nav" id="collapse"><i data-ic="left"></i><span class="lab" id="colL"></span></button>
+    </aside>
+    <section class="mainw"><header class="top" id="top"></header><main class="pmain" id="view"></main></section>
+  </div>
+  <div id="dlgs"></div>
+</div>
+
+<script src="/files/kit.js"></script>
+<script src="/files/charts.js"></script>
+<script>(function(){
+(window.__pl||[]).forEach(([t,f])=>document.removeEventListener(t,f));window.__pl=[];
+const on=(t,f)=>{window.__pl.push([t,f]);document.addEventListener(t,f)};
+
+window.__stop&&window.__stop();
+UI.init({i18n:{en:{},zh:{}}});
+const L=(e,z)=>UI.state.lang==='zh'?z:e,ic=UI.icon,$=s=>document.querySelector(s),qa=s=>[...document.querySelectorAll(s)],N=Charts.N,K=Charts.K;
+const ACC=[{id:0,u:'brandx.official',l:'B',g:'Brand X',f:12480,fd:3.2,r:184200,rd:11.8,v:412900,er:4.8,po:12,st:'ok',tok:54},{id:1,u:'brandx.shop',l:'S',g:'Brand X',f:5320,fd:1.1,r:61200,rd:-2.4,v:140300,er:3.9,po:9,st:'ok',tok:41},{id:2,u:'studio.two',l:'T',g:'Personal projects',f:8905,fd:5.6,r:97400,rd:18.2,v:221800,er:6.1,po:15,st:'wn',tok:6},{id:3,u:'old.account',l:'O',g:null,f:1620,fd:-0.8,r:8300,rd:-14.5,v:15200,er:2.2,po:3,st:'er',tok:0}];
+const STC={ok:'var(--success)',wn:'var(--warning)',er:'var(--danger)'},STL=s=>s==='ok'?L('Active','正常'):s==='wn'?L('Expiring','即将过期'):L('Reconnect','需重连');
+const gen=(seed,n,base,vol,tr)=>{let x=seed,o=[];for(let i=0;i<n;i++){x=(x*9301+49297)%233280;o.push(Math.max(0,base+tr*i+(x/233280-.5)*vol))}return o};
+const dl=(i,n)=>{const d=new Date(2026,9,13-(n-1-i));return UI.state.lang==='zh'?`${d.getMonth()+1}月${d.getDate()}日`:d.toLocaleDateString('en-US',{month:'short',day:'numeric'})};
+const dp=v=>`<span class="dpill ${v>=0?'up':'dn'}">${ic(v>=0?'aup':'adown',10)}${Math.abs(v)}%</span>`;
+const cur=()=>ACC.concat(S.extra).find(a=>a.id===S.acct)||ACC[0];
+const S={route:'login',acct:0,tab:'overview',stab:'general',scope:'group',range:'30d',extra:[],tags:[['Tips','var(--chart-1)',9,42100],['BTS','var(--chart-2)',5,21000],['Social proof','var(--chart-3)',4,8100],['Promo','var(--chart-4)',8,7200],['Lifestyle','var(--chart-5)',6,5200]]};
+{const h=(new URLSearchParams(location.search).get("r")||location.hash.slice(1)).split("/");if(h[0]){S.route=h[0];if(h[1]){S.tab=h[1];S.stab=h[1]}}}
+let cleanups=[];window.__stop=()=>cleanups.forEach(c=>c());
+const gs=()=>window.gsap;
+
+/* ================= motion helpers ================= */
+function particles(cv,o={}){const x=cv.getContext('2d');let w,h,P=[],mx=-999,my=-999,run=true,col,mu,fr=0,vis=true;
+  const init=()=>{const d=devicePixelRatio||1;w=cv.clientWidth;h=cv.clientHeight;cv.width=w*d;cv.height=h*d;x.setTransform(d,0,0,d,0,0);P=[...Array(Math.max(8,Math.round(w*h/(o.dens||12000))))].map(()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-.5)*.35,vy:(Math.random()-.5)*.35,r:Math.random()*1.2+.8}))};
+  const ro=new ResizeObserver(init);ro.observe(cv);const par=cv.parentElement;
+  const mv=e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top},lv=()=>{mx=my=-999};par.addEventListener('pointermove',mv);par.addEventListener('pointerleave',lv);
+  const io=new IntersectionObserver(e=>vis=e[0].isIntersecting);io.observe(cv);
+  (function f(){if(!run)return;requestAnimationFrame(f);if(!vis||document.hidden||!w)return;
+    if(fr++%20===0){const cs=getComputedStyle(cv);col=cs.getPropertyValue('--primary').trim()||'#4F46E5';mu=cs.getPropertyValue('--muted-foreground').trim()||'#888'}
+    x.clearRect(0,0,w,h);
+    P.forEach(p=>{p.x+=p.vx;p.y+=p.vy;const dx=p.x-mx,dy=p.y-my,d=Math.hypot(dx,dy);if(d<100){p.x+=dx/d*1.4;p.y+=dy/d*1.4}if(p.x<0||p.x>w)p.vx*=-1;if(p.y<0||p.y>h)p.vy*=-1;x.globalAlpha=.5;x.fillStyle=mu;x.beginPath();x.arc(p.x,p.y,p.r,0,6.3);x.fill()});
+    const L2=o.link||90;for(let i=0;i<P.length;i++)for(let j=i+1;j<P.length;j++){const d=Math.hypot(P[i].x-P[j].x,P[i].y-P[j].y);if(d<L2){x.globalAlpha=(1-d/L2)*.35;x.strokeStyle=col;x.beginPath();x.moveTo(P[i].x,P[i].y);x.lineTo(P[j].x,P[j].y);x.stroke()}}x.globalAlpha=1})();
+  cleanups.push(()=>{run=false;ro.disconnect();io.disconnect();par.removeEventListener('pointermove',mv);par.removeEventListener('pointerleave',lv)});}
+function countUp(root=document){qa('[data-count]').forEach(el=>{const v=+el.dataset.count,f=el.dataset.fmt,fm=n=>f==='k'?K(n):f==='p'?n.toFixed(1)+'%':N(n);if(!gs()){el.textContent=fm(v);return}const o={n:0};gs().to(o,{n:v,duration:1.1,ease:'power2.out',onUpdate:()=>el.textContent=fm(o.n)})})}
+function enter(root='#view'){if(!gs())return;gs().fromTo(`${root} .card,${root} .tbl-card,${root} .list,${root} .acard,${root} .pgh,${root} .hero,${root} .grp`,{y:14,opacity:0},{y:0,opacity:1,duration:.5,stagger:.035,ease:'power3.out',clearProps:'transform,opacity'})}
+function moveInd(){const t=$('#nav .nav.on');if(!t){gs()&&gs().to('#ind',{opacity:0,duration:.2});return}const y=t.offsetTop;gs()?gs().to('#ind',{y,opacity:1,duration:.4,ease:'power3.out'}):$('#ind').style.transform=`translateY(${y}px)`;}
+
+/* ================= shell ================= */
+const NAV=[['overview','dash',()=>L('Overview','总览')],['accounts','cam',()=>L('Accounts','账号')],['tags','tag',()=>L('Tags','标签')],['settings','sliders',()=>L('Settings','设置')]];
+function shell(){
+  $('#nav').innerHTML=NAV.map(([k,i,l])=>`<button class="nav ${S.route===k?'on':''}" data-go="${k}">${ic(i)}<span class="lab">${l()}</span></button>`).join('');
+  $('#sgl').textContent=L('Accounts','账号');
+  $('#pins').innerHTML=ACC.map(a=>`<button class="pin ${S.route==='account'&&S.acct===a.id?'on':''}" data-acct="${a.id}"><span class="avatar sm">${a.l}</span><span class="lab">@${a.u}</span><span class="dot" style="background:${STC[a.st]}"></span></button>`).join('');
+  $('#colL').textContent=L('Collapse','收起');
+  const gl={overview:L('Overview','总览'),accounts:L('Accounts','账号'),tags:L('Tags','标签'),settings:L('Settings','设置'),account:'@'+cur().u};
+  $('#top').innerHTML=`<div class="crumb">${S.route==='account'?`<span>${L('Accounts','账号')}</span>${ic('right',12)}`:''}<b>${gl[S.route]}</b></div><span class="sp"></span>
+   <div class="pop"><button class="btn secondary sm" data-menu>${ic('calendar')}<span id="rngL">${S.range==='7d'?L('Last 7 days','近 7 天'):S.range==='90d'?L('Last 90 days','近 90 天'):L('Last 30 days','近 30 天')}</span>${ic('down')}</button><div class="menu right">${['7d','30d','90d'].map(r=>`<div class="menu-item ${S.range===r?'sel':''}" data-range="${r}">${r==='7d'?L('Last 7 days','近 7 天'):r==='30d'?L('Last 30 days','近 30 天'):L('Last 90 days','近 90 天')}<i class="ck">${ic('check')}</i></div>`).join('')}</div></div>
+   <button class="btn secondary sm" id="syncB">${ic('refresh')}<span>${L('Sync','同步')}</span></button>
+   <button class="btn ghost icon sm" data-tip="${L('Toggle dark mode','切换深色模式')}" id="modeB">${ic('sun')}</button>
+   <div class="pop"><div class="avatar sm" data-menu style="cursor:pointer">Y</div><div class="menu right"><div class="menu-label">owner@example.com</div><div class="menu-item" data-go="settings">${ic('sliders')}${L('Settings','设置')}</div><div class="menu-sep"></div><div class="menu-item" data-go="login">${ic('x')}${L('Sign out','退出登录')}</div></div></div>`;
+  UI.hydrate($('#shell')||document);
+}
+
+/* ================= views ================= */
+const hdr=(t,s,a='')=>`<div class="pgh"><div><h1 class="h1">${t}</h1><div class="st">${s||''}</div></div><div class="row">${a}</div></div>`;
+const spark=(i)=>`<div id="sp${i}" style="margin-top:8px"></div>`;
+function acardHTML(a){return `<div class="card acard" data-acct="${a.id}"><div class="row" style="flex-wrap:nowrap;gap:10px"><div class="avatar ${a.st==='ok'?'ring':''}">${a.l}</div><div style="min-width:0"><b style="font-weight:500">@${a.u}</b><div class="small muted">${a.g?`<span class="chip a">${a.g}</span>`:L('Isolated','独立账号')}</div></div><span class="sp"></span><span class="chip ${a.st}"><span class="dot"></span>${STL(a.st)}</span></div>
+ <div class="row" style="margin-top:12px;justify-content:space-between;align-items:flex-end"><div><div class="small muted">${L('Followers','粉丝')}</div><div class="big" data-count="${a.f}">0</div></div>${dp(a.fd)}</div>${spark('a'+a.id)}
+ <div class="mini3"><div><span>${L('Reach','触达')}</span><b>${K(a.r)}</b></div><div><span>${L('Engagement','互动率')}</span><b>${a.er}%</b></div><div><span>${L('Posts','帖子')}</span><b>${a.po}</b></div></div></div>`}
+function vOverview(){
+  const list=ACC.concat(S.extra),grp=[...new Set(list.filter(a=>a.g).map(a=>a.g))];
+  const tot=k=>list.reduce((s,a)=>s+a[k],0);
+  return `<div class="hero"><canvas id="hc"></canvas><div class="ht"><div class="small muted">${L('Tuesday, Oct 13, 2026','2026年10月13日 星期二')}</div><h1 class="h1" style="font-size:22px">${L('Welcome back','欢迎回来')}</h1><div class="row"><span class="chip ok"><span class="dot"></span>${L('3 of 4 accounts syncing','4 个账号中 3 个正常同步')}</span><span class="chip">${L('Synced 3 hours ago','3 小时前同步')}</span><span class="chip wn"><span class="dot"></span>${L('1 token expiring','1 个令牌即将过期')}</span></div></div></div>
+  <div class="grid g4">${[[L('Total followers','总粉丝'),tot('f'),'',3.1,'line',1],[L('Total reach','总触达'),tot('r'),'k',9.4,'area',2],[L('Total views','总播放'),tot('v'),'k',7.2,'area',3],[L('Avg engagement','平均互动率'),list.reduce((s,a)=>s+a.er,0)/list.length,'p',0.3,'bar',4]].map((x,i)=>`<div class="card acard" style="cursor:default"><div class="small muted">${x[0]}</div><div class="big" data-count="${x[1]}" data-fmt="${x[2]}">0</div><div class="row" style="margin-top:4px">${dp(x[3])}<span class="small muted">${L('vs previous 30d','对比前 30 天')}</span></div>${spark('k'+i)}</div>`).join('')}</div>
+  ${grp.map(g=>`<div class="grp">${g} · ${list.filter(a=>a.g===g).length}</div><div class="grid g3">${list.filter(a=>a.g===g).map(acardHTML).join('')}</div>`).join('')}
+  <div class="grp">${L('Isolated accounts','独立账号')} · ${list.filter(a=>!a.g).length}</div><div class="grid g3">${list.filter(a=>!a.g).map(acardHTML).join('')}</div>
+  <div class="grid g32"><div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Reach by account','各账号触达')}</div><div class="st">${L('Scoped to a group by default — widen to compare everything','默认按分组对比,可扩大到全部账号')}</div></div><div class="seg" id="scopeSeg"><button class="${S.scope==='group'?'on':''}" data-scope="group">Brand X</button><button class="${S.scope==='all'?'on':''}" data-scope="all">${L('All accounts','全部账号')}</button></div></div><div id="cmpChart"></div></div></div>
+   <div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Needs attention','需要关注')}</div><div class="st">${L('Flags from the last 7 days','近 7 天的提醒')}</div></div></div><div class="list" style="border:0;border-radius:0;margin:0 -12px -12px">
+     <div class="li"><span class="chip ok" style="height:24px;width:24px;justify-content:center;padding:0">${ic('aup',12)}</span><div class="main"><div class="t">${L('“5 tips to grow your reach” is 2.3× median','“5 tips to grow your reach” 达到中位数的 2.3 倍')}</div><div class="s">@brandx.official · 2h</div></div></div>
+     <div class="li"><span class="chip er" style="height:24px;width:24px;justify-content:center;padding:0">${ic('adown',12)}</span><div class="main"><div class="t">${L('Reach down 18% vs previous 7 days','触达较前 7 天下降 18%')}</div><div class="s">@brandx.shop</div></div></div>
+     <div class="li"><span class="chip wn" style="height:24px;width:24px;justify-content:center;padding:0">${ic('clock',12)}</span><div class="main"><div class="t">${L('Token expires in 6 days','令牌 6 天后过期')}</div><div class="s">@studio.two</div></div><button class="btn secondary sm" data-open="dlgConn">${L('Reconnect','重新连接')}</button></div>
+     <div class="li"><span class="chip er" style="height:24px;width:24px;justify-content:center;padding:0">${ic('alert',12)}</span><div class="main"><div class="t">${L('Sync failing — token revoked','同步失败 — 令牌已撤销')}</div><div class="s">@old.account</div></div><button class="btn secondary sm" data-open="dlgConn">${L('Reconnect','重新连接')}</button></div></div></div></div></div>`}
+function mOverview(){
+  const list=ACC.concat(S.extra);
+  list.forEach(a=>{const e=$('#spa'+a.id);if(e)Charts.spark(e,{data:gen(a.id*9+3,24,20,10,a.fd>=0?.35:-.2),type:'area',color:a.fd<0?'var(--danger)':'var(--chart-1)',h:34})});
+  [0,1,2,3].forEach(i=>{const e=$('#spk'+i);if(e)Charts.spark(e,{data:gen(i*7+1,i===3?14:24,20,10,.3),type:['line','area','area','bar'][i],color:`var(--chart-${i+1})`,h:34})});
+  const lab=[...Array(30)].map((_,i)=>dl(i,30)),pool=S.scope==='group'?ACC.filter(a=>a.g==='Brand X'):ACC;
+  Charts.line($('#cmpChart'),{h:200,labels:lab,legend:true,series:pool.map((a,i)=>({name:'@'+a.u,data:gen(a.id*5+2,30,a.r/30,a.r/60,a.r/900),color:`var(--chart-${a.id+1})`}))});
+  const hc=$('#hc');if(hc)particles(hc,{dens:9000,link:100});
+}
+function vAccounts(){
+  const list=ACC.concat(S.extra);
+  return hdr(L('Accounts','账号'),L('Connect, group and monitor your Instagram accounts','连接、分组并监控你的 Instagram 账号'),`<button class="btn primary" data-open="dlgConn">${ic('plus')}${L('Add account','添加账号')}</button>`)+
+  `<div class="grid g32"><div class="tbl-card"><div class="tbl-scroll" style="max-height:none"><table class="tbl"><thead><tr><th>${L('Account','账号')}</th><th>${L('Group','分组')}</th><th>${L('Token','令牌')}</th><th>${L('Last sync','上次同步')}</th><th>${L('Status','状态')}</th><th class="act"></th></tr></thead><tbody>`+
+  list.map(a=>`<tr><td><div class="row" style="flex-wrap:nowrap;gap:8px;cursor:pointer" data-acct="${a.id}"><div class="avatar sm">${a.l}</div><div><b style="font-weight:500">@${a.u}</b><div class="small muted">${a.tp||'Creator'}</div></div></div></td><td>${a.g?`<span class="chip a">${a.g}</span>`:'<span class="muted">—</span>'}</td><td style="width:140px"><div class="progress"><i style="width:${Math.min(100,a.tok/60*100)}%;background:${STC[a.st]}"></i></div><div class="small muted" style="margin-top:3px">${a.tok?a.tok+' '+L('days left','天后过期'):L('Expired','已过期')}</div></td><td class="muted">${a.st==='er'?L('3 days ago','3 天前'):L('3h ago','3 小时前')}</td><td><span class="chip ${a.st}"><span class="dot"></span>${STL(a.st)}</span></td><td class="act">${a.st==='ok'?`<div class="pop"><button class="btn ghost icon sm" data-menu>${ic('more')}</button><div class="menu right"><div class="menu-item" data-acct="${a.id}">${ic('eye')}${L('Open','打开')}</div><div class="menu-item">${ic('edit')}${L('Edit group','修改分组')}</div><div class="menu-sep"></div><div class="menu-item danger" data-toast="ok|${L('Removed','已移除')}|@${a.u}">${ic('trash')}${L('Remove','移除')}</div></div></div>`:`<button class="btn secondary sm" data-open="dlgConn">${L('Reconnect','重新连接')}</button>`}</td></tr>`).join('')+`</tbody></table></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Groups','分组')}</div><div class="st">${L('Optional — leave an account ungrouped to keep it isolated','可选 — 不分组即为独立账号')}</div></div><button class="btn ghost icon sm" data-toast="in|${L('New group','新建分组')}|${L('Type a name to create it.','输入名称即可创建。')}">${ic('plus')}</button></div>
+   <div class="list" style="margin:0 -12px -12px;border:0;border-radius:0">${[['Brand X',list.filter(a=>a.g==='Brand X').length],['Personal projects',list.filter(a=>a.g==='Personal projects').length],[L('Isolated','独立账号'),list.filter(a=>!a.g).length]].map(([n,c],i)=>`<div class="li"><span class="swatch" style="background:var(--chart-${i+1})"></span><div class="main"><div class="t">${n}</div></div><div class="meta"><b>${c}</b>${L('accounts','个账号')}</div></div>`).join('')}</div></div></div></div>`}
+function vAccount(){
+  const a=cur(),tabs=[['overview',L('Overview','概览')],['posts',L('Posts','帖子')+' <span class="n">128</span>'],['stories',L('Stories','快拍')+' <span class="n">4</span>'],['audience',L('Audience','受众')]];
+  return `<div class="pgh"><div class="row" style="flex-wrap:nowrap;gap:12px"><div class="avatar ring" style="width:44px;height:44px;font-size:16px">${a.l}</div><div><h1 class="h1">@${a.u}</h1><div class="row" style="margin-top:4px"><span class="chip">Creator</span>${a.g?`<span class="chip a">${a.g}</span>`:`<span class="chip">${L('Isolated','独立账号')}</span>`}<span class="chip ${a.st}"><span class="dot"></span>${STL(a.st)}</span><span class="small muted">${L('Synced 3h ago','3 小时前同步')}</span></div></div></div><div class="row"><button class="btn secondary sm">${ic('eye')}${L('Open on Instagram','在 Instagram 打开')}</button><button class="btn secondary sm" id="syncB2">${ic('refresh')}${L('Sync now','立即同步')}</button></div></div>
+  <div class="tabs" style="margin-bottom:var(--gp)">${tabs.map(([k,l])=>`<button class="tab ${S.tab===k?'on':''}" data-tab="${k}">${l}</button>`).join('')}</div><div id="tabBody">${vTab()}</div>`}
+const POSTS=[['5 tips to grow your reach','Reel','Tips',48210,1204,892,6.8,'Oct 11'],['Behind the scenes at the studio','Reel','BTS',21087,318,240,4.9,'Oct 9'],['Weekend promo — 20% off','Carousel','Promo',9455,77,41,2.1,'Oct 7'],['Customer story: Mei','Image','Social proof',8120,204,66,5.2,'Oct 5'],['How we pick suppliers','Carousel','Tips',7733,390,171,5.9,'Oct 3'],['Monday motivation','Image','Lifestyle',5210,52,18,3.0,'Oct 1'],['New arrivals 新品','Reel','Promo',4986,61,35,2.6,'Sep 29'],['FAQ: shipping','Carousel','Tips',4102,148,59,4.4,'Sep 27']];
+function vTab(){const a=cur();
+  if(S.tab==='overview')return `<div class="grid g6">${[[L('Followers','粉丝'),N(a.f),a.fd],[L('Reach','触达'),K(a.r),a.rd],[L('Views','播放'),K(a.v),8.1],[L('Profile visits','主页访问'),'6,204',-2.4],[L('Link taps','链接点击'),'932',5],[L('Engagement','互动率'),a.er+'%',.4]].map((x,i)=>`<div class="card acard" style="cursor:default"><div class="small muted">${x[0]}</div><div class="big">${x[1]}</div>${dp(x[2])}<div id="tk${i}" style="margin-top:6px"></div></div>`).join('')}</div>
+  <div class="grid g32"><div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Reach & views','触达与播放')}</div><div class="st">${L('vs previous period','对比上一周期')}</div></div></div><div id="aMain"></div></div></div>
+   <div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Flags','提醒')}</div></div></div><div class="list" style="margin:0 -12px -12px;border:0;border-radius:0"><div class="li"><span class="chip ok" style="height:24px;width:24px;justify-content:center;padding:0">${ic('aup',12)}</span><div class="main"><div class="t">${L('“5 tips…” is 2.3× your median','“5 tips…” 是你中位数的 2.3 倍')}</div><div class="s"><span class="chip a">Tips</span></div></div></div><div class="li"><span class="chip er" style="height:24px;width:24px;justify-content:center;padding:0">${ic('adown',12)}</span><div class="main"><div class="t">${L('Reach down 18% vs previous 7d','触达较前 7 天下降 18%')}</div></div></div><div class="li"><span class="chip wn" style="height:24px;width:24px;justify-content:center;padding:0">${ic('flag',12)}</span><div class="main"><div class="t">${L('Story “Q&A” exit rate 34%','快拍“Q&A”退出率 34%')}</div></div></div></div></div></div></div>
+  <div class="grid g3"><div class="card"><div class="card-b"><div class="ch"><div class="tt">${L('Best time to post','最佳发布时间')}</div></div><div id="aHeat"></div></div></div>
+   <div class="card"><div class="card-b"><div class="ch"><div class="tt">${L('By tag','按标签')}</div><div class="st">${L('avg reach','平均触达')}</div></div><div id="aTag"></div></div></div>
+   <div class="card"><div class="card-b"><div class="ch"><div class="tt">${L('Calendar','日历')}</div><div class="st">${L('October','10月')}</div></div><div class="cal3" id="aCal"></div></div></div></div>`;
+  if(S.tab==='posts')return `<div class="tbl-card"><div class="tbl-bar"><div class="group"><i data-ic="search"></i><input class="input" placeholder="${L('Search posts…','搜索帖子…')}"></div><div class="seg"><button class="on">${L('All','全部')}</button><button>Reel</button><button>Carousel</button><button>Image</button></div></div><div class="tbl-scroll" style="max-height:none"><table class="tbl"><thead><tr><th></th><th>${L('Caption','文案')}</th><th>${L('Type','类型')}</th><th>${L('Tags','标签')}</th><th class="num">${L('Reach','触达')}</th><th class="num">${L('Saves','收藏')}</th><th class="num">${L('Shares','分享')}</th><th class="num">ER</th><th>${L('Posted','发布')}</th><th class="act"></th></tr></thead><tbody>${POSTS.map((p,i)=>`<tr><td><i class="thumb" style="background:linear-gradient(135deg,var(--chart-${i%5+1}),var(--chart-${(i+2)%5+1}))"></i></td><td class="cap">${p[0]}</td><td><span class="chip">${p[1]}</span></td><td><span class="chip a" data-open="dlgTags" style="cursor:pointer">${p[2]}</span></td><td class="num">${N(p[3])}</td><td class="num">${N(p[4])}</td><td class="num">${p[5]}</td><td class="num">${p[6]}%</td><td class="muted">${p[7]}</td><td class="act"><button class="btn ghost icon sm" data-open="dlgTags" data-tip="${L('Edit tags','编辑标签')}">${ic('tag')}</button></td></tr>`).join('')}</tbody></table></div></div>`;
+  if(S.tab==='stories')return `<div class="alert info" style="margin-bottom:var(--gp)">${ic('clock',18)}<div><b>${L('Captured every 3 hours while live','快拍存活期间每 3 小时抓取一次')}</b><span>${L('Instagram only exposes Story insights for 24 hours, so we keep the last snapshot before expiry.','Instagram 仅在 24 小时内提供快拍数据,因此我们保留过期前的最后一次快照。')}</span></div></div>
+  <div class="grid g32"><div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Live now','正在展示')}</div><div class="st">${L('4 Stories · time left shown in the ring','4 条快拍 · 圆环显示剩余时间')}</div></div></div><div class="row" style="gap:var(--gp);flex-wrap:wrap;align-items:flex-start">${[['Q&A',3,'12.4K','34%'],['Poll',9,'9.8K','12%'],['New drop',15,'8.1K','21%'],['Studio',21,'6.0K','18%']].map((s,i)=>`<div class="story" style="background:linear-gradient(160deg,var(--chart-${i+1}),var(--chart-${(i+3)%6+1}))"><svg class="rg ic" viewBox="0 0 28 28" style="width:28px;height:28px"><circle cx="14" cy="14" r="11" fill="#0005" stroke="#fff4" stroke-width="2.5"/><circle class="rr" cx="14" cy="14" r="11" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="69.1" stroke-dashoffset="${69.1*(1-(24-s[1])/24)}" transform="rotate(-90 14 14)"/></svg><div class="o"><b>${s[0]}</b><br>${L('Reach','触达')} ${s[2]} · ${L('exit','退出')} ${s[3]}<br><span style="opacity:.8">${s[1]}h ${L('left','剩余')}</span></div></div>`).join('')}</div></div></div><div class="card"><div class="card-b"><div class="ch"><div class="tt">${L('Navigation','导航行为')}</div><div class="st">${L('taps forward / back / exits','前进 / 返回 / 退出')}</div></div><div id="stNav"></div></div></div></div>
+  <div class="card"><div class="card-b"><div class="ch"><div class="tt">${L('Story reach — last 14 days','快拍触达 — 近 14 天')}</div></div><div id="stChart"></div></div></div>`;
+  return `<div class="grid g32"><div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Where your audience is','受众分布')}</div><div class="st">${L('Drag to rotate','拖动旋转')}</div></div></div><div id="globe" style="height:340px;cursor:grab;position:relative"></div></div></div>
+   <div class="col" style="gap:var(--gp)"><div class="card"><div class="card-b"><div class="ch"><div class="tt">${L('Age','年龄')}</div></div><div id="aAge"></div></div></div><div class="card"><div class="card-b"><div class="ch"><div class="tt">${L('Gender','性别')}</div></div><div id="aGen"></div></div></div></div></div>`}
+function mTab(){const a=cur();
+  if(S.tab==='overview'){[...Array(6)].forEach((_,i)=>{const e=$('#tk'+i);if(e)Charts.spark(e,{data:gen(i*11+a.id,24,20,10,i===3?-.2:.35),type:['line','area','area','bar','bar','line'][i],color:i===3?'var(--danger)':`var(--chart-${i+1})`,h:30})});
+    const lab=[...Array(30)].map((_,i)=>dl(i,30));Charts.line($('#aMain'),{h:200,labels:lab,legend:true,area:true,series:[{name:L('Reach','触达'),data:gen(3+a.id,30,6200,3000,45)},{name:L('Views','播放'),data:gen(8+a.id,30,13500,6000,90)},{name:L('Previous','上期'),data:gen(31,30,5200,2500,20),dashed:true,color:'var(--muted-foreground)'}]});
+    const days=[0,1,2,3,4,5,6].map(i=>[L('Mon','一'),L('Tue','二'),L('Wed','三'),L('Thu','四'),L('Fri','五'),L('Sat','六'),L('Sun','日')][i]),hrs=[...Array(24)].map((_,h)=>h);
+    Charts.heat($('#aHeat'),{rows:days,cols:hrs,lo:L('Low','低'),hi:L('High','高'),metric:'ER',data:days.map((_,r)=>hrs.map(h=>Math.max(.4,2.2+4*Math.exp(-((h-(r>4?11:19.5))**2)/10)+(((r*31+h*17)%7)/7)*.9)))});
+    Charts.hbars($('#aTag'),{fmt:v=>K(v),rows:S.tags.slice().sort((x,y)=>y[3]-x[3]).slice(0,5).map(t=>({label:t[0],value:t[3],color:t[1]}))});
+    const pd={1:[1],3:[2],5:[3],7:[2],9:[1],11:[1],13:[],15:[2],17:[1,3],20:[1],22:[2],24:[1],27:[3],29:[1]};let h=[L('M','一'),L('T','二'),L('W','三'),L('T','四'),L('F','五'),L('S','六'),L('S','日')].map(d=>`<span class="w">${d}</span>`).join('')+'<span></span><span></span><span></span>';
+    for(let d=1;d<=31;d++)h+=`<span class="${d===13?'td':''}">${d}<u>${(pd[d]||[]).map(t=>`<i style="background:var(--chart-${t})"></i>`).join('')}</u></span>`;$('#aCal').innerHTML=h}
+  if(S.tab==='stories'){Charts.bars($('#stChart'),{h:170,labels:[...Array(14)].map((_,i)=>dl(i,14)),series:[{name:L('Reach','触达'),data:gen(4,14,6500,3500,100).map(Math.round)}]});
+    Charts.hbars($('#stNav'),{max:100,fmt:v=>v+'%',rows:[{label:L('Forward','前进'),value:62,color:'var(--chart-3)'},{label:L('Back','返回'),value:14,color:'var(--chart-2)'},{label:L('Next story','下个快拍'),value:8,color:'var(--chart-4)'},{label:L('Exit','退出'),value:16,color:'var(--chart-5)'}]})}
+  if(S.tab==='audience'){Charts.hbars($('#aAge'),{max:50,fmt:v=>v+'%',rows:[['13–17',4],['18–24',31],['25–34',38],['35–44',17],['45+',10]].map(([l,v])=>({label:l,value:v}))});
+    Charts.donut($('#aGen'),{center:{v:'58%',l:L('women','女性')},parts:[{name:L('Women','女性'),value:58},{name:L('Men','男性'),value:40},{name:L('Other','其他'),value:2}]});
+    globeLoad()}
+}
+function vTags(){return hdr(L('Tags','标签'),L('Label posts with content pillars to see what works','为帖子打上内容标签,看看哪类内容有效'),`<button class="btn primary" data-open="dlgTag">${ic('plus')}${L('New tag','新建标签')}</button>`)+
+ `<div class="grid g2"><div class="list">${S.tags.map(t=>`<div class="li"><span class="swatch" style="background:${t[1]}"></span><div class="main"><div class="t">${t[0]}</div><div class="s">${L('avg reach','平均触达')} ${t[3]?K(t[3]):'—'}</div></div><div class="meta"><b>${t[2]}</b>${L('posts','帖子')}</div><button class="btn ghost icon sm">${ic('edit')}</button><button class="btn ghost icon sm" style="color:var(--danger)" data-del="${S.tags.indexOf(t)}">${ic('trash')}</button></div>`).join('')}</div>
+ <div class="card"><div class="card-b"><div class="ch"><div><div class="tt">${L('Average reach by tag','各标签平均触达')}</div><div class="st">${L('across all accounts','所有账号')}</div></div></div><div id="tagBars"></div></div></div></div>`}
+function mTags(){Charts.hbars($('#tagBars'),{fmt:v=>K(v),rows:S.tags.slice().sort((x,y)=>y[3]-x[3]).map(t=>({label:t[0],value:t[3],color:t[1]}))})}
+function vSettings(){const tb=[['general',L('General','常规')],['sync',L('Sync','同步')],['account',L('Account','账户')]];
+  const TC={ink:['#F8FAFC','#4F46E5','#0EA5E9','#10B981'],sunset:['#FFF8F5','#D6245F','#F97316','#EAB308'],forest:['#F6F8F5','#15803D','#0891B2','#CA8A04'],mono:['#FAFAFA','#18181B','#2563EB','#F97316']};
+  const body=S.stab==='general'?`<div class="card"><div class="card-b col" style="gap:14px"><div class="h3">${L('Appearance','外观')}</div><div class="grid g4" style="margin:0">${Object.entries(TC).map(([k,c])=>`<div class="tcard ${UI.state.theme===k?'on':''}" data-theme="${k}"><div class="pv" style="background:${c[0]}"><i style="background:${c[1]};height:55%"></i><i style="background:${c[2]};height:90%"></i><i style="background:${c[3]};height:40%"></i></div><b style="font-weight:500;text-transform:capitalize">${k}</b></div>`).join('')}</div>
+    <div class="g3c"><div class="field"><label>${L('Mode','模式')}</label><div class="seg" style="align-self:flex-start"><button data-mm="l" class="${UI.state.mode==='l'?'on':''}">${L('Light','浅色')}</button><button data-mm="d" class="${UI.state.mode==='d'?'on':''}">${L('Dark','深色')}</button></div></div>
+    <div class="field"><label>${L('Density','密度')}</label><div class="seg" style="align-self:flex-start"><button data-dd="dense" class="${UI.state.d==='dense'?'on':''}">${L('Dense','紧凑')}</button><button data-dd="comfy" class="${UI.state.d==='comfy'?'on':''}">${L('Comfortable','舒适')}</button></div></div>
+    <div class="field"><label>${L('Corners','圆角')}</label><div class="seg" style="align-self:flex-start"><button data-rr="sharp" class="${UI.state.rad==='sharp'?'on':''}">${L('Sharp','直角')}</button><button data-rr="soft" class="${UI.state.rad==='soft'?'on':''}">${L('Soft','柔和')}</button><button data-rr="round" class="${UI.state.rad==='round'?'on':''}">${L('Round','圆润')}</button></div></div></div>
+    <div class="g2c"><div class="field"><label>${L('Language','语言')}</label><div class="seg" style="align-self:flex-start"><button data-ll="en" class="${UI.state.lang==='en'?'on':''}">English</button><button data-ll="zh" class="${UI.state.lang==='zh'?'on':''}">简体中文</button></div></div><div class="field"><label>${L('Timezone','时区')}</label><div class="select"><span class="v">Asia/Kuala_Lumpur (UTC+8)</span>${ic('down')}</div><div class="hint">${L('Used for daily boundaries and best-time charts.','用于每日统计边界和最佳时间图表。')}</div></div></div></div></div>`
+  :S.stab==='sync'?`<div class="tbl-card"><table class="tbl"><thead><tr><th>${L('Job','任务')}</th><th>${L('Schedule','计划')}</th><th>${L('Last run','上次运行')}</th><th>${L('Result','结果')}</th><th class="act"></th></tr></thead><tbody>${[[L('Daily insights','每日洞察'),L('Every day 02:00','每天 02:00'),L('Today 02:00','今天 02:00'),'ok'],[L('Stories capture','快拍抓取'),L('Every 3 hours','每 3 小时'),L('2h ago','2 小时前'),'ok'],[L('Token refresh','令牌刷新'),L('Weekly, Sun','每周日'),L('Oct 11','10月11日'),'wn']].map(r=>`<tr><td><b style="font-weight:500">${r[0]}</b></td><td class="muted">${r[1]}</td><td>${r[2]}</td><td><span class="chip ${r[3]}"><span class="dot"></span>${r[3]==='ok'?L('Success','成功'):L('1 expiring','1 个将过期')}</span></td><td class="act"><button class="btn secondary sm" data-toast="in|${L('Running…','运行中…')}|${r[0]}">${L('Run now','立即运行')}</button></td></tr>`).join('')}</tbody></table></div>`
+  :`<div class="card" style="max-width:520px"><div class="card-b col" style="gap:12px"><div class="field"><label>Email</label><input class="input" value="owner@example.com" disabled></div><div class="field"><label>${L('New password','新密码')}</label><input class="input" type="password" placeholder="••••••••"></div><div class="row" style="justify-content:space-between;border-top:1px solid var(--border);padding-top:12px"><button class="btn danger" data-go="login">${L('Sign out','退出登录')}</button><button class="btn primary" data-toast="ok|${L('Saved','已保存')}|${L('Password updated.','密码已更新。')}">${L('Save changes','保存更改')}</button></div></div></div>`;
+  return hdr(L('Settings','设置'),L('Appearance, sync schedule and account','外观、同步计划与账户'))+`<div class="tabs" style="margin-bottom:var(--gp)">${tb.map(([k,l])=>`<button class="tab ${S.stab===k?'on':''}" data-stab="${k}">${l}</button>`).join('')}</div>`+body}
+function vLogin(){const r=$('#login');r.innerHTML=`<canvas id="lc"></canvas><div class="lcard" id="lcard"><div class="row" style="gap:10px;margin-bottom:18px"><div class="logo"></div><b style="font-size:17px">in2sight</b></div><h1 class="h1" style="font-size:20px;margin-bottom:2px">${L('Sign in','登录')}</h1><div class="small muted" style="margin-bottom:16px">${L('Your Instagram insights, in one place.','你的 Instagram 数据洞察,集中在一处。')}</div><div class="col" style="gap:12px"><div class="field"><label>Email</label><input class="input" value="owner@example.com"></div><div class="field"><label>${L('Password','密码')}</label><input class="input" type="password" value="password"></div><button class="btn primary" id="loginB" style="height:calc(var(--ctl) + 4px);margin-top:4px">${L('Sign in','登录')}</button></div></div>`;
+  const cv=$('#lc');particles(cv,{dens:8000,link:110});if(gs())gs().from('#lcard',{y:28,opacity:0,scale:.97,duration:.8,ease:'power3.out'})}
+function dialogs(){$('#dlgs').innerHTML=`
+ <div class="overlay" id="dlgConn"><div class="dialog"><div class="dh"><h3 class="h3" style="font-size:16px" id="cnT">${L('Add account','添加账号')}</h3></div><div class="db col" id="cnB" style="gap:12px"></div><div class="df" id="cnF"></div></div></div>
+ <div class="overlay" id="dlgTag"><div class="dialog"><div class="dh"><h3 class="h3" style="font-size:16px">${L('New tag','新建标签')}</h3></div><div class="db col" style="gap:12px"><div class="field"><label class="req">${L('Tag name','标签名称')}</label><input class="input" id="tagName" placeholder="${L('e.g. Tutorials','例如:教程')}"></div><div class="field"><label>${L('Color','颜色')}</label><div class="swpick" id="swp">${[1,2,3,4,5,6].map(i=>`<button data-c="${i}" class="${i===1?'on':''}" style="background:var(--chart-${i})"></button>`).join('')}</div></div></div><div class="df"><button class="btn secondary" data-close>${L('Cancel','取消')}</button><button class="btn primary" id="tagSave">${L('Create tag','创建标签')}</button></div></div></div>
+ <div class="overlay" id="dlgTags"><div class="dialog"><div class="dh"><h3 class="h3" style="font-size:16px">${L('Edit tags','编辑标签')}</h3><div class="small muted">5 tips to grow your reach</div></div><div class="db col" style="gap:10px">${S.tags.map((t,i)=>`<label class="check"><input type="checkbox" ${i===0?'checked':''}><span class="box">${ic('check')}</span><span class="swatch" style="background:${t[1]}"></span>${t[0]}</label>`).join('')}</div><div class="df"><button class="btn secondary" data-close>${L('Cancel','取消')}</button><button class="btn primary" data-close data-toast="ok|${L('Tags updated','标签已更新')}|">${L('Save','保存')}</button></div></div></div>`;
+  connStep(1)}
+function connStep(n){const b=$('#cnB'),f=$('#cnF');if(!b)return;
+  if(n===1){b.innerHTML=`<span class="muted">${L('Log in to the Instagram account you want to add. It must be a Creator or Business account.','请登录你要添加的 Instagram 账号。必须是创作者或商业账号。')}</span><div class="field"><label>${L('Group (optional)','分组(可选)')}</label><div class="pop block"><div class="select" data-menu><span class="v">${L('None (isolated)','无(独立账号)')}</span>${ic('down')}</div><div class="menu"><div class="menu-item sel" data-label="${L('None (isolated)','无(独立账号)')}">${L('None (isolated)','无(独立账号)')}<i class="ck">${ic('check')}</i></div><div class="menu-item" data-label="Brand X">Brand X<i class="ck">${ic('check')}</i></div><div class="menu-item" data-label="Personal projects">Personal projects<i class="ck">${ic('check')}</i></div></div></div></div><div class="alert info">${ic('lock',16)}<div><span>${L('Read-only access to insights. Revoke any time in Instagram settings.','仅有读取洞察的权限,可随时在 Instagram 设置中撤销。')}</span></div></div>`;
+    f.innerHTML=`<button class="btn secondary" data-close>${L('Cancel','取消')}</button><button class="btn primary" id="cnGo">${ic('cam')}${L('Continue with Instagram','使用 Instagram 继续')}</button>`;UI.hydrate(b)}
+  if(n===2){b.innerHTML=`<div class="empty"><div class="ico">${ic('cam',20)}</div><b style="font-weight:500">${L('Waiting for Instagram…','等待 Instagram 授权…')}</b><span class="small muted">${L('Approve access in the Instagram window.','请在 Instagram 窗口中批准访问。')}</span><div class="progress" style="width:200px;margin-top:8px"><i id="cnP" style="width:0"></i></div></div>`;f.innerHTML='';
+    if(gs())gs().to('#cnP',{width:'100%',duration:1.6,ease:'power1.inOut',onComplete:()=>connStep(3)});else setTimeout(()=>connStep(3),1200)}
+  if(n===3){b.innerHTML=`<div class="empty"><div class="okc">${ic('check')}</div><b style="font-weight:500">@newaccount.demo ${L('connected','已连接')}</b><span class="small muted">${L('First sync is running. History starts building from today.','正在进行首次同步,历史数据从今天起开始积累。')}</span></div>`;f.innerHTML=`<button class="btn primary" id="cnDone">${L('Done','完成')}</button>`;
+    if(gs()){gs().from('.okc',{scale:0,duration:.6,ease:'back.out(2.4)'});const p=$('.okc svg path');if(p){const l=p.getTotalLength();gs().fromTo(p,{strokeDasharray:l,strokeDashoffset:l},{strokeDashoffset:0,duration:.6,delay:.25,ease:'power2.out'})}}}}
+
+/* globe (Three.js, lazy) */
+function globeLoad(){const el=$('#globe');if(!el)return;const go=()=>{if(!$('#globe'))return;const T=window.THREE,cs=getComputedStyle(el);
+  const sc=new T.Scene(),cam=new T.PerspectiveCamera(40,1,.1,10);cam.position.z=3.1;const rn=new T.WebGLRenderer({alpha:true,antialias:true});rn.setPixelRatio(Math.min(devicePixelRatio,2));el.appendChild(rn.domElement);rn.domElement.style.cssText='width:100%;height:100%;display:block';
+  const grp=new T.Group();sc.add(grp);const sph=new T.Mesh(new T.SphereGeometry(.99,48,32),new T.MeshBasicMaterial({color:cs.getPropertyValue('--surface').trim()}));grp.add(sph);
+  const n=1500,pos=new Float32Array(n*3);for(let i=0;i<n;i++){const y=1-2*(i+.5)/n,r=Math.sqrt(1-y*y),a=i*2.399963;pos.set([Math.cos(a)*r,y,Math.sin(a)*r],i*3)}const g=new T.BufferGeometry();g.setAttribute('position',new T.BufferAttribute(pos,3));
+  const pts=new T.Points(g,new T.PointsMaterial({size:.018,transparent:true,opacity:.7,color:cs.getPropertyValue('--muted-foreground').trim()}));grp.add(pts);
+  const ll=(la,lo,r=1.01)=>{const p=(90-la)*Math.PI/180,t=(lo+180)*Math.PI/180;return new T.Vector3(-r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t))};
+  const marks=[[4,102,.05],[1.3,103.8,.035],[-6,106,.04],[37,-95,.03],[52,-1,.028],[-25,133,.028],[35,139,.03]].map(([a,b,s])=>{const m=new T.Mesh(new T.SphereGeometry(s,12,12),new T.MeshBasicMaterial({color:cs.getPropertyValue('--primary').trim()}));m.position.copy(ll(a,b));grp.add(m);gs()&&gs().to(m.scale,{x:1.7,y:1.7,z:1.7,duration:1+Math.random(),repeat:-1,yoyo:true,ease:'sine.inOut'});return m});
+  grp.rotation.set(.3,-1.75,0);const rs=()=>{rn.setSize(el.clientWidth,el.clientHeight,false);cam.aspect=el.clientWidth/el.clientHeight;cam.updateProjectionMatrix()};const ro=new ResizeObserver(rs);ro.observe(el);rs();
+  let drag=false,lx=0,ly=0,run=true,vis=true;el.onpointerdown=e=>{drag=true;lx=e.clientX;ly=e.clientY;el.style.cursor='grabbing';el.setPointerCapture(e.pointerId)};el.onpointerup=()=>{drag=false;el.style.cursor='grab'};el.onpointermove=e=>{if(!drag)return;grp.rotation.y+=(e.clientX-lx)*.008;grp.rotation.x=Math.max(-1,Math.min(1,grp.rotation.x+(e.clientY-ly)*.008));lx=e.clientX;ly=e.clientY};
+  const io=new IntersectionObserver(e=>vis=e[0].isIntersecting);io.observe(el);
+  (function f(){if(!run)return;requestAnimationFrame(f);if(!vis||document.hidden)return;if(!drag)grp.rotation.y+=.0025;rn.render(sc,cam)})();
+  cleanups.push(()=>{run=false;ro.disconnect();io.disconnect();rn.dispose()});
+  const onChange=()=>{const c=getComputedStyle(el);sph.material.color.set(c.getPropertyValue('--surface').trim());pts.material.color.set(c.getPropertyValue('--muted-foreground').trim());marks.forEach(m=>m.material.color.set(c.getPropertyValue('--primary').trim()))};document.addEventListener('kit:change',onChange);cleanups.push(()=>document.removeEventListener('kit:change',onChange))};
+  if(window.THREE)go();else{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';s.onload=go;document.head.appendChild(s)}}
+
+/* ================= router ================= */
+function render(anim=true){cleanups.forEach(c=>c());cleanups=[];
+  const login=S.route==='login';$('#login').style.display=login?'grid':'none';$('#side').style.display=login?'none':'';$('.mainw').style.display=login?'none':'';$('#app').style.gridTemplateColumns=login?'1fr':'';
+  if(login){vLogin();return}
+  shell();const v=$('#view');
+  v.innerHTML=({overview:vOverview,accounts:vAccounts,account:vAccount,tags:vTags,settings:vSettings})[S.route]();UI.hydrate(v);
+  ({overview:mOverview,account:mTab,tags:mTags})[S.route]?.();
+  if(anim){enter();countUp();moveInd()}else{countUp();moveInd()}
+  v.scrollTop=0}
+function go(r,o={}){Object.assign(S,o);S.route=r;if(r==='login'){render();return}
+  if(gs()&&$('#view').innerHTML)gs().to('#view',{opacity:0,y:-6,duration:.15,onComplete:()=>{render();gs().set('#view',{opacity:1,y:0})}});else render()}
+on('click',e=>{
+  if(!e.target.closest('.ui'))return;
+  if(e.target.closest('[data-open="dlgConn"]'))connStep(1);
+  const g=e.target.closest('[data-go]');if(g){go(g.dataset.go);return}
+  const ac=e.target.closest('[data-acct]');if(ac){go('account',{acct:+ac.dataset.acct,tab:'overview'});return}
+  const tb=e.target.closest('[data-tab]');if(tb){S.tab=tb.dataset.tab;cleanups.forEach(c=>c());cleanups=[];qa('.tab[data-tab]').forEach(x=>x.classList.toggle('on',x===tb));$('#tabBody').innerHTML=vTab();UI.hydrate($('#tabBody'));mTab();enter('#tabBody');countUp();return}
+  const st=e.target.closest('[data-stab]');if(st){S.stab=st.dataset.stab;render();return}
+  const sc=e.target.closest('[data-scope]');if(sc){S.scope=sc.dataset.scope;qa('#scopeSeg button').forEach(b=>b.classList.toggle('on',b===sc));mOverview.chartOnly=1;const lab=[...Array(30)].map((_,i)=>dl(i,30)),pool=S.scope==='group'?ACC.filter(a=>a.g==='Brand X'):ACC;Charts.anim=true;Charts.line($('#cmpChart'),{h:200,labels:lab,legend:true,series:pool.map(a=>({name:'@'+a.u,data:gen(a.id*5+2,30,a.r/30,a.r/60,a.r/900),color:`var(--chart-${a.id+1})`}))});return}
+  const th=e.target.closest('[data-theme]');if(th&&th.classList.contains('tcard')){document.querySelector(`.ui-bar [data-t="${th.dataset.theme}"]`).click();return}
+  const mm=e.target.closest('[data-mm]');if(mm){document.querySelector(`.ui-bar [data-m="${mm.dataset.mm}"]`).click();return}
+  const dd=e.target.closest('[data-dd]');if(dd){document.querySelector(`.ui-bar [data-d="${dd.dataset.dd}"]`).click();return}
+  const rr=e.target.closest('[data-rr]');if(rr){document.querySelector(`.ui-bar [data-rad="${rr.dataset.rr}"]`).click();return}
+  const ll=e.target.closest('[data-ll]');if(ll){document.querySelector(`.ui-bar [data-l="${ll.dataset.ll}"]`).click();return}
+  const rg=e.target.closest('[data-range]');if(rg){S.range=rg.dataset.range;$('#rngL').textContent=rg.textContent.trim();return}
+  if(e.target.closest('#collapse')){$('#app').classList.toggle('mini');setTimeout(moveInd,320);return}
+  if(e.target.closest('#modeB')){document.querySelector(`.ui-bar [data-m="${UI.state.mode==='l'?'d':'l'}"]`).click();return}
+  const sy=e.target.closest('#syncB,#syncB2');if(sy){const sv=sy.querySelector('svg');sv.classList.add('spin');UI.toast('in',L('Syncing…','同步中…'),L('Fetching latest insights.','正在获取最新数据。'));setTimeout(()=>{sv.classList.remove('spin');UI.toast('ok',L('Synced','同步完成'),L('3 accounts updated.','已更新 3 个账号。'))},1600);return}
+  if(e.target.closest('#loginB')){const b=e.target.closest('#loginB');b.classList.add('loading');setTimeout(()=>{if(gs())gs().to('#lcard',{y:-20,opacity:0,scale:.97,duration:.4,onComplete:()=>go('overview')});else go('overview')},700);return}
+  if(e.target.closest('#cnGo')){connStep(2);return}
+  if(e.target.closest('#cnDone')){document.getElementById('dlgConn').classList.remove('open');if(!S.extra.length){S.extra.push({id:4,u:'newaccount.demo',l:'N',g:null,f:340,fd:0,r:0,rd:0,v:0,er:0,po:0,st:'ok',tok:60,tp:'Creator'});UI.toast('ok',L('Account added','账号已添加'),'@newaccount.demo')}connStep(1);if(S.route==='accounts'||S.route==='overview')render(false);dialogs();return}
+  const sw=e.target.closest('#swp button');if(sw){qa('#swp button').forEach(b=>b.classList.toggle('on',b===sw));return}
+  if(e.target.closest('#tagSave')){const n=$('#tagName').value.trim();if(!n){$('#tagName').classList.add('invalid');return}const c=+$('#swp .on').dataset.c;S.tags.push([n,`var(--chart-${c})`,0,0]);document.getElementById('dlgTag').classList.remove('open');UI.toast('ok',L('Tag created','标签已创建'),n);render(false);dialogs();return}
+  const dt=e.target.closest('[data-del]');if(dt){S.tags.splice(+dt.dataset.del,1);render(false)}
+});
+on('kit:change',()=>{Charts.anim=false;const open=qa('.overlay.open').map(o=>o.id);dialogs();open.forEach(id=>$('#'+id)?.classList.add('open'));render(false)});
+on('kit:replay',()=>{Charts.anim=true;render(true)});
+on('kit:gsap',()=>{Charts.anim=true;render(true)});
+Charts.anim=false;dialogs();render(false);
+
+})();
+</script>
