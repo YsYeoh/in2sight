@@ -53,7 +53,11 @@ describe('parsePrefs', () => {
   });
 
   it('ignores unknown keys and returns a fresh object each time', () => {
-    const p = parsePrefs({ theme: 'mono', evil: '<script>', __proto__: { theme: 'sunset' } });
+    // JSON.parse creates a real own '__proto__' key (an object literal would just set the prototype)
+    const p = parsePrefs(JSON.parse('{"theme":"mono","__proto__":{"theme":"sunset"},"evil":"<script>"}'));
+    expect(p.theme).toBe('mono');
+    expect(p).not.toHaveProperty('evil');
+    expect(({} as Record<string, unknown>).theme).toBeUndefined();
     expect(Object.keys(p).sort()).toEqual(Object.keys(DEFAULT_PREFS).sort());
     expect(p).not.toBe(DEFAULT_PREFS);
     expect(parsePrefs({})).not.toBe(parsePrefs({}));
@@ -89,7 +93,7 @@ describe('cookie round trip', () => {
     ['not JSON', encodeURIComponent('hello')],
     ['JSON but not an object', encodeURIComponent('42')],
     ['truncated JSON', encodeURIComponent('{"theme":"for')],
-    ['oversized (3 KB)', 'a'.repeat(3000)],
+    ['oversized (> 2 KB) but otherwise valid', encodeURIComponent(JSON.stringify({ theme: 'mono', pad: 'x'.repeat(3000) }))],
   ])('falls back to defaults for a %s cookie without throwing', (_label, value) => {
     expect(parsePrefsCookie(value as string | null | undefined)).toEqual(DEFAULT_PREFS);
   });
