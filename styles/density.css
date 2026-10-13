@@ -3,7 +3,7 @@
  * `@layer utilities`. Heights/paddings come from the density tokens in tokens.css (--ctl, --ctl-sm, --pc ...).
  * Selectors are keyed on data-slot / data-size, which shadcn components render.
  */
-[data-slot="button"]:not([data-size="icon"]):not([data-size="icon-sm"]):not([data-size="icon-lg"]) {
+[data-slot="button"] {
   height: var(--ctl);
   padding-inline: calc(var(--ctl) * 0.4);
 }
@@ -11,14 +11,29 @@
   height: var(--ctl-sm);
   padding-inline: calc(var(--ctl-sm) * 0.4);
 }
+[data-slot="button"][data-size="xs"] {
+  height: calc(var(--ctl-sm) * 0.85);
+  padding-inline: calc(var(--ctl-sm) * 0.35);
+}
+[data-slot="button"][data-size="lg"] {
+  height: calc(var(--ctl) * 1.1);
+  padding-inline: calc(var(--ctl) * 0.5);
+}
 [data-slot="button"][data-size="icon"],
 [data-slot="button"][data-size="icon-lg"] {
   width: var(--ctl);
   height: var(--ctl);
+  padding: 0;
 }
 [data-slot="button"][data-size="icon-sm"] {
   width: var(--ctl-sm);
   height: var(--ctl-sm);
+  padding: 0;
+}
+[data-slot="button"][data-size="icon-xs"] {
+  width: calc(var(--ctl-sm) * 0.85);
+  height: calc(var(--ctl-sm) * 0.85);
+  padding: 0;
 }
 [data-slot="input"] {
   height: var(--ctl);
