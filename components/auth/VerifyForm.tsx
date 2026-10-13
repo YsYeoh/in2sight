@@ -12,14 +12,9 @@ export function VerifyForm({ action }: { action: (prev: FormState, formData: For
   const [state, formAction, pending] = useActionState(action, {} as FormState);
   return (
     <form action={formAction} className="flex flex-col gap-[var(--gp)]" noValidate>
-      <FormField id="code" label={t('verify.code')}>
-        {(p) => <Input {...p} name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={7} autoFocus className="text-center tracking-[0.3em]" />}
+      <FormField id="code" label={t('verify.code')} error={state.error ? t(`errors.${state.error}`) : undefined}>
+        {(p) => <Input {...p} name="code" inputMode="numeric" autoComplete="one-time-code" className="text-center tracking-[0.3em]" />}
       </FormField>
-      {state.error ? (
-        <p role="alert" className="text-xs text-destructive">
-          {t(`errors.${state.error}`)}
-        </p>
-      ) : null}
       <Button type="submit" disabled={pending} className="w-full">
         {t('verify.submit')}
       </Button>

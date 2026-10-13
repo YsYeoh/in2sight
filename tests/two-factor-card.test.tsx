@@ -94,4 +94,32 @@ describe('TwoFactorCard — failures', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByText('S')).toBeNull();
   });
+
+  it('a failed disable with needs_aal2 shows the matching message', async () => {
+    render(wrap(<TwoFactorCard enrolled={{ factorId: 'f9' }} {...noop} disableAction={async () => ({ ok: false, error: 'needs_aal2' })} />));
+    await userEvent.click(screen.getByRole('button', { name: 'Disable' }));
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Disable' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in again with your authenticator code');
+  });
+
+  it('a refused start with needs_aal2 shows the matching message', async () => {
+    render(wrap(<TwoFactorCard enrolled={null} {...noop} startEnrollAction={async () => ({ ok: false as const, error: 'needs_aal2' })} />));
+    await userEvent.click(screen.getByRole('button', { name: 'Enable two-factor' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in again with your authenticator code');
+  });
+
+  it('accepts a pasted code with spaces and links the code error to the field', async () => {
+    const confirm = vi.fn(async () => ({ ok: false, error: 'invalid_code' }));
+    render(wrap(<TwoFactorCard enrolled={null} {...noop} startEnrollAction={started} confirmEnrollAction={confirm} />));
+    await userEvent.click(screen.getByRole('button', { name: 'Enable two-factor' }));
+    const input = await screen.findByLabelText('Verification code');
+    expect(input).not.toHaveAttribute('maxlength');
+    await userEvent.click(input);
+    await userEvent.paste(' 123 456 ');
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm and enable' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('f1', ' 123 456 '));
+    const alert = await screen.findByRole('alert');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input.getAttribute('aria-describedby')).toContain(alert.id);
+  });
 });

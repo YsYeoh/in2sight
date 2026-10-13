@@ -13,7 +13,7 @@ describe('VerifyForm', () => {
     const input = screen.getByLabelText('Verification code');
     expect(input).toHaveAttribute('inputmode', 'numeric');
     expect(input).toHaveAttribute('autocomplete', 'one-time-code');
-    expect(input).toHaveAttribute('maxlength', '7');
+    expect(input).not.toHaveAttribute('maxlength');
   });
 
   it('submits the code', async () => {
@@ -37,5 +37,25 @@ describe('VerifyForm', () => {
     await userEvent.type(screen.getByLabelText('Verification code'), '000000');
     await userEvent.click(screen.getByRole('button', { name: 'Verify' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Too many attempts');
+  });
+
+  it('a pasted code with spaces reaches the action intact', async () => {
+    const action = vi.fn(async () => ({}));
+    render(wrap(<VerifyForm action={action} />));
+    await userEvent.click(screen.getByLabelText('Verification code'));
+    await userEvent.paste(' 123 456 ');
+    await userEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(((action.mock.calls[0] as unknown[])[1] as FormData).get('code')).toBe(' 123 456 ');
+  });
+
+  it('links the error to the field', async () => {
+    render(wrap(<VerifyForm action={async () => ({ error: 'invalid_code' as const })} />));
+    await userEvent.type(screen.getByLabelText('Verification code'), '000000');
+    await userEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    const alert = await screen.findByRole('alert');
+    const input = screen.getByLabelText('Verification code');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input.getAttribute('aria-describedby')).toContain(alert.id);
   });
 });

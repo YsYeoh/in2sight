@@ -3,7 +3,7 @@ import { confirmEnroll, disableFactor, getMfaStatus, normalizeCode, startEnroll,
 
 type Factor = { id: string; status: 'verified' | 'unverified' };
 
-function fake(o: { factors?: Factor[]; enrollError?: unknown; verifyError?: unknown; currentLevel?: 'aal1' | 'aal2'; throws?: boolean } = {}) {
+function fake(o: { factors?: Factor[]; enrollError?: unknown; verifyError?: unknown; currentLevel?: 'aal1' | 'aal2'; throws?: boolean; claimsError?: boolean } = {}) {
   const factors = o.factors ?? [];
   const mfa = {
     listFactors: vi.fn(async () => ({ data: { all: factors, totp: factors.filter((f) => f.status === 'verified') }, error: null })),
@@ -15,9 +15,9 @@ function fake(o: { factors?: Factor[]; enrollError?: unknown; verifyError?: unkn
       if (o.throws) throw new Error('network');
       return o.verifyError ? { data: null, error: o.verifyError } : { data: {}, error: null };
     }),
-    getAuthenticatorAssuranceLevel: vi.fn(async () => ({ data: { currentLevel: o.currentLevel ?? 'aal2', nextLevel: 'aal2' }, error: null })),
   };
-  return { supabase: { auth: { mfa } } as never, mfa };
+  const getClaims = vi.fn(async () => (o.claimsError ? { data: null, error: { message: 'bad jwt' } } : { data: { claims: { sub: 'u1', aal: o.currentLevel ?? 'aal2' } }, error: null }));
+  return { supabase: { auth: { mfa, getClaims } } as never, mfa, getClaims };
 }
 
 describe('normalizeCode', () => {
@@ -36,6 +36,29 @@ describe('startEnroll', () => {
     const f = fake();
     expect(await startEnroll(f.supabase)).toEqual({ ok: true, factorId: 'f-new', qrSvg: 'data:image/svg+xml;utf-8,<svg/>', secret: 'ABCDEF' });
     expect(f.mfa.enroll).toHaveBeenCalledWith({ factorType: 'totp', friendlyName: 'in2sight' });
+  });
+
+  it('with a verified factor, an aal1 (password-only) session cannot enrol another: enroll is never called', async () => {
+    const f = fake({ factors: [{ id: 'v', status: 'verified' }], currentLevel: 'aal1' });
+    expect(await startEnroll(f.supabase)).toEqual({ ok: false, error: 'needs_aal2' });
+    expect(f.mfa.enroll).not.toHaveBeenCalled();
+    expect(f.mfa.unenroll).not.toHaveBeenCalled();
+  });
+
+  it('with a verified factor, an aal2 session may enrol', async () => {
+    const f = fake({ factors: [{ id: 'v', status: 'verified' }], currentLevel: 'aal2' });
+    expect((await startEnroll(f.supabase)).ok).toBe(true);
+  });
+
+  it('the first enrolment is allowed at aal1 (no verified factor yet)', async () => {
+    const f = fake({ factors: [{ id: 'u', status: 'unverified' }], currentLevel: 'aal1' });
+    expect((await startEnroll(f.supabase)).ok).toBe(true);
+  });
+
+  it('a claims error fails closed when a verified factor exists', async () => {
+    const f = fake({ factors: [{ id: 'v', status: 'verified' }], claimsError: true });
+    expect(await startEnroll(f.supabase)).toEqual({ ok: false, error: 'needs_aal2' });
+    expect(f.mfa.enroll).not.toHaveBeenCalled();
   });
 
   it('removes abandoned unverified factors first but never touches verified ones', async () => {
@@ -87,6 +110,12 @@ describe('getMfaStatus / disableFactor', () => {
 
   it('disabling needs an aal2 session: an aal1 session cannot remove the factor', async () => {
     const f = fake({ currentLevel: 'aal1' });
+    expect(await disableFactor(f.supabase, 'v')).toEqual({ ok: false, error: 'needs_aal2' });
+    expect(f.mfa.unenroll).not.toHaveBeenCalled();
+  });
+
+  it('a claims error fails closed for disable too', async () => {
+    const f = fake({ claimsError: true });
     expect(await disableFactor(f.supabase, 'v')).toEqual({ ok: false, error: 'needs_aal2' });
     expect(f.mfa.unenroll).not.toHaveBeenCalled();
   });

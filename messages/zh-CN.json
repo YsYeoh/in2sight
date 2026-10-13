@@ -150,7 +150,8 @@
       "disableTitle": "停用两步验证？",
       "disableBody": "之后你的账号将仅由密码保护。",
       "recovery": "设备丢失？请在 Supabase 控制台（Authentication → Users）中移除该验证因素。详见 docs/SETUP_SUPABASE.md。",
-      "errorUnexpected": "出了点问题，请重试。"
+      "errorUnexpected": "出了点问题，请重试。",
+      "errorNeedsAal2": "请先使用验证器验证码重新登录，再更改两步验证设置。"
     }
   }
 }

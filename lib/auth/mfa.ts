@@ -12,6 +12,16 @@ function isRateLimited(e: { status?: number; code?: string }): boolean {
   return e.status === 429 || (e.code ?? '').includes('rate_limit');
 }
 
+// aal from the signed JWT claims (validated), not the cookie session; any error means "not aal2" (fail closed)
+async function isAal2(supabase: SupabaseClient): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.auth.getClaims();
+    return !error && (data?.claims as { aal?: string } | undefined)?.aal === 'aal2';
+  } catch {
+    return false;
+  }
+}
+
 async function verifyCode(supabase: SupabaseClient, factorId: string, code: string): Promise<{ ok: true } | { ok: false; error: VerifyError }> {
   try {
     const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code });
@@ -24,11 +34,14 @@ async function verifyCode(supabase: SupabaseClient, factorId: string, code: stri
 
 export async function startEnroll(
   supabase: SupabaseClient,
-): Promise<{ ok: true; factorId: string; qrSvg: string; secret: string } | { ok: false; error: 'unexpected' }> {
+): Promise<{ ok: true; factorId: string; qrSvg: string; secret: string } | { ok: false; error: 'unexpected' | 'needs_aal2' }> {
   try {
+    const { data: existing, error: listError } = await supabase.auth.mfa.listFactors();
+    if (listError || !existing) return { ok: false, error: 'unexpected' };
+    // a password-only session must not add a factor to an account that already has 2FA: it could then reach aal2 itself
+    if (existing.totp.length > 0 && !(await isAal2(supabase))) return { ok: false, error: 'needs_aal2' };
     // an abandoned, never-verified enrolment would block a new one with the same name
-    const { data: existing } = await supabase.auth.mfa.listFactors();
-    for (const f of existing?.all ?? []) {
+    for (const f of existing.all) {
       if (f.status === 'unverified') await supabase.auth.mfa.unenroll({ factorId: f.id });
     }
     const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'in2sight' });
@@ -71,8 +84,7 @@ export async function getMfaStatus(supabase: SupabaseClient): Promise<{ enrolled
 
 export async function disableFactor(supabase: SupabaseClient, factorId: string): Promise<{ ok: true } | { ok: false; error: 'needs_aal2' | 'unexpected' }> {
   try {
-    const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (data?.currentLevel !== 'aal2') return { ok: false, error: 'needs_aal2' };
+    if (!(await isAal2(supabase))) return { ok: false, error: 'needs_aal2' };
     const { error } = await supabase.auth.mfa.unenroll({ factorId });
     return error ? { ok: false, error: 'unexpected' } : { ok: true };
   } catch {
