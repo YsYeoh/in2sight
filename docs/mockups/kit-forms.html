@@ -1,0 +1,140 @@
+<link rel="stylesheet" href="/files/kit.css">
+<style>
+.ui .cal2{display:grid;grid-template-columns:repeat(7,32px);gap:2px;font-size:var(--lb);text-align:center}
+.ui .cal2 span{height:28px;display:grid;place-items:center;border-radius:var(--rs);cursor:pointer;color:var(--foreground)}
+.ui .cal2 .w{color:var(--muted-foreground);cursor:default;height:22px}.ui .cal2 span:not(.w):hover{background:var(--hover)}
+.ui .cal2 .in{background:var(--accent);border-radius:0}.ui .cal2 .e{background:var(--primary);color:var(--primary-foreground)}
+.ui .cal2 .e.l{border-radius:var(--rs) 0 0 var(--rs)}.ui .cal2 .e.r{border-radius:0 var(--rs) var(--rs) 0}
+.ui .cal2 .o{color:var(--muted-foreground);opacity:.5}.ui .cal2 .td{outline:1px solid var(--primary);outline-offset:-1px}
+.ui .drp{display:flex;min-width:360px;padding:0}.ui .drp .ps{width:120px;padding:8px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px}.ui .drp .cp{padding:12px}
+</style>
+
+<div class="ui" data-theme="ink" data-mode="l" data-d="dense">
+
+<div class="sec"><h2 data-i="t_btn">Buttons</h2><p data-i="d_btn">Variants, sizes, states. Control height follows density (30 dense / 36 comfortable); small = 24 / 28.</p></div>
+<div class="demo col" style="gap:14px">
+  <div class="row"><button class="btn primary"><i data-ic="plus"></i><span data-i="add_acc">Add account</span></button><button class="btn secondary" data-i="cancel">Cancel</button><button class="btn ghost" data-i="reconnect">Reconnect</button><button class="btn danger"><i data-ic="trash"></i><span data-i="remove">Remove</span></button><button class="btn link" data-i="learn">Learn more</button></div>
+  <div class="row"><button class="btn primary sm">Small</button><button class="btn secondary sm"><i data-ic="filter"></i>Filter</button><button class="btn secondary icon" data-tip="Refresh"><i data-ic="refresh"></i></button><button class="btn ghost icon sm" data-tip="More"><i data-ic="more"></i></button>
+   <button class="btn primary loading">Syncing…</button><button class="btn primary" disabled>Disabled</button><button class="btn secondary" disabled>Disabled</button></div>
+</div>
+<div class="spec">height 30/36 · pad-x 12 · radius 4/6 · gap 6 · font 13/14 500 · focus: 2px ring, 2px offset · hover: primary −12% · active: translateY(1px) · disabled: 45% opacity</div>
+
+<div class="sec"><h2 data-i="t_inp">Inputs</h2><p data-i="d_inp">Label above, hint/error below. Focus ring is a 3px 22% tint + primary border.</p></div>
+<div class="demo"><div class="g3c">
+  <div class="field"><label class="req" data-i="f_name">Tag name</label><input class="input" value="Tips" ><div class="hint" data-i="h_name">Shown on posts and in reports.</div></div>
+  <div class="field"><label data-i="f_url">Profile URL</label><input class="input invalid" value="instagram.com/brand x"><div class="err"><i data-ic="alert" data-s="12"></i><span data-i="e_url">Enter a valid profile URL.</span></div></div>
+  <div class="field"><label>Disabled</label><input class="input" value="@brandx.official" disabled></div>
+  <div class="field"><label data-i="f_search">Search</label><div class="group"><i data-ic="search"></i><input class="input" data-ip="p_search" placeholder="Search posts…"><kbd>⌘K</kbd></div></div>
+  <div class="field"><label data-i="f_min">Minimum reach</label><div class="group"><input class="input" value="5,000" style="text-align:right"><span class="small">reach</span></div></div>
+  <div class="field"><label data-i="f_note">Note</label><textarea class="input" rows="2" data-ip="p_note" placeholder="Optional note…"></textarea></div>
+</div></div>
+<div class="spec">height 30/36 · pad-x 10 · border 1px --border · radius 4/6 · label 11/12 500, gap 6 · field gap in form 12 · error color --danger</div>
+
+<div class="sec"><h2 data-i="t_sel">Select, multi-select, tag input</h2><p data-i="d_sel">Popover menu: radius 8, 1px border, shadow 0 8px 24px, item height 28. Click them.</p></div>
+<div class="demo"><div class="g3c">
+  <div class="field"><label data-i="f_group">Group</label>
+    <div class="pop block"><div class="select" data-menu tabindex="0"><span class="v">Brand X</span><i data-ic="down"></i></div>
+     <div class="menu"><div class="menu-label" data-i="groups">Groups</div><div class="menu-item sel" data-label="Brand X">Brand X<i class="ck" data-ic="check"></i></div><div class="menu-item" data-label="Personal projects">Personal projects<i class="ck" data-ic="check"></i></div><div class="menu-sep"></div><div class="menu-item" data-label="— None (isolated) —"><span data-i="none">None (isolated)</span><i class="ck" data-ic="check"></i></div><div class="menu-item" data-keep="1" data-toast="in|New group|Type a name to create it."><i data-ic="plus"></i><span data-i="new_group">New group…</span></div></div></div></div>
+  <div class="field"><label data-i="f_metrics">Metrics</label>
+    <div class="pop block"><div class="select" data-menu tabindex="0"><span class="v">3 selected</span><i data-ic="down"></i></div>
+     <div class="menu"><label class="menu-item"><span class="check"><input type="checkbox" checked><span class="box"><i data-ic="check"></i></span></span>Reach</label><label class="menu-item"><span class="check"><input type="checkbox" checked><span class="box"><i data-ic="check"></i></span></span>Views</label><label class="menu-item"><span class="check"><input type="checkbox" checked><span class="box"><i data-ic="check"></i></span></span>Saves</label><label class="menu-item"><span class="check"><input type="checkbox"><span class="box"><i data-ic="check"></i></span></span>Shares</label></div></div></div>
+  <div class="field"><label data-i="f_tags">Tags</label>
+    <div class="input taginput"><span class="chip a sw" style="--c:var(--chart-1)">Tips<span class="x"><i data-ic="x"></i></span></span><span class="chip a sw" style="--c:var(--chart-4)">Promo<span class="x"><i data-ic="x"></i></span></span><input data-ip="p_tag" placeholder="Add tag…"></div></div>
+  <div class="field"><label>Select (disabled)</label><div class="select disabled"><span class="v">Asia/Kuala_Lumpur</span><i data-ic="down"></i></div></div>
+  <div class="field"><label data-i="f_tz">Timezone</label>
+    <div class="pop block"><div class="select" data-menu tabindex="0"><span class="v">Asia/Kuala_Lumpur (UTC+8)</span><i data-ic="down"></i></div>
+     <div class="menu"><div class="menu-item sel" data-label="Asia/Kuala_Lumpur (UTC+8)">Asia/Kuala_Lumpur (UTC+8)<i class="ck" data-ic="check"></i></div><div class="menu-item" data-label="Asia/Singapore (UTC+8)">Asia/Singapore (UTC+8)<i class="ck" data-ic="check"></i></div><div class="menu-item" data-label="UTC">UTC<i class="ck" data-ic="check"></i></div></div></div></div>
+  <div class="field"><label data-i="f_lang">Language</label><div class="seg" style="align-self:flex-start"><button class="on">English</button><button>简体中文</button></div></div>
+</div></div>
+
+<div class="sec"><h2 data-i="t_choice">Checkbox, radio, switch</h2></div>
+<div class="demo"><div class="g3c">
+  <div class="col"><div class="lbl">Checkbox</div>
+   <label class="check"><input type="checkbox" checked><span class="box"><i data-ic="check"></i></span><span data-i="c_reels">Include Reels</span></label>
+   <label class="check"><input type="checkbox"><span class="box"><i data-ic="check"></i></span><span data-i="c_stories">Include Stories</span></label>
+   <label class="check"><input type="checkbox" id="ind"><span class="box"><i data-ic="minus"></i></span><span>Indeterminate</span></label>
+   <label class="check"><input type="checkbox" disabled><span class="box"><i data-ic="check"></i></span><span class="muted">Disabled</span></label></div>
+  <div class="col"><div class="lbl">Radio</div>
+   <label class="check radio"><input type="radio" name="r" checked><span class="box"></span><span>7 days</span></label>
+   <label class="check radio"><input type="radio" name="r"><span class="box"></span><span>30 days</span></label>
+   <label class="check radio"><input type="radio" name="r"><span class="box"></span><span>90 days</span></label></div>
+  <div class="col"><div class="lbl">Switch</div>
+   <label class="switch"><input type="checkbox" checked><span class="tr"></span><span data-i="s_story">Capture Stories every 3h</span></label>
+   <label class="switch"><input type="checkbox"><span class="tr"></span><span data-i="s_alert">Reach-drop alerts</span></label>
+   <label class="switch"><input type="checkbox" disabled><span class="tr"></span><span class="muted">Disabled</span></label></div>
+</div></div>
+<div class="spec">box 16×16 · radius 4 (radio 50%) · switch 30×18, knob 14 · gap label 8 · checked = --primary fill</div>
+
+<div class="sec"><h2 data-i="t_date">Date range picker</h2><p data-i="d_date">The most used control in the app. Presets on the left, two-click range on the calendar.</p></div>
+<div class="demo" style="min-height:330px"><div class="row" style="align-items:flex-start">
+  <div class="pop"><button class="btn secondary" data-menu><i data-ic="calendar"></i><span>Oct 6 – Oct 13, 2026</span><i data-ic="down"></i></button>
+   <div class="menu drp">
+    <div class="ps"><div class="menu-item">Today</div><div class="menu-item">Last 7 days</div><div class="menu-item sel">Last 30 days<i class="ck" data-ic="check"></i></div><div class="menu-item">Last 90 days</div><div class="menu-item">This month</div><div class="menu-item">Custom</div></div>
+    <div class="cp"><div class="row" style="justify-content:space-between;margin-bottom:6px"><button class="btn ghost icon sm"><i data-ic="left"></i></button><b style="font-weight:500">October 2026</b><button class="btn ghost icon sm"><i data-ic="right"></i></button></div>
+     <div class="cal2" id="cal2"></div>
+     <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn ghost sm">Cancel</button><button class="btn primary sm">Apply</button></div></div></div></div>
+  <div class="seg"><button>7d</button><button class="on">30d</button><button>90d</button></div>
+  <span class="small muted">compared with Sep 6 – Sep 13</span>
+</div></div>
+
+<div class="sec"><h2 data-i="t_form">Form layout</h2><p data-i="d_form">Typical edit form: 12px between fields, actions right-aligned, destructive action separated.</p></div>
+<div class="g2c">
+ <div class="card"><div class="card-h"><h3 class="h3" data-i="edit_acc">Edit account</h3><span class="chip ok"><span class="dot"></span>Active</span></div>
+  <div class="card-b col" style="gap:12px">
+   <div class="row" style="flex-wrap:nowrap"><div class="avatar ring">B</div><div><b style="font-weight:500">@brandx.official</b><div class="small muted">Creator · connected Oct 2, token valid 54 days</div></div></div>
+   <div class="field"><label data-i="f_label">Display name</label><input class="input" value="Brand X — main"></div>
+   <div class="field"><label data-i="f_group">Group</label><div class="select"><span class="v">Brand X</span><i data-ic="down"></i></div></div>
+   <label class="switch"><input type="checkbox" checked><span class="tr"></span><span data-i="s_story">Capture Stories every 3h</span></label>
+   <div class="row" style="justify-content:space-between;border-top:1px solid var(--border);padding-top:12px;margin-top:4px"><button class="btn ghost" style="color:var(--danger)" data-open="dlgDel"><i data-ic="trash"></i><span data-i="remove">Remove</span></button><div class="row"><button class="btn secondary" data-i="cancel">Cancel</button><button class="btn primary" data-toast="ok|Saved|Account updated." data-i="save">Save changes</button></div></div>
+  </div></div>
+ <div class="col" style="gap:12px">
+  <div class="alert info"><i data-ic="info" data-s="18"></i><div><b data-i="a_info">Instagram Login required</b><span data-i="a_info2">You’ll be redirected to Instagram to approve access. in2sight only reads insights.</span></div></div>
+  <div class="alert ok"><i data-ic="ok" data-s="18"></i><div><b>Synced 3 accounts</b><span>Last run 2 minutes ago.</span></div></div>
+  <div class="alert wn"><i data-ic="alert" data-s="18"></i><div><b data-i="a_warn">Token expires in 6 days</b><span data-i="a_warn2">Reconnect @studio.two to keep syncing.</span></div><button class="btn secondary sm" style="margin-left:auto" data-i="reconnect">Reconnect</button></div>
+  <div class="alert er"><i data-ic="alert" data-s="18"></i><div><b>Sync failed for @old.account</b><span>Access token was revoked.</span></div></div>
+ </div>
+</div>
+
+<div class="sec"><h2 data-i="t_fb">Dialog, toast, tooltip, progress, loading</h2></div>
+<div class="demo"><div class="row" style="gap:10px">
+  <button class="btn secondary" data-open="dlgConn"><i data-ic="plus"></i><span data-i="add_acc">Add account</span></button>
+  <button class="btn secondary" data-open="dlgDel">Confirm dialog</button>
+  <button class="btn secondary" data-toast="ok|Saved|Account updated.">Success toast</button>
+  <button class="btn secondary" data-toast="er|Sync failed|Access token was revoked.">Error toast</button>
+  <button class="btn secondary" data-toast="in|Syncing…|Fetching latest insights.">Info toast</button>
+  <button class="btn ghost" data-tip="I am a tooltip">Hover me</button>
+</div>
+<div class="g3c" style="margin-top:16px"><div class="col"><div class="lbl">Progress</div><div class="progress"><i style="width:64%"></i></div><div class="small muted">Syncing 2 of 3 accounts</div></div>
+ <div class="col"><div class="lbl">Skeleton</div><div class="skel" style="height:14px;width:60%"></div><div class="skel" style="height:28px"></div><div class="skel" style="height:14px;width:80%"></div></div>
+ <div class="card"><div class="empty"><div class="ico"><i data-ic="cam" data-s="20"></i></div><b style="font-weight:500" data-i="empty_t">No accounts yet</b><span class="small muted" data-i="empty_d">Connect an Instagram account to start collecting insights.</span><button class="btn primary sm" style="margin-top:6px" data-open="dlgConn" data-i="add_acc">Add account</button></div></div></div></div>
+
+<div class="sec"><h2 data-i="t_nav">Tabs, breadcrumb, pagination, row menu</h2></div>
+<div class="demo col" data-tabgroup style="gap:14px">
+  <div class="crumb">Overview <i data-ic="right" data-s="12"></i> Brand X <i data-ic="right" data-s="12"></i> <b>@brandx.official</b></div>
+  <div class="tabs"><button class="tab on" data-for="p1">Overview</button><button class="tab" data-for="p2">Posts <span class="n">128</span></button><button class="tab" data-for="p3">Stories <span class="n">4</span></button><button class="tab" data-for="p4">Audience</button></div>
+  <div class="panel on" id="p1"><span class="small muted">Panel 1 — trends, flags, KPIs</span></div><div class="panel" id="p2"><span class="small muted">Panel 2 — posts table</span></div><div class="panel" id="p3"><span class="small muted">Panel 3 — live Stories</span></div><div class="panel" id="p4"><span class="small muted">Panel 4 — demographics</span></div>
+  <div class="row" style="justify-content:space-between"><div class="pager"><button class="btn secondary icon sm"><i data-ic="left"></i></button><button class="btn primary sm">1</button><button class="btn secondary sm">2</button><button class="btn secondary sm">3</button><span class="muted">…</span><button class="btn secondary sm">13</button><button class="btn secondary icon sm"><i data-ic="right"></i></button></div>
+   <div class="pop"><button class="btn secondary icon" data-menu><i data-ic="more"></i></button><div class="menu right"><div class="menu-item"><i data-ic="eye"></i>View on Instagram<span class="k">↗</span></div><div class="menu-item"><i data-ic="tag"></i>Edit tags<span class="k">T</span></div><div class="menu-item"><i data-ic="link"></i>Copy link</div><div class="menu-sep"></div><div class="menu-item danger"><i data-ic="trash"></i>Remove</div></div></div></div>
+</div>
+</div>
+
+<div class="overlay" id="dlgDel"><div class="dialog"><div class="dh"><h3 class="h3" style="font-size:16px" data-i="dl_t">Remove @brandx.official?</h3></div><div class="db"><span class="muted" data-i="dl_d">Collected history stays in the database, but syncing stops. You can reconnect later.</span></div><div class="df"><button class="btn secondary" data-close data-i="cancel">Cancel</button><button class="btn danger" data-close data-toast="ok|Removed|Account disconnected." data-i="remove">Remove</button></div></div></div>
+<div class="overlay" id="dlgConn"><div class="dialog"><div class="dh"><h3 class="h3" style="font-size:16px" data-i="add_acc">Add account</h3></div><div class="db col" style="gap:12px"><span class="muted" data-i="cn_d">Log in to the Instagram account you want to add. It must be a Creator or Business account.</span><div class="field"><label data-i="f_group">Group</label><div class="select"><span class="v" data-i="none">None (isolated)</span><i data-ic="down"></i></div></div><div class="alert info"><i data-ic="lock" data-s="16"></i><div><span data-i="cn_s">Read-only access to insights. You can revoke it any time in Instagram settings.</span></div></div></div><div class="df"><button class="btn secondary" data-close data-i="cancel">Cancel</button><button class="btn primary" data-close><i data-ic="cam"></i><span data-i="cn_b">Continue with Instagram</span></button></div></div></div>
+
+<script src="/files/kit.js"></script>
+<script>(function(){
+(window.__pl||[]).forEach(([t,f])=>document.removeEventListener(t,f));window.__pl=[];
+const on=(t,f)=>{window.__pl.push([t,f]);document.addEventListener(t,f)};
+
+UI.init({i18n:{
+ en:{t_btn:'Buttons',d_btn:'Variants, sizes, states. Control height follows density (30 dense / 36 comfortable); small = 24 / 28.',add_acc:'Add account',cancel:'Cancel',reconnect:'Reconnect',remove:'Remove',learn:'Learn more',t_inp:'Inputs',d_inp:'Label above, hint/error below. Focus ring is a 3px 22% tint + primary border.',f_name:'Tag name',h_name:'Shown on posts and in reports.',f_url:'Profile URL',e_url:'Enter a valid profile URL.',f_search:'Search',p_search:'Search posts…',f_min:'Minimum reach',f_note:'Note',p_note:'Optional note…',t_sel:'Select, multi-select, tag input',d_sel:'Popover menu: radius 8, 1px border, shadow 0 8px 24px, item height 28. Click them.',f_group:'Group',groups:'Groups',none:'None (isolated)',new_group:'New group…',f_metrics:'Metrics',f_tags:'Tags',p_tag:'Add tag…',f_tz:'Timezone',f_lang:'Language',t_choice:'Checkbox, radio, switch',c_reels:'Include Reels',c_stories:'Include Stories',s_story:'Capture Stories every 3h',s_alert:'Reach-drop alerts',t_date:'Date range picker',d_date:'The most used control in the app. Presets on the left, two-click range on the calendar.',t_form:'Form layout',d_form:'Typical edit form: 12px between fields, actions right-aligned, destructive action separated.',edit_acc:'Edit account',f_label:'Display name',save:'Save changes',a_info:'Instagram Login required',a_info2:'You’ll be redirected to Instagram to approve access. in2sight only reads insights.',a_warn:'Token expires in 6 days',a_warn2:'Reconnect @studio.two to keep syncing.',t_fb:'Dialog, toast, tooltip, progress, loading',empty_t:'No accounts yet',empty_d:'Connect an Instagram account to start collecting insights.',t_nav:'Tabs, breadcrumb, pagination, row menu',dl_t:'Remove @brandx.official?',dl_d:'Collected history stays in the database, but syncing stops. You can reconnect later.',cn_d:'Log in to the Instagram account you want to add. It must be a Creator or Business account.',cn_s:'Read-only access to insights. You can revoke it any time in Instagram settings.',cn_b:'Continue with Instagram'},
+ zh:{t_btn:'按钮',d_btn:'类型、尺寸、状态。控件高度随密度变化(紧凑 30 / 舒适 36);小号 24 / 28。',add_acc:'添加账号',cancel:'取消',reconnect:'重新连接',remove:'移除',learn:'了解更多',t_inp:'输入框',d_inp:'标签在上,提示/错误在下。聚焦时显示 3px 的 22% 色环并高亮边框。',f_name:'标签名称',h_name:'显示在帖子和报告中。',f_url:'主页链接',e_url:'请输入有效的主页链接。',f_search:'搜索',p_search:'搜索帖子…',f_min:'最低触达',f_note:'备注',p_note:'可选备注…',t_sel:'下拉、多选、标签输入',d_sel:'弹出菜单:圆角 8、1px 边框、阴影 0 8px 24px、条目高 28。可以点击试试。',f_group:'分组',groups:'分组',none:'无(独立账号)',new_group:'新建分组…',f_metrics:'指标',f_tags:'标签',p_tag:'添加标签…',f_tz:'时区',f_lang:'语言',t_choice:'复选框、单选框、开关',c_reels:'包含 Reels',c_stories:'包含快拍',s_story:'每 3 小时抓取快拍',s_alert:'触达下降提醒',t_date:'日期范围选择器',d_date:'应用中最常用的控件。左侧预设,右侧日历点两下选范围。',t_form:'表单布局',d_form:'典型编辑表单:字段间距 12px,操作按钮右对齐,危险操作单独分开。',edit_acc:'编辑账号',f_label:'显示名称',save:'保存更改',a_info:'需要使用 Instagram 登录',a_info2:'你将被重定向到 Instagram 授权访问。in2sight 仅读取数据洞察。',a_warn:'令牌将在 6 天后过期',a_warn2:'请重新连接 @studio.two 以继续同步。',t_fb:'对话框、提示、工具提示、进度、加载',empty_t:'还没有账号',empty_d:'连接一个 Instagram 账号即可开始收集数据洞察。',t_nav:'标签页、面包屑、分页、行菜单',dl_t:'移除 @brandx.official?',dl_d:'已收集的历史数据会保留,但会停止同步。之后可以重新连接。',cn_d:'请登录你要添加的 Instagram 账号。必须是创作者或商业账号。',cn_s:'仅有读取洞察的权限。你可以随时在 Instagram 设置中撤销。',cn_b:'使用 Instagram 继续'}
+}});
+document.getElementById('ind').indeterminate=true;
+// range calendar: Oct 2026 starts Thursday
+let h=['Mo','Tu','We','Th','Fr','Sa','Su'].map(d=>`<span class="w">${d}</span>`).join('')+'<span class="o"></span>'.repeat(3);
+for(let d=1;d<=31;d++){const c=d===6?'e l':d===13?'e r td':d>6&&d<13?'in':'';h+=`<span class="${c}">${d}</span>`}
+document.getElementById('cal2').innerHTML=h;
+
+})();
+</script>

@@ -1,0 +1,135 @@
+<h2>Design tokens</h2>
+<p class="subtitle">Pick a theme and mode below. Everything on this page re-colours from the same tokens the real app will use. Spacing, radius, border and font are shared by all themes.</p>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+#dt{--font:'Inter','PingFang SC','Microsoft YaHei','Noto Sans SC',system-ui,sans-serif;font-family:var(--font);background:var(--background);color:var(--foreground);border:1px solid var(--border);border-radius:14px;padding:24px;font-size:14px;line-height:20px;font-variant-numeric:tabular-nums}
+#dt *{box-sizing:border-box}
+#dt h4{margin:32px 0 4px;font-size:15px;font-weight:600;color:var(--foreground)}
+#dt h4:first-child{margin-top:0}
+#dt .note{color:var(--muted-foreground);font-size:12px;line-height:16px;margin:0 0 12px}
+#dt code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:var(--surface-2);border-radius:4px;padding:1px 5px}
+.sw-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+.sw-bar button{font:500 12px var(--font,system-ui);padding:6px 12px;border-radius:6px;border:1px solid #8885;background:transparent;color:inherit;cursor:pointer}
+.sw-bar button.on{background:#2563eb;color:#fff;border-color:#2563eb}
+.sw-bar .sep{width:1px;background:#8885;margin:0 4px}
+.grid6{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.tok{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
+.tok .c{height:44px;border-bottom:1px solid var(--border)}
+.tok .m{padding:8px 10px;font-size:12px;line-height:16px}
+.tok .m b{display:block;font-weight:500}
+.tok .m span{color:var(--muted-foreground);font-size:11px}
+.trow{display:grid;grid-template-columns:110px 90px 1fr;gap:12px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--border)}
+.trow .k{color:var(--muted-foreground);font-size:12px}
+.sp{display:flex;align-items:center;gap:12px;margin:6px 0;font-size:12px}
+.sp i{display:block;height:16px;background:var(--primary);border-radius:3px}
+.sp span{width:150px;color:var(--muted-foreground)}
+.rad{display:flex;gap:16px;flex-wrap:wrap}
+.rad div{width:110px;height:76px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:flex-end;padding:8px;font-size:11px;color:var(--muted-foreground);line-height:14px}
+.btn{display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:6px;font:500 14px var(--font);border:1px solid transparent;cursor:default}
+.btn.p{background:var(--primary);color:var(--primary-foreground)}
+.btn.s{background:var(--surface);border-color:var(--border);color:var(--foreground)}
+.btn.g{color:var(--foreground)}
+.btn.d{background:var(--danger);color:var(--primary-foreground)}
+.inp{height:36px;width:200px;padding:0 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--foreground);font:14px var(--font);display:inline-flex;align-items:center}
+.inp.f{outline:2px solid var(--ring);outline-offset:2px}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:12px;border:1px solid var(--border);color:var(--muted-foreground)}
+.chip.a{background:var(--accent);border-color:transparent;color:var(--primary)}
+.chip.ok{color:var(--success)}.chip.wn{color:var(--warning)}.chip.er{color:var(--danger)}
+.stat{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:16px;width:210px}
+.stat .l{color:var(--muted-foreground);font-size:12px;line-height:16px}
+.stat .v{font-size:28px;line-height:32px;font-weight:600;margin:4px 0}
+.stat .d{font-size:12px;color:var(--success)}
+.tbl{border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden;width:100%;max-width:520px}
+.tbl div{display:grid;grid-template-columns:2fr 1fr 1fr;padding:10px 16px;border-bottom:1px solid var(--border);font-size:14px}
+.tbl div:last-child{border-bottom:0}
+.tbl .h{background:var(--surface-2);color:var(--muted-foreground);font-size:12px;font-weight:500}
+.tbl div span:not(:first-child){text-align:right}
+.pop{display:inline-block;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 24px rgb(0 0 0/.12);padding:16px 20px;font-size:13px}
+</style>
+
+<div id="dt">
+  <div class="sw-bar" id="bar"></div>
+
+  <h4>1 · Colour tokens</h4>
+  <p class="note">Components only use these names (<code>bg-background</code>, <code>text-muted-foreground</code>, …), never hex. A theme = new values for the same names.</p>
+  <div class="grid6" id="colors"></div>
+  <p class="note" style="margin-top:12px">Chart series (<code>--chart-1…6</code>) — used in this order, same in every chart:</p>
+  <div class="grid6" id="charts"></div>
+
+  <h4>2 · Typography</h4>
+  <p class="note">Font: <b>Inter</b> (400 / 500 / 600), fallback <code>PingFang SC, Microsoft YaHei, Noto Sans SC</code> so 简体中文 renders cleanly. All numbers use <code>tabular-nums</code> so columns align.</p>
+  <div>
+   <div class="trow"><span class="k">display</span><span class="k">28/32 · 600</span><span style="font-size:28px;line-height:32px;font-weight:600">Overview 总览 12,480</span></div>
+   <div class="trow"><span class="k">h1 page title</span><span class="k">22/28 · 600</span><span style="font-size:22px;line-height:28px;font-weight:600">Account performance 账号表现</span></div>
+   <div class="trow"><span class="k">h2 section</span><span class="k">18/24 · 600</span><span style="font-size:18px;line-height:24px;font-weight:600">Best time to post 最佳发布时间</span></div>
+   <div class="trow"><span class="k">h3 card title</span><span class="k">15/22 · 500</span><span style="font-size:15px;line-height:22px;font-weight:500">Top posts by reach 触达最高的帖子</span></div>
+   <div class="trow"><span class="k">body</span><span class="k">14/20 · 400</span><span>Reels earn 2.1× more reach than carousels this month. 本月 Reels 的触达是轮播的 2.1 倍。</span></div>
+   <div class="trow"><span class="k">small / label</span><span class="k">12/16 · 400–500</span><span style="font-size:12px;line-height:16px;color:var(--muted-foreground)">Last synced 3 hours ago · 上次同步:3 小时前</span></div>
+  </div>
+
+  <h4>3 · Spacing</h4>
+  <p class="note">4px base. Page padding 24 (16 on phone). Card padding 16. Gap between cards 16. Gap inside a form 12. Between label and field 6 → use 8.</p>
+  <div id="spacing"></div>
+
+  <h4>4 · Radius</h4>
+  <div class="rad">
+    <div style="border-radius:6px">sm · 6px<br>buttons, inputs</div>
+    <div style="border-radius:10px">md · 10px<br>cards, tables</div>
+    <div style="border-radius:14px">lg · 14px<br>dialogs, popovers</div>
+    <div style="border-radius:999px;justify-content:center;align-items:center;text-align:center">full<br>chips, avatars</div>
+  </div>
+
+  <h4>5 · Border &amp; elevation</h4>
+  <p class="note">Flat by default: <b>1px</b> <code>--border</code> on cards, inputs and table rows; no shadow on cards. Shadow only for things that float. Focus = 2px <code>--ring</code> ring, 2px offset.</p>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+    <div class="inp">Normal input</div>
+    <div class="inp f">Focused input</div>
+    <div class="pop">Popover / dialog<br><span style="color:var(--muted-foreground)">shadow 0 8px 24px /12%</span></div>
+  </div>
+
+  <h4>6 · Components in use</h4>
+  <p class="note">Control height 36px (32 compact in tables). Table row 40px, header 36px.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <span class="btn p">Connect account</span><span class="btn s">Cancel</span><span class="btn g">Reconnect</span><span class="btn d">Remove</span>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <span class="chip">Reel</span><span class="chip a">Tips</span><span class="chip ok">● Active</span><span class="chip wn">● Needs reconnect</span><span class="chip er">● Error</span>
+  </div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+    <div class="stat"><div class="l">Followers 粉丝</div><div class="v">12,480</div><div class="d">▲ 3.2% vs previous 30d</div></div>
+    <div class="tbl">
+      <div class="h"><span>Post</span><span>Reach</span><span>Saves</span></div>
+      <div><span>5 tips for…</span><span>48,210</span><span>1,204</span></div>
+      <div><span>Behind the scenes</span><span>21,087</span><span>318</span></div>
+      <div><span>Weekend promo</span><span>9,455</span><span>77</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TH={
+ ink:{n:'Ink',l:{bg:'#F8FAFC',sf:'#FFFFFF',bd:'#E2E8F0',fg:'#0F172A',mu:'#64748B',pr:'#4F46E5',pf:'#FFFFFF',c:['#4F46E5','#0EA5E9','#10B981','#F59E0B','#EC4899','#8B5CF6']},d:{bg:'#0B1020',sf:'#131A2E',bd:'#243049',fg:'#E6EAF5',mu:'#94A3B8',pr:'#818CF8',pf:'#0B1020',c:['#818CF8','#38BDF8','#34D399','#FBBF24','#F472B6','#A78BFA']}},
+ sunset:{n:'Sunset',l:{bg:'#FFF8F5',sf:'#FFFFFF',bd:'#F1DDD4',fg:'#2A1810',mu:'#8A6F63',pr:'#D6245F',pf:'#FFFFFF',c:['#D6245F','#F97316','#EAB308','#14B8A6','#6366F1','#A855F7']},d:{bg:'#1A1011',sf:'#241619',bd:'#3C2428',fg:'#F6E9E4',mu:'#C4A59A',pr:'#FF6B9A',pf:'#1A1011',c:['#FF6B9A','#FB923C','#FACC15','#2DD4BF','#818CF8','#C084FC']}},
+ forest:{n:'Forest',l:{bg:'#F6F8F5',sf:'#FFFFFF',bd:'#DCE4DA',fg:'#112016',mu:'#5F6F63',pr:'#15803D',pf:'#FFFFFF',c:['#15803D','#0891B2','#CA8A04','#DC2626','#7C3AED','#DB2777']},d:{bg:'#0C1510',sf:'#131F18',bd:'#223428',fg:'#E4EFE7',mu:'#9BB1A1',pr:'#4ADE80',pf:'#0C1510',c:['#4ADE80','#22D3EE','#FACC15','#F87171','#A78BFA','#F472B6']}},
+ mono:{n:'Mono',l:{bg:'#FAFAFA',sf:'#FFFFFF',bd:'#E4E4E7',fg:'#09090B',mu:'#71717A',pr:'#18181B',pf:'#FFFFFF',c:['#2563EB','#F97316','#16A34A','#DC2626','#9333EA','#0891B2']},d:{bg:'#09090B',sf:'#111113',bd:'#27272A',fg:'#FAFAFA',mu:'#A1A1AA',pr:'#FAFAFA',pf:'#09090B',c:['#60A5FA','#FB923C','#4ADE80','#F87171','#C084FC','#22D3EE']}}
+};
+const ST={l:{ok:'#15803D',wn:'#B45309',er:'#B91C1C'},d:{ok:'#4ADE80',wn:'#FBBF24',er:'#F87171'}};
+let theme='ink',mode='l';
+const root=document.getElementById('dt');
+function apply(){
+  const t=TH[theme][mode],s=ST[mode];
+  const v={background:t.bg,surface:t.sf,border:t.bd,foreground:t.fg,'muted-foreground':t.mu,primary:t.pr,'primary-foreground':t.pf,ring:t.pr,success:s.ok,warning:s.wn,danger:s.er};
+  Object.entries(v).forEach(([k,x])=>root.style.setProperty('--'+k,x));
+  root.style.setProperty('--surface-2',`color-mix(in srgb, ${t.fg} 5%, ${t.sf})`);
+  root.style.setProperty('--accent',`color-mix(in srgb, ${t.pr} 14%, ${t.sf})`);
+  const all=[['background',t.bg,'page'],['surface',t.sf,'cards, inputs'],['surface-2','5% fg on surface','table header, code'],['border',t.bd,'1px lines'],['foreground',t.fg,'main text'],['muted-foreground',t.mu,'labels, hints'],['primary',t.pr,'buttons, links'],['primary-foreground',t.pf,'text on primary'],['accent','14% primary on surface','selected, tag bg'],['ring',t.pr,'focus ring'],['success',s.ok,'positive delta'],['warning',s.wn,'attention'],['danger',s.er,'error, delete']];
+  document.getElementById('colors').innerHTML=all.map(([n,h])=>`<div class="tok"><div class="c" style="background:var(--${n})"></div><div class="m"><b>${n}</b><span>--${n}<br>${h}</span></div></div>`).join('');
+  document.getElementById('charts').innerHTML=t.c.map((h,i)=>`<div class="tok"><div class="c" style="background:${h}"></div><div class="m"><b>chart-${i+1}</b><span>${h}</span></div></div>`).join('');
+  document.querySelectorAll('#bar button').forEach(b=>b.classList.toggle('on',b.dataset.t===theme||b.dataset.m===mode));
+}
+document.getElementById('bar').innerHTML=Object.entries(TH).map(([k,x])=>`<button data-t="${k}">${x.n}</button>`).join('')+'<span class="sep"></span><button data-m="l">Light</button><button data-m="d">Dark</button>';
+document.getElementById('bar').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.t)theme=b.dataset.t;if(b.dataset.m)mode=b.dataset.m;apply()};
+document.getElementById('spacing').innerHTML=[[1,4,'icon gap'],[2,8,'label→field, chip gap'],[3,12,'form field gap, table cell y'],[4,16,'card padding, card gap'],[6,24,'page padding, section gap'],[8,32,'between page sections'],[12,48,'empty-state padding']].map(([n,p,u])=>`<div class="sp"><span>space-${n} · ${p}px</span><i style="width:${p*3}px"></i><em style="color:var(--muted-foreground);font-style:normal">${u}</em></div>`).join('');
+apply();
+</script>

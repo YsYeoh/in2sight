@@ -1,0 +1,194 @@
+<h2>Dense Account detail</h2>
+<p class="subtitle">Same components, two density settings (token swap only). Hover the chart for a crosshair; click Replay for the entry motion.</p>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+#m{--font:'Inter','PingFang SC','Microsoft YaHei','Noto Sans SC',system-ui,sans-serif;font-family:var(--font);background:var(--background);color:var(--foreground);border:1px solid var(--border);border-radius:12px;padding:var(--pg);font-size:var(--fb);line-height:1.4;font-variant-numeric:tabular-nums;transition:background .3s,color .3s}
+#m[data-d="dense"]{--pg:16px;--pc:12px;--gp:12px;--ctl:30px;--row:30px;--fb:13px;--lb:11px;--fh:13px;--fv:22px;--rs:4px;--rm:8px}
+#m[data-d="comfy"]{--pg:24px;--pc:16px;--gp:16px;--ctl:36px;--row:40px;--fb:14px;--lb:12px;--fh:15px;--fv:28px;--rs:6px;--rm:10px}
+#m *{box-sizing:border-box}
+#m .bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--gp);align-items:center}
+#m .bar button,#m .seg span{font:500 var(--lb) var(--font);height:26px;padding:0 10px;border-radius:var(--rs);border:1px solid var(--border);background:var(--surface);color:var(--foreground);cursor:pointer;display:inline-flex;align-items:center;transition:border-color .15s}
+#m .bar button:hover{border-color:var(--primary)}
+#m .bar button.on,#m .seg span.on{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+#m .bar .sep{width:1px;height:18px;background:var(--border);margin:0 4px}
+#m .top{display:flex;align-items:center;gap:var(--gp);margin-bottom:var(--gp);flex-wrap:wrap}
+#m .top .crumb{color:var(--muted-foreground);font-size:var(--lb)}
+#m .top h1{font-size:calc(var(--fv) * .8);font-weight:600;margin:0;line-height:1.2}
+#m .top .sp{flex:1}
+#m .seg{display:inline-flex}#m .seg span{border-radius:0;margin-left:-1px}#m .seg span:first-child{border-radius:var(--rs) 0 0 var(--rs);margin:0}#m .seg span:last-child{border-radius:0 var(--rs) var(--rs) 0}
+#m .chip{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;font-size:10px;border:1px solid var(--border);color:var(--muted-foreground);white-space:nowrap}
+#m .chip.a{background:color-mix(in srgb,var(--primary) 14%,var(--surface));border-color:transparent;color:var(--primary)}
+#m .chip.ok{color:var(--success)}#m .chip.wn{color:var(--warning)}#m .chip.er{color:var(--danger)}
+#m .shell{display:grid;grid-template-columns:40px 1fr;gap:var(--gp)}
+#m .rail{display:flex;flex-direction:column;gap:6px;align-items:center;padding-top:2px}
+#m .rail i{width:32px;height:32px;border-radius:var(--rs);display:grid;place-items:center;color:var(--muted-foreground);font-style:normal;font-size:15px;border:1px solid transparent}
+#m .rail i.on{background:color-mix(in srgb,var(--primary) 14%,var(--surface));color:var(--primary)}
+#m .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--gp)}
+#m .p{background:var(--surface);border:1px solid var(--border);border-radius:var(--rm);padding:var(--pc);min-width:0}
+#m .p>h3{margin:0 0 8px;font-size:var(--fh);font-weight:500;display:flex;justify-content:space-between;align-items:center}
+#m .p>h3 small{font-weight:400;color:var(--muted-foreground);font-size:var(--lb)}
+#m .kpi{grid-column:span 2}
+#m .kpi .l{color:var(--muted-foreground);font-size:var(--lb)}
+#m .kpi .v{font-size:var(--fv);font-weight:600;line-height:1.15;margin:2px 0}
+#m .kpi .d{font-size:var(--lb)}
+#m .up{color:var(--success)}#m .dn{color:var(--danger)}
+#m .kpi svg{width:100%;height:22px;margin-top:4px}
+#m table{width:100%;border-collapse:collapse;font-size:var(--fb)}
+#m th{height:calc(var(--row) - 4px);text-align:right;font-weight:500;font-size:var(--lb);color:var(--muted-foreground);background:color-mix(in srgb,var(--foreground) 4%,var(--surface));padding:0 8px;white-space:nowrap;cursor:pointer}
+#m th:nth-child(-n+4){text-align:left}
+#m td{height:var(--row);padding:0 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+#m td:nth-child(-n+4){text-align:left}
+#m tr:last-child td{border-bottom:0}
+#m tbody tr{transition:background .12s}#m tbody tr:hover{background:color-mix(in srgb,var(--primary) 6%,var(--surface))}
+#m .th{width:20px;height:20px;border-radius:3px;display:block}
+#m .cap{max-width:170px;overflow:hidden;text-overflow:ellipsis}
+#m .tw{margin:0 -6px -6px;overflow:hidden;border-radius:var(--rs)}
+#m .flag{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fb);line-height:1.35}
+#m .flag:last-child{border-bottom:0}#m .flag b{font-weight:500}
+#m .st{display:flex;gap:8px}
+#m .sc{flex:1;aspect-ratio:9/14;border-radius:var(--rs);position:relative;overflow:hidden;color:#fff;font-size:10px;line-height:1.25}
+#m .sc .o{position:absolute;inset:auto 0 0 0;padding:6px;background:linear-gradient(transparent,#000a)}
+#m .sc .rg{position:absolute;top:5px;right:5px;width:22px;height:22px}
+#m .hm{display:grid;grid-template-columns:22px repeat(12,1fr);gap:2px;font-size:9px;color:var(--muted-foreground);align-items:center}
+#m .hm i{display:block;aspect-ratio:1;border-radius:2px}
+#m .br{display:grid;grid-template-columns:62px 1fr 56px;gap:8px;align-items:center;margin:7px 0;font-size:var(--lb)}
+#m .br .tr{height:6px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 8%,var(--surface));overflow:hidden}
+#m .br .fl{height:100%;border-radius:999px}
+#m .br em{font-style:normal;color:var(--muted-foreground);text-align:right}
+#m .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:10px;text-align:center}
+#m .cal span{height:26px;border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--muted-foreground)}
+#m .cal span.t{outline:1px solid var(--primary);color:var(--foreground)}
+#m .cal u{display:flex;gap:2px;text-decoration:none}#m .cal u i{width:4px;height:4px;border-radius:50%;display:block}
+#m .cal .w{height:auto;color:var(--muted-foreground)}
+#m #xh{position:absolute;pointer-events:none;opacity:0}
+</style>
+
+<div id="m" data-d="dense">
+  <div class="bar" id="bar"></div>
+  <div class="shell">
+    <div class="rail"><i class="on">◉</i><i>▤</i><i>◫</i><i>#</i><i>⚙</i></div>
+    <div>
+      <div class="top">
+        <div><div class="crumb">Overview 总览 / Brand X</div><h1>@brandx.official</h1></div>
+        <span class="chip ok">● Active</span><span class="chip">Synced 3h ago</span>
+        <span class="sp"></span>
+        <div class="seg" id="rng"><span>7d</span><span class="on">30d</span><span>90d</span></div>
+      </div>
+      <div class="grid">
+        <div class="p kpi"><div class="l">Followers 粉丝</div><div class="v">12,480</div><div class="d up">▲ 3.2%</div><svg data-s="1"></svg></div>
+        <div class="p kpi"><div class="l">Reach 触达</div><div class="v">184.2K</div><div class="d up">▲ 11.8%</div><svg data-s="2"></svg></div>
+        <div class="p kpi"><div class="l">Views 播放</div><div class="v">412.9K</div><div class="d up">▲ 8.1%</div><svg data-s="3"></svg></div>
+        <div class="p kpi"><div class="l">Profile visits 主页访问</div><div class="v">6,204</div><div class="d dn">▼ 2.4%</div><svg data-s="4"></svg></div>
+        <div class="p kpi"><div class="l">Link taps 链接点击</div><div class="v">932</div><div class="d up">▲ 5.0%</div><svg data-s="5"></svg></div>
+        <div class="p kpi"><div class="l">Engagement 互动率</div><div class="v">4.8%</div><div class="d up">▲ 0.4pt</div><svg data-s="6"></svg></div>
+
+        <div class="p" style="grid-column:span 8"><h3>Reach &amp; views 触达与播放 <small>● reach &nbsp; ● views</small></h3>
+          <div style="position:relative"><svg id="ch" viewBox="0 0 600 150" preserveAspectRatio="none" style="width:100%;height:150px;display:block"></svg><div id="xh"></div></div></div>
+        <div class="p" style="grid-column:span 4"><h3>Flags 提醒 <small>3</small></h3>
+          <div class="flag"><span class="up">▲</span><span><b>5 tips to grow reach</b> reached 2.3× your median<br><span class="chip a">Tips</span></span></div>
+          <div class="flag"><span class="dn">▼</span><span>Reach down <b>18%</b> vs previous 7 days</span></div>
+          <div class="flag"><span class="wn" style="color:var(--warning)">●</span><span>Story “Q&amp;A” exit rate <b>34%</b>, above your 22% average</span></div></div>
+
+        <div class="p" style="grid-column:span 8"><h3>Posts 帖子 <small>sorted by reach ▼</small></h3>
+          <div class="tw"><table><thead><tr><th></th><th>Caption</th><th>Type</th><th>Tags</th><th>Reach ▼</th><th>Saves</th><th>Shares</th><th>ER</th><th>Date</th></tr></thead><tbody id="tb"></tbody></table></div></div>
+        <div class="p" style="grid-column:span 4"><h3>Stories (live) <small>updated 1h ago</small></h3><div class="st" id="st"></div>
+          <h3 style="margin-top:14px">Best time 最佳时间 <small>engagement</small></h3><div class="hm" id="hm"></div></div>
+
+        <div class="p" style="grid-column:span 4"><h3>By tag 按标签 <small>avg reach</small></h3><div id="tags"></div></div>
+        <div class="p" style="grid-column:span 4"><h3>Calendar 日历 <small>October</small></h3><div class="cal" id="cal"></div></div>
+        <div class="p" style="grid-column:span 4"><h3>Audience 受众 <small>age · top countries</small></h3><div id="aud"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TH={
+ ink:{n:'Ink',l:{bg:'#F8FAFC',sf:'#FFFFFF',bd:'#E2E8F0',fg:'#0F172A',mu:'#64748B',pr:'#4F46E5',pf:'#FFFFFF',c:['#4F46E5','#0EA5E9','#10B981','#F59E0B','#EC4899','#8B5CF6']},d:{bg:'#0B1020',sf:'#131A2E',bd:'#243049',fg:'#E6EAF5',mu:'#94A3B8',pr:'#818CF8',pf:'#0B1020',c:['#818CF8','#38BDF8','#34D399','#FBBF24','#F472B6','#A78BFA']}},
+ sunset:{n:'Sunset',l:{bg:'#FFF8F5',sf:'#FFFFFF',bd:'#F1DDD4',fg:'#2A1810',mu:'#8A6F63',pr:'#D6245F',pf:'#FFFFFF',c:['#D6245F','#F97316','#EAB308','#14B8A6','#6366F1','#A855F7']},d:{bg:'#1A1011',sf:'#241619',bd:'#3C2428',fg:'#F6E9E4',mu:'#C4A59A',pr:'#FF6B9A',pf:'#1A1011',c:['#FF6B9A','#FB923C','#FACC15','#2DD4BF','#818CF8','#C084FC']}},
+ forest:{n:'Forest',l:{bg:'#F6F8F5',sf:'#FFFFFF',bd:'#DCE4DA',fg:'#112016',mu:'#5F6F63',pr:'#15803D',pf:'#FFFFFF',c:['#15803D','#0891B2','#CA8A04','#DC2626','#7C3AED','#DB2777']},d:{bg:'#0C1510',sf:'#131F18',bd:'#223428',fg:'#E4EFE7',mu:'#9BB1A1',pr:'#4ADE80',pf:'#0C1510',c:['#4ADE80','#22D3EE','#FACC15','#F87171','#A78BFA','#F472B6']}},
+ mono:{n:'Mono',l:{bg:'#FAFAFA',sf:'#FFFFFF',bd:'#E4E4E7',fg:'#09090B',mu:'#71717A',pr:'#18181B',pf:'#FFFFFF',c:['#2563EB','#F97316','#16A34A','#DC2626','#9333EA','#0891B2']},d:{bg:'#09090B',sf:'#111113',bd:'#27272A',fg:'#FAFAFA',mu:'#A1A1AA',pr:'#FAFAFA',pf:'#09090B',c:['#60A5FA','#FB923C','#4ADE80','#F87171','#C084FC','#22D3EE']}}
+};
+const OK={l:'#15803D',d:'#4ADE80'},WN={l:'#B45309',d:'#FBBF24'},ER={l:'#B91C1C',d:'#F87171'};
+let theme='ink',mode='l',dens='dense',tl;
+const R=document.getElementById('m'),$=s=>document.querySelector(s),qa=s=>[...document.querySelectorAll(s)];
+const C=i=>`var(--chart-${i})`;
+
+function apply(){
+  const t=TH[theme][mode];
+  Object.entries({background:t.bg,surface:t.sf,border:t.bd,foreground:t.fg,'muted-foreground':t.mu,primary:t.pr,'primary-foreground':t.pf,success:OK[mode],warning:WN[mode],danger:ER[mode]}).forEach(([k,v])=>R.style.setProperty('--'+k,v));
+  t.c.forEach((c,i)=>R.style.setProperty('--chart-'+(i+1),c));
+  R.dataset.d=dens;
+  qa('#bar button').forEach(b=>b.classList.toggle('on',b.dataset.t===theme||b.dataset.m===mode||b.dataset.d===dens));
+  qa('#hm i').forEach(i=>i.style.background=`color-mix(in srgb, ${t.pr} ${i.dataset.p}%, ${t.sf})`);
+}
+$('#bar').innerHTML=Object.entries(TH).map(([k,x])=>`<button data-t="${k}">${x.n}</button>`).join('')+'<span class="sep"></span><button data-m="l">Light</button><button data-m="d">Dark</button><span class="sep"></span><button data-d="dense">Dense</button><button data-d="comfy">Comfortable</button><span class="sep"></span><button data-p="1">▶ Replay</button>';
+$('#bar').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.t)theme=b.dataset.t;if(b.dataset.m)mode=b.dataset.m;if(b.dataset.d)dens=b.dataset.d;apply();if(b.dataset.p&&tl)tl.restart()};
+$('#rng').onclick=e=>{if(e.target.tagName!=='SPAN')return;qa('#rng span').forEach(s=>s.classList.toggle('on',s===e.target))};
+
+/* sparklines */
+const rnd=(s,n,base,vol,tr)=>{let x=s,o=[];for(let i=0;i<n;i++){x=(x*9301+49297)%233280;o.push(base+tr*i+(x/233280-.5)*vol)}return o};
+qa('.kpi svg').forEach(s=>{const k=+s.dataset.s,a=rnd(k*7,24,20,10,k===4?-.2:.35),mn=Math.min(...a),mx=Math.max(...a);
+  const pts=a.map((v,i)=>`${i/(a.length-1)*100},${22-((v-mn)/(mx-mn||1))*18-2}`).join(' ');
+  s.setAttribute('viewBox','0 0 100 22');s.setAttribute('preserveAspectRatio','none');
+  s.innerHTML=`<polyline class="sp" points="${pts}" fill="none" stroke="${k===4?'var(--danger)':'var(--chart-1)'}" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`});
+
+/* main chart + crosshair */
+const A=rnd(3,30,60,22,1.5),B=rnd(8,30,40,18,1.0);
+const P=(a,mx)=>a.map((v,i)=>`${i?'L':'M'}${i/(a.length-1)*600},${140-v/mx*125}`).join(' ');
+const mx=Math.max(...A,...B)*1.05;
+$('#ch').innerHTML=`<g stroke="var(--border)">${[30,70,110].map(y=>`<line x1="0" x2="600" y1="${y}" y2="${y}" vector-effect="non-scaling-stroke"/>`).join('')}</g>
+<path id="ar" d="${P(A,mx)} L600,150 L0,150Z" fill="var(--chart-1)" opacity=".1"/>
+<path class="ln" d="${P(A,mx)}" fill="none" stroke="var(--chart-1)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+<path class="ln" d="${P(B,mx)}" fill="none" stroke="var(--chart-2)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+<line id="cx" y1="0" y2="150" stroke="var(--muted-foreground)" stroke-dasharray="3 3" opacity="0" vector-effect="non-scaling-stroke"/>`;
+const xh=$('#xh'),cx=$('#cx'),wrap=$('#ch').parentElement;
+xh.style.cssText='background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:4px 8px;font-size:11px;top:4px;box-shadow:0 4px 12px rgb(0 0 0/.12);white-space:nowrap';
+wrap.onpointermove=e=>{const r=wrap.getBoundingClientRect(),f=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),i=Math.round(f*29);
+  cx.setAttribute('x1',i/29*600);cx.setAttribute('x2',i/29*600);cx.style.opacity=1;
+  xh.innerHTML=`Oct ${i+1}<br><span style="color:var(--chart-1)">●</span> ${Math.round(A[i]*2400).toLocaleString()} <span style="color:var(--chart-2)">●</span> ${Math.round(B[i]*5200).toLocaleString()}`;
+  xh.style.opacity=1;xh.style.left=Math.min(r.width-110,f*r.width+10)+'px'};
+wrap.onpointerleave=()=>{cx.style.opacity=0;xh.style.opacity=0};
+
+/* table */
+const TY={Reel:1,Carousel:2,Image:3};
+$('#tb').innerHTML=[['5 tips to grow your reach','Reel','Tips',48210,1204,892,6.8,'Oct 11'],['Behind the scenes at the studio','Reel','BTS',21087,318,240,4.9,'Oct 9'],['Weekend promo — 20% off','Carousel','Promo',9455,77,41,2.1,'Oct 7'],['Customer story: Mei','Image','Social proof',8120,204,66,5.2,'Oct 5'],['How we pick suppliers','Carousel','Tips',7733,390,171,5.9,'Oct 3'],['Monday motivation','Image','Lifestyle',5210,52,18,3.0,'Oct 1'],['New arrivals 新品','Reel','Promo',4986,61,35,2.6,'Sep 29'],['FAQ: shipping','Carousel','Tips',4102,148,59,4.4,'Sep 27']]
+ .map(([c,t,g,r,s,sh,er,d],i)=>`<tr><td><i class="th" style="background:linear-gradient(135deg,var(--chart-${(i%5)+1}),var(--chart-${((i+2)%5)+1}))"></i></td><td class="cap">${c}</td><td><span class="chip">${t}</span></td><td><span class="chip a">${g}</span></td><td>${r.toLocaleString()}</td><td>${s.toLocaleString()}</td><td>${sh}</td><td>${er}%</td><td style="color:var(--muted-foreground)">${d}</td></tr>`).join('');
+
+/* stories */
+$('#st').innerHTML=[['Q&A 问答',3,'12.4K','34% exit'],['Poll 投票',9,'9.8K','12% exit'],['New drop',15,'8.1K','21% exit'],['Studio',21,'6.0K','18% exit']].map(([n,h,r,e],i)=>
+ `<div class="sc" style="background:linear-gradient(160deg,var(--chart-${i+1}),var(--chart-${((i+3)%6)+1}))"><svg class="rg" viewBox="0 0 22 22"><circle cx="11" cy="11" r="9" fill="#0005" stroke="#fff4" stroke-width="2"/><circle class="rr" cx="11" cy="11" r="9" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="${56.5}" stroke-dashoffset="${56.5*(1-(24-h)/24)}" transform="rotate(-90 11 11)"/></svg><div class="o"><b>${n}</b><br>${r} · ${e}<br>${h}h left</div></div>`).join('');
+
+/* heatmap */
+let h='<span></span>'+[...Array(12)].map((_,i)=>`<span>${(6+i*2)}</span>`).join('');
+['M','T','W','T','F','S','S'].forEach((d,r)=>{h+=`<span>${d}</span>`;for(let c=0;c<12;c++){const p=Math.round(8+80*Math.max(0,Math.sin((c-5.5-r%3)/3.2)*.6+.4+Math.sin(r*2.1+c)*.15));h+=`<i data-p="${Math.min(p,92)}"></i>`}});
+$('#hm').innerHTML=h;
+
+/* tags */
+$('#tags').innerHTML=[['Tips',42100,9,1],['BTS',21000,5,2],['Social proof',8100,4,3],['Promo',7200,8,4],['Lifestyle',5200,6,5]].map(([n,v,c,i])=>`<div class="br"><span>${n}</span><div class="tr"><div class="fl" data-w="${Math.round(v/42100*100)}" style="width:${v/42100*100}%;background:${C(i)}"></div></div><em>${(v/1000).toFixed(1)}K · n${c}</em></div>`).join('');
+
+/* calendar */
+let cal=['M','T','W','T','F','S','S'].map(d=>`<span class="w">${d}</span>`).join('')+'<span></span><span></span>';
+const pd={1:[1],3:[2],5:[3],7:[2],9:[1],11:[1],13:[],15:[2],17:[1,3]};
+for(let d=1;d<=31;d++){const ps=pd[d]||[];cal+=`<span class="${d===13?'t':''}">${d}<u>${ps.map(t=>`<i style="background:${C(t)}"></i>`).join('')}</u></span>`}
+$('#cal').innerHTML=cal;
+
+/* audience */
+$('#aud').innerHTML=[['13–17',4],['18–24',31],['25–34',38],['35–44',17],['45+',10]].map(([n,v])=>`<div class="br"><span>${n}</span><div class="tr"><div class="fl" data-w="${v*2}" style="width:${v*2}%;background:var(--chart-1)"></div></div><em>${v}%</em></div>`).join('')+
+ '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+[['🇲🇾 Malaysia','46%'],['🇸🇬 Singapore','21%'],['🇮🇩 Indonesia','9%'],['🇺🇸 US','6%']].map(([n,v])=>`<span class="chip">${n} ${v}</span>`).join('')+'</div>';
+
+/* motion */
+function build(){
+  tl=gsap.timeline({delay:.1});
+  tl.fromTo('#m .p',{y:12,opacity:0},{y:0,opacity:1,duration:.5,stagger:.04,ease:'power3.out'});
+  qa('#m .sp, #m .ln').forEach(p=>{const L=p.getTotalLength?p.getTotalLength():0;if(L)tl.fromTo(p,{strokeDasharray:L,strokeDashoffset:L},{strokeDashoffset:0,duration:1.1,ease:'power2.inOut'},.2)});
+  tl.fromTo('#tb tr',{opacity:0,x:-8},{opacity:1,x:0,duration:.35,stagger:.04,ease:'power2.out'},.4);
+  tl.fromTo('#m .fl',{width:0},{width:(i,t)=>t.dataset.w+'%',duration:.7,ease:'power3.out',stagger:.03},.5);
+  tl.fromTo('#hm i',{scale:0},{scale:1,duration:.3,ease:'back.out(2)',stagger:{grid:[7,12],from:'center',amount:.7}},.5);
+  tl.fromTo('#cal span:not(.w)',{opacity:0},{opacity:1,duration:.3,stagger:.01},.6);
+  tl.fromTo('#m .rr',{strokeDashoffset:56.5},{strokeDashoffset:(i,t)=>t.getAttribute('stroke-dashoffset'),duration:.9,ease:'power2.out'},.6);
+}
+apply();
+const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js';s.onload=build;document.head.appendChild(s);
+</script>
