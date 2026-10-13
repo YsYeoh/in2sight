@@ -114,5 +114,8 @@ describe('AppShell', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Account menu' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
     await waitFor(() => expect(signOutAction).toHaveBeenCalledTimes(1));
+    // onSelect preventDefault keeps the menu open so the form can submit
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
   });
 });
