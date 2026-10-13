@@ -13,7 +13,7 @@ export async function setPrefs(partial: unknown): Promise<void> {
   const next = parsePrefs({ ...current, ...patch });
   jar.set(PREFS_COOKIE, serializePrefs(next), { path: '/', maxAge: 60 * 60 * 24 * 365, sameSite: 'lax' });
   try {
-    await persistPrefsToProfile(next, (Object.keys(patch) as (keyof Prefs)[]).filter((k) => k in DEFAULT_PREFS)); // only what this save changed
+    await persistPrefsToProfile(next, (Object.keys(patch) as (keyof Prefs)[]).filter((k) => Object.hasOwn(DEFAULT_PREFS, k))); // only what this save changed
   } catch {
     // the cookie is already saved; the next successful save syncs the profile
   }

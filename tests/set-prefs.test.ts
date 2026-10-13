@@ -73,4 +73,9 @@ describe('setPrefs', () => {
     await setPrefs({ theme: 'mono', bogus: 1 });
     expect(persistPrefsToProfile).toHaveBeenCalledWith(expect.objectContaining({ theme: 'mono' }), ['theme']);
   });
+
+  it('drops inherited Object.prototype names from the persisted keys', async () => {
+    await setPrefs({ constructor: 1, toString: 1, theme: 'mono' });
+    expect(persistPrefsToProfile).toHaveBeenCalledWith(expect.anything(), ['theme']);
+  });
 });
