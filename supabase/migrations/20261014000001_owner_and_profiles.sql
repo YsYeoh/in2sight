@@ -12,6 +12,9 @@ insert into public.owners (user_id)
 select id from auth.users order by created_at asc limit 1
 on conflict do nothing;
 
+-- Every later policy gates on this, so it also enforces 2FA: once the user has a verified factor, only an aal2
+-- JWT counts. Without that, a password-only (aal1) token could query PostgREST directly and skip the code step.
+-- security definer so it can read auth.mfa_factors, which authenticated users cannot select.
 create or replace function public.is_owner()
 returns boolean
 language sql
@@ -20,6 +23,8 @@ security definer
 set search_path = public
 as $$
   select exists (select 1 from public.owners where user_id = (select auth.uid()))
+    and ((select auth.jwt() ->> 'aal') = 'aal2'
+         or not exists (select 1 from auth.mfa_factors where user_id = (select auth.uid()) and status = 'verified'))
 $$;
 revoke all on function public.is_owner() from public;
 grant execute on function public.is_owner() to authenticated;
