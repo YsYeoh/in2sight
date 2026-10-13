@@ -10,7 +10,15 @@
     "overview": "总览",
     "accounts": "账号",
     "tags": "标签",
-    "settings": "设置"
+    "settings": "设置",
+    "sidebar": "主导航",
+    "tabs": "主标签栏"
+  },
+  "shell": {
+    "toggleMode": "切换深色模式",
+    "userMenu": "账户菜单",
+    "settings": "设置",
+    "signOut": "退出登录"
   },
   "prefs": {
     "theme": "主题",
