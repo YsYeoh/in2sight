@@ -53,6 +53,7 @@ describe('ResponsiveDialog', () => {
       'max-md:translate-y-0',
       'max-md:rounded-b-none',
       'max-md:max-w-none',
+      'sm:max-md:max-w-none', // 640-767px: beats sm:max-w-lg
       // zoom animation neutralised, slide up instead
       'max-md:data-[state=open]:zoom-in-100',
       'max-md:data-[state=closed]:zoom-out-100',

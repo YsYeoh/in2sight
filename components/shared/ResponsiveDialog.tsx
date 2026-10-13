@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 // from `md` up it is the normal centred dialog. Pure CSS: server and client render the same markup.
 const SHEET = [
   'max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:right-0 max-md:translate-x-0 max-md:translate-y-0',
-  'max-md:max-w-none max-md:w-full max-md:rounded-b-none max-md:max-h-[90dvh] max-md:overflow-y-auto',
+  'max-md:max-w-none sm:max-md:max-w-none max-md:w-full max-md:rounded-b-none max-md:max-h-[90dvh] max-md:overflow-y-auto',
   // neutralise the dialog's zoom animation (scale back to 100%) and slide from the bottom edge
   'max-md:data-[state=open]:zoom-in-100 max-md:data-[state=closed]:zoom-out-100',
   'max-md:data-[state=open]:slide-in-from-bottom max-md:data-[state=closed]:slide-out-to-bottom',
