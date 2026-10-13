@@ -16,9 +16,9 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] Next.js (TS, App Router) scaffold
 - [ ] Deploy to Vercel (Plan 3)
 - [ ] Supabase migrations: all tables in SPEC §5 + RLS
-- [ ] Supabase Auth: single owner login (sign-ups disabled); middleware guards all pages
-- [ ] 2FA: TOTP enroll/verify UI in Settings → Account; middleware enforces AAL2 once enrolled
-- [ ] `profiles` table: language, timezone, date/time/number format, week start, theme, density, radius
+- [x] Supabase Auth: single owner login (sign-ups disabled); middleware guards all pages (code done; live verification pending — docs/RUNBOOK_AUTH.md)
+- [x] 2FA: TOTP enroll/verify UI in Settings → Account; middleware enforces AAL2 once enrolled (code done; live verification pending — docs/RUNBOOK_AUTH.md)
+- [x] `profiles` table: language, timezone, date/time/number format, week start, theme, density, radius (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 
 ## 2. Connect accounts
 - [ ] `lib/instagram.ts`: authorize URL, code→token, long-lived exchange, refresh
@@ -55,7 +55,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] next-intl with en + zh-CN, key/placeholder parity test, language switcher (PrefsBar)
 - [x] `lib/format.ts` (date/time/number per user settings)
 - [ ] `lib/metrics.ts` registry (Plan 2/6)
-- [x] Responsive shell: bottom tab bar / icon rail / sidebar; bottom-sheet dialogs; touch targets (dialog close X is 16px � known gap)
+- [x] Responsive shell: bottom tab bar / icon rail / sidebar; bottom-sheet dialogs; touch targets (dialog close X is 16px — known gap)
 - [ ] DataTable card mode (Plan 6)
 - [ ] PWA: manifest, icons, service worker (static + offline page only), install prompt; motion gating (reduced-motion, mobile, Save-Data)
 

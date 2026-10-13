@@ -8,6 +8,7 @@ Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_
 - `npm run dev` — dev server (http://localhost:3000, redirects to `/styleguide` until real pages exist)
 - `npm test` — Vitest (unit + component tests in `tests/`); `npm run test:watch` while developing
 - `npm run check` — lint + typecheck + tests + build; must pass before any task is called done
+- `npm run check:env` — checks `.env.local` variable names and formats (never prints values)
 - Mockups (visual reference): `node docs/mockups/serve.cjs` → http://localhost:5173/
 
 ## Workflow rules

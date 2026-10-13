@@ -184,5 +184,11 @@
     "accounts": {
       "title": "Accounts"
     }
+  },
+  "setup": {
+    "title": "Almost there",
+    "body": "in2sight needs its Supabase connection before you can sign in. Add these variables to .env.local (and to Vercel), then reload.",
+    "docs": "Step-by-step guide: docs/SETUP.md",
+    "check": "Check your setup:"
   }
 }
