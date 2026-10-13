@@ -74,6 +74,15 @@ npm run check:env -- --only=app,supabase,security
 
 All `[ok]`? Then tell me *"Supabase is ready, project ref is `…`"* (the ref is not secret; **do not paste keys**).
 
+## Database migrations
+
+The schema lives in `supabase/migrations/` (plain SQL files). Apply it one of two ways:
+
+- **Claude applies it** through the connected Supabase tool. The project must be in the same Supabase organization the connector can see.
+- **You apply it** with `npx supabase db push`, which needs `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` in your environment.
+
+After applying, follow `RUNBOOK_AUTH.md` to verify login and 2FA.
+
 ## What I do next
 
 With the connected Supabase tool I can list your projects to confirm I can reach it, then apply the schema (accounts, tags, daily metrics, profiles, notifications…) with row-level security, the cron schedules, and the login + 2FA code. The database password and access token in `.env.example` are only needed if you'd rather run migrations yourself with the Supabase CLI.
