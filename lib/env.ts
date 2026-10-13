@@ -7,6 +7,7 @@ export class EnvError extends Error {
 
 const filled = (v: string | undefined): v is string => typeof v === 'string' && v.trim() !== '';
 
+// Server/proxy only: reads process.env dynamically, which Next does not inline into browser bundles.
 export function isSupabaseConfigured(env: Record<string, string | undefined> = process.env): boolean {
   return filled(env.NEXT_PUBLIC_SUPABASE_URL) && filled(env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 }
@@ -25,6 +26,15 @@ export function getPublicEnv() {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   });
   return { supabaseUrl: v.NEXT_PUBLIC_SUPABASE_URL, publishableKey: v.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, appUrl: v.NEXT_PUBLIC_APP_URL };
+}
+
+/** URL + publishable key only (no app URL): what the proxy and the Supabase clients need. */
+export function getSupabasePublic() {
+  const v = need({
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  });
+  return { url: v.NEXT_PUBLIC_SUPABASE_URL, publishableKey: v.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY };
 }
 
 export function getServerEnv() {
