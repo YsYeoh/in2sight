@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { isValidTimeZone } from '@/lib/prefs';
 import { TIMEZONES, withCurrentZone } from '@/lib/timezones';
 

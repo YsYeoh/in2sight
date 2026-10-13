@@ -15,20 +15,28 @@ export interface ProfileRow {
   radius: string;
 }
 
+const COLUMN: Record<keyof Prefs, Exclude<keyof ProfileRow, 'user_id'>> = {
+  locale: 'language',
+  timezone: 'timezone',
+  dateFormat: 'date_format',
+  timeFormat: 'time_format',
+  numberFormat: 'number_format',
+  weekStart: 'week_start',
+  theme: 'theme',
+  mode: 'mode',
+  density: 'density',
+  radius: 'radius',
+};
+
+/** Only the named preferences (plus user_id): an upsert of this leaves every other column as stored. */
+export function prefsPatchToRow(userId: string, p: Prefs, keys: readonly (keyof Prefs)[]): Partial<ProfileRow> & { user_id: string } {
+  const row: Partial<ProfileRow> & { user_id: string } = { user_id: userId };
+  for (const k of keys) row[COLUMN[k]] = p[k];
+  return row;
+}
+
 export function prefsToProfileRow(userId: string, p: Prefs): ProfileRow {
-  return {
-    user_id: userId,
-    language: p.locale,
-    timezone: p.timezone,
-    date_format: p.dateFormat,
-    time_format: p.timeFormat,
-    number_format: p.numberFormat,
-    week_start: p.weekStart,
-    theme: p.theme,
-    mode: p.mode,
-    density: p.density,
-    radius: p.radius,
-  };
+  return prefsPatchToRow(userId, p, Object.keys(COLUMN) as (keyof Prefs)[]) as ProfileRow;
 }
 
 /** null = no profile row yet; otherwise a complete Prefs (invalid columns fall back per field via parsePrefs). */

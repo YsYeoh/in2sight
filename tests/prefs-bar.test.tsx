@@ -67,6 +67,16 @@ describe('PrefsBar', () => {
     expect(screen.getByRole('combobox', { name: 'Timezone' })).toHaveTextContent('Africa/Nairobi');
   });
 
+  it('choosing a timezone persists it', async () => {
+    // jsdom lacks the pointer-capture / scroll APIs Radix Select uses
+    Object.assign(Element.prototype, { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} });
+    const persist = setup();
+    await userEvent.click(screen.getByRole('combobox', { name: 'Timezone' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Europe/London' }));
+    expect(persist).toHaveBeenLastCalledWith({ timezone: 'Europe/London' });
+    expect(screen.getByRole('combobox', { name: 'Timezone' })).toHaveTextContent('Europe/London');
+  });
+
   it('renders translated labels in Chinese', () => {
     setup(vi.fn(), 'zh-CN');
     expect(screen.getByRole('button', { name: '深色' })).toBeInTheDocument();

@@ -1,7 +1,7 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { DATE_FORMATS, DEFAULT_PREFS, DENSITIES, LOCALES, MODES, NUMBER_FORMATS, RADII, THEMES, TIME_FORMATS, WEEK_STARTS, type Prefs } from '@/lib/prefs';
-import { prefsToProfileRow, profileRowToPrefs } from '@/lib/prefs.sync';
+import { prefsPatchToRow, prefsToProfileRow, profileRowToPrefs } from '@/lib/prefs.sync';
 
 const custom: Prefs = { ...DEFAULT_PREFS, theme: 'forest', mode: 'dark', density: 'comfortable', radius: 'round', locale: 'zh-CN', dateFormat: 'DD/MM/YYYY', timeFormat: '12h', numberFormat: '1.234,5', weekStart: 'sun', timezone: 'Europe/London' };
 
@@ -24,6 +24,16 @@ describe('profile <-> prefs mapping', () => {
   it('invalid column values fall back per field instead of throwing', () => {
     const p = profileRowToPrefs({ user_id: 'u', language: 'fr', theme: 'forest', timezone: 'Not/AZone', mode: 'dark' });
     expect(p).toMatchObject({ locale: DEFAULT_PREFS.locale, theme: 'forest', timezone: DEFAULT_PREFS.timezone, mode: 'dark' });
+  });
+});
+
+describe('prefsPatchToRow', () => {
+  it('sends only the patched columns, with the validated values, plus user_id', () => {
+    expect(prefsPatchToRow('u1', custom, ['theme', 'weekStart', 'locale'])).toEqual({ user_id: 'u1', theme: 'forest', week_start: 'sun', language: 'zh-CN' });
+  });
+  it('maps every preference key to a column of the full row', () => {
+    const full = prefsToProfileRow('u1', custom);
+    expect(prefsPatchToRow('u1', custom, Object.keys(custom) as (keyof Prefs)[])).toEqual(full);
   });
 });
 

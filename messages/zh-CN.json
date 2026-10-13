@@ -166,7 +166,7 @@
       "account": "账户"
     },
     "account": {
-      "email": "当前登录"
+      "email": "登录账号"
     }
   },
   "pages": {
