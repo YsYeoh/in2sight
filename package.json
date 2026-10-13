@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "check:env": "node --env-file-if-exists=.env.local scripts/check-env.mjs"
   },
   "dependencies": {
     "next": "16.4.0",
