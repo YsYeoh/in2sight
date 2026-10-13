@@ -32,6 +32,13 @@ Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_
 - **Formats:** dates, times and numbers only via `lib/format.ts` (honours the user's format settings). Never call `toLocaleDateString` / `toLocaleString` inline.
 - **Motion:** gate heavy effects (particles, 3D) behind the shared motion check (reduced-motion, mobile, Save-Data). The mockups in `.superpowers/brainstorm/` are the visual reference.
 
+## UI kit rules
+- **shadcn CLI:** never run `npx shadcn init` (it rewrites `app/globals.css`). After every `npx shadcn@latest add ...` check `git diff app/globals.css` is empty and grep `components/ui` for `from "cn"` / `next-themes` (the CLI once wrote a bogus `cn` import and installed `cn` + `next-themes`; `tests/ui-imports.test.ts` guards it).
+- **Density is un-layered on purpose:** `styles/density.css` sits outside Tailwind's layers so density/radius tokens drive component sizes. Consequence: a utility like `h-12`, `py-0`, `p-0` on a shadcn Button/Input/Card/Table cell is IGNORED. Use `!h-12` (important) only when truly needed, or change the token.
+- **Tooltips:** Radix Tooltip throws without `TooltipProvider` (mounted in `app/layout.tsx`).
+- **Forms and dialogs:** forms use `FormField` with the render-prop pattern; dialogs use `ResponsiveDialog*`.
+- **Layout breakpoints:** never use `window.matchMedia` / `useMediaQuery` for layout, CSS breakpoints only (hydration mismatches).
+
 ## Security rules
 - Never commit `.env*`. Never log, print, or return access tokens or secrets. No tokens in client bundles (`NEXT_PUBLIC_` is for the Supabase URL/anon key only).
 - Cron endpoints require `CRON_SECRET`. Service-role key is server-only.
