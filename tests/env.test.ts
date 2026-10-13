@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EnvError, getPublicEnv, getServerEnv, getSupabaseSecretKey, getSupabaseUrl, isSupabaseConfigured } from '@/lib/env';
+import { EnvError, getPublicEnv, getServerEnv, getSupabasePublic, getSupabaseSecretKey, getSupabaseUrl, isSupabaseConfigured } from '@/lib/env';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 afterEach(() => vi.unstubAllEnvs());
@@ -102,6 +102,28 @@ describe('createAdminSupabase', () => {
       expect(() => createAdminSupabase()).toThrow(/browser/);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('getSupabasePublic', () => {
+  it('needs only the URL and the publishable key (no app URL)', () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', ' https://x.supabase.co ');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_1');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+    expect(getSupabasePublic()).toEqual({ url: 'https://x.supabase.co', publishableKey: 'sb_publishable_1' });
+  });
+
+  it('throws EnvError naming only the missing variables', () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://x.supabase.co');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', '');
+    try {
+      getSupabasePublic();
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(EnvError);
+      expect((e as EnvError).missing).toEqual(['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY']);
+      expect((e as Error).message).not.toContain('x.supabase.co');
     }
   });
 });

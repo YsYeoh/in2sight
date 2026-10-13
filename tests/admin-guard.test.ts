@@ -17,14 +17,18 @@ describe('secret-key client isolation', () => {
       .filter((f) => /\.(ts|tsx)$/.test(f))
       .filter((f) => {
         const src = readFileSync(f, 'utf8');
-        return /^\s*['"]use client['"]/.test(src) && /(supabase\/admin|getServerEnv|SUPABASE_SECRET_KEY)/.test(src);
+        // multiline: the directive may follow leading comments
+        return /^\s*['"]use client['"]/m.test(src) && /(supabase\/admin|createAdminSupabase|getServerEnv|getSupabaseSecretKey|SUPABASE_SECRET_KEY)/.test(src);
       });
     expect(offenders).toEqual([]);
   });
 
+  it('proxy.ts exists at the repo root', () => {
+    expect(existsSync(join(process.cwd(), 'proxy.ts'))).toBe(true);
+  });
+
   it('the secret key variable is referenced only by lib/env.ts and the env checker', () => {
     const users = ['app', 'components', 'lib', 'proxy.ts']
-      .filter((d) => existsSync(join(process.cwd(), d))) // proxy.ts arrives in a later task
       .flatMap((d) => {
         const p = join(process.cwd(), d);
         return statSync(p).isDirectory() ? files(p) : [p];
