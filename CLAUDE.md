@@ -1,6 +1,6 @@
 # in2sight
 
-Private dashboard that pulls Instagram insights (Meta API) for the owner's multiple accounts and analyses them. Stack: Next.js (TS) on Vercel, Supabase (Postgres + Auth), Vercel Cron.
+Private dashboard that pulls Instagram insights (Meta API) for the owner's multiple accounts and analyses them. Stack: Next.js (TS) on Vercel, Supabase (Postgres + Auth). Supabase `pg_cron` (via `pg_net`) is the scheduler; Vercel Cron is NOT used (see `docs/SPEC.md` §2 and §4).
 
 Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_SETUP.md` (owner setup). Keep TODO checked off as work lands. If the code and spec disagree, stop and ask which is right.
 
@@ -12,7 +12,7 @@ Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_
 
 ## Workflow rules
 - **Do not build ahead of approval.** Design changes go through `superpowers:brainstorming` → update SPEC first.
-- Milestone order is in TODO. Don't start UI before sync works against a real account.
+- Milestone order follows `docs/superpowers/plans/2026-10-13-00-roadmap.md` (UI foundation and styleguide first, then auth, Instagram connect, sync, analysis/dashboards, alerts/PWA, exports).
 - Don't commit or push unless asked. Commit messages end with the Co-Authored-By line from the harness. Never force-push `main`.
 - Don't create external resources (Supabase project, Vercel project, Meta app changes) without explicit confirmation.
 
@@ -26,7 +26,7 @@ Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_
 ## Frontend rules (owner's)
 - **Reuse:** build from `components/ui/` (shadcn) and `components/shared/`. Inline first; extract on the second use. Pages = wiring only, logic in `lib/`.
 - **Flexible, not over-built:** metrics come from the registry `lib/metrics.ts`; a new metric is one entry. No plugin systems or config for values that never change.
-- **i18n:** every UI string via next-intl (`messages/en.json`, `messages/zh.json`). Never hardcode text. New keys go in both files. Backend returns error keys, not prose.
+- **i18n:** every UI string via next-intl (`messages/en.json`, `messages/zh-CN.json`). Never hardcode text. New keys go in both files. Backend returns error keys, not prose.
 - **Theming:** only semantic tokens (`bg-background`, `text-foreground`, `--chart-n`), never raw colors. Every new component must look right in all themes, light and dark.
 - **Responsive:** mobile-first. Every component and page must work at 360px, 768px and 1280px+. Use the shared responsive primitives; no fixed pixel widths on layout containers.
 - **Formats:** dates, times and numbers only via `lib/format.ts` (honours the user's format settings). Never call `toLocaleDateString` / `toLocaleString` inline.
