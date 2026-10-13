@@ -26,7 +26,7 @@ as $$
     and ((select auth.jwt() ->> 'aal') = 'aal2'
          or not exists (select 1 from auth.mfa_factors where user_id = (select auth.uid()) and status = 'verified'))
 $$;
-revoke all on function public.is_owner() from public;
+revoke execute on function public.is_owner() from public, anon;
 grant execute on function public.is_owner() to authenticated;
 
 -- Called once after the first successful login if the owners table is still empty. First caller wins.
@@ -49,7 +49,7 @@ begin
   return exists (select 1 from public.owners where user_id = uid);
 end;
 $$;
-revoke all on function public.claim_ownership() from public;
+revoke execute on function public.claim_ownership() from public, anon;
 grant execute on function public.claim_ownership() to authenticated;
 
 create policy owners_select_self on public.owners
