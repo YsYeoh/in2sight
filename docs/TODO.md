@@ -1,6 +1,6 @@
 # in2sight — TODO
 
-Status: nothing built yet. Check items off as done.
+Status: spec approved 2026-10-13; docs + mockups pushed. Implementation follows `docs/superpowers/plans/2026-10-13-00-roadmap.md` (Plan 1 in progress when this line is stale — check git log). Check items off as done.
 
 ## 0. Owner actions (Claude can't do these)
 - [ ] Convert each Instagram account to **Creator** (Settings → Account type and tools → Switch to professional account)
@@ -8,7 +8,7 @@ Status: nothing built yet. Check items off as done.
 - [ ] Create a Meta app, add the **Instagram** product → "API setup with Instagram login"
 - [ ] Add each account as **Instagram Tester**, accept the invite in each account (Settings → Apps and websites → Tester invites)
 - [ ] Create Supabase project and Vercel project (or approve Claude doing it via MCP)
-- [ ] Approve `docs/SPEC.md`
+- [x] Approve `docs/SPEC.md` (done 2026-10-13)
 
 See `docs/META_SETUP.md` for click-by-click notes.
 
