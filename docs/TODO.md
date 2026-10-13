@@ -13,7 +13,8 @@ Status: spec approved 2026-10-13; docs + mockups pushed. Implementation follows 
 See `docs/META_SETUP.md` for click-by-click notes.
 
 ## 1. Foundation
-- [ ] Next.js (TS, App Router) scaffold, deploy empty app to Vercel
+- [x] Next.js (TS, App Router) scaffold
+- [ ] Deploy to Vercel (Plan 3)
 - [ ] Supabase migrations: all tables in SPEC §5 + RLS
 - [ ] Supabase Auth: single owner login (sign-ups disabled); middleware guards all pages
 - [ ] 2FA: TOTP enroll/verify UI in Settings → Account; middleware enforces AAL2 once enrolled
@@ -49,9 +50,10 @@ See `docs/META_SETUP.md` for click-by-click notes.
 ## 5. UI foundation (before pages)
 - [ ] Tailwind + shadcn/ui, `components/shared/*` (AppShell, DataTable, StatCard, ChartCard, EmptyState, PageHeader)
 - [ ] **`/styleguide` page first**: every component in every theme × light/dark × density × radius, EN/中文, at 360 / 768 / 1280 widths — compare against the approved mockups
-- [ ] Theme tokens + 4 themes (Ink, Sunset, Forest, Mono) × light/dark (next-themes); radius presets; chart-color contrast check
-- [ ] next-intl with en + zh-CN, missing-key test, language switcher
-- [ ] `lib/format.ts` (date/time/number per user settings) + `lib/metrics.ts` registry
+- [x] Theme tokens + 4 themes (Ink, Sunset, Forest, Mono) × light/dark; radius presets; text-contrast test (chart colours are checked visually in the styleguide)
+- [x] next-intl with en + zh-CN, key/placeholder parity test, language switcher (PrefsBar)
+- [x] `lib/format.ts` (date/time/number per user settings)
+- [ ] `lib/metrics.ts` registry (Plan 2/6)
 - [ ] Responsive shell: bottom tab bar / icon rail / sidebar; DataTable card mode; bottom-sheet dialogs; touch targets
 - [ ] PWA: manifest, icons, service worker (static + offline page only), install prompt; motion gating (reduced-motion, mobile, Save-Data)
 
