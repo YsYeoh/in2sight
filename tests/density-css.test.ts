@@ -36,3 +36,12 @@ describe('density wiring', () => {
     expect(globals).not.toMatch(/density\.css["']\s*layer\(/);
   });
 });
+
+describe('iOS no-zoom text fields', () => {
+  it('coarse-pointer inputs are at least 16px', () => {
+    const css = density.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(
+      /@media\s*\(pointer:\s*coarse\)\s*\{[^{}]*\[data-slot="input"\][^{}]*\[data-slot="textarea"\][^{}]*\[data-slot="select-trigger"\][^{}]*\{[^}]*font-size:\s*max\(16px,\s*var\(--fb\)\)/,
+    );
+  });
+});
