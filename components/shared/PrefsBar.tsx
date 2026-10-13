@@ -2,7 +2,8 @@
 
 import { useTranslations } from 'next-intl';
 import { usePrefs } from '@/components/providers/PrefsProvider';
-import { DATE_FORMATS, DENSITIES, LOCALES, MODES, RADII, THEMES, type Prefs } from '@/lib/prefs';
+import { TimezoneSelect } from '@/components/settings/TimezoneSelect';
+import { DATE_FORMATS, DENSITIES, LOCALES, MODES, NUMBER_FORMATS, RADII, THEMES, TIME_FORMATS, WEEK_STARTS, type Prefs } from '@/lib/prefs';
 
 // proper nouns / literal formats are not translated
 const LITERAL: Record<string, string> = { ink: 'Ink', sunset: 'Sunset', forest: 'Forest', mono: 'Mono', en: 'English', 'zh-CN': '简体中文' };
@@ -39,6 +40,10 @@ export function PrefsBar() {
       <Choice field="radius" label={t('radius')} options={RADII} />
       <Choice field="locale" label={t('language')} options={LOCALES} />
       <Choice field="dateFormat" label={t('dateFormat')} options={DATE_FORMATS} />
+      <Choice field="timeFormat" label={t('timeFormat')} options={TIME_FORMATS} />
+      <Choice field="numberFormat" label={t('numberFormat')} options={NUMBER_FORMATS} />
+      <Choice field="weekStart" label={t('weekStart')} options={WEEK_STARTS} />
+      <TimezoneSelect />
     </div>
   );
 }

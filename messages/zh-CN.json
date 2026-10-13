@@ -33,7 +33,13 @@
     "soft": "柔和",
     "round": "圆润",
     "language": "语言",
-    "dateFormat": "日期格式"
+    "dateFormat": "日期格式",
+    "timeFormat": "时间格式",
+    "numberFormat": "数字格式",
+    "weekStart": "每周起始日",
+    "timezone": "时区",
+    "mon": "周一",
+    "sun": "周日"
   },
   "styleguide": {
     "title": "样式指南",
@@ -152,6 +158,31 @@
       "recovery": "设备丢失？请在 Supabase 控制台（Authentication → Users）中移除该验证因素。详见 docs/SETUP_SUPABASE.md。",
       "errorUnexpected": "出了点问题，请重试。",
       "errorNeedsAal2": "请先使用验证器验证码重新登录，再更改两步验证设置。"
+    },
+    "title": "设置",
+    "subtitle": "外观、格式与安全",
+    "tabs": {
+      "general": "常规",
+      "account": "账户"
+    },
+    "account": {
+      "email": "当前登录"
+    }
+  },
+  "pages": {
+    "overview": {
+      "title": "总览",
+      "empty": "还没有账号",
+      "emptyHint": "连接一个 Instagram 账号即可开始收集数据洞察。",
+      "addAccount": "添加账号"
+    },
+    "tags": {
+      "title": "标签",
+      "empty": "标签功能随数据看板推出",
+      "emptyHint": "连接账号后即可在这里为帖子打标签。"
+    },
+    "accounts": {
+      "title": "账号"
     }
   }
 }
