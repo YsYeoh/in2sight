@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { NextRequest } from 'next/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = { sub: null as string | null, aal: 'aal1', next: 'aal1', setCookie: false, headers: {} as Record<string, string> };
 
@@ -30,10 +30,12 @@ beforeEach(() => {
   state.next = 'aal1';
   state.setCookie = false;
   state.headers = {};
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://x.supabase.co';
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_1';
-  delete process.env.NEXT_PUBLIC_APP_URL; // the proxy gate is URL + key only
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://x.supabase.co');
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_1');
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', ''); // the proxy gate is URL + key only
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe('proxy', () => {
   it('sends an anonymous visitor to /login', async () => {
@@ -85,8 +87,8 @@ describe('proxy', () => {
   });
 
   it('without Supabase env it routes to /setup but still serves /styleguide', async () => {
-    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', '');
     const redirect = await proxy(req('/overview'));
     expect(new URL(redirect.headers.get('location')!).pathname).toBe('/setup');
     expect((await proxy(req('/styleguide'))).headers.get('location')).toBeNull();

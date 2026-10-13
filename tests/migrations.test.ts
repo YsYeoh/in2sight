@@ -31,7 +31,7 @@ describe('migrations', () => {
 
   it('every security definer function pins search_path', () => {
     for (const m of all.matchAll(/create\s+(?:or\s+replace\s+)?function[\s\S]*?(?=create\s|$)/gi)) {
-      if (/security\s+definer/i.test(m[0])) expect(m[0].slice(0, 120), 'search_path').toMatch(/set\s+search_path\s*=/i);
+      if (/security\s+definer/i.test(m[0])) expect(m[0].split(/as\s+\$\$/i)[0], 'search_path').toMatch(/set\s+search_path\s*=/i);
     }
   });
 
