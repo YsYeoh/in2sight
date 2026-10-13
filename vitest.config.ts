@@ -4,7 +4,8 @@ import path from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { '@': path.resolve(__dirname, '.') } },
+  // server-only throws outside Next's server bundle; the no-op file ships inside next
+  resolve: { alias: { '@': path.resolve(__dirname, '.'), 'server-only': 'next/dist/compiled/server-only/empty' } },
   test: {
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],

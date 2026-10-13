@@ -19,15 +19,6 @@ function need(values: Record<string, string | undefined>): Record<string, string
 }
 
 // NOTE: NEXT_PUBLIC_* must be referenced literally so Next can inline them into the browser bundle.
-export function getPublicEnv() {
-  const v = need({
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-  });
-  return { supabaseUrl: v.NEXT_PUBLIC_SUPABASE_URL, publishableKey: v.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, appUrl: v.NEXT_PUBLIC_APP_URL };
-}
-
 /** URL + publishable key only (no app URL): what the proxy and the Supabase clients need. */
 export function getSupabasePublic() {
   const v = need({
