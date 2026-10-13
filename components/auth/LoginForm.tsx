@@ -13,7 +13,7 @@ export function LoginForm({ action }: { action: (prev: FormState, formData: Form
   return (
     <form action={formAction} className="flex flex-col gap-[var(--gp)]" noValidate>
       <FormField id="email" label={t('login.email')}>
-        {(p) => <Input {...p} name="email" type="email" autoComplete="username" autoFocus />}
+        {(p) => <Input {...p} name="email" type="email" autoComplete="username" />}
       </FormField>
       <FormField id="password" label={t('login.password')}>
         {(p) => <Input {...p} name="password" type="password" autoComplete="current-password" />}

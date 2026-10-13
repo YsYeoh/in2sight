@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { signInWithPassword } from '@/lib/auth/sign-in';
 
-function fake(o: { authError?: unknown; claim?: boolean | null; rpcError?: unknown; throws?: boolean } = {}) {
-  const signOut = vi.fn(async () => ({ error: null }));
+function fake(o: { authError?: unknown; claim?: boolean | null; rpcError?: unknown; throws?: boolean; rpcThrows?: boolean; signOutThrows?: boolean } = {}) {
+  const signOut = vi.fn(async () => {
+    if (o.signOutThrows) throw new Error('signout failed');
+    return { error: null };
+  });
   const signIn = vi.fn(async () => {
     if (o.throws) throw new Error('network');
     return o.authError ? { data: { session: null }, error: o.authError } : { data: { session: {} }, error: null };
   });
-  const rpc = vi.fn(async () => (o.rpcError ? { data: null, error: o.rpcError } : { data: o.claim ?? true, error: null }));
+  const rpc = vi.fn(async () => {
+    if (o.rpcThrows) throw new Error('rpc boom');
+    return o.rpcError ? { data: null, error: o.rpcError } : { data: o.claim ?? true, error: null };
+  });
   return { supabase: { auth: { signInWithPassword: signIn, signOut }, rpc } as never, signIn, signOut, rpc };
 }
 
@@ -51,5 +57,18 @@ describe('signInWithPassword', () => {
     const r = await signInWithPassword(f.supabase, { email: 'a@b.c', password: 'pw' });
     expect(r).toEqual({ ok: false, error: 'unexpected' });
     expect(JSON.stringify(r)).not.toContain('network');
+  });
+
+  it('rpc throws => signOut called and result is unexpected', async () => {
+    const f = fake({ rpcThrows: true });
+    expect(await signInWithPassword(f.supabase, { email: 'a@b.c', password: 'pw' })).toEqual({ ok: false, error: 'unexpected' });
+    expect(f.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failing signOut does not change the error key', async () => {
+    const a = fake({ claim: false, signOutThrows: true });
+    expect(await signInWithPassword(a.supabase, { email: 'a@b.c', password: 'pw' })).toEqual({ ok: false, error: 'not_owner' });
+    const b = fake({ rpcError: { message: 'x' }, signOutThrows: true });
+    expect(await signInWithPassword(b.supabase, { email: 'a@b.c', password: 'pw' })).toEqual({ ok: false, error: 'unexpected' });
   });
 });
