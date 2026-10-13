@@ -63,6 +63,13 @@
 [data-slot="card-footer"] {
   padding-inline: var(--pc);
 }
-[data-slot="tabs-trigger"] {
+/* tabs-trigger is h-[calc(100%-1px)] of the list, so sizing the list sizes the triggers */
+[data-slot="tabs-list"][data-orientation="horizontal"] {
   height: var(--ctl);
+}
+[data-slot="select-item"],
+[data-slot="dropdown-menu-item"],
+[data-slot="dropdown-menu-checkbox-item"],
+[data-slot="dropdown-menu-radio-item"] {
+  min-height: var(--ctl-sm);
 }

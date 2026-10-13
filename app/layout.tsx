@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { Toaster } from '@/components/ui/sonner';
 import { htmlAttrs } from '@/lib/prefs';
 import { getPrefs } from '@/lib/prefs.server';
 import { setPrefs } from '@/app/actions';
@@ -24,6 +25,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <NextIntlClientProvider locale={prefs.locale} messages={messages}>
           <PrefsProvider initial={prefs} persist={setPrefs}>
             {children}
+            <Toaster position="bottom-right" />
           </PrefsProvider>
         </NextIntlClientProvider>
       </body>
