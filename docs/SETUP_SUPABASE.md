@@ -45,7 +45,7 @@ If your dashboard only shows the legacy tab, use `anon` for the publishable vari
 
 1. **Create your owner login:** *Users → Add user → Create new user* → your email + a strong password → tick **Auto Confirm User** → create. This is the only account that will ever exist.
 2. **Turn off public sign-ups:** *Sign In / Providers* *(label may differ)* → *User Signups* → switch **"Allow new users to sign up"** off. (The app also restricts login to your user and protects every table with row-level security, so even a forgotten switch exposes nothing — but turn it off anyway.)
-3. **Two-factor (TOTP):** Supabase enables the TOTP multi-factor API on every project by default (official docs: *Auth → Multi-Factor Authentication*). You don't need to configure anything now; you will scan the QR code inside the app (Settings → Account) once login is built in Plan 3. If your dashboard has an MFA setting, make sure TOTP is not set to *Verification Disabled*.
+3. **Two-factor (TOTP):** Supabase enables the TOTP multi-factor API on every project by default (official docs: *Auth → Multi-Factor Authentication*). You don't need to configure anything now; you will scan the QR code inside the app (Settings → Account). If your dashboard has an MFA setting, make sure TOTP is not set to *Verification Disabled*.
 4. **URL configuration:** *Authentication → URL Configuration* *(label may differ)*:
    - **Site URL:** `<your-app-url>` (your Vercel URL, no trailing slash)
    - **Redirect URLs:** add `http://localhost:3000/**` and `<your-app-url>/**`
