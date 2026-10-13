@@ -24,13 +24,15 @@ describe('FormField', () => {
     expect(input).not.toHaveAttribute('aria-invalid', 'true');
   });
 
-  it('an error replaces the hint, is announced, and marks the control invalid', () => {
+  it('an error replaces the hint visually, but both stay announced', () => {
     field({ hint: 'We never share it', error: 'Enter a valid email' });
     const input = screen.getByLabelText('Email');
-    expect(screen.queryByText('We never share it')).not.toBeInTheDocument();
+    const hint = screen.getByText('We never share it');
+    expect(hint).toHaveClass('sr-only');
     const err = screen.getByRole('alert');
     expect(err).toHaveTextContent('Enter a valid email');
-    expect(input.getAttribute('aria-describedby')).toBe(err.id);
+    expect(err).not.toHaveClass('sr-only');
+    expect(input.getAttribute('aria-describedby')).toBe(`${err.id} ${hint.id}`);
     expect(input).toHaveAttribute('aria-invalid', 'true');
   });
 
