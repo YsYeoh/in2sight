@@ -7,7 +7,7 @@ Status: spec approved 2026-10-13; docs + mockups pushed. Implementation follows 
 - [ ] Create a Meta developer account at developers.facebook.com (free; phone verification)
 - [ ] Create a Meta app, add the **Instagram** product → "API setup with Instagram login"
 - [ ] Add each account as **Instagram Tester**, accept the invite in each account (Settings → Apps and websites → Tester invites)
-- [ ] Create Supabase project and Vercel project (or approve Claude doing it via MCP)
+- [ ] Deploy to Vercel, create the Supabase project, fill `.env.local`, run `npm run check:env` — follow `docs/SETUP.md` and `docs/SETUP_SUPABASE.md`
 - [x] Approve `docs/SPEC.md` (done 2026-10-13)
 
 See `docs/META_SETUP.md` for click-by-click notes.

@@ -20,7 +20,7 @@ One private dashboard to see insights, traffic and basic analysis across the own
 - Permissions: `instagram_business_basic`, `instagram_business_manage_insights`.
 - Connect flow per account: "Connect account" → Instagram authorize → callback → code → short-lived token → **long-lived token (60 days)** → store.
 - Token refresh: weekly cron refreshes any token expiring within 14 days (a successful refresh renews it for another 60 days, so healthy accounts never expire). If refresh fails, mark account `needs_reconnect`. The "token expiring" alert (7d / 2d) therefore only fires when refreshes keep failing.
-- History limits: account-level insights reach back ~30 days only. **Connect early and snapshot daily** — our DB is the history.
+- History limits: account-level insights reach back a limited window (Meta's insights guide, checked Oct 2026: "User Metrics data is stored for up to 90 days"; individual metrics may reach back less — verify per metric when building the sync, Plan 5). **Connect early and snapshot daily** — our DB is the history.
 - Metric names change often (e.g. `impressions` → `views`). Verify against current docs when implementing; keep metric lists in one file.
 
 ## 4. Architecture
@@ -87,7 +87,7 @@ Upsert only; rows are deleted solely by the explicit "Delete all data permanentl
 
 **Remove account = archive.** Status → `archived`, syncing stops, account hidden from all views, **history kept**. Reconnecting the same `ig_user_id` restores it and continues the history with no gap. A separate, confirmed "Delete all data permanently" action hard-deletes an archived account's rows (cascade).
 
-**Backfill on first connect** (defaults): account insights for the last 30 days (API limit); all media up to 500 posts with their current lifetime metrics (so tags and best-time analysis work immediately); no Story history (not retrievable).
+**Backfill on first connect** (defaults): account insights for as far back as the API allows (up to 90 days per Meta's docs; 30 if a metric is shorter — decided per metric in Plan 5); all media up to 500 posts with their current lifetime metrics (so tags and best-time analysis work immediately); no Story history (not retrievable).
 
 ## 7d. Exports & reports (approved: Excel + PDF)
 - **Excel:** server route `/api/export/xlsx` (auth required) using `write-excel-file` (not `xlsx`: known vulnerabilities in the npm build). Sheets: Summary, Daily, Posts (+tags), Stories, Audience, Tags. Real date cells formatted per the user's date-format setting; headers localized (en / zh-CN).
