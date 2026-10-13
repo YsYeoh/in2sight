@@ -46,6 +46,14 @@ describe('migrations', () => {
     }
   });
 
+  it('is_owner() enforces aal2 once a verified factor exists, so a password-only JWT cannot read via PostgREST', () => {
+    const fn = all.match(/create\s+or\s+replace\s+function\s+public\.is_owner\(\)[\s\S]*?\$\$;?[\s\S]*?\$\$/i)![0];
+    expect(fn).toMatch(/aal/);
+    expect(fn).toContain("'aal2'");
+    expect(fn).toContain('auth.mfa_factors');
+    expect(fn).toMatch(/status\s*=\s*'verified'/);
+  });
+
   it('profiles constrains every enumerated preference to the values the app accepts', () => {
     for (const v of ['en', 'zh-CN', 'D MMM YYYY', 'YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY', '24h', '12h', 'ink', 'sunset', 'forest', 'mono', 'dense', 'comfortable', 'sharp', 'soft', 'round', 'mon', 'sun'])
       expect(all, `profiles allows ${v}`).toContain(`'${v}'`);
