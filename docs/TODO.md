@@ -55,7 +55,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] next-intl with en + zh-CN, key/placeholder parity test, language switcher (PrefsBar)
 - [x] `lib/format.ts` (date/time/number per user settings)
 - [ ] `lib/metrics.ts` registry (Plan 2/6)
-- [x] Responsive shell: bottom tab bar / icon rail / sidebar; bottom-sheet dialogs; touch targets
+- [x] Responsive shell: bottom tab bar / icon rail / sidebar; bottom-sheet dialogs; touch targets (dialog close X is 16px — known gap)
 - [ ] DataTable card mode (Plan 6)
 - [ ] PWA: manifest, icons, service worker (static + offline page only), install prompt; motion gating (reduced-motion, mobile, Save-Data)
 
