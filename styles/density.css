@@ -1,0 +1,53 @@
+/*
+ * Density overrides for shadcn components. Un-layered on purpose: un-layered CSS wins over Tailwind's
+ * `@layer utilities`. Heights/paddings come from the density tokens in tokens.css (--ctl, --ctl-sm, --pc ...).
+ * Selectors are keyed on data-slot / data-size, which shadcn components render.
+ */
+[data-slot="button"]:not([data-size="icon"]):not([data-size="icon-sm"]):not([data-size="icon-lg"]) {
+  height: var(--ctl);
+  padding-inline: calc(var(--ctl) * 0.4);
+}
+[data-slot="button"][data-size="sm"] {
+  height: var(--ctl-sm);
+  padding-inline: calc(var(--ctl-sm) * 0.4);
+}
+[data-slot="button"][data-size="icon"],
+[data-slot="button"][data-size="icon-lg"] {
+  width: var(--ctl);
+  height: var(--ctl);
+}
+[data-slot="button"][data-size="icon-sm"] {
+  width: var(--ctl-sm);
+  height: var(--ctl-sm);
+}
+[data-slot="input"] {
+  height: var(--ctl);
+}
+[data-slot="select-trigger"] {
+  height: var(--ctl);
+}
+[data-slot="select-trigger"][data-size="sm"] {
+  height: var(--ctl-sm);
+}
+[data-slot="textarea"] {
+  padding: calc(var(--ctl) * 0.25) calc(var(--ctl) * 0.33);
+}
+[data-slot="table-head"] {
+  height: calc(var(--row) + 4px);
+}
+[data-slot="table-cell"] {
+  height: var(--row);
+  padding-block: 0;
+}
+[data-slot="card"] {
+  gap: var(--gp);
+  padding-block: var(--pc);
+}
+[data-slot="card-header"],
+[data-slot="card-content"],
+[data-slot="card-footer"] {
+  padding-inline: var(--pc);
+}
+[data-slot="tabs-trigger"] {
+  height: var(--ctl);
+}
