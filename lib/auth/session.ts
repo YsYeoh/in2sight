@@ -20,8 +20,10 @@ export async function getSessionInfo(supabase: SupabaseClient): Promise<SessionI
     const aal = claims.aal === 'aal2' ? 'aal2' : 'aal1';
     let mfaRequired = true;
     if (aal !== 'aal2') {
-      const res = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-      mfaRequired = res.error || !res.data ? true : res.data.nextLevel === 'aal2';
+      // getUser() validates the token server-side. mfa.getAuthenticatorAssuranceLevel() with no argument would read
+      // factors from the cookie session, which the JWT signature does not cover (a stripped cookie would skip 2FA).
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      mfaRequired = userError || !userData?.user ? true : (userData.user.factors ?? []).some((f) => f.status === 'verified');
     }
     return { signedIn: true, userId: claims.sub, email: claims.email ?? null, aal, mfaRequired };
   } catch {

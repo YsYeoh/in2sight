@@ -4,7 +4,9 @@ import { getSupabasePublic } from '@/lib/env';
 
 /**
  * One client per request: it needs that request's cookies.
- * Route handlers that return their own Response should pass its headers so a session cookie is never cached.
+ *
+ * @param responseHeaders Route handlers that return their own Response MUST pass its headers: Supabase hands
+ * no-store cache headers to setAll and they are copied here, otherwise a response carrying a session cookie could be cached.
  */
 export async function createServerSupabase({ responseHeaders }: { responseHeaders?: Headers } = {}) {
   const { url, publishableKey } = getSupabasePublic();

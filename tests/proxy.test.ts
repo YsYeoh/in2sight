@@ -15,7 +15,7 @@ vi.mock('@supabase/ssr', () => ({
         if (state.setCookie) opts.cookies.setAll([{ name: 'sb-refreshed', value: '1', options: { path: '/' } }], state.headers);
         return { data: state.sub ? { claims: { sub: state.sub, aal: state.aal, email: 'o@x.y' } } : null, error: null };
       },
-      mfa: { getAuthenticatorAssuranceLevel: async () => ({ data: { currentLevel: state.aal, nextLevel: state.next }, error: null }) },
+      getUser: async () => ({ data: { user: { id: state.sub, factors: state.next === 'aal2' ? [{ status: 'verified' }] : [] } }, error: null }),
     },
   }),
 }));
@@ -92,14 +92,21 @@ describe('proxy', () => {
 });
 
 describe('matcher', () => {
-  it('skips static assets and PWA files but covers app routes', () => {
-    expect(config.matcher.length).toBe(1);
-    const m = config.matcher[0];
-    for (const s of ['_next/static', '_next/image', 'favicon.ico', 'manifest.webmanifest', 'sw.js', 'offline', 'svg|png|jpg|jpeg|gif|webp|ico']) {
-      expect(m).toContain(s);
+  // path-to-regexp treats this pattern like a plain anchored RegExp
+  const re = new RegExp('^' + config.matcher[0] + '$');
+  it('runs the proxy for app routes, including look-alikes of the skipped files', () => {
+    for (const path of ['/', '/overview', '/login', '/api/x', '/exports/png', '/api/foo-ico', '/offline-anything', '/swxjs', '/faviconxico']) {
+      expect(re.test(path), path).toBe(true);
     }
-    // a negative lookahead over everything: app routes (incl. /api) are matched, only the listed files are skipped
-    expect(m.startsWith('/((?!')).toBe(true);
-    expect(m).not.toContain('api');
+  });
+
+  it('skips static assets and PWA files', () => {
+    for (const path of ['/logo.png', '/a/b.svg', '/_next/static/a.js', '/_next/image', '/favicon.ico', '/sw.js', '/offline', '/manifest.webmanifest']) {
+      expect(re.test(path), path).toBe(false);
+    }
+  });
+
+  it('is a single matcher', () => {
+    expect(config.matcher.length).toBe(1);
   });
 });
