@@ -1,0 +1,43 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "loading": "加载中…",
+    "empty": "暂无数据"
+  },
+  "nav": {
+    "overview": "总览",
+    "accounts": "账号",
+    "tags": "标签",
+    "settings": "设置"
+  },
+  "prefs": {
+    "theme": "主题",
+    "mode": "模式",
+    "light": "浅色",
+    "dark": "深色",
+    "density": "密度",
+    "dense": "紧凑",
+    "comfortable": "舒适",
+    "radius": "圆角",
+    "sharp": "直角",
+    "soft": "柔和",
+    "round": "圆润",
+    "language": "语言",
+    "dateFormat": "日期格式"
+  },
+  "styleguide": {
+    "title": "样式指南",
+    "intro": "设计令牌与格式的实时预览。更改会保存到你的偏好设置。",
+    "tokens": "颜色令牌",
+    "chart": "图表系列",
+    "formats": "格式",
+    "sampleDate": "日期",
+    "sampleTime": "时间",
+    "sampleNumber": "数字",
+    "sampleCompact": "紧凑数字",
+    "samplePercent": "百分比",
+    "sampleDelta": "变化",
+    "greeting": "欢迎回来,{name}"
+  }
+}
