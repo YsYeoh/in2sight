@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type SignInError = 'missing_fields' | 'invalid_credentials' | 'not_owner' | 'unexpected';
-export type FormState = { error?: SignInError | 'invalid_code' };
+export type FormState = { error?: SignInError | 'invalid_code' | 'rate_limited' };
 export type SignInResult = { ok: true } | { ok: false; error: SignInError };
 
 // best-effort: a failed sign-out must never change the error the user sees

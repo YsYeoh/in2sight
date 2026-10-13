@@ -124,7 +124,33 @@
       "invalid_credentials": "Wrong email or password.",
       "not_owner": "This account is not allowed to use in2sight.",
       "unexpected": "Something went wrong. Please try again.",
-      "invalid_code": "That code didn't work. Check your device's clock and try again."
+      "invalid_code": "That code didn't work. Check your device's clock and try again.",
+      "rate_limited": "Too many attempts. Wait a minute and try again."
+    },
+    "verify": {
+      "title": "Two-step verification",
+      "hint": "Enter the 6-digit code from your authenticator app.",
+      "code": "Verification code",
+      "submit": "Verify",
+      "signOut": "Use a different account"
+    }
+  },
+  "settings": {
+    "twoFactor": {
+      "title": "Two-factor authentication",
+      "description": "Protect your account with a code from an authenticator app (Google Authenticator, 1Password, Authy…).",
+      "enable": "Enable two-factor",
+      "scan": "Scan this QR code with your authenticator app, then enter the 6-digit code.",
+      "qrAlt": "QR code for your authenticator app",
+      "secret": "Can't scan? Enter this key manually:",
+      "confirm": "Confirm and enable",
+      "cancel": "Cancel",
+      "enabled": "Enabled",
+      "disable": "Disable",
+      "disableTitle": "Disable two-factor authentication?",
+      "disableBody": "Your account will only be protected by your password.",
+      "recovery": "Lost your device? Remove the factor in the Supabase dashboard (Authentication → Users). See docs/SETUP_SUPABASE.md.",
+      "errorUnexpected": "Something went wrong. Try again."
     }
   }
 }
