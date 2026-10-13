@@ -1,3 +1,4 @@
+import 'server-only'; // build error if a client component ever imports this
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseSecretKey, getSupabaseUrl } from '@/lib/env';
 

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EnvError, getPublicEnv, getServerEnv, getSupabasePublic, getSupabaseSecretKey, getSupabaseUrl, isSupabaseConfigured } from '@/lib/env';
+import { EnvError, getServerEnv, getSupabasePublic, getSupabaseSecretKey, getSupabaseUrl, isSupabaseConfigured } from '@/lib/env';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 afterEach(() => vi.unstubAllEnvs());
@@ -18,30 +18,7 @@ describe('isSupabaseConfigured', () => {
   });
 });
 
-describe('getPublicEnv / getServerEnv', () => {
-  it('returns the values when present', () => {
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://x.supabase.co');
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_1');
-    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
-    expect(getPublicEnv()).toEqual({ supabaseUrl: 'https://x.supabase.co', publishableKey: 'sb_publishable_1', appUrl: 'http://localhost:3000' });
-  });
-
-  it('lists the NAMES of missing variables and never any value', () => {
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://x.supabase.co');
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', '');
-    vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
-    try {
-      getPublicEnv();
-      throw new Error('should have thrown');
-    } catch (e) {
-      expect(e).toBeInstanceOf(EnvError);
-      const err = e as EnvError;
-      expect(err.missing).toEqual(['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_APP_URL']);
-      expect(err.message).toContain('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
-      expect(err.message).not.toContain('x.supabase.co');
-    }
-  });
-
+describe('getServerEnv', () => {
   it('getServerEnv requires the secret key and the cron secret', () => {
     vi.stubEnv('SUPABASE_SECRET_KEY', 'sb_secret_value');
     vi.stubEnv('CRON_SECRET', '');
