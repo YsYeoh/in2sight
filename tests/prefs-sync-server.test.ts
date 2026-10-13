@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PREFS, PREFS_COOKIE, parsePrefsCookie, serializePrefs } from '@/lib/prefs';
 import { prefsToProfileRow } from '@/lib/prefs.sync';
 
@@ -103,15 +103,32 @@ describe('persistPrefsToProfile', () => {
   it('upserts the row for the signed-in user through the user-session client, stamping updated_at', async () => {
     const f = fakeClient();
     createServerSupabase.mockResolvedValue(f.client);
-    await persistPrefsToProfile(custom);
+    await persistPrefsToProfile(custom, ['theme']);
     expect(f.upserts).toHaveLength(1);
-    expect(f.upserts[0]).toMatchObject(prefsToProfileRow('u1', custom));
+    expect(Object.keys(f.upserts[0] as object).sort()).toEqual(['theme', 'updated_at', 'user_id']);
+    expect(f.upserts[0]).toMatchObject({ user_id: 'u1', theme: 'forest' });
     expect((f.upserts[0] as { updated_at: string }).updated_at).toMatch(/^\d{4}-\d\d-\d\dT/);
+  });
+
+  it('never sends columns that were not patched (a stale cookie cannot clobber them)', async () => {
+    const f = fakeClient();
+    createServerSupabase.mockResolvedValue(f.client);
+    await persistPrefsToProfile(custom, ['density', 'timezone']);
+    const row = f.upserts[0] as Record<string, unknown>;
+    expect(Object.keys(row).sort()).toEqual(['density', 'timezone', 'updated_at', 'user_id']);
+  });
+
+  it('writes nothing when the patch had no preference keys', async () => {
+    const f = fakeClient();
+    createServerSupabase.mockResolvedValue(f.client);
+    await persistPrefsToProfile(custom, []);
+    expect(f.upserts).toEqual([]);
+    expect(createServerSupabase).not.toHaveBeenCalled();
   });
 
   it('is a no-op when Supabase is not configured (no client is even created)', async () => {
     configured.mockReturnValue(false);
-    await persistPrefsToProfile(custom);
+    await persistPrefsToProfile(custom, ['theme']);
     expect(createServerSupabase).not.toHaveBeenCalled();
   });
 
@@ -119,15 +136,15 @@ describe('persistPrefsToProfile', () => {
     const f = fakeClient();
     createServerSupabase.mockResolvedValue(f.client);
     getSessionInfo.mockResolvedValue({ ...session, signedIn: false, userId: null });
-    await persistPrefsToProfile(custom);
+    await persistPrefsToProfile(custom, ['theme']);
     expect(f.upserts).toEqual([]);
   });
 
   it('never throws, even if the client cannot be created or the write fails', async () => {
     createServerSupabase.mockRejectedValue(new Error('no env'));
-    await expect(persistPrefsToProfile(custom)).resolves.toBeUndefined();
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBeUndefined();
     createServerSupabase.mockResolvedValue(fakeClient({ writeError: true }).client);
-    await expect(persistPrefsToProfile(custom)).resolves.toBeUndefined();
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBeUndefined();
     expect(JSON.stringify((console.error as unknown as { mock: { calls: unknown[] } }).mock.calls)).not.toContain('secret-token');
   });
 });

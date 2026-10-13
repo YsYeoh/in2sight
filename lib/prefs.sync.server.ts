@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { PREFS_COOKIE, parsePrefsCookie, serializePrefs, type Prefs } from '@/lib/prefs';
-import { prefsToProfileRow, profileRowToPrefs } from '@/lib/prefs.sync';
+import { prefsPatchToRow, prefsToProfileRow, profileRowToPrefs } from '@/lib/prefs.sync';
 import { isSupabaseConfigured } from '@/lib/env';
 import { getSessionInfo } from '@/lib/auth/session';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -33,14 +33,18 @@ export async function syncPrefsFromProfile(supabase: SupabaseClient): Promise<vo
   }
 }
 
-/** Called by setPrefs after the cookie is written. Never throws. */
-export async function persistPrefsToProfile(prefs: Prefs): Promise<void> {
+/**
+ * Called by setPrefs after the cookie is written. Never throws.
+ * Writes only `keys` (what this save changed): a stale cookie on this device must not clobber the other columns.
+ * A missing row is created with the column defaults for everything not sent.
+ */
+export async function persistPrefsToProfile(prefs: Prefs, keys: readonly (keyof Prefs)[]): Promise<void> {
   try {
-    if (!isSupabaseConfigured()) return;
+    if (keys.length === 0 || !isSupabaseConfigured()) return;
     const supabase = await createServerSupabase();
     const info = await getSessionInfo(supabase);
     if (!info.userId) return;
-    const { error } = await supabase.from('profiles').upsert({ ...prefsToProfileRow(info.userId, prefs), updated_at: new Date().toISOString() });
+    const { error } = await supabase.from('profiles').upsert({ ...prefsPatchToRow(info.userId, prefs, keys), updated_at: new Date().toISOString() });
     if (error) warn('save');
   } catch {
     warn('save');

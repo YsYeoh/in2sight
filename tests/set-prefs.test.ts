@@ -5,8 +5,8 @@ const jar = { get: vi.fn(), set: vi.fn() };
 const revalidatePath = vi.fn();
 vi.mock('next/headers', () => ({ cookies: async () => jar }));
 vi.mock('next/cache', () => ({ revalidatePath: (...args: unknown[]) => revalidatePath(...args) }));
-const persistPrefsToProfile = vi.fn<(prefs: unknown) => Promise<void>>();
-vi.mock('@/lib/prefs.sync.server', () => ({ persistPrefsToProfile: (p: unknown) => persistPrefsToProfile(p), syncPrefsFromProfile: vi.fn() }));
+const persistPrefsToProfile = vi.fn<(prefs: unknown, keys: unknown) => Promise<void>>();
+vi.mock('@/lib/prefs.sync.server', () => ({ persistPrefsToProfile: (p: unknown, k: unknown) => persistPrefsToProfile(p, k), syncPrefsFromProfile: vi.fn() }));
 
 import { setPrefs } from '@/app/actions';
 
@@ -58,7 +58,7 @@ describe('setPrefs', () => {
     persistPrefsToProfile.mockImplementation(async () => void order.push('profile'));
     revalidatePath.mockImplementation(() => order.push('revalidate'));
     await setPrefs({ mode: 'dark', weekStart: 'sun' });
-    expect(persistPrefsToProfile).toHaveBeenCalledWith({ ...DEFAULT_PREFS, mode: 'dark', weekStart: 'sun' });
+    expect(persistPrefsToProfile).toHaveBeenCalledWith({ ...DEFAULT_PREFS, mode: 'dark', weekStart: 'sun' }, ['mode', 'weekStart']);
     expect(order).toEqual(['cookie', 'profile', 'revalidate']);
   });
 
@@ -67,5 +67,10 @@ describe('setPrefs', () => {
     await expect(setPrefs({ mode: 'dark' })).resolves.toBeUndefined();
     expect(written().mode).toBe('dark');
     expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
+  });
+
+  it('persists only the keys the patch named, never unknown ones', async () => {
+    await setPrefs({ theme: 'mono', bogus: 1 });
+    expect(persistPrefsToProfile).toHaveBeenCalledWith(expect.objectContaining({ theme: 'mono' }), ['theme']);
   });
 });

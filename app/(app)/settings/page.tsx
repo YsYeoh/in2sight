@@ -22,11 +22,7 @@ export default async function SettingsPage() {
           <TabsTrigger value="account">{t('tabs.account')}</TabsTrigger>
         </TabsList>
         <TabsContent value="general">
-          <Card>
-            <CardContent>
-              <PrefsBar />
-            </CardContent>
-          </Card>
+          <PrefsBar />
         </TabsContent>
         <TabsContent value="account" className="flex flex-col gap-[var(--gp)]">
           <Card>
