@@ -83,6 +83,7 @@ export function formatNumber(
   const out = new Intl.NumberFormat(NUMBER_LOCALE[p.numberFormat], {
     maximumFractionDigits: opts.maximumFractionDigits ?? Math.max(2, opts.minimumFractionDigits ?? 0),
     minimumFractionDigits: opts.minimumFractionDigits,
+    signDisplay: 'negative', // no sign when the value rounds to zero (never "-0")
   }).format(n);
   // ICU uses U+202F or U+00A0 depending on version; normalise to a non-breaking space.
   return out.replace(/[  ]/g, ' ');
