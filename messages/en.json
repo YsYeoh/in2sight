@@ -109,5 +109,22 @@
       "error": "Error",
       "outline": "Outline"
     }
+  },
+  "auth": {
+    "login": {
+      "title": "Sign in",
+      "subtitle": "Your Instagram insights, in one place.",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in…"
+    },
+    "errors": {
+      "missing_fields": "Enter your email and password.",
+      "invalid_credentials": "Wrong email or password.",
+      "not_owner": "This account is not allowed to use in2sight.",
+      "unexpected": "Something went wrong. Please try again.",
+      "invalid_code": "That code didn't work. Check your device's clock and try again."
+    }
   }
 }
