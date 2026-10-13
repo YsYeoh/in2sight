@@ -46,21 +46,33 @@ describe('requireOwner', () => {
     expect(rpc).toHaveBeenCalledWith('is_owner');
   });
 
+  // /login would bounce a signed-in user straight back to /overview (loop), so a non-owner is signed out first
   it.each([
     ['not the owner', { data: false, error: null }],
     ['a null answer', { data: null, error: null }],
-    ['an rpc error', { data: null, error: { message: 'boom' } }],
-    ['an error alongside true', { data: true, error: { message: 'boom' } }],
-  ])('fails closed to /login on %s', async (_n, result) => {
+  ])('signs a non-owner out via /auth/signout on %s', async (_n, result) => {
     getSessionInfo.mockResolvedValue(base);
     rpc.mockResolvedValue(result);
-    await expect(requireOwner()).rejects.toThrow('REDIRECT:/login');
+    await expect(requireOwner()).rejects.toThrow('REDIRECT:/auth/signout');
   });
 
-  it('fails closed to /login when the rpc throws', async () => {
+  it.each([
+    ['an rpc error', { data: null, error: { message: 'secret db detail' } }],
+    ['an error alongside true', { data: true, error: { message: 'secret db detail' } }],
+  ])('throws (error boundary, no redirect loop) on %s, without the raw Supabase text', async (_n, result) => {
     getSessionInfo.mockResolvedValue(base);
-    rpc.mockRejectedValue(new Error('network'));
-    await expect(requireOwner()).rejects.toThrow('REDIRECT:/login');
+    rpc.mockResolvedValue(result);
+    const err = await requireOwner().catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toMatch(/REDIRECT|secret db detail/);
+  });
+
+  it('throws when the rpc itself throws', async () => {
+    getSessionInfo.mockResolvedValue(base);
+    rpc.mockRejectedValue(new Error('network down'));
+    const err = await requireOwner().catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toMatch(/REDIRECT|network down/);
   });
 
   it('does not ask the database for a signed-out or 2FA-pending visitor', async () => {

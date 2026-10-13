@@ -8,8 +8,10 @@ export async function requireOwner(): Promise<{ userId: string; email: string | 
   const info = await getSessionInfo(supabase);
   if (!info.signedIn || !info.userId) redirect('/login');
   if (info.mfaRequired && info.aal !== 'aal2') redirect('/login/verify');
-  // one extra RPC per render; fails closed (error, throw or anything but true -> /login)
-  const isOwner = await supabase.rpc('is_owner').then(({ data, error }) => !error && data === true, () => false);
-  if (!isOwner) redirect('/login');
+  // one extra RPC per render. A failed check throws (error boundary): redirecting to /login would loop, the proxy
+  // bounces signed-in users back to /overview. A definite "not the owner" signs the session out first.
+  const { data, error } = await supabase.rpc('is_owner').then((r) => r, () => ({ data: null, error: true }));
+  if (error) throw new Error('Owner check failed');
+  if (data !== true) redirect('/auth/signout');
   return { userId: info.userId, email: info.email };
 }
