@@ -33,7 +33,13 @@
     "soft": "Soft",
     "round": "Round",
     "language": "Language",
-    "dateFormat": "Date format"
+    "dateFormat": "Date format",
+    "timeFormat": "Time format",
+    "numberFormat": "Number format",
+    "weekStart": "Week starts on",
+    "timezone": "Timezone",
+    "mon": "Monday",
+    "sun": "Sunday"
   },
   "styleguide": {
     "title": "Style guide",
@@ -152,6 +158,31 @@
       "recovery": "Lost your device? Remove the factor in the Supabase dashboard (Authentication → Users). See docs/SETUP_SUPABASE.md.",
       "errorUnexpected": "Something went wrong. Try again.",
       "errorNeedsAal2": "Sign in again with your authenticator code to change two-factor settings."
+    },
+    "title": "Settings",
+    "subtitle": "Appearance, formats and security",
+    "tabs": {
+      "general": "General",
+      "account": "Account"
+    },
+    "account": {
+      "email": "Signed in as"
+    }
+  },
+  "pages": {
+    "overview": {
+      "title": "Overview",
+      "empty": "No accounts yet",
+      "emptyHint": "Connect an Instagram account to start collecting insights.",
+      "addAccount": "Add account"
+    },
+    "tags": {
+      "title": "Tags",
+      "empty": "Tags arrive with the dashboards",
+      "emptyHint": "You'll label posts here once accounts are connected."
+    },
+    "accounts": {
+      "title": "Accounts"
     }
   }
 }

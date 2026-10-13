@@ -5,6 +5,8 @@ const jar = { get: vi.fn(), set: vi.fn() };
 const revalidatePath = vi.fn();
 vi.mock('next/headers', () => ({ cookies: async () => jar }));
 vi.mock('next/cache', () => ({ revalidatePath: (...args: unknown[]) => revalidatePath(...args) }));
+const persistPrefsToProfile = vi.fn<(prefs: unknown) => Promise<void>>();
+vi.mock('@/lib/prefs.sync.server', () => ({ persistPrefsToProfile: (p: unknown) => persistPrefsToProfile(p), syncPrefsFromProfile: vi.fn() }));
 
 import { setPrefs } from '@/app/actions';
 
@@ -15,6 +17,7 @@ beforeEach(() => {
   jar.get.mockReset().mockReturnValue(undefined);
   jar.set.mockReset();
   revalidatePath.mockReset();
+  persistPrefsToProfile.mockReset().mockResolvedValue(undefined);
 });
 
 describe('setPrefs', () => {
@@ -47,5 +50,22 @@ describe('setPrefs', () => {
     jar.get.mockReturnValue({ value: '%E0%A4%A' });
     await setPrefs({ density: 'comfortable' });
     expect(written()).toEqual({ ...DEFAULT_PREFS, density: 'comfortable' });
+  });
+
+  it('persists the merged prefs to the profile after the cookie is written, before revalidating', async () => {
+    const order: string[] = [];
+    jar.set.mockImplementation(() => order.push('cookie'));
+    persistPrefsToProfile.mockImplementation(async () => void order.push('profile'));
+    revalidatePath.mockImplementation(() => order.push('revalidate'));
+    await setPrefs({ mode: 'dark', weekStart: 'sun' });
+    expect(persistPrefsToProfile).toHaveBeenCalledWith({ ...DEFAULT_PREFS, mode: 'dark', weekStart: 'sun' });
+    expect(order).toEqual(['cookie', 'profile', 'revalidate']);
+  });
+
+  it('still resolves, and still revalidates, when the profile write rejects', async () => {
+    persistPrefsToProfile.mockRejectedValue(new Error('db down'));
+    await expect(setPrefs({ mode: 'dark' })).resolves.toBeUndefined();
+    expect(written().mode).toBe('dark');
+    expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
   });
 });

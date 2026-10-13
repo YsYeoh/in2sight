@@ -44,10 +44,35 @@ describe('PrefsBar', () => {
     expect(persist).toHaveBeenCalledWith({ dateFormat: 'DD/MM/YYYY' });
   });
 
+  it('persists the chosen time format, number format and week start', async () => {
+    const persist = setup();
+    await userEvent.click(screen.getByRole('button', { name: '12h' }));
+    expect(persist).toHaveBeenLastCalledWith({ timeFormat: '12h' });
+    await userEvent.click(screen.getByRole('button', { name: '1.234,5' }));
+    expect(persist).toHaveBeenLastCalledWith({ numberFormat: '1.234,5' });
+    await userEvent.click(screen.getByRole('button', { name: 'Sunday' }));
+    expect(persist).toHaveBeenLastCalledWith({ weekStart: 'sun' });
+    expect(screen.getByRole('button', { name: 'Sunday' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Monday' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('shows the current timezone, including one that is not in the list', () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <PrefsProvider initial={{ ...DEFAULT_PREFS, timezone: 'Africa/Nairobi' }} persist={vi.fn()}>
+          <PrefsBar />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByRole('combobox', { name: 'Timezone' })).toHaveTextContent('Africa/Nairobi');
+  });
+
   it('renders translated labels in Chinese', () => {
     setup(vi.fn(), 'zh-CN');
     expect(screen.getByRole('button', { name: '深色' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '紧凑' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '简体中文' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '周日' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '时区' })).toBeInTheDocument();
   });
 });
