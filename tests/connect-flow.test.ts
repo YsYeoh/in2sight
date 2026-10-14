@@ -9,6 +9,7 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 
 function storeSpy() {
   const calls: string[] = [];
+  const saved: { accountId: string; token: { accessToken: string; expiresAt: string } }[] = [];
   const rows: StoredAccount[] = [];
   const store: AccountsStore = {
     list: async () => rows,
@@ -21,10 +22,10 @@ function storeSpy() {
       return r;
     },
     update: async (id, p) => (calls.push('update'), Object.assign(rows.find((r) => r.id === id)!, p)),
-    saveToken: async () => void calls.push('saveToken'),
+    saveToken: async (accountId, token) => void (calls.push('saveToken'), saved.push({ accountId, token })),
     remove: async () => undefined,
   };
-  return { store, calls, rows };
+  return { store, calls, rows, saved };
 }
 
 function happyFetch(profile: Record<string, unknown> = { user_id: '1784', username: 'brandx', account_type: 'Media_Creator' }) {
@@ -48,6 +49,16 @@ describe('processCallback - success', () => {
     const r = await run({ state: s.state, cookie: s.cookie }, { store, fetchFn: happyFetch() });
     expect(r).toEqual({ redirect: '/accounts?connected=brandx' });
     expect(rows[0]).toMatchObject({ igUserId: '1784', username: 'brandx', groupName: 'Brand X', status: 'active' });
+  });
+
+  it('stores the long-lived token (not the short one) and never puts it in the redirect', async () => {
+    const { store, saved } = storeSpy();
+    const s = start(null);
+    const r = await run({ state: s.state, cookie: s.cookie }, { store, fetchFn: happyFetch() });
+    expect(saved).toHaveLength(1);
+    expect(saved[0].token.accessToken).toBe('long');
+    expect(JSON.stringify(r)).not.toContain('long');
+    expect(JSON.stringify(r)).not.toContain('short');
   });
 
   it('no group chosen -> existing group is untouched (undefined), new account is isolated', async () => {

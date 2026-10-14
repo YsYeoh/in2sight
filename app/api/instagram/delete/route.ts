@@ -16,10 +16,12 @@ export async function POST(request: NextRequest) {
     if (e instanceof EnvError) return NextResponse.json({ error: 'not_configured' }, { status: 503 });
     throw e;
   }
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) return NextResponse.json({ error: 'not_configured' }, { status: 503 }); // Meta needs an absolute status url
   const form = await request.formData().catch(() => null);
   const signed = form?.get('signed_request');
   const parsed = typeof signed === 'string' ? parseSignedRequest(signed, secret) : null;
   if (!parsed) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
   await markNeedsReconnect(supabaseAccountsStore(createAdminSupabase()), parsed.userId, 'deletion requested');
-  return NextResponse.json({ url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/accounts`, confirmation_code: randomBytes(8).toString('hex') });
+  return NextResponse.json({ url: `${appUrl}/accounts`, confirmation_code: randomBytes(8).toString('hex') });
 }

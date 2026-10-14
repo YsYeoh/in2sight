@@ -87,6 +87,7 @@ describe('GET /api/instagram/callback', () => {
     const res = await callback(get('/api/instagram/callback?code=c&state=s'));
     expect(res.status).toBe(401);
     expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/i); // the single-use state cookie is cleared even on 401
   });
 
   it('a callback with no matching state cookie redirects to state_mismatch and clears the cookie', async () => {
@@ -118,6 +119,13 @@ describe('Meta callbacks', () => {
     expect(body.url).toBe(`${ORIGIN}/accounts`);
     expect(body.confirmation_code).toMatch(/^[0-9a-f]{16}$/);
     expect(marked).toEqual([['1784', 'deletion requested']]);
+  });
+
+  it('delete: without NEXT_PUBLIC_APP_URL it is 503 not_configured, never a relative status url', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+    const res = await post(del, signed({ algorithm: 'HMAC-SHA256', user_id: '1784' }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'not_configured' });
   });
 
   it.each([
