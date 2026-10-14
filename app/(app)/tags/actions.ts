@@ -37,6 +37,7 @@ export async function createTagAction(name: string): Promise<TagResult> {
     const db = await createServerSupabase();
     const tags = await existing(db);
     if (tags.some((t) => sameTagName(t.name, n.value))) return fail('duplicate');
+    if (tags.length >= TAG_LIMIT) return fail('too_many'); // reads are capped at TAG_LIMIT, so more tags would silently vanish from the page
     const { error } = await db.from('tags').insert({ name: n.value, color: pickColor(tags.map((t) => t.color)) });
     return error ? fail(keyOf(error)) : done();
   } catch {

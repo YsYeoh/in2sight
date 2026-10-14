@@ -113,8 +113,26 @@ describe('loadOnline, loadTags, loadMonthMedia', () => {
 
   it('month media: posts and stories in [from, to) for the accounts', async () => {
     const f = fakeDb({ media: [{ data: [{ id: 's', account_id: 'a1', media_type: 'STORY', posted_at: '2026-10-01T00:00:00Z', permalink: null, caption: null }] }] });
-    expect(await loadMonthMedia(f.db, ['a1'], '2026-09-30T16:00:00.000Z', '2026-10-31T16:00:00.000Z')).toEqual([{ id: 's', accountId: 'a1', mediaType: 'STORY', postedAt: '2026-10-01T00:00:00Z', permalink: null, caption: null }]);
+    const out = await loadMonthMedia(f.db, ['a1'], '2026-09-30T16:00:00.000Z', '2026-10-31T16:00:00.000Z');
+    expect(out).toEqual({ media: [{ id: 's', accountId: 'a1', mediaType: 'STORY', postedAt: '2026-10-01T00:00:00Z', permalink: null, caption: null }], truncated: false });
     expect(f.calls[0].ops.slice(0, 3)).toEqual([['in', 'account_id', ['a1']], ['gte', 'posted_at', '2026-09-30T16:00:00.000Z'], ['lt', 'posted_at', '2026-10-31T16:00:00.000Z']]);
     noStar(f.calls);
+  });
+
+  it('flags truncation when the read hits exactly the row limit', async () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, account_id: 'a1', media_type: 'IMAGE', posted_at: '2026-10-01T00:00:00Z', permalink: null, caption: null }));
+    const full = fakeDb({ media: [{ data: rows(1000) }] });
+    expect((await loadMonthMedia(full.db, ['a1'], 'a', 'b')).truncated).toBe(true);
+    const under = fakeDb({ media: [{ data: rows(999) }] });
+    expect((await loadMonthMedia(under.db, ['a1'], 'a', 'b')).truncated).toBe(false);
+  });
+
+  it('keeps only https permalinks (stored values are rendered as external links)', async () => {
+    const row = (id: string, permalink: unknown) => ({ id, account_id: 'a1', media_type: 'IMAGE', posted_at: '2026-10-01T00:00:00Z', permalink, caption: null });
+    const f = fakeDb({ media: [{ data: [row('a', 'https://www.instagram.com/p/x/'), row('b', 'HTTPS://instagram.com/p/y/'), row('c', 'javascript:alert(1)'), row('d', 'http://instagram.com/p/z/'), row('e', 5)] }] });
+    expect((await loadMonthMedia(f.db, ['a1'], 'a', 'b')).media.map((m) => m.permalink)).toEqual(['https://www.instagram.com/p/x/', 'HTTPS://instagram.com/p/y/', null, null, null]);
+    const story = (id: string, permalink: string) => ({ id, posted_at: '2026-10-14T08:00:00Z', expires_at: null, permalink, media_metrics: [] });
+    const s = fakeDb({ media: [{ data: [story('s1', 'javascript:alert(1)'), story('s2', 'https://www.instagram.com/stories/x/')] }] });
+    expect((await loadStories(s.db, 'a1', 'x')).map((r) => r.permalink)).toEqual([null, 'https://www.instagram.com/stories/x/']);
   });
 });

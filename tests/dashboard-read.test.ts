@@ -54,6 +54,8 @@ describe('loadPosts', () => {
     expect(rowToPost({ ...mediaRow('x'), media_type: 'VIDEO' })).toBeNull();
     expect(rowToPost(mediaRow('y', [{ reach: 'NaN', likes: Infinity }]))).toMatchObject({ reach: null, likes: null });
     expect(rowToPost({ ...mediaRow('z'), media_metrics: null })).toMatchObject({ reach: null });
+    for (const bad of ['javascript:alert(1)', 'http://instagram.com/p/x/', 'data:text/html,x', 7]) expect(rowToPost({ ...mediaRow('l'), permalink: bad })?.permalink).toBeNull();
+    expect(rowToPost({ ...mediaRow('l'), permalink: 'HTTPS://instagram.com/p/x/' })?.permalink).toBe('HTTPS://instagram.com/p/x/');
   });
 });
 

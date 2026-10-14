@@ -4,7 +4,7 @@
 export const TAG_NAME_MAX = 40;
 export const MAX_TAGS_PER_POST = 10;
 export const TAG_COLORS = ['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5', 'chart-6'] as const;
-export type TagColor = (typeof TAG_COLORS)[number];
+type TagColor = (typeof TAG_COLORS)[number];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Instagram media ids are numeric strings today; allow word characters so a format change does not lock tagging. */

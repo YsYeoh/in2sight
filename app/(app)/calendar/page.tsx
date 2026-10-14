@@ -19,6 +19,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const wanted = isUuid(sp.account) ? sp.account.toLowerCase() : null;
   const account = wanted && accounts.some((a) => a.id === wanted) ? wanted : null; // unknown/archived id → all accounts
   const { fromIso, toIso } = monthRange(month, prefs.weekStart, prefs.timezone);
-  const media = await loadMonthMedia(db, account ? [account] : accounts.map((a) => a.id), fromIso, toIso);
-  return <CalendarView model={buildMonth(month, media, { weekStart: prefs.weekStart, tz: prefs.timezone, today })} accounts={accounts.map((a) => ({ id: a.id, username: a.username }))} account={account} />;
+  const { media, truncated } = await loadMonthMedia(db, account ? [account] : accounts.map((a) => a.id), fromIso, toIso);
+  // key: the selected-day state lives in CalendarView, so a new month or account must remount it
+  return <CalendarView key={`${month}|${account ?? ''}`} truncated={truncated} model={buildMonth(month, media, { weekStart: prefs.weekStart, tz: prefs.timezone, today })} accounts={accounts.map((a) => ({ id: a.id, username: a.username }))} account={account} />;
 }

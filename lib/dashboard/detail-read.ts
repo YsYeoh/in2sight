@@ -2,7 +2,7 @@
 // limits, fixed error messages (Supabase messages can echo values). Never the admin client, never account_tokens.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { OnlineFollowersRow, Post, Tag } from '@/lib/analysis/types';
-import { MEDIA_LIMIT, rowToPost } from '@/lib/dashboard/read';
+import { MEDIA_LIMIT, rowToPost, safeLink } from '@/lib/dashboard/read';
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { MediaKind } from '@/lib/instagram/parse';
 
@@ -10,9 +10,9 @@ import type { MediaKind } from '@/lib/instagram/parse';
 export const STORY_LIMIT = 200;
 export const TAG_LIMIT = 500;
 /** One month of posts + stories over 3-4 accounts stays far below this (PostgREST's default cap is 1000). */
-export const MONTH_LIMIT = 1000;
-export const ONLINE_LIMIT = 1000;
-export const AUDIENCE_KINDS: AudienceKind[] = ['age_gender', 'country', 'city'];
+const MONTH_LIMIT = 1000;
+const ONLINE_LIMIT = 1000;
+const AUDIENCE_KINDS: AudienceKind[] = ['age_gender', 'country', 'city'];
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -78,7 +78,9 @@ export async function loadPostRows(db: SupabaseClient, accountId: string): Promi
   });
 }
 
-/** Stories posted since `sinceIso`, newest first, with every snapshot (oldest first). */
+/** Stories posted since `sinceIso`, newest first, with every snapshot (oldest first).
+ *  ponytail: snapshots are embedded without a per-story cap, so 200 stories x 30-minute snapshots is the ceiling;
+ *  if that gets heavy, read only the latest snapshot for finished stories. */
 export async function loadStories(db: SupabaseClient, accountId: string, sinceIso: string): Promise<StoryRow[]> {
   const { data, error } = await db
     .from('media')
@@ -94,7 +96,7 @@ export async function loadStories(db: SupabaseClient, accountId: string, sinceIs
     id: String(r.id),
     postedAt: String(r.posted_at),
     expiresAt: str(r.expires_at),
-    permalink: str(r.permalink),
+    permalink: safeLink(r.permalink),
     snapshots: (Array.isArray(r.media_metrics) ? (r.media_metrics as Row[]) : []).map((m) => ({
       capturedAt: String(m.captured_at),
       reach: num(m.reach),
@@ -145,9 +147,10 @@ export async function loadTags(db: SupabaseClient): Promise<Tag[]> {
   return ((data ?? []) as Row[]).map((r) => ({ id: String(r.id), name: String(r.name), color: String(r.color) }));
 }
 
-/** Every media item (posts AND stories) published in [fromIso, toIso) for the given accounts, oldest first. */
-export async function loadMonthMedia(db: SupabaseClient, accountIds: string[], fromIso: string, toIso: string): Promise<MonthMedia[]> {
-  if (accountIds.length === 0) return [];
+/** Every media item (posts AND stories) published in [fromIso, toIso) for the given accounts, oldest first.
+ *  `truncated`: the read hit MONTH_LIMIT rows, so the latest days of the month may be missing. */
+export async function loadMonthMedia(db: SupabaseClient, accountIds: string[], fromIso: string, toIso: string): Promise<{ media: MonthMedia[]; truncated: boolean }> {
+  if (accountIds.length === 0) return { media: [], truncated: false };
   const { data, error } = await db
     .from('media')
     .select('id,account_id,media_type,posted_at,permalink,caption')
@@ -157,8 +160,10 @@ export async function loadMonthMedia(db: SupabaseClient, accountIds: string[], f
     .order('posted_at', { ascending: true })
     .limit(MONTH_LIMIT);
   if (error) fail('month media');
-  return ((data ?? []) as Row[]).flatMap((r) => {
+  const rows = (data ?? []) as Row[];
+  const media = rows.flatMap((r) => {
     const p = rowToPost({ ...r, media_metrics: [] });
     return p ? [{ id: p.id, accountId: p.accountId, mediaType: p.mediaType, postedAt: p.postedAt, permalink: p.permalink, caption: str(r.caption) }] : [];
   });
+  return { media, truncated: rows.length >= MONTH_LIMIT };
 }

@@ -28,14 +28,17 @@ export interface MonthModel {
   weeks: CalendarDay[][]; // whole weeks starting on the user's week start
 }
 
-/** ?month=YYYY-MM; anything else (2026-13, arrays, junk) falls back to the month of `today`. */
+/** ?month=YYYY-MM, years 1970-2099 only (0000-0099 would be read as 19xx by Date.UTC, 5-digit years are not
+ *  'YYYY-MM'); anything else (2026-13, 0050-06, 9999-12, arrays, junk) falls back to the month of `today`. */
 export function parseMonth(v: unknown, today: string): string {
-  return typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v) ? v : today.slice(0, 7);
+  return typeof v === 'string' && /^(19[7-9]\d|20\d\d)-(0[1-9]|1[0-2])$/.test(v) ? v : today.slice(0, 7);
 }
 
+// Plain month arithmetic (no Date): for a parsed month the result is always a 4-digit AD year (1969-12 .. 2100-01).
 function shiftMonth(month: string, n: number): string {
   const [y, m] = month.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+  const i = y * 12 + m - 1 + n;
+  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
 }
 
 /** The grid's days (whole weeks) and the [fromIso, toIso) instants that bound them in the owner's timezone. */
@@ -64,5 +67,6 @@ export function buildMonth(month: string, media: MonthMedia[], o: { weekStart: W
     const stories = items.filter((i) => i.mediaType === 'STORY').length;
     return { day, inMonth: day.startsWith(month), isToday: day === o.today, posts: items.length - stories, stories, items };
   });
-  return { month, prev: shiftMonth(month, -1), next: shiftMonth(month, 1), weeks: Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7)) };
+  // edge months link to themselves, never out of range
+  return { month, prev: parseMonth(shiftMonth(month, -1), month), next: parseMonth(shiftMonth(month, 1), month), weeks: Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7)) };
 }

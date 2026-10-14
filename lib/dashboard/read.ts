@@ -34,6 +34,9 @@ export function rowToDaily(r: Row): DailyRow {
   };
 }
 
+/** Permalinks are rendered as external links: keep only https URLs (a stored `javascript:` value must never reach an href). */
+export const safeLink = (v: unknown): string | null => (typeof v === 'string' && /^https:\/\//i.test(v) ? v : null);
+
 /** A media row with its embedded latest media_metrics snapshot (array of 0 or 1). Unknown media types are dropped. */
 export function rowToPost(r: Row): Post | null {
   if (!MEDIA_KINDS.includes(r.media_type as string)) return null;
@@ -43,7 +46,7 @@ export function rowToPost(r: Row): Post | null {
     accountId: String(r.account_id),
     mediaType: r.media_type as MediaKind,
     postedAt: String(r.posted_at),
-    permalink: typeof r.permalink === 'string' ? r.permalink : null,
+    permalink: safeLink(r.permalink),
     reach: num(m.reach),
     views: num(m.views),
     likes: num(m.likes),

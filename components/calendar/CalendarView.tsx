@@ -14,7 +14,7 @@ import type { CalendarDay, MonthModel } from '@/lib/dashboard/calendar';
 import { formatDay, formatMonth, formatNumber, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-export interface CalendarAccount {
+interface CalendarAccount {
   id: string;
   username: string;
 }
@@ -53,7 +53,7 @@ function DayItems({ day, accounts, showAccount }: { day: CalendarDay; accounts: 
   );
 }
 
-export function CalendarView({ model, accounts, account }: { model: MonthModel; accounts: CalendarAccount[]; account: string | null }) {
+export function CalendarView({ model, accounts, account, truncated }: { model: MonthModel; accounts: CalendarAccount[]; account: string | null; truncated: boolean }) {
   const t = useTranslations('pages.calendar');
   const ta = useTranslations('analysis');
   const { prefs } = usePrefs();
@@ -109,6 +109,12 @@ export function CalendarView({ model, accounts, account }: { model: MonthModel; 
           </Link>
         </Button>
       </div>
+
+      {truncated ? (
+        <p role="status" className="mb-[var(--gp)] text-sm text-muted-foreground">
+          {t('truncated')}
+        </p>
+      ) : null}
 
       {/* md+: month grid; tapping a day shows its list below */}
       <div className="hidden md:block">
