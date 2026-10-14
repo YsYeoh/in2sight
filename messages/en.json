@@ -9,7 +9,8 @@
   "table": {
     "empty": "Nothing to show yet",
     "sortBy": "Sort by",
-    "defaultOrder": "Default order"
+    "defaultOrder": "Default order",
+    "ascending": "Ascending"
   },
   "nav": {
     "overview": "Overview",

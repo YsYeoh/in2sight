@@ -9,7 +9,8 @@
   "table": {
     "empty": "暂无内容",
     "sortBy": "排序方式",
-    "defaultOrder": "默认顺序"
+    "defaultOrder": "默认顺序",
+    "ascending": "升序"
   },
   "nav": {
     "overview": "总览",
