@@ -269,6 +269,23 @@
       "emptyHint": "You'll label posts here once accounts are connected."
     }
   },
+  "metrics": {
+    "followers": "Followers",
+    "reach": "Reach",
+    "views": "Views",
+    "engagementRate": "Engagement",
+    "posts": "Posts",
+    "netFollows": "Net follows"
+  },
+  "analysis": {
+    "reasons": {
+      "no_data": "No data yet",
+      "needs_100_followers": "Instagram shares this from 100 followers",
+      "not_enough_history": "Not enough history to compare yet",
+      "not_enough_posts": "Needs ~30+ posts for a reliable pattern",
+      "backfilling": "Importing history…"
+    }
+  },
   "setup": {
     "title": "Almost there",
     "body": "in2sight needs its Supabase connection before you can sign in. Add these variables to .env.local (and to Vercel), then reload.",

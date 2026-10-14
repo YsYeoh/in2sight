@@ -68,6 +68,11 @@ export function formatDateTime(v: DateInput, p: FormatPrefs): string {
   return d ? `${formatDate(d, p)} ${formatTime(d, p)}` : DASH;
 }
 
+/** A calendar day 'YYYY-MM-DD' that is already in the owner's timezone (account_daily.day): no timezone shift. */
+export function formatDay(day: string, p: FormatPrefs): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? formatDate(`${day}T12:00:00Z`, { ...p, timezone: 'UTC' }) : DASH;
+}
+
 const NUMBER_LOCALE = { '1,234.5': 'en-US', '1.234,5': 'de-DE', '1 234,5': 'fr-FR' } as const;
 
 function isNum(n: number | null | undefined): n is number {
@@ -116,10 +121,14 @@ export function formatPercent(ratio: number | null | undefined, p: FormatPrefs, 
   return `${formatNumber(ratio * 100, p, { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
 }
 
+/** "+12" / "-3.5" / "0": a signed absolute change. Never a signed zero. */
+export function formatSigned(n: number | null | undefined, p: FormatPrefs, digits = 0): string {
+  if (!isNum(n)) return DASH;
+  const fixed = { minimumFractionDigits: digits, maximumFractionDigits: digits };
+  if (Number(n.toFixed(digits)) === 0) return formatNumber(0, p, fixed);
+  return `${n > 0 ? '+' : '-'}${formatNumber(Math.abs(n), p, fixed)}`;
+}
+
 export function formatDelta(ratio: number | null | undefined, p: FormatPrefs, digits = 1): string {
-  if (!isNum(ratio)) return DASH;
-  const pct = ratio * 100;
-  if (Number(pct.toFixed(digits)) === 0) return `${formatNumber(0, p, { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
-  const body = formatNumber(Math.abs(pct), p, { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  return `${pct > 0 ? '+' : '-'}${body}%`;
+  return isNum(ratio) ? `${formatSigned(ratio * 100, p, digits)}%` : DASH;
 }
