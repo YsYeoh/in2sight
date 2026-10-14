@@ -214,13 +214,14 @@ export interface SyncStatus {
   lastSuccessAt: string | null;
   lastErrorKey: string | null;
   consecutiveFailures: number;
+  dailyDoneThrough?: string | null; // null until the first-connect backfill has written a day (Overview: "backfilling")
 }
 
 /** Owner-session read for the Accounts page (RLS: owner select). Never throws: the page still renders without it. */
 export async function listSyncStatus(db: SupabaseClient): Promise<Record<string, SyncStatus>> {
-  const { data, error } = await db.from('sync_state').select('account_id,last_success_at,last_error_key,consecutive_failures');
+  const { data, error } = await db.from('sync_state').select('account_id,last_success_at,last_error_key,consecutive_failures,daily_done_through');
   if (error || !data) return {};
   return Object.fromEntries(
-    (data as Row[]).map((r) => [r.account_id as string, { lastSuccessAt: (r.last_success_at as string | null) ?? null, lastErrorKey: (r.last_error_key as string | null) ?? null, consecutiveFailures: typeof r.consecutive_failures === 'number' ? r.consecutive_failures : 0 }]),
+    (data as Row[]).map((r) => [r.account_id as string, { lastSuccessAt: (r.last_success_at as string | null) ?? null, lastErrorKey: (r.last_error_key as string | null) ?? null, consecutiveFailures: typeof r.consecutive_failures === 'number' ? r.consecutive_failures : 0, dailyDoneThrough: (r.daily_done_through as string | null) ?? null }]),
   );
 }
