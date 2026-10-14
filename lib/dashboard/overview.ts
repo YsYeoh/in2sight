@@ -50,7 +50,7 @@ export function fromDayFor(period: Period, today: string): string {
   return addDays(today, -(2 * Math.max(period, 7) + 2));
 }
 
-function cardState(status: AccountStatus, tokenExpiresAt: string | null, now: Date, doneThrough: string | null | undefined, s: Summary, hasRows: boolean): CardState {
+export function cardState(status: AccountStatus, tokenExpiresAt: string | null, now: Date, doneThrough: string | null | undefined, s: Summary, hasRows: boolean): CardState {
   if (status === 'needs_reconnect' || tokenStatus(tokenExpiresAt, now).state === 'expired') return 'needs_reconnect';
   if (!doneThrough && !hasRows) return 'backfilling';
   return s.current.days === 0 && s.current.followers === null ? 'no_data' : 'ok';
