@@ -4234,3 +4234,448 @@ git commit -m "feat: tags page with per-tag performance, create, rename and dele
 ```
 
 ---
+
+### Task 13: Calendar page + navigation
+
+**Files:**
+- Create: `app/(app)/calendar/page.tsx`, `components/calendar/CalendarView.tsx`
+- Modify: `lib/nav.ts`, `tests/nav.test.ts`, `components/shared/AppShell.tsx` (bottom bar `grid-cols-4` → `grid-cols-5`), `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/calendar.test.tsx`, `tests/calendar-page.test.tsx`
+
+**Interfaces:**
+- Consumes: `parseMonth`, `monthRange`, `buildMonth`, `MonthModel`, `CalendarDay` (Task 8); `loadMonthMedia` (Task 3); `formatMonth` (Task 8), `formatDay`, `formatTime`, `formatNumber`; `weekdayOf` (`lib/analysis/best-time.ts`); `isUuid` (Task 2).
+- Produces: route `/calendar?month=YYYY-MM&account=<uuid>`; `CalendarView({ model, accounts: CalendarAccount[], account: string | null })`, `interface CalendarAccount { id; username }`; nav item `{ href: '/calendar', key: 'calendar' }`.
+
+The account filter is a GET form whose `<select>` submits itself on change (`requestSubmit`), with a `<noscript>` button as the no-JS fallback. An unknown, archived or malformed `account` falls back to all accounts (never an error page). Day boundaries come from `monthRange` (owner timezone, DST-safe). Grid on `md+` (a `<table>` of day buttons with `aria-pressed`, the selected day's list below), agenda on phones (`md:hidden`), both always rendered.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/calendar.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { CalendarView } from '@/components/calendar/CalendarView';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { buildMonth } from '@/lib/dashboard/calendar';
+import type { MonthMedia } from '@/lib/dashboard/detail-read';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const A1 = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const A2 = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+const ACCOUNTS = [
+  { id: A1, username: 'brand.one' },
+  { id: A2, username: 'brand.two' },
+];
+const m = (id: string, postedAt: string, mediaType: MonthMedia['mediaType'] = 'IMAGE', accountId = A1): MonthMedia => ({ id, accountId, mediaType, postedAt, permalink: id === 'p1' ? 'https://www.instagram.com/p/p1/' : null, caption: id === 'p1' ? 'Launch day' : null });
+const KL = { weekStart: 'mon' as const, tz: 'Asia/Kuala_Lumpur', today: '2026-10-15' };
+const model = buildMonth('2026-10', [m('p1', '2026-10-15T02:00:00Z'), m('s1', '2026-10-15T03:00:00Z', 'STORY', A2), m('p2', '2026-09-30T16:30:00Z')], KL);
+
+function view(account: string | null = null, locale: 'en' | 'zh-CN' = 'en', mdl = model) {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        <CalendarView model={mdl} accounts={ACCOUNTS} account={account} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('CalendarView', () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it('month title, prev/next links keep the account filter', () => {
+    view(A1);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('October 2026');
+    expect(screen.getByRole('link', { name: en.pages.calendar.previous })).toHaveAttribute('href', `?month=2026-09&account=${A1}`);
+    expect(screen.getByRole('link', { name: en.pages.calendar.next })).toHaveAttribute('href', `?month=2026-11&account=${A1}`);
+    expect(screen.getByRole('combobox')).toHaveValue(A1);
+  });
+
+  it('grid: weekday headers from the week start, day cells with counts; today selected and listed', () => {
+    view();
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+    const today = within(table).getByRole('button', { name: /^15 Oct 2026: 1 post, 1 story/ });
+    expect(today).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('Launch day').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Story · @brand\.two/).length).toBeGreaterThan(0); // all accounts: the account is named
+  });
+
+  it('tapping a day shows its list (a post just after midnight local is on 1 Oct)', async () => {
+    const user = userEvent.setup();
+    view();
+    expect(screen.getAllByRole('heading', { level: 3, name: '1 Oct 2026' })).toHaveLength(1); // phone agenda only
+    await user.click(within(screen.getByRole('table')).getByRole('button', { name: /^1 Oct 2026: 1 post, 0 stories/ }));
+    expect(screen.getAllByRole('heading', { level: 3, name: '1 Oct 2026' })).toHaveLength(2); // + the md+ day card
+    await user.click(within(screen.getByRole('table')).getByRole('button', { name: /^2 Oct 2026/ }));
+    expect(screen.getAllByText(en.pages.calendar.nothing).length).toBeGreaterThan(0);
+  });
+
+  it('phones: an agenda of only the days with items; external links use noopener', () => {
+    view();
+    const agenda = screen.getAllByRole('region');
+    expect(agenda.map((r) => r.getAttribute('aria-label'))).toEqual([expect.stringContaining('1 Oct 2026'), expect.stringContaining('15 Oct 2026')]);
+    for (const a of screen.getAllByRole('link', { name: en.pages.calendar.open })) expect(a).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('empty month (zh-CN): the agenda says so', () => {
+    view(null, 'zh-CN', buildMonth('2026-12', [], KL));
+    expect(screen.getByText(zh.pages.calendar.emptyMonth)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('2026年12月');
+  });
+});
+```
+
+`tests/calendar-page.test.tsx`:
+
+```tsx
+import type { ReactElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MonthModel } from '@/lib/dashboard/calendar';
+
+const { calls, accounts } = vi.hoisted(() => ({ calls: [] as unknown[][], accounts: [] as Record<string, unknown>[] }));
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push(['requireOwner']) }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push(['session']), {}) }));
+vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => ({ ...(await import('@/lib/prefs')).DEFAULT_PREFS, timezone: 'Asia/Kuala_Lumpur', weekStart: 'mon' }) }));
+vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ list: async () => accounts }) }));
+vi.mock('@/lib/dashboard/detail-read', () => ({ loadMonthMedia: async (...a: unknown[]) => (calls.push(['month', ...a.slice(1)]), []) }));
+
+import CalendarPage from '@/app/(app)/calendar/page';
+
+const A1 = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const A2 = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+const acct = (id: string, status = 'active') => ({ id, username: id.slice(0, 4), status });
+const run = (sp: Record<string, string | string[]>) => CalendarPage({ searchParams: Promise.resolve(sp) }) as Promise<ReactElement<{ model: MonthModel; account: string | null; accounts: { id: string }[] }>>;
+
+beforeEach(() => {
+  calls.length = 0;
+  accounts.length = 0;
+  accounts.push(acct(A1), acct(A2), acct('9e9e9e9e-0000-4000-8000-000000000000', 'archived'));
+});
+
+describe('calendar page', () => {
+  it('requireOwner first; a month in the owner timezone over every live account', async () => {
+    const el = await run({ month: '2026-10' });
+    expect(calls[0]).toEqual(['requireOwner']);
+    expect(el.props.model.month).toBe('2026-10');
+    expect(el.props.account).toBeNull();
+    expect(el.props.accounts.map((a) => a.id)).toEqual([A1, A2]); // archived hidden
+    expect(calls.find((c) => c[0] === 'month')).toEqual(['month', [A1, A2], '2026-09-27T16:00:00.000Z', '2026-11-01T16:00:00.000Z']);
+  });
+
+  it('a valid account filter narrows the read; junk, unknown or archived ids fall back to all accounts', async () => {
+    expect((await run({ account: A2.toUpperCase(), month: '2026-10' })).props.account).toBe(A2);
+    expect(calls.find((c) => c[0] === 'month')?.[1]).toEqual([A2]);
+    for (const bad of ['x', '9e9e9e9e-0000-4000-8000-000000000000', [A1, A2]]) expect((await run({ account: bad })).props.account).toBeNull();
+  });
+
+  it('a junk month falls back to the current month', async () => {
+    expect((await run({ month: '2026-13' })).props.model.month).toMatch(/^\d{4}-\d{2}$/);
+  });
+});
+```
+
+In `tests/nav.test.ts` replace the first test with:
+
+```ts
+  it('lists the five main destinations in order', () => {
+    expect(NAV_ITEMS.map((i) => i.href)).toEqual(['/overview', '/accounts', '/tags', '/calendar', '/settings']);
+    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['overview', 'accounts', 'tags', 'calendar', 'settings']);
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/calendar.test.tsx tests/calendar-page.test.tsx tests/nav.test.ts`
+Expected: FAIL (`Failed to resolve import "@/components/calendar/CalendarView"`, `.../calendar/page`, and the nav list mismatch).
+
+- [ ] **Step 3: Add the messages** — merge into both files.
+
+`messages/en.json`:
+
+```json
+{
+  "nav": { "calendar": "Calendar" },
+  "pages": {
+    "calendar": {
+      "title": "Calendar",
+      "allAccounts": "All accounts",
+      "account": "Account",
+      "show": "Show",
+      "previous": "Previous month",
+      "next": "Next month",
+      "posts": "{count, plural, one {# post} other {# posts}}",
+      "stories": "{count, plural, one {# story} other {# stories}}",
+      "dayLabel": "{date}: {posts, plural, one {# post} other {# posts}}, {stories, plural, one {# story} other {# stories}}",
+      "nothing": "Nothing published on this day",
+      "emptyMonth": "Nothing published this month",
+      "open": "Open on Instagram"
+    }
+  }
+}
+```
+
+`messages/zh-CN.json`:
+
+```json
+{
+  "nav": { "calendar": "日历" },
+  "pages": {
+    "calendar": {
+      "title": "日历",
+      "allAccounts": "全部账号",
+      "account": "账号",
+      "show": "显示",
+      "previous": "上个月",
+      "next": "下个月",
+      "posts": "{count, plural, other {# 篇帖子}}",
+      "stories": "{count, plural, other {# 条快拍}}",
+      "dayLabel": "{date}：{posts, plural, other {# 篇帖子}}，{stories, plural, other {# 条快拍}}",
+      "nothing": "这一天没有发布内容",
+      "emptyMonth": "本月没有发布内容",
+      "open": "在 Instagram 中打开"
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Navigation**
+
+`lib/nav.ts`:
+1. Import `CalendarDays` too: `import { CalendarDays, CircleUserRound, LayoutDashboard, Settings, Tag, type LucideIcon } from 'lucide-react';`
+2. Widen the unions: `href: '/overview' | '/accounts' | '/tags' | '/calendar' | '/settings';` and `key: 'overview' | 'accounts' | 'tags' | 'calendar' | 'settings';`
+3. Insert `{ href: '/calendar', key: 'calendar', icon: CalendarDays },` after the `/tags` entry.
+
+`components/shared/AppShell.tsx`: in the phone bottom bar `<nav aria-label={t('tabs')} …>` change `grid-cols-4` to `grid-cols-5`.
+
+- [ ] **Step 5: Implement the view** — `components/calendar/CalendarView.tsx`:
+
+```tsx
+'use client';
+
+// Month grid on md+, agenda list on phones (CSS breakpoints only: both are rendered, never matchMedia).
+import { useState } from 'react';
+import Link from 'next/link';
+import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { weekdayOf } from '@/lib/analysis/best-time';
+import type { CalendarDay, MonthModel } from '@/lib/dashboard/calendar';
+import { formatDay, formatMonth, formatNumber, formatTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
+
+export interface CalendarAccount {
+  id: string;
+  username: string;
+}
+
+function DayItems({ day, accounts, showAccount }: { day: CalendarDay; accounts: CalendarAccount[]; showAccount: boolean }) {
+  const t = useTranslations('pages.calendar');
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+  if (day.items.length === 0) return <p className="text-sm text-muted-foreground">{t('nothing')}</p>;
+  return (
+    <ul className="grid gap-2 text-sm">
+      {day.items.map((i) => (
+        <li key={i.id} className="flex min-w-0 items-start gap-2">
+          <span className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground">{formatTime(i.postedAt, prefs)}</span>
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate font-medium">
+                {ta(`format.${i.mediaType}`)}
+                {showAccount ? ` · @${accounts.find((a) => a.id === i.accountId)?.username ?? '?'}` : ''}
+              </span>
+              {i.permalink ? (
+                <a href={i.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open')} className="shrink-0 text-muted-foreground hover:text-foreground">
+                  <ExternalLink aria-hidden="true" className="size-3.5" />
+                </a>
+              ) : null}
+            </span>
+            {i.caption ? (
+              <span className="block truncate text-xs text-muted-foreground" dir="auto">
+                {i.caption}
+              </span>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function CalendarView({ model, accounts, account }: { model: MonthModel; accounts: CalendarAccount[]; account: string | null }) {
+  const t = useTranslations('pages.calendar');
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+  const days = model.weeks.flat();
+  const inMonth = days.filter((d) => d.inMonth);
+  const [selected, setSelected] = useState(() => (inMonth.find((d) => d.isToday) ?? inMonth.find((d) => d.items.length) ?? inMonth[0]).day);
+  const current = days.find((d) => d.day === selected);
+  const q = (month: string) => `?month=${month}${account ? `&account=${account}` : ''}`;
+  const label = (d: CalendarDay) => t('dayLabel', { date: formatDay(d.day, prefs), posts: d.posts, stories: d.stories });
+
+  return (
+    <>
+      <PageHeader
+        title={t('title')}
+        subtitle={account ? `@${accounts.find((a) => a.id === account)?.username ?? ''}` : t('allAccounts')}
+        actions={
+          <form method="get" className="flex items-center gap-2">
+            <input type="hidden" name="month" value={model.month} />
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              {t('account')}
+              <select name="account" defaultValue={account ?? ''} onChange={(e) => e.currentTarget.form?.requestSubmit()} className="h-[var(--ctl-sm)] max-w-40 rounded-md border border-input bg-background px-2 text-xs text-foreground">
+                <option value="">{t('allAccounts')}</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    @{a.username}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <noscript>
+              <Button type="submit" size="sm" variant="outline">
+                {t('show')}
+              </Button>
+            </noscript>
+          </form>
+        }
+      />
+
+      <div className="mb-[var(--gp)] flex items-center justify-between gap-2">
+        <Button asChild variant="ghost" size="sm">
+          <Link href={q(model.prev)} aria-label={t('previous')}>
+            <ChevronLeft aria-hidden="true" />
+            <span className="max-sm:sr-only">{formatMonth(model.prev, prefs)}</span>
+          </Link>
+        </Button>
+        <h2 className="text-[length:var(--fh)] font-medium" aria-live="polite">
+          {formatMonth(model.month, prefs)}
+        </h2>
+        <Button asChild variant="ghost" size="sm">
+          <Link href={q(model.next)} aria-label={t('next')}>
+            <span className="max-sm:sr-only">{formatMonth(model.next, prefs)}</span>
+            <ChevronRight aria-hidden="true" />
+          </Link>
+        </Button>
+      </div>
+
+      {/* md+: month grid; tapping a day shows its list below */}
+      <div className="hidden md:block">
+        <table className="w-full table-fixed border-separate border-spacing-1">
+          <caption className="sr-only">{formatMonth(model.month, prefs)}</caption>
+          <thead>
+            <tr>
+              {model.weeks[0].map((d) => (
+                <th key={d.day} scope="col" className="text-xs font-normal text-muted-foreground">
+                  {ta(`weekday.${weekdayOf(d.day)}`)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {model.weeks.map((w) => (
+              <tr key={w[0].day}>
+                {w.map((d) => (
+                  <td key={d.day} className="p-0 align-top">
+                    <button
+                      type="button"
+                      aria-label={label(d)}
+                      aria-pressed={d.day === selected}
+                      onClick={() => setSelected(d.day)}
+                      className={cn(
+                        'flex h-20 w-full flex-col gap-1 rounded-md border bg-card p-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring',
+                        !d.inMonth && 'opacity-40',
+                        d.day === selected && 'border-primary',
+                      )}
+                    >
+                      <span className={cn('text-xs tabular-nums', d.isToday && 'font-semibold text-primary')}>{formatNumber(Number(d.day.slice(8)), prefs)}</span>
+                      {d.posts ? <span className="truncate rounded-sm bg-chart-1/15 px-1 text-[10px] text-foreground">{t('posts', { count: d.posts })}</span> : null}
+                      {d.stories ? <span className="truncate rounded-sm bg-chart-2/15 px-1 text-[10px] text-foreground">{t('stories', { count: d.stories })}</span> : null}
+                    </button>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {current ? (
+          <Card className="mt-[var(--gp)]">
+            <CardContent className="grid gap-2">
+              <h3 className="font-medium">{formatDay(current.day, prefs)}</h3>
+              <DayItems day={current} accounts={accounts} showAccount={!account} />
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
+
+      {/* phones: agenda of the days that have something */}
+      <div className="grid gap-[var(--gp)] md:hidden">
+        {inMonth.some((d) => d.items.length) ? (
+          inMonth
+            .filter((d) => d.items.length)
+            .map((d) => (
+              <section key={d.day} aria-label={label(d)} className="rounded-lg border bg-card p-[var(--pc)]">
+                <h3 className={cn('mb-2 text-sm font-medium', d.isToday && 'text-primary')}>{formatDay(d.day, prefs)}</h3>
+                <DayItems day={d} accounts={accounts} showAccount={!account} />
+              </section>
+            ))
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">{t('emptyMonth')}</p>
+        )}
+      </div>
+    </>
+  );
+}
+```
+
+- [ ] **Step 6: Implement the page** — `app/(app)/calendar/page.tsx`:
+
+```tsx
+import { CalendarView } from '@/components/calendar/CalendarView';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { buildMonth, monthRange, parseMonth } from '@/lib/dashboard/calendar';
+import { loadMonthMedia } from '@/lib/dashboard/detail-read';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { localDay } from '@/lib/sync/time';
+import { isUuid } from '@/lib/tags';
+
+export default async function CalendarPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
+  const sp = await searchParams;
+  const prefs = await getPrefs();
+  const today = localDay(new Date(), prefs.timezone);
+  const month = parseMonth(sp.month, today);
+  const db = await createServerSupabase(); // owner session: RLS applies, never the admin client
+  const accounts = (await supabaseAccountsStore(db).list()).filter((a) => a.status !== 'archived'); // archived = hidden (SPEC §7c)
+  const wanted = isUuid(sp.account) ? sp.account.toLowerCase() : null;
+  const account = wanted && accounts.some((a) => a.id === wanted) ? wanted : null; // unknown/archived id → all accounts
+  const { fromIso, toIso } = monthRange(month, prefs.weekStart, prefs.timezone);
+  const media = await loadMonthMedia(db, account ? [account] : accounts.map((a) => a.id), fromIso, toIso);
+  return <CalendarView model={buildMonth(month, media, { weekStart: prefs.weekStart, tz: prefs.timezone, today })} accounts={accounts.map((a) => ({ id: a.id, username: a.username }))} account={account} />;
+}
+```
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `npx vitest run tests/calendar.test.tsx tests/calendar-page.test.tsx tests/nav.test.ts tests/app-shell.test.tsx tests/messages.test.ts`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add "app/(app)/calendar/page.tsx" components/calendar/CalendarView.tsx lib/nav.ts tests/nav.test.ts components/shared/AppShell.tsx messages/en.json messages/zh-CN.json tests/calendar.test.tsx tests/calendar-page.test.tsx
+git commit -m "feat: posting calendar per account or across all accounts" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
