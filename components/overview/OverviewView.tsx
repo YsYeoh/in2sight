@@ -11,47 +11,24 @@ import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { PageHeader } from '@/components/shared/PageHeader';
-import { DeltaPill, StatCard, type StatDelta } from '@/components/shared/StatCard';
+import { PeriodSelect } from '@/components/shared/PeriodSelect';
+import { DeltaPill, StatCard } from '@/components/shared/StatCard';
+import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Kpi, KpiId } from '@/lib/analysis/growth';
-import { PERIODS, type Period } from '@/lib/analysis/types';
+import type { Period } from '@/lib/analysis/types';
 import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';
 import { formatCompact, formatDateTime, formatDay, formatDelta, formatNumber } from '@/lib/format';
-import { deltaView, formatMetric } from '@/lib/metrics';
+import { formatMetric } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
-
-/** KPI → what StatCard/DeltaPill show; percentage points get their translated unit. */
-function useDelta() {
-  const t = useTranslations('pages.overview');
-  const { prefs } = usePrefs();
-  return (id: KpiId, k: Kpi | undefined): StatDelta | null => {
-    const d = k ? deltaView(id, k, prefs) : null;
-    return d && { ...d, text: d.unit === 'points' ? t('points', { value: d.text }) : d.text };
-  };
-}
-
-function PeriodSelect({ period }: { period: Period }) {
-  const t = useTranslations('pages.overview');
-  return (
-    <nav aria-label={t('period')} className="inline-flex rounded-md border bg-card p-0.5">
-      {PERIODS.map((p) => (
-        <Button key={p} asChild size="sm" variant={p === period ? 'secondary' : 'ghost'}>
-          <Link href={`?period=${p}`} aria-current={p === period ? 'page' : undefined} scroll={false}>
-            {t('periodOption', { days: p })}
-          </Link>
-        </Button>
-      ))}
-    </nav>
-  );
-}
 
 function MiniStat({ id, k }: { id: KpiId; k: Kpi }) {
   const tm = useTranslations('metrics');
   const { prefs } = usePrefs();
-  const delta = useDelta()(id, k);
+  const delta = useKpiDelta()(id, k);
   return (
     <div className="min-w-0">
       <span className="block truncate text-[10px] text-muted-foreground">{tm(id)}</span>
@@ -67,7 +44,7 @@ function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {
   const tR = useTranslations('analysis.reasons');
   const tErr = useTranslations('accounts.errors');
   const { prefs } = usePrefs();
-  const delta = useDelta()('followers', c.kpis.followers);
+  const delta = useKpiDelta()('followers', c.kpis.followers);
   const reachDown = (c.kpis.reach.change ?? 0) < 0;
   return (
     <li className="min-w-0">
@@ -151,7 +128,7 @@ function Comparison({ model }: { model: OverviewModel }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const { prefs } = usePrefs();
-  const delta = useDelta();
+  const delta = useKpiDelta();
   const [scopeId, setScopeId] = useState(model.scopes[0]?.id);
   const scope = model.scopes.find((s) => s.id === scopeId) ?? model.scopes[0];
   if (!scope) return null;
@@ -203,7 +180,7 @@ export function OverviewView({ model }: { model: OverviewModel }) {
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
   const { prefs } = usePrefs();
-  const delta = useDelta();
+  const delta = useKpiDelta();
   const uid = useId();
   const header = <PageHeader title={t('title')} subtitle={t('subtitle')} actions={<PeriodSelect period={model.period} />} />;
 
