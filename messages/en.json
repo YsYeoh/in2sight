@@ -184,7 +184,8 @@
       "group": "Group",
       "token": "Token",
       "status": "Status",
-      "connected": "Connected"
+      "connected": "Connected",
+      "synced": "Last synced"
     },
     "status": {
       "active": "Active",
@@ -204,7 +205,8 @@
       "reconnect": "Reconnect",
       "archive": "Archive",
       "restore": "Restore",
-      "delete": "Delete permanently"
+      "delete": "Delete permanently",
+      "syncNow": "Sync now"
     },
     "connect": {
       "title": "Add an Instagram account",
@@ -242,7 +244,16 @@
       "unexpected": "Something went wrong. Please try again.",
       "invalid_group": "That group name is not valid (max 40 characters).",
       "not_found": "That account no longer exists.",
-      "not_archived": "Only archived accounts can do that."
+      "not_archived": "Only archived accounts can do that.",
+      "token_invalid": "Instagram rejected the access token. Reconnect the account.",
+      "rate_limited": "Instagram is limiting requests. Sync retries automatically.",
+      "instagram_unavailable": "Instagram is temporarily unavailable. Sync retries automatically.",
+      "instagram_error": "Instagram returned an error. Sync retries automatically.",
+      "busy": "A sync is already running for this account.",
+      "not_active": "Only active accounts can be synced."
+    },
+    "sync": {
+      "never": "Not synced yet"
     }
   },
   "pages": {

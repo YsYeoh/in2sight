@@ -37,7 +37,7 @@ const accounts = [
 
 const ok = async () => ({ ok: true });
 function setup(props: Partial<React.ComponentProps<typeof AccountsView>> = {}, locale: 'en' | 'zh-CN' = 'en') {
-  const actions = { archive: vi.fn(ok), restore: vi.fn(ok), remove: vi.fn(ok), setGroup: vi.fn(ok) };
+  const actions = { archive: vi.fn(ok), restore: vi.fn(ok), remove: vi.fn(ok), setGroup: vi.fn(ok), syncNow: vi.fn(ok) };
   render(
     <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
       <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
@@ -207,5 +207,50 @@ describe('AccountsView', () => {
     setup({}, 'zh-CN');
     expect(screen.getByText('独立账号')).toBeInTheDocument();
     expect(screen.getAllByText('正常').length).toBeGreaterThan(0);
+  });
+});
+
+describe('AccountsView sync status', () => {
+  it('shows "Not synced yet" until the first sync, then the last sync time', () => {
+    setup({ accounts: [acct({ id: '1', username: 'a' }), acct({ id: '2', username: 'b' })], sync: { '2': { lastSuccessAt: '2026-10-14T02:00:00Z', lastErrorKey: null, consecutiveFailures: 0 } } });
+    expect(screen.getAllByText('Not synced yet').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2026/).length).toBeGreaterThan(0);
+  });
+
+  it('shows the translated error while failures are ongoing; unknown keys fall back to the generic text', () => {
+    setup({ accounts: [acct({ id: '1', username: 'a' }), acct({ id: '2', username: 'b' })], sync: { '1': { lastSuccessAt: null, lastErrorKey: 'rate_limited', consecutiveFailures: 2 }, '2': { lastSuccessAt: null, lastErrorKey: '<script>', consecutiveFailures: 1 } } });
+    expect(screen.getAllByText('Instagram is limiting requests. Sync retries automatically.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Something went wrong. Please try again.').length).toBeGreaterThan(0);
+  });
+
+  it('a stale error key is hidden once failures reset', () => {
+    setup({ accounts: [acct({ id: '1', username: 'a' })], sync: { '1': { lastSuccessAt: '2026-10-14T02:00:00Z', lastErrorKey: 'rate_limited', consecutiveFailures: 0 } } });
+    expect(screen.queryByText(/limiting requests/)).not.toBeInTheDocument();
+  });
+
+  it('"Sync now" calls the action for active accounts and is absent for accounts needing reconnect', async () => {
+    const actions = setup({ accounts: [acct({ id: '1', username: 'a' }), acct({ id: '3', username: 'c', status: 'needs_reconnect' })] });
+    const menus = screen.getAllByRole('button', { name: 'Account actions' });
+    await userEvent.click(menus[0]);
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Sync now' }));
+    expect(actions.syncNow).toHaveBeenCalledWith('1');
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Account actions' })[1]);
+    expect(await screen.findByRole('menuitem', { name: 'Edit group' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Sync now' })).not.toBeInTheDocument();
+  });
+
+  it('a failed sync shows its translated error', async () => {
+    const actions = setup({ accounts: [acct({ id: '1', username: 'a' })] });
+    actions.syncNow.mockResolvedValueOnce({ ok: false, error: 'busy' } as never);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Account actions' })[0]);
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Sync now' }));
+    expect(await screen.findByText('A sync is already running for this account.')).toBeInTheDocument();
+  });
+
+  it('renders the sync column in Simplified Chinese', () => {
+    setup({ accounts: [acct({ id: '1', username: 'a' })] }, 'zh-CN');
+    expect(screen.getAllByText('尚未同步').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('上次同步').length).toBeGreaterThan(0);
   });
 });
