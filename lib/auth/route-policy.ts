@@ -11,7 +11,7 @@ const NEXT: RouteDecision = { type: 'next' };
 const go = (to: '/login' | '/login/verify' | '/overview' | '/setup'): RouteDecision => ({ type: 'redirect', to });
 
 // Endpoints that authenticate themselves (cron secret / Meta signed_request) and must work without a browser session.
-const SELF_AUTHENTICATED = [/^\/api\/cron\/[\w-]+$/, /^\/api\/instagram\/(deauthorize|delete)$/];
+const SELF_AUTHENTICATED = [/^\/api\/cron\/tick$/, /^\/api\/instagram\/(deauthorize|delete)$/];
 const ENTRY = new Set(['/', '/login', '/login/verify', '/setup']);
 
 export function decideRoute({ pathname, configured, signedIn, aal, mfaRequired }: RouteInput): RouteDecision {
