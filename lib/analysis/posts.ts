@@ -42,7 +42,7 @@ export interface GroupStats {
   engagementRate: number | null; // Σ interactions ÷ Σ reach over measured posts
 }
 
-function stats(list: Post[]): GroupStats {
+export function groupStats(list: Post[]): GroupStats {
   const measured = list.filter((p) => (n(p.reach) ?? 0) > 0);
   const reach = measured.reduce((a, p) => a + (p.reach as number), 0);
   return {
@@ -57,7 +57,7 @@ export const FEED_FORMATS: Exclude<MediaKind, 'STORY'>[] = ['REELS', 'CAROUSEL_A
 
 /** Avg reach + engagement per format, in a fixed order; formats with no posts are omitted. */
 export function formatComparison(posts: Post[]): ({ mediaType: Exclude<MediaKind, 'STORY'> } & GroupStats)[] {
-  return FEED_FORMATS.map((mediaType) => ({ mediaType, ...stats(posts.filter((p) => p.mediaType === mediaType)) })).filter((r) => r.posts > 0);
+  return FEED_FORMATS.map((mediaType) => ({ mediaType, ...groupStats(posts.filter((p) => p.mediaType === mediaType)) })).filter((r) => r.posts > 0);
 }
 
 /**
@@ -69,7 +69,7 @@ export function tagPerformance(posts: Post[], mediaTags: MediaTag[], tags: Tag[]
   return tags
     .map((tag) => {
       const ids = new Set(mediaTags.filter((mt) => mt.tagId === tag.id).map((mt) => mt.mediaId));
-      return { tag, ...stats([...ids].map((id) => byId.get(id)).filter((p): p is Post => !!p)) };
+      return { tag, ...groupStats([...ids].map((id) => byId.get(id)).filter((p): p is Post => !!p)) };
     })
     .sort((a, b) => (b.avgReach ?? -1) - (a.avgReach ?? -1) || a.tag.name.localeCompare(b.tag.name));
 }

@@ -1,0 +1,147 @@
+// Posts tab, Stories tab and Tags page models. Pure: now/tz are inputs.
+import { engagementRate, FEED_FORMATS, groupStats, tagPerformance, type GroupStats } from '@/lib/analysis/posts';
+import type { MissingReason, Tag } from '@/lib/analysis/types';
+import type { PostRow, StoryRow, StorySnapshot } from '@/lib/dashboard/detail-read';
+import type { MediaKind } from '@/lib/instagram/parse';
+import { localDay } from '@/lib/sync/time';
+import { isUuid } from '@/lib/tags';
+
+export type FeedFormat = Exclude<MediaKind, 'STORY'>;
+export interface PostFilters {
+  format: FeedFormat | null;
+  tag: string | 'untagged' | null; // a tag id (lower-case uuid), 'untagged', or no filter
+  from: string | null; // 'YYYY-MM-DD' owner-timezone day, inclusive
+  to: string | null;
+}
+
+type Params = Record<string, string | string[] | undefined>;
+const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : null);
+/** A real calendar day 'YYYY-MM-DD' or null: '2026-02-31' and '2026-13-01' are rejected (they do not round-trip). */
+export function parseDay(v: unknown): string | null {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const t = Date.parse(`${v}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v ? v : null;
+}
+
+/** Posts-tab filters from the URL. Invalid values are dropped (no filter), never echoed back. */
+export function parsePostFilters(sp: Params): PostFilters {
+  const format = one(sp.format);
+  const tag = one(sp.tag);
+  let from = parseDay(sp.from);
+  let to = parseDay(sp.to);
+  if (from && to && from > to) [from, to] = [to, from];
+  return {
+    format: format && (FEED_FORMATS as string[]).includes(format) ? (format as FeedFormat) : null,
+    tag: tag === 'untagged' ? 'untagged' : isUuid(tag) ? tag.toLowerCase() : null,
+    from,
+    to,
+  };
+}
+
+export const CAPTION_SNIPPET = 80;
+
+/** First 80 code points of a caption on one line (emoji and CJK never split in half). */
+export function snippet(caption: string | null): string | null {
+  if (!caption) return null;
+  const chars = [...caption.replace(/\s+/g, ' ').trim()];
+  if (chars.length === 0) return null;
+  return chars.length > CAPTION_SNIPPET ? `${chars.slice(0, CAPTION_SNIPPET).join('')}…` : chars.join('');
+}
+
+export interface PostView {
+  id: string;
+  mediaType: FeedFormat;
+  postedAt: string;
+  permalink: string | null;
+  caption: string | null; // snippet
+  reach: number | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  saves: number | null;
+  shares: number | null;
+  engagementRate: number | null;
+  tags: Tag[]; // sorted by name
+}
+
+export function buildPosts(rows: PostRow[], tags: Tag[], f: PostFilters, tz: string): PostView[] {
+  const byId = new Map(tags.map((t) => [t.id, t]));
+  return rows
+    .filter((p) => p.mediaType !== 'STORY')
+    .filter((p) => !f.format || p.mediaType === f.format)
+    .filter((p) => (f.tag === null ? true : f.tag === 'untagged' ? p.tagIds.length === 0 : p.tagIds.includes(f.tag)))
+    .filter((p) => {
+      if (!f.from && !f.to) return true;
+      const day = localDay(new Date(p.postedAt), tz);
+      return (!f.from || day >= f.from) && (!f.to || day <= f.to);
+    })
+    .map((p) => ({
+      id: p.id,
+      mediaType: p.mediaType as FeedFormat,
+      postedAt: p.postedAt,
+      permalink: p.permalink,
+      caption: snippet(p.caption),
+      reach: p.reach,
+      views: p.views,
+      likes: p.likes,
+      comments: p.comments,
+      saves: p.saves,
+      shares: p.shares,
+      engagementRate: engagementRate(p),
+      tags: p.tagIds
+        .map((id) => byId.get(id))
+        .filter((t): t is Tag => !!t)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    }));
+}
+
+export interface StoryView {
+  id: string;
+  postedAt: string;
+  permalink: string | null;
+  live: boolean;
+  final: StorySnapshot | null; // last snapshot before expiry = the story's final numbers (SPEC section 5)
+  exitRate: number | null; // exits / views (SPEC section 7)
+  progression: (number | null)[]; // views per snapshot, oldest first
+  snapshots: number;
+  reason: MissingReason | null; // needs_5_viewers when Instagram never shared metrics
+}
+
+const DAY_MS = 86_400_000;
+
+export function buildStories(stories: StoryRow[], now: Date): StoryView[] {
+  return stories.map((s) => {
+    const expires = s.expiresAt ? Date.parse(s.expiresAt) : Date.parse(s.postedAt) + DAY_MS;
+    const before = s.snapshots.filter((x) => Date.parse(x.capturedAt) <= expires);
+    const final = before[before.length - 1] ?? s.snapshots[s.snapshots.length - 1] ?? null;
+    const views = final?.views ?? null;
+    return {
+      id: s.id,
+      postedAt: s.postedAt,
+      permalink: s.permalink,
+      live: now.getTime() < expires,
+      final,
+      exitRate: final && final.exits !== null && views !== null && views > 0 ? final.exits / views : null,
+      progression: s.snapshots.map((x) => x.views),
+      snapshots: s.snapshots.length,
+      reason: final ? null : 'needs_5_viewers',
+    };
+  });
+}
+
+/** Below this many measured posts a tag's averages are shown greyed with a reason. */
+export const MIN_TAG_POSTS = 5;
+
+export type TagStat = GroupStats & { reason: MissingReason | null };
+
+/** Per-tag performance plus the "untagged" bucket, over feed posts of every account in scope. */
+export function buildTagStats(posts: PostRow[], tags: Tag[]): { rows: ({ tag: Tag } & TagStat)[]; untagged: TagStat } {
+  const feed = posts.filter((p) => p.mediaType !== 'STORY');
+  const mediaTags = feed.flatMap((p) => p.tagIds.map((tagId) => ({ mediaId: p.id, tagId })));
+  const reason = (s: GroupStats): MissingReason | null => (s.measured < MIN_TAG_POSTS ? 'few_posts' : null);
+  const untagged = groupStats(feed.filter((p) => p.tagIds.length === 0));
+  return {
+    rows: tagPerformance(feed, mediaTags, tags).map((r) => ({ ...r, reason: reason(r) })),
+    untagged: { ...untagged, reason: reason(untagged) },
+  };
+}
