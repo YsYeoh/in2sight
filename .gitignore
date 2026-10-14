@@ -41,3 +41,4 @@ next-env.d.ts
 
 # local scratch (brainstorm mockups session, subagent ledgers)
 .superpowers/
+supabase/.temp/
