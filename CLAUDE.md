@@ -1,6 +1,6 @@
 # in2sight
 
-Private dashboard that pulls Instagram insights (Meta API) for the owner's multiple accounts and analyses them. Stack: Next.js (TS) on Vercel, Supabase (Postgres + Auth). Supabase `pg_cron` (via `pg_net`) is the scheduler; Vercel Cron is NOT used (see `docs/SPEC.md` §2 and §4).
+Private dashboard that pulls Instagram insights (Meta API) for the owner's multiple accounts and analyses them. Stack: Next.js (TS) on Vercel, Supabase (Postgres + Auth). The scheduler is an external HTTP caller hitting `/api/cron/tick` every 30 minutes (cron-job.org recommended; Supabase `pg_cron`/`pg_net` is the documented fallback; Vercel Cron is NOT used; see `docs/RUNBOOK_SYNC.md`, `docs/SPEC.md` §2 and §4).
 
 Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_SETUP.md` (owner setup). Keep TODO checked off as work lands. If the code and spec disagree, stop and ask which is right.
 
