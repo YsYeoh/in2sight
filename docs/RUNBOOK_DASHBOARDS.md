@@ -8,7 +8,7 @@ Run this twice: once right after Plan 6 part 1 lands (styleguide samples only), 
 npm run dev        # http://localhost:3000
 ```
 
-- `/styleguide` works without signing in: stat cards, line/area/bar charts, the best-time heatmap and the data table with fixed sample data.
+- `/styleguide` needs you signed in (it is only public while Supabase is not configured): stat cards, line/area/bar charts, the best-time heatmap and the data table with fixed sample data.
 - `/overview` needs the owner session (and real data for step 3).
 
 ## 1. The matrix
