@@ -1,0 +1,97 @@
+// One scheduler tick: pick due work per account (round-robin, oldest attempt first), lease each account, run it within
+// the time budget, persist state, record a summary. One account failing (bad token, DB hiccup) never stops the others.
+import type { AccountsStore } from '@/lib/accounts/types';
+import type { IgData } from '@/lib/instagram/data';
+import { runAccount, type AccountOutcome, type SyncErrorKey } from '@/lib/sync/run-account';
+import { byOldestAttempt, dueJobs, type JobKind } from '@/lib/sync/schedule';
+import type { SyncStore } from '@/lib/sync/store';
+
+/** Route maxDuration is 60s; work stops at 45s so a 10s Instagram timeout plus the state write still fit. */
+export const TICK_BUDGET_MS = 45_000;
+/** Don't start an account with less than this left: a half-started account only wastes calls. */
+export const MIN_ACCOUNT_MS = 5_000;
+/** Longer than any invocation can live, so a crashed tick's lease expires well before the next tick. */
+export const LEASE_MS = 120_000;
+
+export interface TickDeps {
+  store: SyncStore;
+  accounts: AccountsStore;
+  ig: IgData;
+  clock?: () => number;
+  newId?: () => string;
+}
+
+export interface TickAccount {
+  accountId: string;
+  outcome: AccountOutcome | 'locked' | 'idle';
+  jobs: JobKind[];
+  errorKey?: SyncErrorKey;
+}
+
+export interface TickSummary {
+  trigger: 'cron' | 'manual';
+  startedAt: string;
+  durationMs: number;
+  stoppedEarly: boolean; // time budget or app-wide rate limit left due work for the next tick
+  accounts: TickAccount[];
+}
+
+export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'; budgetMs?: number; accountId?: string }): Promise<TickSummary> {
+  const clock = deps.clock ?? Date.now;
+  const newId = deps.newId ?? (() => crypto.randomUUID());
+  const start = clock();
+  const deadline = start + (opts.budgetMs ?? TICK_BUDGET_MS);
+  const startedAt = new Date(start).toISOString();
+  const manual = opts.trigger === 'manual';
+  const out: TickAccount[] = [];
+  let stoppedEarly = false;
+
+  const tz = await deps.store.ownerTimezone();
+  const active = (await deps.accounts.list()).filter((a) => a.status === 'active' && (!opts.accountId || a.id === opts.accountId));
+  const states = await deps.store.loadStates(active.map((a) => a.id));
+  const ordered = [...active].sort((a, b) => byOldestAttempt(states.get(a.id)!, states.get(b.id)!));
+
+  for (const account of ordered) {
+    if (deadline - clock() < MIN_ACCOUNT_MS) {
+      stoppedEarly = true;
+      break;
+    }
+    const now = new Date(clock());
+    const state = states.get(account.id)!;
+    const jobs = dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state }, now, tz, { manual });
+    if (jobs.length === 0) {
+      out.push({ accountId: account.id, outcome: state.leaseUntil && Date.parse(state.leaseUntil) > now.getTime() ? 'locked' : 'idle', jobs: [] });
+      continue;
+    }
+    const leaseId = newId();
+    try {
+      if (!(await deps.store.claimLease(account.id, leaseId, new Date(now.getTime() + LEASE_MS).toISOString(), now.toISOString()))) {
+        out.push({ accountId: account.id, outcome: 'locked', jobs: [] });
+        continue;
+      }
+      const token = await deps.store.getToken(account.id);
+      if (!token) {
+        // connected without a stored token: nothing can be fetched until the owner reconnects
+        await deps.accounts.update(account.id, { status: 'needs_reconnect', lastError: 'token_missing' });
+        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: state.consecutiveFailures + 1, lastErrorKey: 'token_invalid', dailyDoneThrough: state.dailyDoneThrough, lastRun: state.lastRun });
+        out.push({ accountId: account.id, outcome: 'needs_reconnect', jobs: [], errorKey: 'token_invalid' });
+        continue;
+      }
+      const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state, tz, now, deadline, clock }, jobs);
+      await deps.store.saveState(account.id, leaseId, patch);
+      out.push({ accountId: account.id, outcome: result.outcome, jobs: result.jobs, ...(result.errorKey ? { errorKey: result.errorKey } : {}) });
+      if (result.outcome === 'partial') stoppedEarly = true;
+      if (result.appRateLimited) {
+        stoppedEarly = true;
+        break; // app-wide throttle: every further call would fail too
+      }
+    } catch {
+      // store failure outside runAccount (lease, token read, state write). The lease expires by itself (LEASE_MS).
+      out.push({ accountId: account.id, outcome: 'failed', jobs: [], errorKey: 'unexpected' });
+    }
+  }
+
+  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly, accounts: out };
+  await deps.store.recordRun({ startedAt, finishedAt: new Date(clock()).toISOString(), trigger: opts.trigger, summary }).catch(() => {});
+  return summary;
+}
