@@ -3820,3 +3820,417 @@ git commit -m "feat: stories and audience tabs with a motion-gated globe" -m "Co
 ```
 
 ---
+
+### Task 12: Tags page
+
+**Files:**
+- Create: `components/tags/TagsView.tsx`
+- Replace: `app/(app)/tags/page.tsx` (was the placeholder)
+- Move: `components/accounts/ConfirmDialog.tsx` → `components/shared/ConfirmDialog.tsx` (second user); modify the import in `components/accounts/AccountsView.tsx`
+- Modify: `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/tags-view.test.tsx`
+
+**Interfaces:**
+- Consumes: `createTagAction`, `renameTagAction`, `deleteTagAction`, `TagResult` (Task 4); `buildTagStats`, `TagStat` (Task 6); `loadTags`, `loadPostRows` (Task 3); `TagBadge` (Task 10); `ConfirmDialog`, `ResponsiveDialog*`, `FormField`, `DataTable`, `EmptyState`, `PageHeader`.
+- Produces: `TagsView(props: TagsViewProps)` with `interface TagsViewProps { tags; stats: { rows; untagged }; create(name); rename(id, name); remove(id) }`.
+
+Scope: all non-archived accounts (content pillars are usually shared across a brand's accounts). The untagged bucket uses the same `groupStats` maths as the tags. No `maxLength` on the name inputs (it counts UTF-16 units, so 40 emoji would be cut at 20); the server action is the authority.
+
+- [ ] **Step 1: Write the failing test** — `tests/tags-view.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { TagsView, type TagsViewProps } from '@/components/tags/TagsView';
+import type { Tag } from '@/lib/analysis/types';
+import { buildTagStats } from '@/lib/dashboard/content';
+import type { PostRow } from '@/lib/dashboard/detail-read';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const T1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const T2 = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+const LONG = 'A really long tag name that is forty ch'; // 39 characters
+const TAGS: Tag[] = [
+  { id: T1, name: 'عروض', color: 'chart-2' },
+  { id: T2, name: LONG, color: 'chart-3' },
+];
+const row = (id: string, tagIds: string[], reach = 100): PostRow => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt: '2026-10-01T00:00:00Z', permalink: null, reach, views: null, likes: 5, comments: null, shares: null, saves: null, caption: null, tagIds });
+const POSTS = [...Array.from({ length: 5 }, (_, i) => row(`p${i}`, [T1], 300)), row('x', [T2]), row('u', [])];
+const ok = async () => ({ ok: true as const });
+
+function view(o: Partial<TagsViewProps> = {}) {
+  const props: TagsViewProps = { tags: TAGS, stats: buildTagStats(POSTS, TAGS), create: vi.fn(ok), rename: vi.fn(ok), remove: vi.fn(ok), ...o };
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <TagsView {...props} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return props;
+}
+
+describe('TagsView', () => {
+  it('per-tag performance with the untagged bucket and the few-posts note', () => {
+    view();
+    const table = screen.getByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual([expect.stringContaining('عروض'), expect.stringContaining(LONG), expect.stringContaining(en.pages.tags.untagged)]);
+    expect(rows[0]).not.toHaveTextContent(en.analysis.reasons.few_posts);
+    expect(rows[1]).toHaveTextContent(en.analysis.reasons.few_posts);
+  });
+
+  it('create: sends the raw text (the server normalises), clears on success, shows the translated error key', async () => {
+    const user = userEvent.setup();
+    const create = vi.fn().mockResolvedValueOnce({ ok: false, error: 'duplicate' }).mockResolvedValueOnce({ ok: true });
+    view({ create });
+    const input = screen.getByLabelText(en.pages.tags.newTag);
+    await user.type(input, 'PROMO');
+    await user.click(screen.getByRole('button', { name: en.pages.tags.add }));
+    expect(create).toHaveBeenCalledWith('PROMO');
+    expect(await screen.findByRole('alert')).toHaveTextContent(en.pages.tags.errors.duplicate);
+    await user.click(screen.getByRole('button', { name: en.pages.tags.add }));
+    expect(input).toHaveValue('');
+  });
+
+  it('the add button stays disabled for a blank name; 40 emoji are not cut by maxLength', () => {
+    view();
+    expect(screen.getByRole('button', { name: en.pages.tags.add })).toBeDisabled();
+    const input = screen.getByLabelText(en.pages.tags.newTag);
+    expect(input).not.toHaveAttribute('maxlength');
+  });
+
+  it('rename and delete call their actions with the tag id', async () => {
+    const user = userEvent.setup();
+    const props = view();
+    const table = screen.getByRole('table');
+    await user.click(within(table).getByRole('button', { name: `Rename ${LONG}` }));
+    const field = screen.getByLabelText(en.pages.tags.name);
+    await user.clear(field);
+    await user.type(field, 'Shorter');
+    await user.click(screen.getByRole('button', { name: en.pages.tags.save }));
+    expect(props.rename).toHaveBeenCalledWith(T2, 'Shorter');
+    await user.click(within(table).getByRole('button', { name: 'Delete عروض' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: en.pages.tags.delete }));
+    expect(props.remove).toHaveBeenCalledWith(T1);
+  });
+
+  it('no tags yet: empty state, the create form and the untagged row', () => {
+    view({ tags: [], stats: buildTagStats([row('u', [])], []) });
+    expect(screen.getByRole('status')).toHaveTextContent(en.pages.tags.empty);
+    expect(screen.getByLabelText(en.pages.tags.newTag)).toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(2);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/tags-view.test.tsx`
+Expected: FAIL with `Failed to resolve import "@/components/tags/TagsView"`.
+
+- [ ] **Step 3: Move `ConfirmDialog`**
+
+```bash
+git mv components/accounts/ConfirmDialog.tsx components/shared/ConfirmDialog.tsx
+```
+
+In `components/accounts/AccountsView.tsx` change `import { ConfirmDialog } from '@/components/accounts/ConfirmDialog';` to `import { ConfirmDialog } from '@/components/shared/ConfirmDialog';`. The file content does not change.
+
+- [ ] **Step 4: Add the messages** — merge into the existing `pages.tags` object in both files (this OVERWRITES the old placeholder values of `empty` and `emptyHint`; `errors` from Task 10 stays).
+
+`messages/en.json`:
+
+```json
+{
+  "pages": {
+    "tags": {
+      "title": "Tags",
+      "subtitle": "Content pillars across all accounts, from each post's latest metrics",
+      "empty": "No tags yet",
+      "emptyHint": "Create a tag above, then label posts from an account's Posts tab.",
+      "newTag": "New tag",
+      "add": "Add tag",
+      "name": "Name",
+      "caption": "Tag performance",
+      "tag": "Tag",
+      "untagged": "Untagged",
+      "avgReach": "Avg reach",
+      "note": "Note",
+      "actions": "Actions",
+      "rename": "Rename",
+      "renameNamed": "Rename {name}",
+      "renameTitle": "Rename tag",
+      "delete": "Delete",
+      "deleteNamed": "Delete {name}",
+      "deleteTitle": "Delete the tag “{name}”?",
+      "deleteBody": "It is removed from every post. The posts and their numbers stay.",
+      "save": "Save",
+      "cancel": "Cancel"
+    }
+  }
+}
+```
+
+`messages/zh-CN.json`:
+
+```json
+{
+  "pages": {
+    "tags": {
+      "title": "标签",
+      "subtitle": "所有账号的内容支柱，取每篇帖子的最新数据",
+      "empty": "还没有标签",
+      "emptyHint": "先在上方创建标签，再到账号的“帖子”标签页为帖子打标签。",
+      "newTag": "新标签",
+      "add": "添加标签",
+      "name": "名称",
+      "caption": "标签表现",
+      "tag": "标签",
+      "untagged": "未加标签",
+      "avgReach": "平均触达",
+      "note": "备注",
+      "actions": "操作",
+      "rename": "重命名",
+      "renameNamed": "重命名 {name}",
+      "renameTitle": "重命名标签",
+      "delete": "删除",
+      "deleteNamed": "删除 {name}",
+      "deleteTitle": "删除标签“{name}”？",
+      "deleteBody": "该标签会从所有帖子中移除，帖子及其数据保留。",
+      "save": "保存",
+      "cancel": "取消"
+    }
+  }
+}
+```
+
+- [ ] **Step 5: Implement the view** — `components/tags/TagsView.tsx`:
+
+```tsx
+'use client';
+
+import { useState, useTransition } from 'react';
+import { Tag as TagIcon } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { DataTable, type Column } from '@/components/shared/DataTable';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { FormField } from '@/components/shared/FormField';
+import { PageHeader } from '@/components/shared/PageHeader';
+import {
+  ResponsiveDialog,
+  ResponsiveDialogClose,
+  ResponsiveDialogContent,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from '@/components/shared/ResponsiveDialog';
+import { TagBadge } from '@/components/shared/TagBadge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import type { Tag } from '@/lib/analysis/types';
+import type { TagStat } from '@/lib/dashboard/content';
+import { formatCompact, formatNumber, formatPercent } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import type { TagResult } from '@/app/(app)/tags/actions';
+
+type Row = TagStat & { id: string; tag: Tag | null }; // tag null = the "Untagged" bucket
+export interface TagsViewProps {
+  tags: Tag[];
+  stats: { rows: ({ tag: Tag } & TagStat)[]; untagged: TagStat };
+  create: (name: string) => Promise<TagResult>;
+  rename: (id: string, name: string) => Promise<TagResult>;
+  remove: (id: string) => Promise<TagResult>;
+}
+
+function CreateForm({ create }: { create: TagsViewProps['create'] }) {
+  const t = useTranslations('pages.tags');
+  const tErr = useTranslations('pages.tags.errors');
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <form
+      className="flex min-w-0 flex-wrap items-end gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        start(async () => {
+          const r = await create(name);
+          if (r.ok) {
+            setName('');
+            setError(null);
+          } else setError(tErr(r.error));
+        });
+      }}
+    >
+      {/* no maxLength: it counts UTF-16 units and would cut 40 emoji at 20; the server checks 40 characters */}
+      <FormField id="new-tag" label={t('newTag')} error={error ?? undefined} className="min-w-0 flex-1 basis-48">
+        {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" dir="auto" />}
+      </FormField>
+      <Button type="submit" disabled={pending || name.trim() === ''}>
+        {t('add')}
+      </Button>
+    </form>
+  );
+}
+
+function RenameDialog({ tag, rename, onClose }: { tag: Tag | null; rename: TagsViewProps['rename']; onClose: () => void }) {
+  const t = useTranslations('pages.tags');
+  const tErr = useTranslations('pages.tags.errors');
+  const [name, setName] = useState(tag?.name ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <ResponsiveDialog open={tag !== null} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveDialogContent>
+        {tag ? (
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              start(async () => {
+                const r = await rename(tag.id, name);
+                if (r.ok) onClose();
+                else setError(tErr(r.error));
+              });
+            }}
+          >
+            <ResponsiveDialogHeader>
+              <ResponsiveDialogTitle>{t('renameTitle')}</ResponsiveDialogTitle>
+            </ResponsiveDialogHeader>
+            <FormField id="rename-tag" label={t('name')} error={error ?? undefined}>
+              {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" dir="auto" />}
+            </FormField>
+            <ResponsiveDialogFooter>
+              <ResponsiveDialogClose asChild>
+                <Button type="button" variant="outline">
+                  {t('cancel')}
+                </Button>
+              </ResponsiveDialogClose>
+              <Button type="submit" disabled={pending}>
+                {t('save')}
+              </Button>
+            </ResponsiveDialogFooter>
+          </form>
+        ) : null}
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
+  );
+}
+
+export function TagsView({ tags, stats, create, rename, remove }: TagsViewProps) {
+  const t = useTranslations('pages.tags');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const tErr = useTranslations('pages.tags.errors');
+  const { prefs } = usePrefs();
+  const [renaming, setRenaming] = useState<Tag | null>(null);
+  const [deleting, setDeleting] = useState<Tag | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  const rows: Row[] = [...stats.rows.map((r) => ({ ...r, id: r.tag.id })), { ...stats.untagged, id: '\u0000untagged', tag: null }];
+  const muted = (r: Row) => cn(r.reason && 'text-muted-foreground');
+  const columns: Column<Row>[] = [
+    { key: 'tag', header: t('tag'), cell: (r) => (r.tag ? <TagBadge tag={r.tag} /> : <span className="text-muted-foreground">{t('untagged')}</span>), sortValue: (r) => r.tag?.name ?? '' },
+    { key: 'posts', header: tm('posts'), cell: (r) => formatNumber(r.posts, prefs), sortValue: (r) => r.posts, align: 'right' },
+    { key: 'avgReach', header: t('avgReach'), cell: (r) => <span className={muted(r)}>{formatCompact(r.avgReach, prefs)}</span>, sortValue: (r) => r.avgReach, align: 'right' },
+    { key: 'er', header: tm('engagementRate'), cell: (r) => <span className={muted(r)}>{formatPercent(r.engagementRate, prefs)}</span>, sortValue: (r) => r.engagementRate, align: 'right' },
+    { key: 'note', header: t('note'), cell: (r) => (r.reason ? <span className="text-xs text-muted-foreground">{ta(`reasons.${r.reason}`)}</span> : null) },
+    {
+      key: 'actions',
+      header: t('actions'),
+      cell: (r) =>
+        r.tag ? (
+          <span className="flex gap-1">
+            <Button type="button" variant="ghost" size="sm" aria-label={t('renameNamed', { name: r.tag.name })} onClick={() => setRenaming(r.tag)}>
+              {t('rename')}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="text-destructive" aria-label={t('deleteNamed', { name: r.tag.name })} onClick={() => setDeleting(r.tag)}>
+              {t('delete')}
+            </Button>
+          </span>
+        ) : null,
+    },
+  ];
+
+  return (
+    <>
+      <PageHeader title={t('title')} subtitle={t('subtitle')} />
+      <div className="grid min-w-0 gap-[var(--gp)]">
+        <Card className="min-w-0">
+          <CardContent>
+            <CreateForm create={create} />
+          </CardContent>
+        </Card>
+        {tags.length === 0 ? <EmptyState icon={<TagIcon className="size-5" aria-hidden />} title={t('empty')} description={t('emptyHint')} /> : null}
+        <DataTable rows={rows} columns={columns} rowKey={(r) => r.id} caption={t('caption')} initialSort={{ key: 'avgReach', dir: 'desc' }} />
+      </div>
+      <RenameDialog key={renaming?.id ?? 'none'} tag={renaming} rename={rename} onClose={() => setRenaming(null)} />
+      <ConfirmDialog
+        open={deleting !== null}
+        title={t('deleteTitle', { name: deleting?.name ?? '' })}
+        body={t('deleteBody')}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        busy={pending}
+        error={deleteError}
+        onClose={() => {
+          setDeleting(null);
+          setDeleteError(null);
+        }}
+        onConfirm={() =>
+          deleting &&
+          start(async () => {
+            const r = await remove(deleting.id);
+            if (r.ok) setDeleting(null);
+            else setDeleteError(tErr(r.error));
+          })
+        }
+      />
+    </>
+  );
+}
+```
+
+- [ ] **Step 6: Replace the page** — `app/(app)/tags/page.tsx`:
+
+```tsx
+import { TagsView } from '@/components/tags/TagsView';
+import { createTagAction, deleteTagAction, renameTagAction } from '@/app/(app)/tags/actions';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { buildTagStats } from '@/lib/dashboard/content';
+import { loadPostRows, loadTags } from '@/lib/dashboard/detail-read';
+import { createServerSupabase } from '@/lib/supabase/server';
+
+export default async function TagsPage() {
+  await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
+  const db = await createServerSupabase(); // owner session: RLS applies, never the admin client
+  const accounts = (await supabaseAccountsStore(db).list()).filter((a) => a.status !== 'archived');
+  const [tags, posts] = await Promise.all([loadTags(db), Promise.all(accounts.map((a) => loadPostRows(db, a.id)))]);
+  // imported server actions are passed straight through to the client view
+  return <TagsView tags={tags} stats={buildTagStats(posts.flat(), tags)} create={createTagAction} rename={renameTagAction} remove={deleteTagAction} />;
+}
+```
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `npx vitest run tests/tags-view.test.tsx tests/accounts-view.test.tsx tests/messages.test.ts`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add components/tags/TagsView.tsx "app/(app)/tags/page.tsx" components/shared/ConfirmDialog.tsx components/accounts/ConfirmDialog.tsx components/accounts/AccountsView.tsx messages/en.json messages/zh-CN.json tests/tags-view.test.tsx
+git commit -m "feat: tags page with per-tag performance, create, rename and delete" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
