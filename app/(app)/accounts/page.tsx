@@ -5,7 +5,7 @@ import { listSyncStatus } from '@/lib/sync/store';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { archiveAccountAction, deleteAccountAction, restoreAccountAction, setGroupAction, syncNowAction } from './actions';
 
-// Server actions inherit the page's limit: "Sync now" runs a tick (45s budget) inside the action.
+// Server actions inherit the page's limit: "Sync now" runs a tick (35s budget) inside the action.
 export const maxDuration = 60;
 
 const first = (v: string | string[] | undefined) => (typeof v === 'string' ? v : undefined);

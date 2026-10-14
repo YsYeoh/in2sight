@@ -45,7 +45,7 @@ select media_type, count(*) from public.media group by 1;
 select count(*) from public.media_metrics;
 ```
 
-Expected: `summary.accounts[*].outcome` is `ok` or `partial` (partial = the 45 s budget ran out; the next tick continues; `failed` / `needs_reconnect` carry an error key, see `sync_state.last_error_key`). After 1-3 ticks: `daily_done_through` = yesterday (your timezone), `account_daily` spans about 90 days, `media` holds your posts (and `STORY` rows if a story is live), `media_metrics` is non-zero. On **Accounts**, the *Last synced* column shows a time.
+Expected: `summary.accounts[*].outcome` is `ok` or `partial` (partial = the 35 s time budget ran out (the route allows 60 s); the next tick continues; `failed` / `needs_reconnect` carry an error key, see `sync_state.last_error_key`). After 1-3 ticks: `daily_done_through` = yesterday (your timezone), `account_daily` spans about 90 days, `media` holds your posts (and `STORY` rows if a story is live), `media_metrics` is non-zero. On **Accounts**, the *Last synced* column shows a time.
 
 ## 3. Re-verify the uncertain Meta facts
 
@@ -64,14 +64,14 @@ It reads the first active account's token from the database with the secret key 
 | `follows_and_unfollows` -> `FOLLOWER` = follows, `NON_FOLLOWER` = unfollows | compare `account-follows.json` with the Instagram app's follows/unfollows for that day | swap the values in `FOLLOW_TYPE` |
 | `online_followers` still served; hour base | `online-followers` is `[ok]` with 24 keys (needs 100+ followers) | if `code 100`: remove the call from the audience job |
 | Day boundary of account insights | `account_daily.reach` for yesterday is about the Instagram app's figure for yesterday | if consistently off by a day, note it in SPEC §7 and adjust `dayRangeSec` callers |
-| 90-day backfill reach | `select min(day) from account_daily` is about 90 days back | if older days were skipped, set `BACKFILL_DAYS` to what works |
+| 90-day backfill reach | `select min(day) from account_daily where reach is not null` is about 90 days back | if older days were skipped, set `BACKFILL_DAYS` to what works |
 | Deleted media = code 100 / subcode 33 | delete a test post, wait one hour, check `media.gone_at` is set | update `IG_ERROR.objectMissingSubcode` |
 
 ## 4. Record real fixtures
 
 The same command wrote real, redacted responses into `tests/fixtures/instagram/*.json` (errors go to `*.error.json` and never overwrite a good fixture). Then:
 
-1. Open each changed file: no `access_token` value (only `REDACTED`), no caption you do not want in git (edit captions to `"x"` if needed). Each file's `_source` line mentions the Graph path, which can include a media id; that is fine to commit, but remove it if you prefer.
+1. Open each changed file: no `access_token` value (only `REDACTED`). The recorder already replaces ids, captions, handles, names, permalinks and profile pictures with placeholders and writes `{media-id}` in the `_source` line; metric values are real. Skim anyway.
 2. Delete any `*.error.json` once handled.
 3. `npm test`. If a parser test fails because real data differs from the hand-written fixture, fix the **expected values** in the test to match the real response (the parser stays unless the shape changed).
 4. Commit: `test: recorded Instagram fixtures`.
@@ -121,9 +121,14 @@ Check: `select * from cron.job_run_details order by start_time desc limit 5;` (s
 
 | Drill | Expected |
 |---|---|
-| Run the tick twice within a few seconds (curl twice) | Second run's summary shows `locked` or `idle` for each account; no duplicate rows |
+| Run the tick twice within a second or two (curl twice, so the runs overlap) | The overlapping run's summary shows `locked` for the accounts the first run holds; no duplicate rows. A second tick started *after* the first finished reports `ok` (media metrics are always due), not `locked` |
 | In Meta's app dashboard remove one tester account (or revoke the app in that Instagram account) and run a tick | That account turns **Reconnect** with "Instagram rejected the access token..."; the other accounts still sync |
 | **Accounts -> ... -> Sync now** on an active account | Button finishes within a minute; *Last synced* updates |
+
+## Known limits
+
+- Meta's `X-Business-Use-Case-Usage` response header is not read. Throttling is handled reactively (error codes 4 / 17 / 32 / 613 / 80002 stop the account or the tick and back off). Fine for 3-4 accounts; revisit if you add many.
+- Media posted before an account became a Creator/Business account has no insights (code 100 / subcode 2108006). The sync skips those posts quietly; within the last 30 days it asks again at the next interval.
 
 ## What to send me if it fails
 
