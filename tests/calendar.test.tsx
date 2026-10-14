@@ -35,11 +35,11 @@ const m = (id: string, postedAt: string, mediaType: MonthMedia['mediaType'] = 'I
 const KL = { weekStart: 'mon' as const, tz: 'Asia/Kuala_Lumpur', today: '2026-10-15' };
 const model = buildMonth('2026-10', [m('p1', '2026-10-15T02:00:00Z'), m('s1', '2026-10-15T03:00:00Z', 'STORY', A2), m('p2', '2026-09-30T16:30:00Z')], KL);
 
-function view(account: string | null = null, locale: 'en' | 'zh-CN' = 'en', mdl = model) {
+function view(account: string | null = null, locale: 'en' | 'zh-CN' = 'en', mdl = model, truncated = false) {
   return render(
     <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
       <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
-        <CalendarView model={mdl} accounts={ACCOUNTS} account={account} />
+        <CalendarView model={mdl} accounts={ACCOUNTS} account={account} truncated={truncated} />
       </PrefsProvider>
     </NextIntlClientProvider>,
   );
@@ -81,6 +81,14 @@ describe('CalendarView', () => {
     const agenda = screen.getAllByRole('region');
     expect(agenda.map((r) => r.getAttribute('aria-label'))).toEqual([expect.stringContaining('1 Oct 2026'), expect.stringContaining('15 Oct 2026')]);
     for (const a of screen.getAllByRole('link', { name: en.pages.calendar.open })) expect(a).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('shows the truncation note only when the read was capped', () => {
+    const { unmount } = view();
+    expect(screen.queryByText(en.pages.calendar.truncated)).toBeNull();
+    unmount();
+    view(null, 'en', model, true);
+    expect(screen.getByText(en.pages.calendar.truncated)).toBeInTheDocument();
   });
 
   it('empty month (zh-CN): the agenda says so', () => {

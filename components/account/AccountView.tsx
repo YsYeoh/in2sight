@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TABS, type Tab } from '@/lib/dashboard/account';
 import { cn } from '@/lib/utils';
 
-export interface AccountHead {
+interface AccountHead {
   id: string;
   username: string;
   displayName: string | null;

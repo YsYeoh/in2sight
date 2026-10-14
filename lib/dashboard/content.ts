@@ -17,7 +17,7 @@ export interface PostFilters {
 type Params = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : null);
 /** A real calendar day 'YYYY-MM-DD' or null: '2026-02-31' and '2026-13-01' are rejected (they do not round-trip). */
-export function parseDay(v: unknown): string | null {
+function parseDay(v: unknown): string | null {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   const t = Date.parse(`${v}T00:00:00Z`);
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v ? v : null;
@@ -38,7 +38,7 @@ export function parsePostFilters(sp: Params): PostFilters {
   };
 }
 
-export const CAPTION_SNIPPET = 80;
+const CAPTION_SNIPPET = 80;
 
 /** First 80 code points of a caption on one line (emoji and CJK never split in half). */
 export function snippet(caption: string | null): string | null {

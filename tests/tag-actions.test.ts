@@ -25,7 +25,8 @@ vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (cal
 vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push(['ADMIN']) }));
 vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => calls.push(['revalidate', ...a]) }));
 
-import { createTagAction, deleteTagAction, renameTagAction, setPostTagsAction } from '@/app/(app)/tags/actions';
+import { TAG_LIMIT } from '@/lib/dashboard/detail-read';
+import { createTagAction,deleteTagAction, renameTagAction, setPostTagsAction } from '@/app/(app)/tags/actions';
 
 const T1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
 const T2 = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
@@ -86,6 +87,12 @@ describe('createTagAction', () => {
     expect(calls.some((c) => c[0] === 'insert')).toBe(false);
     queue.push({ data: [] }, { error: { code: '23505', message: 'duplicate key value violates unique constraint "tags_name_lower_key"' } });
     expect(await createTagAction('Promo')).toEqual({ ok: false, error: 'duplicate' });
+  });
+
+  it('refuses to create beyond TAG_LIMIT tags', async () => {
+    queue.push({ data: Array.from({ length: TAG_LIMIT }, (_, i) => ({ id: `t${i}`, name: `Tag ${i}`, color: 'chart-1' })) });
+    expect(await createTagAction('One more')).toEqual({ ok: false, error: 'too_many' });
+    expect(calls.some((c) => c[0] === 'insert')).toBe(false);
   });
 
   it('an unexpected database error returns unexpected, never the message', async () => {

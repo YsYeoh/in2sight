@@ -8,7 +8,18 @@ const media = (id: string, postedAt: string, mediaType: MonthMedia['mediaType'] 
 describe('parseMonth', () => {
   it('parseMonth rejects junk and falls back to the current month', () => {
     expect(parseMonth('2026-02', '2026-10-15')).toBe('2026-02');
-    for (const bad of [undefined, '2026-13', '2026-00', '2026-1', '26-10', ['2026-02'], '2026-02-01', '<x>']) expect(parseMonth(bad, '2026-10-15')).toBe('2026-10');
+    for (const bad of [undefined, '2026-13', '2026-00', '2026-1', '26-10', ['2026-02'], '2026-02-01', '<x>', '0000-01', '0050-06', '1969-12', '2100-01', '9999-12']) expect(parseMonth(bad, '2026-10-15')).toBe('2026-10');
+  });
+
+  it('accepts 1970-01 to 2099-12 only', () => {
+    for (const ok of ['1970-01', '2099-12']) expect(parseMonth(ok, '2026-10-15')).toBe(ok);
+  });
+
+  it('prev/next stay in range: at the edges the link points at the same month instead of an unparseable one', () => {
+    const o = { weekStart: 'mon', tz: 'UTC', today: '2026-10-15' } as const;
+    expect(buildMonth('1970-01', [], o)).toMatchObject({ prev: '1970-01', next: '1970-02' });
+    expect(buildMonth('2099-12', [], o)).toMatchObject({ prev: '2099-11', next: '2099-12' });
+    expect(monthRange('2099-12', 'mon', 'UTC').days.at(-1)).toBe('2100-01-03'); // the grid itself still reaches into 2100
   });
 });
 

@@ -396,6 +396,7 @@
       "dayLabel": "{date}：{posts, plural, other {# 篇帖子}}，{stories, plural, other {# 条快拍}}",
       "nothing": "这一天没有发布内容",
       "emptyMonth": "本月没有发布内容",
+      "truncated": "本月内容过多，无法全部显示。请选择单个账号查看其余内容。",
       "open": "在 Instagram 中打开"
     },
     "tags": {
@@ -425,7 +426,7 @@
         "invalid_name": "请使用 1–40 个字符（不含控制字符）。",
         "duplicate": "已有同名标签。",
         "not_found": "该标签或帖子已不存在，请刷新页面。",
-        "too_many": "每篇帖子最多 10 个标签。",
+        "too_many": "标签过多：每篇帖子最多 10 个标签，标签总数上限为 500。",
         "unexpected": "出了点问题，请重试。"
       }
     }

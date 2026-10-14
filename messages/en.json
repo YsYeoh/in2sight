@@ -396,6 +396,7 @@
       "dayLabel": "{date}: {posts, plural, one {# post} other {# posts}}, {stories, plural, one {# story} other {# stories}}",
       "nothing": "Nothing published on this day",
       "emptyMonth": "Nothing published this month",
+      "truncated": "This month has more items than can be shown. Pick one account to see the rest.",
       "open": "Open on Instagram"
     },
     "tags": {
@@ -425,7 +426,7 @@
         "invalid_name": "Use 1–40 characters (no control characters).",
         "duplicate": "A tag with this name already exists.",
         "not_found": "That tag or post no longer exists. Reload the page.",
-        "too_many": "A post can have at most 10 tags.",
+        "too_many": "Too many tags: a post can have at most 10, and there can be 500 tags in total.",
         "unexpected": "Something went wrong. Please try again."
       }
     }
