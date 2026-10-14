@@ -46,7 +46,7 @@ Alerts / notifications / push / PWA (Plan 8), exports (Plan 9), AI summaries, ta
 
 ## Review Focus
 
-1. **Tag names from real keyboards** — emoji (`🔥 Hot`), RTL (`عروض`), 41+ characters, the same name in a different case or with different spacing/Unicode form (`Promo` vs `promo ` vs NFD `é`): stored once, normalised, duplicate returns the `duplicate` key, never a 500 → Task 2 "normalises and limits real-world names", Task 4 "a duplicate in a different case returns duplicate (app check) and 23505 maps to duplicate".
+1. **Tag names from real keyboards** — emoji (`🔥 Hot`), RTL (`عروض`), 41+ characters, the same name in a different case or with different spacing/Unicode form (`Promo` vs `promo ` vs NFD `é`): stored once, normalised, duplicate returns the `duplicate` key, never a 500 → Task 2 "normalises real-world names: emoji, RTL, CJK and NFD accents" and "limits to 40 code points", Task 4 "a duplicate in a different case returns duplicate (app check) and 23505 maps to duplicate".
 2. **Accounts with nothing yet** — zero Stories, zero posts, no audience snapshot (under 100 followers), no online_followers: each tab shows its reason, no crash, no NaN → Task 6 "no stories", Task 7 "empty snapshots give needs_100_followers", Task 9 "account with no data renders every reason", Task 11 "zero stories".
 3. **Hostile or odd URL params** — `?tab=<script>`, `?tab=posts&tab=audience`, `?tag=not-a-uuid`, `?from=2026-02-31`, `?month=2026-13`, `/accounts/not-a-uuid`: allow-listed, invalid values fall back, unknown id → 404 → Task 5 "tab param injection", Task 6 "filters ignore invalid values", Task 8 "parseMonth rejects junk", Task 9 page "not a uuid → notFound".
 4. **Owner-timezone month edges and DST** — a post at 23:30 local on the 31st, a post at 16:30Z that is already the 1st in Kuala Lumpur, a month containing a DST change in `America/New_York`, week start Sunday vs Monday → Task 8 "DST month in New York", "posts bin by owner-timezone day across the month edge".
@@ -61,16 +61,16 @@ Alerts / notifications / push / PWA (Plan 8), exports (Plan 9), AI summaries, ta
 | `lib/tags.ts` | `normalizeTagName`, `isUuid`, `TAG_COLORS`, `pickColor`, `sameTagName` |
 | `lib/analysis/types.ts` (modify) | + `MissingReason` values `needs_5_viewers`, `few_posts` |
 | `lib/analysis/posts.ts` (modify) | export `groupStats` (was private `stats`) |
-| `lib/dashboard/detail-read.ts` | owner-session readers: `loadAccount`, `loadPostRows`, `loadStories`, `loadAudience`, `loadOnline`, `loadTags`, `loadMonthMedia` |
+| `lib/dashboard/detail-read.ts` | owner-session readers: `loadPostRows`, `loadStories`, `loadAudience`, `loadOnline`, `loadTags`, `loadMonthMedia` (accounts come from the existing `supabaseAccountsStore(db).list()`) |
 | `app/(app)/tags/actions.ts` | `createTagAction`, `renameTagAction`, `deleteTagAction`, `setPostTagsAction` |
 | `lib/dashboard/account.ts` | `parseTab`, `buildAccountOverview` |
 | `lib/dashboard/content.ts` | `parsePostFilters`, `buildPosts`, `buildStories`, `buildTagStats` |
 | `lib/dashboard/audience.ts` + `lib/geo/centroids.ts` | `buildAudience`, ISO-3166 alpha-2 centroids |
 | `lib/dashboard/calendar.ts` | `parseMonth`, `monthRange`, `buildMonth` |
 | `lib/format.ts` (modify) | + `formatCountry`, `formatMonth` |
-| `components/shared/PeriodSelect.tsx` (extract from OverviewView), `components/shared/ConfirmDialog.tsx` (moved from accounts) | second use → shared |
+| `components/shared/PeriodSelect.tsx`, `components/shared/useKpiDelta.ts` (both extracted from OverviewView), `components/shared/ConfirmDialog.tsx` (moved from accounts), `components/shared/TagBadge.tsx` | second use → shared |
 | `components/shared/DataTable.tsx` (modify) | optional `pageSize` + "Show more" |
-| `components/charts/best-time.ts` | heatmap rows + labels (second Heatmap user → extracted from the styleguide) |
+| `components/charts/useBestTimeRows.ts` | heatmap rows + labels (second Heatmap user → extracted from the styleguide) |
 | `app/(app)/accounts/[id]/page.tsx`, `components/account/AccountView.tsx`, `AccountOverview.tsx` | account page wiring, header + tabs, Overview tab |
 | `components/account/PostsTab.tsx`, `TagPicker.tsx` | Posts tab, tag assignment |
 | `components/account/StoriesTab.tsx`, `AudienceTab.tsx`, `Globe.tsx` | Stories, Audience, motion-gated globe |
@@ -2652,6 +2652,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
 import { PostsTab, POSTS_PAGE } from '@/components/account/PostsTab';
+import type { SetPostTags } from '@/components/account/TagPicker';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import type { Tag } from '@/lib/analysis/types';
 import type { PostFilters, PostView } from '@/lib/dashboard/content';
@@ -2665,8 +2666,8 @@ const TAGS: Tag[] = [{ id: T1, name: '🔥 Promo', color: 'chart-2' }];
 const NONE: PostFilters = { format: null, tag: null, from: null, to: null };
 const post = (i: number, o: Partial<PostView> = {}): PostView => ({ id: `m${i}`, mediaType: 'IMAGE', postedAt: new Date(Date.UTC(2026, 8, 1) + i * 3_600_000).toISOString(), permalink: `https://www.instagram.com/p/m${i}/`, caption: `Caption ${i}`, reach: 100 + i, views: null, likes: i, comments: null, saves: null, shares: null, engagementRate: 0.01, tags: [], ...o });
 
-function view(posts: PostView[], o: { tags?: Tag[]; filters?: PostFilters; setPostTags?: ReturnType<typeof vi.fn> } = {}) {
-  const setPostTags = o.setPostTags ?? vi.fn(async () => ({ ok: true as const }));
+function view(posts: PostView[], o: { tags?: Tag[]; filters?: PostFilters; setPostTags?: SetPostTags } = {}) {
+  const setPostTags = o.setPostTags ?? vi.fn<SetPostTags>(async () => ({ ok: true }));
   render(
     <NextIntlClientProvider locale="en" messages={en}>
       <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
@@ -2719,7 +2720,7 @@ describe('PostsTab', () => {
 
   it('tag picker: saves the chosen tags through the server action; an error key is translated', async () => {
     const user = userEvent.setup();
-    const setPostTags = vi.fn().mockResolvedValueOnce({ ok: false, error: 'not_found' }).mockResolvedValueOnce({ ok: true });
+    const setPostTags = vi.fn<SetPostTags>().mockResolvedValueOnce({ ok: false, error: 'not_found' }).mockResolvedValueOnce({ ok: true });
     view([post(1)], { setPostTags });
     const table = screen.getByRole('table');
     await user.click(within(table).getByRole('button', { name: /Edit tags of/ }));
@@ -4677,5 +4678,120 @@ Expected: PASS.
 git add "app/(app)/calendar/page.tsx" components/calendar/CalendarView.tsx lib/nav.ts tests/nav.test.ts components/shared/AppShell.tsx messages/en.json messages/zh-CN.json tests/calendar.test.tsx tests/calendar-page.test.tsx
 git commit -m "feat: posting calendar per account or across all accounts" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 14: Overview links, docs, final check
+
+**Files:**
+- Modify: `components/overview/OverviewView.tsx` (username links to the account page), `tests/overview-view.test.tsx`, `docs/RUNBOOK_DASHBOARDS.md`, `docs/TODO.md`; `docs/SPEC.md` ONLY after the owner confirms the ⚠ decisions (Step 6)
+
+**Interfaces:**
+- Consumes: the route `/accounts/[id]` (Task 9).
+- Produces: nothing new for code; the runbook section later milestones refer to (`docs/RUNBOOK_DASHBOARDS.md` §4).
+
+**Deployment order (tell the owner):** the Posts tab and the Tags page read `media_tags` / `tags`. Deploying this code before `20261017000001_tags.sql` is applied makes those two views show the error page (the other tabs, Overview and Calendar keep working). Apply the migration first (runbook §4.0), then deploy.
+
+- [ ] **Step 1: Write the failing test** — in `tests/overview-view.test.tsx`, add before `it('renders in Simplified Chinese', …)`:
+
+```tsx
+  it('each card links to its account detail page', () => {
+    view();
+    expect(screen.getByRole('link', { name: '@brand.one' })).toHaveAttribute('href', '/accounts/brand.one');
+    expect(screen.getByRole('link', { name: `@${LONG}` })).toHaveAttribute('href', `/accounts/${LONG}`);
+  });
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/overview-view.test.tsx`
+Expected: FAIL with `Unable to find an accessible element with the role "link" and name "@brand.one"`.
+
+- [ ] **Step 3: Link the card** — in `components/overview/OverviewView.tsx` (`AccountCardView`) replace
+
+```tsx
+              <h3 className="truncate font-medium">@{c.username}</h3>
+```
+
+with
+
+```tsx
+              <h3 className="truncate font-medium">
+                <Link href={`/accounts/${c.id}`} className="underline-offset-4 hover:underline">
+                  @{c.username}
+                </Link>
+              </h3>
+```
+
+(`Link` is already imported in that file.) Run `npx vitest run tests/overview-view.test.tsx` → PASS (the existing "very long names … truncate" test still finds the heading by its name).
+
+- [ ] **Step 4: Runbook** — in `docs/RUNBOOK_DASHBOARDS.md` change the title to `# Dashboards visual-verification runbook (Plan 6 part 1 + Plan 7)` and insert this section just before `## What to send if something looks wrong`:
+
+```markdown
+## 4. Account detail, Tags, Calendar (Plan 7, real data)
+
+### 4.0 Apply the tags migration (owner, once)
+
+On the owner's go-ahead only: `npx supabase db push` applies `supabase/migrations/20261017000001_tags.sql` (tables `tags`, `media_tags`). Then in the Supabase dashboard → Advisors → Security: no new warnings for `tags` / `media_tags` (both have RLS + one owner policy). Until this runs, the Tags page and the Posts tab fail to load (error page with "Try again").
+
+### 4.1 Account detail (`/overview` → click an account's @username)
+
+Run the §1 matrix (4 themes × light/dark × 360 / 768 / 1280) on each tab:
+
+| Tab | What must hold |
+|---|---|
+| Overview | 6 stat cards (2 per row at 360, 3 at 768, 6 at 1280) each with "vs previous N days" or a reason; period links keep you on the page (`?period=…`); reach/views and followers charts; format comparison table (cards at 360); flags list or "Nothing unusual"; best-time heatmap defaults to **Followers online**, toggles to **Your post performance** and to the pooled scope; greyed cells for < 2 posts; the reason line when data is missing. |
+| Posts | Filters (format, tag, from/to) change the URL and the rows; "Reset" clears them; 50 rows then "Show more"; at 360 rows become cards with a Sort-by select; caption snippets end in "…"; the external-link icon opens Instagram in a new tab; "Edit" opens the tag dialog (a bottom sheet at 360). |
+| Stories | Captured Stories of the last 14 days, Live/Expired badge, final numbers and exit rate, a views sparkline; a Story under 5 viewers says so. Compare one expired Story's views with Instagram's Story insights (same order of magnitude). |
+| Audience | Countries (top 8 + Other, names in the UI language), cities, age × gender bars with a legend. On a desktop with motion allowed the **globe** spins next to the country list; with reduced motion, on a phone/tablet (touch emulation) or with Save-Data it is absent and only the list shows. Switch theme while the globe is visible: it recolours on the next frame. |
+
+Also check: keyboard — Tab to the tab list, ←/→ moves focus, Enter opens the tab; the URL shows `?tab=…`; `/accounts/<garbage>` and an archived account's URL show the 404 page; the "Calendar" button opens the calendar filtered to this account.
+
+### 4.2 Tags (`/tags`)
+
+1. Create `🔥 Hot`, `عروض`, `幕后花絮`; creating `HOT` again (other case) shows "A tag with this name already exists."
+2. A 40-character name is accepted, 41 is refused with the length message.
+3. Tag 5+ posts with one tag from an account's Posts tab: its row loses the "Needs 5+ measured posts" note; the "Untagged" row counts the rest.
+4. Rename and delete a tag: posts keep their numbers; the deleted tag disappears from every post.
+
+### 4.3 Calendar (`/calendar`, also in the main navigation)
+
+1. Month grid on 768/1280 with weekday headers starting on your week start (Settings → formats); agenda list at 360 (only days with posts or Stories).
+2. A post published just after midnight in your timezone sits on that day, not the day before (compare with the post time in the Posts tab).
+3. Previous/next month links; the account select narrows to one account and the choice survives month changes.
+4. Click a day: its list (time, format, account, caption, link) shows under the grid.
+```
+
+- [ ] **Step 5: TODO** — in `docs/TODO.md`:
+1. Replace `- [ ] Account detail (incl. Stories, calendar, flags, tags), Tags page (Plan 6 part 2)` with
+   ```markdown
+   - [x] Account detail (Overview / Posts / Stories / Audience with globe), Tags page, Calendar (Plan 7) — code done; tags migration + visual verification with real data pending (docs/RUNBOOK_DASHBOARDS.md §4)
+   - [ ] Apply migration `20261017000001_tags.sql` (`npx supabase db push`; on the owner's go-ahead — docs/RUNBOOK_DASHBOARDS.md §4.0)
+   ```
+2. After the `- [x] \`lib/analysis\`: growth, …` line in section 4 add
+   ```markdown
+   - [x] Plan 7 (account detail, tags, calendar = Plan 6 part 2) written and implemented: `docs/superpowers/plans/2026-10-17-07-account-detail.md`
+   ```
+
+- [ ] **Step 6: SPEC (only with the owner's confirmation of the ⚠ decisions)** — CLAUDE.md: when code and spec disagree, ask. If the owner confirms, apply in `docs/SPEC.md`:
+1. §2 Deps: replace `Three.js (one lazy-loaded globe)` with `the audience globe is hand-written canvas 2D (no Three.js; owner decision 2026-10-17)`.
+2. §8 Pages: replace `Account detail (trends, posts table with tags, Stories, audience, best-time heatmap, calendar, flags)` with `Account detail (trends, posts table with tags, Stories, audience, best-time heatmap, flags; links to the calendar filtered to the account) · Calendar (all accounts or one)`.
+If the owner wants Three.js or an in-page calendar tab instead, stop and re-plan those pieces; nothing else depends on them.
+
+- [ ] **Step 7: Full verification**
+
+Run: `npm run check`
+Expected: lint, typecheck, all tests and `next build` pass (the build lists `/accounts/[id]`, `/calendar` and `/tags` as dynamic routes).
+
+Then the UI-kit guards: `git diff main -- app/globals.css` is empty (no shadcn CLI was run — `components/ui/tabs.tsx` already existed) and `npx vitest run tests/ui-imports.test.ts` passes.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add components/overview/OverviewView.tsx tests/overview-view.test.tsx docs/RUNBOOK_DASHBOARDS.md docs/TODO.md
+git commit -m "feat: overview cards link to account detail; runbook and TODO for Plan 7" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+(Add `docs/SPEC.md` to that commit only if Step 6 was applied.)
 
 ---
