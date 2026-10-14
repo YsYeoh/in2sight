@@ -52,7 +52,7 @@ export function AppShell({ children, userEmail, signOutAction }: { children: Rea
       </div>
 
       {/* phones: bottom tab bar */}
-      <nav aria-label={t('tabs')} className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
+      <nav aria-label={t('tabs')} className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
         {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
           <Link
             key={href}

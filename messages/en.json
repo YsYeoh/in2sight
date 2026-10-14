@@ -17,6 +17,7 @@
     "overview": "Overview",
     "accounts": "Accounts",
     "tags": "Tags",
+    "calendar": "Calendar",
     "settings": "Settings",
     "sidebar": "Main navigation",
     "tabs": "Main tabs"
@@ -382,6 +383,20 @@
         "save": "Save",
         "cancel": "Cancel"
       }
+    },
+    "calendar": {
+      "title": "Calendar",
+      "allAccounts": "All accounts",
+      "account": "Account",
+      "show": "Show",
+      "previous": "Previous month",
+      "next": "Next month",
+      "posts": "{count, plural, one {# post} other {# posts}}",
+      "stories": "{count, plural, one {# story} other {# stories}}",
+      "dayLabel": "{date}: {posts, plural, one {# post} other {# posts}}, {stories, plural, one {# story} other {# stories}}",
+      "nothing": "Nothing published on this day",
+      "emptyMonth": "Nothing published this month",
+      "open": "Open on Instagram"
     },
     "tags": {
       "title": "Tags",

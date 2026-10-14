@@ -17,6 +17,7 @@
     "overview": "总览",
     "accounts": "账号",
     "tags": "标签",
+    "calendar": "日历",
     "settings": "设置",
     "sidebar": "主导航",
     "tabs": "主标签栏"
@@ -382,6 +383,20 @@
         "save": "保存",
         "cancel": "取消"
       }
+    },
+    "calendar": {
+      "title": "日历",
+      "allAccounts": "全部账号",
+      "account": "账号",
+      "show": "显示",
+      "previous": "上个月",
+      "next": "下个月",
+      "posts": "{count, plural, other {# 篇帖子}}",
+      "stories": "{count, plural, other {# 条快拍}}",
+      "dayLabel": "{date}：{posts, plural, other {# 篇帖子}}，{stories, plural, other {# 条快拍}}",
+      "nothing": "这一天没有发布内容",
+      "emptyMonth": "本月没有发布内容",
+      "open": "在 Instagram 中打开"
     },
     "tags": {
       "title": "标签",
