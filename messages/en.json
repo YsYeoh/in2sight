@@ -271,6 +271,12 @@
     }
   },
   "pages": {
+    "error": {
+      "title": "Something went wrong",
+      "hint": "This page could not be loaded. Try again, or go to your accounts.",
+      "retry": "Try again",
+      "accounts": "Go to accounts"
+    },
     "overview": {
       "title": "Overview",
       "empty": "No accounts yet",
