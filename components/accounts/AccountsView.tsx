@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { EllipsisVertical, Plus, Users } from 'lucide-react';
 import { isRedirectError } from 'next/dist/client/components/redirect-error';
 import { useTranslations } from 'next-intl';
-import { ConfirmDialog } from '@/components/accounts/ConfirmDialog';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { connectHref, ConnectDialog } from '@/components/accounts/ConnectDialog';
 import { GroupDialog } from '@/components/accounts/GroupDialog';
 import { StatusBadge } from '@/components/accounts/StatusBadge';
