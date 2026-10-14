@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { engagementRate, formatComparison, median, tagPerformance, topPosts } from '@/lib/analysis/posts';
 import type { Post } from '@/lib/analysis/types';
 
-const post = (id: string, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt: '2026-10-01T10:00:00Z', permalink: null, reach: null, views: null, likes: null, comments: null, shares: null, saves: null, interactions: null, ...o });
+const post = (id: string, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt: '2026-10-01T10:00:00Z', permalink: null, reach: null, views: null, likes: null, comments: null, shares: null, saves: null, ...o });
 
 describe('engagementRate', () => {
   it('(likes + comments + saves + shares) ÷ reach', () => {

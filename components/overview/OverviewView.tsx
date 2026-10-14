@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import Link from 'next/link';
 import { CircleUserRound, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -204,6 +204,7 @@ export function OverviewView({ model }: { model: OverviewModel }) {
   const tR = useTranslations('analysis.reasons');
   const { prefs } = usePrefs();
   const delta = useDelta();
+  const uid = useId();
   const header = <PageHeader title={t('title')} subtitle={t('subtitle')} actions={<PeriodSelect period={model.period} />} />;
 
   if (model.sections.length === 0) {
@@ -244,10 +245,10 @@ export function OverviewView({ model }: { model: OverviewModel }) {
       </section>
 
       <div className="grid gap-[calc(var(--gp)*1.5)]">
-        {model.sections.map((s) => (
-          <section key={s.group ?? '\u0000isolated'} aria-labelledby={`grp-${s.group ?? 'isolated'}`}>
+        {model.sections.map((s, i) => (
+          <section key={s.group ?? '\u0000isolated'} aria-labelledby={`${uid}-grp-${i}`}>
             <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <h2 id={`grp-${s.group ?? 'isolated'}`} className="flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <h2 id={`${uid}-grp-${i}`} className="flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <span className="min-w-0 truncate">{s.group ?? t('isolated')}</span>
                 <Badge variant="secondary">{formatNumber(s.cards.length, prefs)}</Badge>
               </h2>

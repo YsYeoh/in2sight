@@ -50,7 +50,6 @@ export function rowToPost(r: Row): Post | null {
     comments: num(m.comments),
     shares: num(m.shares),
     saves: num(m.saves),
-    interactions: num(m.total_interactions),
   };
 }
 
@@ -70,7 +69,7 @@ export async function loadDaily(db: SupabaseClient, accountId: string, fromDay: 
 export async function loadPosts(db: SupabaseClient, accountId: string, limit = MEDIA_LIMIT): Promise<Post[]> {
   const { data, error } = await db
     .from('media')
-    .select('id,account_id,media_type,posted_at,permalink,media_metrics(captured_at,reach,views,likes,comments,shares,saves,total_interactions)')
+    .select('id,account_id,media_type,posted_at,permalink,media_metrics(captured_at,reach,views,likes,comments,shares,saves)')
     .eq('account_id', accountId)
     .neq('media_type', 'STORY')
     .order('posted_at', { ascending: false })

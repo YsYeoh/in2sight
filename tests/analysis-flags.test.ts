@@ -5,7 +5,7 @@ import { addDays } from '@/lib/sync/time';
 
 const NOW = new Date('2026-10-15T12:00:00Z');
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
-const post = (id: string, postedAt: string, reach: number | null, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt, permalink: `https://instagram.com/p/${id}`, reach, views: null, likes: null, comments: null, shares: null, saves: null, interactions: null, ...o });
+const post = (id: string, postedAt: string, reach: number | null, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt, permalink: `https://instagram.com/p/${id}`, reach, views: null, likes: null, comments: null, shares: null, saves: null, ...o });
 /** n older posts with reach 100, one per day, ending 3 days ago. */
 const history = (n: number, reach: number | null = 100) => Array.from({ length: n }, (_, i) => post(`h${i}`, hoursAgo(72 + 24 * (n - i)), reach));
 

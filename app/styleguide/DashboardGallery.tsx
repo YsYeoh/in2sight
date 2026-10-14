@@ -35,7 +35,6 @@ const POSTS: Post[] = Array.from({ length: 80 }, (_, i) => ({
   comments: null,
   shares: null,
   saves: null,
-  interactions: null,
 }));
 
 export function DashboardGallery() {

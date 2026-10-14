@@ -38,7 +38,7 @@ describe('loadPosts', () => {
   it('newest 500 feed posts with only the latest metrics snapshot each', async () => {
     const f = fakeDb({ media: [{ data: [mediaRow('m1'), mediaRow('m2', [])] }] });
     const posts = await loadPosts(f.db, 'a1', 10_000);
-    expect(posts[0]).toMatchObject({ id: 'm1', accountId: 'a1', mediaType: 'REELS', reach: 120, likes: 9, interactions: 11, comments: null });
+    expect(posts[0]).toMatchObject({ id: 'm1', accountId: 'a1', mediaType: 'REELS', reach: 120, likes: 9, comments: null });
     expect(posts[1]).toMatchObject({ id: 'm2', reach: null });
     expect(f.calls[0].select).toContain('media_metrics(');
     expect(f.calls[0].ops).toEqual([

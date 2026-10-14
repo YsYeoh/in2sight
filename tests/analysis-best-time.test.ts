@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { onlineHeatmap, postHeatmap, RELIABLE_POSTS, weekdayOf, type Heatmap } from '@/lib/analysis/best-time';
 import type { Post } from '@/lib/analysis/types';
 
-const post = (id: string, postedAt: string, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt, permalink: null, reach: 100, views: null, likes: 10, comments: null, shares: null, saves: null, interactions: null, ...o });
+const post = (id: string, postedAt: string, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt, permalink: null, reach: 100, views: null, likes: 10, comments: null, shares: null, saves: null, ...o });
 const cell = (h: Heatmap, weekday: number, hour: number) => h.rows.find((r) => r.weekday === weekday)!.cells[hour];
 
 describe('weekdayOf', () => {

@@ -63,7 +63,7 @@ Upsert only; rows are deleted solely by the explicit "Delete all data permanentl
 
 ## 7. Analysis (v1, plain SQL/TS — no ML)
 - **Growth:** 7/30-day follower and reach deltas per account.
-- **Top/bottom posts:** by reach and by engagement rate (`total_interactions / reach`).
+- **Top/bottom posts:** by reach and by engagement rate ((likes + comments + saves + shares) ÷ reach, see below).
 - **Format comparison:** avg reach + engagement by `media_type` (Reel / carousel / image).
 - **Best time to post (approved: both, with a sample guard):** default view = **followers online** by weekday × hour (`online_followers`, needs 100+ followers). A toggle shows **your post performance** (avg engagement rate by weekday × hour of `posted_at`); cells with fewer than 2 posts are greyed out, and the view shows "Needs ~30+ posts for a reliable pattern" until the account has ≥ 30 feed posts.
 - **Cross-account:** same metrics side by side.
