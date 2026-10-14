@@ -1,0 +1,35 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights",
+  "data": [
+    {
+      "name": "follows_and_unfollows",
+      "period": "day",
+      "title": "Follows and unfollows",
+      "total_value": {
+        "value": 15,
+        "breakdowns": [
+          {
+            "dimension_keys": [
+              "follow_type"
+            ],
+            "results": [
+              {
+                "dimension_values": [
+                  "FOLLOWER"
+                ],
+                "value": 12
+              },
+              {
+                "dimension_values": [
+                  "NON_FOLLOWER"
+                ],
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "id": "17841400000000001/insights/follows_and_unfollows/day"
+    }
+  ]
+}

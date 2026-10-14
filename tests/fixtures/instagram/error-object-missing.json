@@ -1,0 +1,10 @@
+{
+  "_source": "UNCERTAIN: usual Graph shape for a deleted object; replace with a recorded response",
+  "error": {
+    "message": "Unsupported get request. Object with ID '18000000000000009' does not exist",
+    "type": "GraphMethodException",
+    "code": 100,
+    "error_subcode": 33,
+    "fbtrace_id": "AbCdEf"
+  }
+}

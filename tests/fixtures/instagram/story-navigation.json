@@ -1,0 +1,51 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/insights/ (sample uses lower-case dimension values)",
+  "data": [
+    {
+      "name": "navigation",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 350
+        }
+      ],
+      "total_value": {
+        "value": 350,
+        "breakdowns": [
+          {
+            "dimension_keys": [
+              "story_navigation_action_type"
+            ],
+            "results": [
+              {
+                "dimension_values": [
+                  "tap_forward"
+                ],
+                "value": 200
+              },
+              {
+                "dimension_values": [
+                  "tap_back"
+                ],
+                "value": 40
+              },
+              {
+                "dimension_values": [
+                  "tap_exit"
+                ],
+                "value": 60
+              },
+              {
+                "dimension_values": [
+                  "swipe_forward"
+                ],
+                "value": 50
+              }
+            ]
+          }
+        ]
+      },
+      "id": "18100000000000001/insights/navigation/lifetime"
+    }
+  ]
+}

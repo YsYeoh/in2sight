@@ -1,0 +1,44 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights",
+  "data": [
+    {
+      "name": "follower_demographics",
+      "period": "lifetime",
+      "title": "Follower demographics",
+      "total_value": {
+        "breakdowns": [
+          {
+            "dimension_keys": [
+              "age",
+              "gender"
+            ],
+            "results": [
+              {
+                "dimension_values": [
+                  "18-24",
+                  "F"
+                ],
+                "value": 210
+              },
+              {
+                "dimension_values": [
+                  "25-34",
+                  "M"
+                ],
+                "value": 180
+              },
+              {
+                "dimension_values": [
+                  "25-34",
+                  "F"
+                ],
+                "value": 330
+              }
+            ]
+          }
+        ]
+      },
+      "id": "17841400000000001/insights/follower_demographics/lifetime"
+    }
+  ]
+}

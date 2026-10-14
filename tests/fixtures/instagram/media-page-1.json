@@ -1,0 +1,28 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+  "data": [
+    {
+      "id": "18000000000000003",
+      "caption": "New drop",
+      "media_type": "VIDEO",
+      "media_product_type": "REELS",
+      "permalink": "https://www.instagram.com/reel/AAA/",
+      "timestamp": "2026-10-13T10:00:00+0000"
+    },
+    {
+      "id": "18000000000000002",
+      "caption": "Behind the scenes",
+      "media_type": "CAROUSEL_ALBUM",
+      "media_product_type": "FEED",
+      "permalink": "https://www.instagram.com/p/BBB/",
+      "timestamp": "2026-10-10T02:30:00+0000"
+    }
+  ],
+  "paging": {
+    "cursors": {
+      "before": "QVFIUmJ",
+      "after": "QVFIUmF"
+    },
+    "next": "https://graph.instagram.com/v25.0/17841400000000001/media?fields=id&limit=2&after=QVFIUmF&access_token=REDACTED"
+  }
+}

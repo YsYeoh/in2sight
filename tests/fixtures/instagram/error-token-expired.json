@@ -1,0 +1,10 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/graph-api/guides/error-handling/",
+  "error": {
+    "message": "Error validating access token: Session has expired.",
+    "type": "OAuthException",
+    "code": 190,
+    "error_subcode": 463,
+    "fbtrace_id": "AbCdEf"
+  }
+}

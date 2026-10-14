@@ -1,0 +1,60 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/insights/",
+  "data": [
+    {
+      "name": "reach",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 310
+        }
+      ],
+      "title": "reach",
+      "id": "18100000000000001/insights/reach/lifetime"
+    },
+    {
+      "name": "views",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 420
+        }
+      ],
+      "title": "views",
+      "id": "18100000000000001/insights/views/lifetime"
+    },
+    {
+      "name": "replies",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 2
+        }
+      ],
+      "title": "replies",
+      "id": "18100000000000001/insights/replies/lifetime"
+    },
+    {
+      "name": "shares",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 1
+        }
+      ],
+      "title": "shares",
+      "id": "18100000000000001/insights/shares/lifetime"
+    },
+    {
+      "name": "total_interactions",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 5
+        }
+      ],
+      "title": "total_interactions",
+      "id": "18100000000000001/insights/total_interactions/lifetime"
+    }
+  ]
+}

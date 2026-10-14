@@ -1,0 +1,9 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/graph-api/overview/rate-limiting/",
+  "error": {
+    "message": "Application request limit reached",
+    "type": "OAuthException",
+    "code": 80002,
+    "fbtrace_id": "AbCdEf"
+  }
+}

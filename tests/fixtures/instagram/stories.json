@@ -1,0 +1,12 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+  "data": [
+    {
+      "id": "18100000000000001",
+      "media_type": "IMAGE",
+      "media_product_type": "STORY",
+      "permalink": "https://instagram.com/stories/brandx/18100000000000001",
+      "timestamp": "2026-10-14T01:00:00+0000"
+    }
+  ]
+}

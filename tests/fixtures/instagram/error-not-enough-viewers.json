@@ -1,0 +1,9 @@
+{
+  "_source": "documented on https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/insights/",
+  "error": {
+    "message": "(#10) Not enough viewers for the media to show insights",
+    "type": "OAuthException",
+    "code": 10,
+    "fbtrace_id": "AbCdEf"
+  }
+}
