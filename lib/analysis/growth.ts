@@ -9,6 +9,7 @@ export interface Totals {
   views: number | null;
   interactions: number | null;
   netFollows: number | null; // Σ(follows − unfollows); null when Instagram gave no follow data (under 100 followers)
+  rate: { interactions: number; reach: number } | null; // engagement-rate parts; null unless the account has both
   posts: number; // feed posts + reels published in the window (stories excluded)
   days: number; // days in the window that have reach data (coverage)
 }
@@ -31,6 +32,9 @@ export interface Kpi {
   reason: MissingReason | null; // why value or the comparison is missing
 }
 
+/** Instagram lags up to 48 h; a latest reach day older than yesterday − this means the account stopped syncing. */
+export const MAX_LAG_DAYS = 3;
+
 /** A window only counts for a comparison when at least 80% of its days have data (sync gaps, Meta's 48 h lag). */
 export const MIN_COVERAGE = 0.8;
 
@@ -42,10 +46,13 @@ const sum = (vals: (number | null)[]): number | null => {
 function totals(rows: DailyRow[], posts: Post[], from: string, to: string, tz: string): Omit<Totals, 'followers'> {
   const inWin = rows.filter((r) => r.day >= from && r.day <= to);
   const follow = inWin.filter((r) => r.follows !== null && r.unfollows !== null);
+  const reach = sum(inWin.map((r) => r.reach));
+  const interactions = sum(inWin.map((r) => r.interactions));
   return {
-    reach: sum(inWin.map((r) => r.reach)),
+    reach,
     views: sum(inWin.map((r) => r.views)),
-    interactions: sum(inWin.map((r) => r.interactions)),
+    interactions,
+    rate: reach !== null && interactions !== null ? { interactions, reach } : null,
     netFollows: follow.length ? follow.reduce((a, r) => a + (r.follows as number) - (r.unfollows as number), 0) : null,
     posts: posts.filter((p) => {
       if (p.mediaType === 'STORY') return false;
@@ -67,14 +74,17 @@ function followersAt(sorted: DailyRow[], day: string): { day: string; value: num
 
 /**
  * The current window ends on the latest day with reach data before today (Instagram lags up to 48 h, so ending on
- * "yesterday" would compare a short window with a full one); with no data at all it ends yesterday.
+ * "yesterday" would compare a short window with a full one); with no data at all, or none within MAX_LAG_DAYS of
+ * yesterday, it ends yesterday.
  * Followers are a daily snapshot written on the day they were read (can be today), so they use their own latest day.
  */
 export function summarize(rows: DailyRow[], posts: Post[], period: number, today: string, tz: string): Summary {
   const sorted = [...rows].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
   const yesterday = addDays(today, -1);
   const withReach = sorted.filter((r) => r.reach !== null && r.day <= yesterday);
-  const endDay = withReach.length ? withReach[withReach.length - 1].day : yesterday;
+  const latest = withReach.length ? withReach[withReach.length - 1].day : null;
+  // a stale account (last reach day older than the lag allows) ends at yesterday, so its missing days count as gaps
+  const endDay = latest !== null && latest >= addDays(yesterday, -MAX_LAG_DAYS) ? latest : yesterday;
   const curFrom = addDays(endDay, -(period - 1));
   const priorTo = addDays(endDay, -period);
   const priorFrom = addDays(endDay, -(2 * period - 1));
@@ -94,16 +104,30 @@ export function summarize(rows: DailyRow[], posts: Post[], period: number, today
 }
 
 const add = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : a + b);
-function addTotals(a: Totals, b: Totals): Totals {
-  return {
-    followers: add(a.followers, b.followers),
-    reach: add(a.reach, b.reach),
-    views: add(a.views, b.views),
-    interactions: add(a.interactions, b.interactions),
-    netFollows: add(a.netFollows, b.netFollows),
-    posts: a.posts + b.posts,
-    days: Math.min(a.days, b.days), // a combined window is only as complete as its least complete account
-  };
+
+type SumField = 'followers' | 'reach' | 'views' | 'interactions' | 'netFollows';
+const SUM_FIELDS: SumField[] = ['followers', 'reach', 'views', 'interactions', 'netFollows'];
+
+/**
+ * Totals of several accounts. Comparability rule, per field: if any account contributes a current value but has NO
+ * prior value (a newly connected account has no follower history), the combined prior is null, so the comparison is
+ * "not enough history" instead of the new account's whole value showing up as growth. Accounts without a current
+ * value contribute to neither side. Engagement rate sums interactions and reach over accounts that have both, so an
+ * account with reach but no interactions never understates the rate.
+ */
+function combineTotals(cur: Totals[], pri: Totals[]): { current: Totals; prior: Totals } {
+  const current = { posts: cur.reduce((n, t) => n + t.posts, 0), days: Math.min(...cur.map((t) => t.days)) } as Totals;
+  const prior = { posts: pri.reduce((n, t) => n + t.posts, 0), days: Math.min(...pri.map((t) => t.days)) } as Totals;
+  for (const f of SUM_FIELDS) {
+    const who = cur.map((t, i) => (t[f] !== null ? i : -1)).filter((i) => i >= 0);
+    current[f] = sum(who.map((i) => cur[i][f]));
+    prior[f] = who.every((i) => pri[i][f] !== null) ? sum(who.map((i) => pri[i][f])) : null;
+  }
+  const who = cur.map((t, i) => (t.rate ? i : -1)).filter((i) => i >= 0);
+  const rate = (list: Totals[]) => (who.every((i) => list[i].rate) && who.length ? who.reduce((a, i) => ({ interactions: a.interactions + list[i].rate!.interactions, reach: a.reach + list[i].rate!.reach }), { interactions: 0, reach: 0 }) : null);
+  current.rate = rate(cur);
+  prior.rate = rate(pri);
+  return { current, prior };
 }
 
 /**
@@ -113,22 +137,20 @@ function addTotals(a: Totals, b: Totals): Totals {
  */
 export function combine(list: Summary[]): Summary | null {
   if (list.length === 0) return null;
-  return list.slice(1).reduce<Summary>(
-    (acc, s) => ({
-      period: acc.period,
-      endDay: s.endDay > acc.endDay ? s.endDay : acc.endDay,
-      current: addTotals(acc.current, s.current),
-      prior: addTotals(acc.prior, s.prior),
-      reachByDay: acc.reachByDay.map((d, i) => {
-        const o = s.reachByDay[i];
-        return { day: o && o.day > d.day ? o.day : d.day, value: add(d.value, o?.value ?? null) };
-      }),
-    }),
-    list[0],
-  );
+  const { current, prior } = combineTotals(list.map((s) => s.current), list.map((s) => s.prior));
+  return {
+    period: list[0].period,
+    endDay: list.reduce((d, s) => (s.endDay > d ? s.endDay : d), list[0].endDay),
+    current,
+    prior,
+    reachByDay: list[0].reachByDay.map((d0, i) => ({
+      day: list.reduce((d, s) => (s.reachByDay[i] && s.reachByDay[i].day > d ? s.reachByDay[i].day : d), d0.day),
+      value: list.reduce<number | null>((v, s) => add(v, s.reachByDay[i]?.value ?? null), null),
+    })),
+  };
 }
 
-const er = (t: Totals) => (t.interactions !== null && t.reach !== null && t.reach > 0 ? t.interactions / t.reach : null);
+const er = (t: Totals) => (t.rate && t.rate.reach > 0 ? t.rate.interactions / t.rate.reach : null);
 
 function kpi(value: number | null, prior: number | null, comparable: boolean, emptyReason: MissingReason): Kpi {
   if (value === null) return { value: null, prior, diff: null, change: null, reason: emptyReason };

@@ -82,10 +82,11 @@ export function buildOverview(input: OverviewInput, o: { period: Period; today: 
 
   const byName = (x: AccountCard, y: AccountCard) => x.username.localeCompare(y.username, o.locale);
   const groups = [...new Set(cards.map((c) => c.groupName).filter((g): g is string => !!g))].sort((x, y) => x.localeCompare(y, o.locale));
-  const totalsOf = (list: AccountCard[]) => {
-    const c = combine(list.map((x) => summaries.get(x.id)!));
-    return c ? kpis(c) : null;
-  };
+  // Totals only add up healthy accounts: one needs_reconnect / backfilling / no_data account must not remove the
+  // comparison (coverage) for everyone else. A scope with none left shows "no data" instead of a number.
+  const empty = summarize([], [], o.period, o.today, o.tz);
+  const healthy = (list: AccountCard[]) => combine(list.filter((x) => x.state === 'ok').map((x) => summaries.get(x.id)!));
+  const totalsOf = (list: AccountCard[]) => (list.length ? kpis(healthy(list) ?? empty) : null);
   const sections = [
     ...groups.map((g) => {
       const list = cards.filter((c) => c.groupName === g).sort(byName);
@@ -109,5 +110,5 @@ export function buildOverview(input: OverviewInput, o: { period: Period; today: 
     }),
   );
 
-  return { period: o.period, totals: all ? kpis(all) : null, totalsSpark: all?.reachByDay.map((d) => d.value) ?? [], sections, scopes, days, series };
+  return { period: o.period, totals: totalsOf(cards), totalsSpark: healthy(cards)?.reachByDay.map((d) => d.value) ?? [], sections, scopes, days, series };
 }
