@@ -10,6 +10,8 @@
 
 **Spec:** `docs/SPEC.md` §5 (tags, media_tags), §7 (analysis + story exit rate), §7b (flows, comparison rules, missing-data reasons), §7c (archived hidden), §8 (Account detail contents, Tags page, globe), §8b (frontend rules). Project rules: `CLAUDE.md` (binding). Visual reference: `docs/mockups/app-prototype.html`, `kit-data.html`, `kit-charts.html`.
 
+**Dry run (2026-10-15):** every task's code in this plan was executed once, in order, in a throwaway copy of the repo (fresh `npm ci`, from `main` a644562): `npm run check` passed — lint, typecheck, 100 test files / 944 tests, `next build` (routes `/accounts/[id]`, `/calendar`, `/tags`); `app/globals.css` unchanged. Nothing was applied to Supabase.
+
 ## Decisions taken in this plan (owner: please confirm the ones marked ⚠)
 
 - ⚠ **Globe without Three.js.** SPEC §2 lists Three.js "(one lazy-loaded globe)". A dot globe (country centroids sized by audience share on a rotating orthographic sphere with a graticule) is ~90 lines of canvas 2D code and 0 KB of dependencies, versus ~160 KB gzipped for `three`. Same look the mockups show, MIT-free (our code), lazy-loaded with `next/dynamic({ ssr: false })`, rendered ONLY when `useHeavyMotion()` allows. The ranked country list is always rendered and is the accessible baseline; the globe canvas is `aria-hidden`. If the owner wants real country outlines / 3D lighting later, swap `components/account/Globe.tsx` for a Three.js version — nothing else changes.
