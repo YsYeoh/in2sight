@@ -137,3 +137,18 @@ export function formatSigned(n: number | null | undefined, p: FormatPrefs, digit
 export function formatDelta(ratio: number | null | undefined, p: FormatPrefs, digits = 1): string {
   return isNum(ratio) ? `${formatSigned(ratio * 100, p, digits)}%` : DASH;
 }
+
+/**
+ * A country name for an ISO-3166 alpha-2 code in the UI language ('MY' gives "Malaysia" in English). Anything that is
+ * not two letters, or that the runtime cannot name, comes back as the code itself - never an exception.
+ */
+export function formatCountry(code: string, p: Pick<FormatPrefs, 'locale'>): string {
+  const c = code.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c)) return code;
+  try {
+    const name = new Intl.DisplayNames([p.locale], { type: 'region', fallback: 'code' }).of(c);
+    return name || c;
+  } catch {
+    return c;
+  }
+}
