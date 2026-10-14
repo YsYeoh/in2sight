@@ -1,0 +1,23 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/ (caption/media_product_type omitted: they may be Facebook-Login-only)",
+  "data": [
+    {
+      "id": "18000000000000001",
+      "media_type": "IMAGE",
+      "permalink": "https://www.instagram.com/p/CCC/",
+      "timestamp": "2026-08-01T09:00:00+0000"
+    },
+    {
+      "id": "18000000000000000",
+      "media_type": "VIDEO",
+      "permalink": "https://www.instagram.com/p/DDD/",
+      "timestamp": "2026-07-01T09:00:00+0000"
+    }
+  ],
+  "paging": {
+    "cursors": {
+      "before": "QVFIUmK",
+      "after": "QVFIUmL"
+    }
+  }
+}

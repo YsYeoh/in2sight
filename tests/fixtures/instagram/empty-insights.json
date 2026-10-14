@@ -1,0 +1,4 @@
+{
+  "_source": "documented: unavailable data returns an empty data set, not 0 (https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights)",
+  "data": []
+}

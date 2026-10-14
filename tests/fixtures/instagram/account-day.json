@@ -1,0 +1,50 @@
+{
+  "_source": "hand-written from https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights",
+  "data": [
+    {
+      "name": "reach",
+      "period": "day",
+      "title": "Accounts reached",
+      "total_value": {
+        "value": 1830
+      },
+      "id": "17841400000000001/insights/reach/day"
+    },
+    {
+      "name": "views",
+      "period": "day",
+      "title": "Views",
+      "total_value": {
+        "value": 4210
+      },
+      "id": "17841400000000001/insights/views/day"
+    },
+    {
+      "name": "accounts_engaged",
+      "period": "day",
+      "title": "Accounts engaged",
+      "total_value": {
+        "value": 96
+      },
+      "id": "17841400000000001/insights/accounts_engaged/day"
+    },
+    {
+      "name": "total_interactions",
+      "period": "day",
+      "title": "Total interactions",
+      "total_value": {
+        "value": 240
+      },
+      "id": "17841400000000001/insights/total_interactions/day"
+    },
+    {
+      "name": "profile_links_taps",
+      "period": "day",
+      "title": "Profile links taps",
+      "total_value": {
+        "value": 7
+      },
+      "id": "17841400000000001/insights/profile_links_taps/day"
+    }
+  ]
+}

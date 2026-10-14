@@ -1,0 +1,80 @@
+// Every Instagram API metric name, field list and breakdown the sync uses. Meta renames and deprecates these, so:
+// re-verify against the docs below when touching this file, and on the first live run (docs/RUNBOOK_SYNC.md step 3).
+// Verified against Meta's docs (API v25.0) on 2026-10-14:
+//   account insights: https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights
+//   media insights:   https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/insights/
+//   media fields:     https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/
+//   user fields:      https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/
+// UNCERTAIN = documented ambiguously or not at all; the runbook checks it against a real account.
+
+/** GET /me?fields=… Followers have no historic series we rely on, so the daily job snapshots this count. */
+export const PROFILE_FIELDS = 'followers_count,media_count';
+
+/**
+ * GET /me/insights, metric_type=total_value, period=day, since/until = one insight day.
+ * total_value over a range returns ONE total for the range, so the sync asks for one day per call.
+ * Removed from the API and therefore not requested: impressions (v22+), profile_views (account level, v21+).
+ */
+export const ACCOUNT_DAY_METRICS = ['reach', 'views', 'accounts_engaged', 'total_interactions', 'profile_links_taps'] as const;
+
+/** Separate call: breakdowns error out on metrics that do not support them, so never mix them with the list above. */
+export const FOLLOWS_METRIC = 'follows_and_unfollows';
+export const FOLLOWS_BREAKDOWN = 'follow_type';
+/** UNCERTAIN: which follow_type value means "followed" vs "unfollowed" for follows_and_unfollows. */
+export const FOLLOW_TYPE = { follows: 'FOLLOWER', unfollows: 'NON_FOLLOWER' } as const;
+
+/**
+ * Audience: metric_type=total_value, period=lifetime, timeframe (since/until are not supported).
+ * Since v20 only this_week / this_month are accepted. Empty under 100 followers. Top 45 rows only.
+ */
+export const DEMOGRAPHICS_METRIC = 'follower_demographics';
+export const DEMOGRAPHICS_TIMEFRAME = 'this_month';
+export const DEMOGRAPHIC_BREAKDOWNS = { age_gender: 'age,gender', country: 'country', city: 'city' } as const;
+export type AudienceKind = keyof typeof DEMOGRAPHIC_BREAKDOWNS;
+
+/**
+ * UNCERTAIN: online_followers appears only in the "Limitations" section of the current docs (under 100 followers:
+ * unavailable; last 30 days only), not in the metric table. period=lifetime with since/until; values[].value is an
+ * hour-keyed object {"0": n, …, "23": n}; the hour base (likely Pacific time) is unverified.
+ */
+export const ONLINE_FOLLOWERS_METRIC = 'online_followers';
+
+/**
+ * GET /me/media and GET /me/stories fields. UNCERTAIN: the media reference marks `caption` and `media_product_type`
+ * "Facebook Login only". If the first live call fails with error code 100 (nonexisting field), delete them here: the
+ * parser already falls back (VIDEO -> REELS, caption null).
+ */
+export const MEDIA_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp';
+/** UNCERTAIN: page-size maximum is not documented; 50 is conservative. */
+export const MEDIA_PAGE_SIZE = 50;
+
+/**
+ * GET /{media-id}/insights for FEED posts and REELS (same set is valid for both, so the sync does not need
+ * media_product_type to pick metrics). period is always lifetime for media. `saved` maps to our `saves` column.
+ * Not requested: impressions/plays/clips_replays_count/video_views (deprecated), ig_reels_* (no column yet).
+ */
+export const FEED_METRICS = ['reach', 'views', 'likes', 'comments', 'shares', 'saved', 'total_interactions'] as const;
+
+/** Stories: available only while live (24h). Values under 5 return error code 10 "Not enough viewers". */
+export const STORY_METRICS = ['reach', 'views', 'replies', 'shares', 'total_interactions'] as const;
+/**
+ * Separate call (breakdown). Values TAP_FORWARD / TAP_BACK / TAP_EXIT map to taps_forward / taps_back / exits; they
+ * come back upper- or lower-case (compare upper-cased). SWIPE_FORWARD (next story) has no column.
+ */
+export const STORY_NAVIGATION_METRIC = 'navigation';
+export const STORY_NAVIGATION_BREAKDOWN = 'story_navigation_action_type';
+
+/**
+ * Error codes (https://developers.facebook.com/docs/graph-api/guides/error-handling/ and
+ * https://developers.facebook.com/docs/graph-api/overview/rate-limiting/). Instagram BUC throttling is 80002;
+ * budget = 4800 x impressions per 24h per app+account pair. UNCERTAIN: 100/33 for deleted media.
+ */
+export const IG_ERROR = {
+  auth: [190, 102], // plus the 200-299 permission range
+  appRateLimit: [4],
+  rateLimit: [17, 32, 613, 80002],
+  transient: [1, 2, 341, 368],
+  notEnoughViewers: 10,
+  invalidParam: 100,
+  objectMissingSubcode: 33,
+} as const;

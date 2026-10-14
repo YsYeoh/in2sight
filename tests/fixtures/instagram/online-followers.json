@@ -1,0 +1,42 @@
+{
+  "_source": "UNCERTAIN shape, from older IG User Insights docs; replace with a recorded response",
+  "data": [
+    {
+      "name": "online_followers",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": {
+            "0": 10,
+            "1": 11,
+            "2": 12,
+            "3": 13,
+            "4": 14,
+            "5": 15,
+            "6": 16,
+            "7": 17,
+            "8": 18,
+            "9": 19,
+            "10": 20,
+            "11": 21,
+            "12": 22,
+            "13": 23,
+            "14": 24,
+            "15": 25,
+            "16": 26,
+            "17": 27,
+            "18": 28,
+            "19": 29,
+            "20": 30,
+            "21": 31,
+            "22": 32,
+            "23": 33
+          },
+          "end_time": "2026-10-13T07:00:00+0000"
+        }
+      ],
+      "title": "Online followers",
+      "id": "17841400000000001/insights/online_followers/lifetime"
+    }
+  ]
+}
