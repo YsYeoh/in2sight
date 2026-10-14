@@ -62,6 +62,19 @@ describe('DataTable', () => {
     expect(within(screen.getByRole('list')).getAllByRole('listitem')[0]).toHaveTextContent('@gamma');
   });
 
+  it('phones can flip the sort direction', async () => {
+    setup();
+    const dir = screen.getByRole('button', { name: en.table.ascending });
+    expect(dir).toBeDisabled();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: en.table.sortBy }), 'reach');
+    expect(dir).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(dir);
+    expect(dir).toHaveAttribute('aria-pressed', 'true');
+    expect(within(screen.getByRole('list')).getAllByRole('listitem')[0]).toHaveTextContent('@beta');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: en.table.sortBy }), 'name'); // keeps the direction
+    expect(dir).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('empty and loading states', () => {
     const { unmount } = setup({ rows: [] });
     expect(screen.getByText(en.table.empty)).toBeInTheDocument();

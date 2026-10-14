@@ -6,6 +6,7 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
@@ -94,21 +95,27 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = 
 
       <div className="grid gap-[var(--gp)] md:hidden">
         {sortable.length > 0 ? (
-          <label className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
-            {t('sortBy')}
-            <select
-              className="h-[var(--ctl-sm)] rounded-md border border-input bg-background px-2 text-xs text-foreground"
-              value={sort?.key ?? ''}
-              onChange={(e) => setSort(e.target.value ? { key: e.target.value, dir: 'desc' } : null)}
-            >
-              <option value="">{t('defaultOrder')}</option>
-              {sortable.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.header}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex items-center justify-end gap-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              {t('sortBy')}
+              <select
+                className="h-[var(--ctl-sm)] rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                value={sort?.key ?? ''}
+                onChange={(e) => setSort(e.target.value ? { key: e.target.value, dir: sort?.dir ?? 'desc' } : null)}
+              >
+                <option value="">{t('defaultOrder')}</option>
+                {sortable.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.header}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="button" variant="outline" size="sm" disabled={!sort} aria-pressed={sort?.dir === 'asc'} onClick={() => sort && toggle(sort.key)}>
+              {sort?.dir === 'asc' ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+              {t('ascending')}
+            </Button>
+          </div>
         ) : null}
         <ul className="grid gap-[var(--gp)]" aria-label={caption}>
           {loading
