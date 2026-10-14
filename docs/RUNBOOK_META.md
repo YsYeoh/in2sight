@@ -16,7 +16,7 @@ Never paste tokens, the app secret or cookies anywhere. When something fails, se
 |---|---|---|
 | 1 | `npm run check:env` (add `-- --only=app,supabase,security,meta` to pick groups). | Every variable reports `[ok]`; no values are printed. No `IG_REDIRECT_URI must equal NEXT_PUBLIC_APP_URL + /api/instagram/callback` error. |
 | 2 | Open `<app-url>/`, sign in (password + 2FA code). In Meta's dashboard confirm the saved **OAuth redirect URI** is exactly `<app-url>/api/instagram/callback` (no trailing slash), and the Deauthorize / Data deletion callback URLs are `<app-url>/api/instagram/deauthorize` and `<app-url>/api/instagram/delete`. | You land on `/overview`. Meta lists exactly those three addresses. |
-| 3 | Go to **Accounts** → **Add account**. Leave *Group* empty. Click **Continue with Instagram**. On Instagram's page log in as a **Creator** account and approve both permissions (`instagram_business_basic`, `instagram_business_manage_insights`). | You are sent back to `<app-url>/accounts?connected=<username>`; the notice reads "Connected <username>". The account appears under **Isolated accounts** with status **Active** and a token meter of about **60 days left** (the meter rounds up, so 60 or 59). The connected date is today in your date format. |
+| 3 | Go to **Accounts** → **Add account**. Leave *Group* empty. Click **Continue with Instagram**. On Instagram's page log in as a **Creator** account and approve both permissions (`instagram_business_basic`, `instagram_business_manage_insights`). | You are sent back to `<app-url>/accounts?connected=<username>`; the notice reads "Connected @<username>". The account appears under **Isolated accounts** with status **Active** and a token meter of about **60 days left** (the meter rounds up, so 60 or 59). The connected date is today in your date format. |
 | 4 | Repeat step 3 with a **second** account, typing the group **Brand X** in the dialog first. | Redirect to `/accounts?connected=<username>`. The account sits under a **Brand X** heading; the first account is still under *Isolated accounts*. |
 | 5 | Negative checks (a, b, c, d below). | Each shows the exact message listed and creates no row. |
 | 6 | Archive, reconnect, restore, delete (steps 6a-6e below). | See below. |
@@ -94,7 +94,7 @@ curl -i -X POST -d signed_request=x <app-url>/api/instagram/delete
 
 Expected: `HTTP 400` with `{"error":"invalid_request"}` for both (no session is needed; these endpoints are authenticated by the HMAC on the signed request). A `503 {"error":"not_configured"}` means `IG_APP_SECRET` (or, for `/delete`, `NEXT_PUBLIC_APP_URL`) is missing on the server.
 
-Genuine delivery: in Instagram, remove the app for a **test** account (Settings → Apps and websites → remove in2sight) or press *Test* on the callback URL in the Meta dashboard if offered. Expected after Meta calls `/deauthorize`: that account's row on `/accounts` shows **Reconnect** (status `needs_reconnect`, `last_error = 'deauthorized'` in SQL). Reconnecting it with step 3 returns it to **Active** on the same row. If Meta does not call the endpoint, mark the check "not exercised"; it is not a blocker.
+Genuine delivery: in Instagram, remove the app for a **test** account (Settings → Apps and websites → remove in2sight) or press *Test* on the callback URL in the Meta dashboard if offered. Expected after Meta calls `/deauthorize`: that account's row on `/accounts` shows **Reconnect** (status `needs_reconnect`, `last_error = 'deauthorized'` in SQL). Reconnecting it with step 3 returns it to **Active** on the same row. If Meta does not call the endpoint, mark the check "not exercised"; it is not a blocker. If the callback does **not** flag the row, the `user_id` in Meta's `signed_request` may be Meta's app-scoped ID rather than the IG professional ID returned by `/me`; report it and Plan 5 will store both.
 
 Notes about the data-deletion callback (`/delete`):
 - It answers `200 {"url": "<app-url>/accounts", "confirmation_code": "<hex>"}`. That status URL is **behind login**, so Meta/Instagram users cannot open it; Meta only stores it, and you are the only user.
@@ -113,7 +113,7 @@ Reload `/accounts`. Expected: "5 days left" with the status badge **Expiring** (
 
 ### 10. Group edit
 
-On a grouped account open **Account actions** → **Edit group**, change *Brand X* to *Brand Y*, **Save**. Expected: the account moves under a **Brand Y** heading with no page error; an empty group makes it an isolated account again. A name longer than 40 characters shows "That group name is not valid (max 40 characters)." and changes nothing. Groups are listed alphabetically with *Isolated accounts* last.
+On a grouped account open **Account actions** → **Edit group**, change *Brand X* to *Brand Y*, **Save**. Expected: the account moves under a **Brand Y** heading with no page error; an empty group makes it an isolated account again. The input stops accepting characters at 40. Groups are listed alphabetically with *Isolated accounts* last.
 
 ### 11. Hostile display-name rendering
 
@@ -147,5 +147,5 @@ Send only these (no tokens, secret, cookies or screenshots with them):
 | `exchange_failed` | Instagram rejected the code or the long-lived exchange. | `IG_APP_ID` / `IG_APP_SECRET` are the **Instagram** ones (META_SETUP Part 4) and `IG_REDIRECT_URI` matches Meta exactly. |
 | `profile_failed` | The token worked but the profile could not be read. | Account added to the app; `instagram_business_basic` granted. |
 | `not_professional` | Personal account. | Switch it to Creator (META_SETUP Part 1). |
-| `save_failed` | Database write failed. | Both migrations applied; `SUPABASE_SECRET_KEY` set on the server. |
-| `not_configured` | `IG_*` variables missing on the server. | Vercel environment variables, then redeploy; `npm run check:env`. |
+| `save_failed` | Database write failed. | Both migrations applied; the Supabase tables exist and are reachable. |
+| `not_configured` | `IG_*` variables or `SUPABASE_SECRET_KEY` missing on the server. | Vercel environment variables, then redeploy; `npm run check:env`. |
