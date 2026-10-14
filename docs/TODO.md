@@ -50,6 +50,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 ## 4. Analysis
 - [x] Plan 6 part 1 (analysis + Overview) written: `docs/superpowers/plans/2026-10-16-06-analysis-overview.md` (part 1 implemented; part 2 pending)
 - [x] `lib/analysis`: growth, top posts, format comparison, best-time heatmap, per-tag (tags arrive in Plan 6 part 2), flags (+ vitest) (Plan 6 part 1)
+- [x] Plan 7 (account detail, tags, calendar = Plan 6 part 2) written and implemented: `docs/superpowers/plans/2026-10-17-07-account-detail.md`
 
 ## 5. UI foundation (before pages)
 - [x] Tailwind + shadcn/ui, FormField/PageHeader/EmptyState/ResponsiveDialog/AppShell (Plan 2)
@@ -66,7 +67,8 @@ See `docs/META_SETUP.md` for click-by-click notes.
 
 ## 6. UI pages (use `frontend-design`)
 - [x] Overview (grouped cards, totals, comparison, period selector) — code done; visual verification with real data pending (docs/RUNBOOK_DASHBOARDS.md)
-- [ ] Account detail (incl. Stories, calendar, flags, tags), Tags page (Plan 6 part 2)
+- [x] Account detail (Overview / Posts / Stories / Audience with globe), Tags page, Calendar (Plan 7) — code done; the tags migration and visual verification with real data pending (the globe and the new pages have not been viewed in a browser yet; docs/RUNBOOK_DASHBOARDS.md §4)
+- [ ] Apply migration `20261017000001_tags.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code is used — docs/RUNBOOK_DASHBOARDS.md §4.0)
 
 ## 7. Later
 - [ ] (C) Weekly AI summary per account via Claude API
