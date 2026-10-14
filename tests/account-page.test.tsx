@@ -67,4 +67,16 @@ describe('account detail page', () => {
     expect(calls).toEqual(expect.arrayContaining(['postRows', 'tags']));
     expect(calls).not.toContain('daily');
   });
+
+  it.each([
+    ['stories', 'stories'],
+    ['audience', 'audience'],
+  ])('%s tab loads only its own data', async (tab, call) => {
+    accounts.push(acct(ID));
+    const el = await run(ID, { tab });
+    expect(el.props.tab).toBe(tab);
+    expect(calls).toContain(call);
+    expect(calls).not.toContain('daily');
+    expect(calls).not.toContain('postRows');
+  });
 });

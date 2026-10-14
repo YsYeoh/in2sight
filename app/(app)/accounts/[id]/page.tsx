@@ -1,20 +1,23 @@
 import { notFound } from 'next/navigation';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
+import { AudienceTab } from '@/components/account/AudienceTab';
 import { PostsTab } from '@/components/account/PostsTab';
+import { StoriesTab } from '@/components/account/StoriesTab';
 import { setPostTagsAction } from '@/app/(app)/tags/actions';
 import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
-import { buildPosts, parsePostFilters } from '@/lib/dashboard/content';
-import { loadOnline, loadPostRows, loadTags } from '@/lib/dashboard/detail-read';
+import { buildAudience } from '@/lib/dashboard/audience';
+import { buildPosts, buildStories, parsePostFilters } from '@/lib/dashboard/content';
+import { loadAudience, loadOnline, loadPostRows, loadStories, loadTags } from '@/lib/dashboard/detail-read';
 import { fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
 import { loadDaily, loadPosts } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { listSyncStatus } from '@/lib/sync/store';
-import { addDays, localDay } from '@/lib/sync/time';
+import { addDays, dayStart, localDay } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -29,6 +32,12 @@ async function tabContent(tab: Tab, c: Ctx) {
       // the imported server action is passed straight to the client component (never wrapped in a closure here)
       return <PostsTab posts={buildPosts(rows, tags, filters, c.prefs.timezone)} total={rows.length} tags={tags} filters={filters} setPostTags={setPostTagsAction} />;
     }
+    case 'stories': {
+      const since = dayStart(addDays(c.today, -13), c.prefs.timezone).toISOString(); // today + the 13 days before it
+      return <StoriesTab stories={buildStories(await loadStories(c.db, c.account.id, since), c.now)} />;
+    }
+    case 'audience':
+      return <AudienceTab model={buildAudience(await loadAudience(c.db, c.account.id))} />;
     default: {
       const period = parsePeriod(c.sp.period);
       const pool = poolFor(c.account, c.accounts);
