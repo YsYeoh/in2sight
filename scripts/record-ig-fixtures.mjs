@@ -16,6 +16,40 @@ export function redact(value, token) {
   return JSON.parse(s.replace(/access_token=[^&"\\]*/g, 'access_token=REDACTED'));
 }
 
+const TEXT = { caption: 'REDACTED caption', username: 'redacted_user', name: 'Redacted Name', permalink: 'https://www.instagram.com/p/REDACTED/', profile_picture_url: 'https://example.invalid/profile.jpg' };
+const isInsight = (o) => 'title' in o || 'values' in o || 'total_value' in o; // there `name` is a metric name, keep it
+
+/**
+ * Deep-copies `value` with identifying values replaced by stable placeholders (same input -> same output; types and
+ * structure kept so the parsers still work): id / user_id (one shared map, so an id keeps matching itself), caption,
+ * username, name, permalink, profile_picture_url, paging cursors and the ids in paging URLs. Metric values stay.
+ */
+export function redactIdentity(value) {
+  const ids = new Map();
+  const idFor = (v) => {
+    const k = String(v);
+    if (!ids.has(k)) ids.set(k, ids.size + 1);
+    return typeof v === 'number' ? 1000 + ids.get(k) : `1800000000000${String(ids.get(k)).padStart(4, '0')}`;
+  };
+  const url = (u) => u.replace(/\/\d{6,}\//g, '/ID/').replace(/([?&](?:after|before)=)[^&]*/g, '$1REDACTED');
+  const walk = (v, key, parent) => {
+    if (Array.isArray(v)) return v.map((x) => walk(x, key, parent));
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k, v)]));
+    if (v === null || v === undefined) return v;
+    if (key === 'id' && parent && isInsight(parent)) return String(v).replace(/^\d+(?=\/)/, 'ID'); // "1784/insights/reach/day"
+    if (key === 'id' || key === 'user_id') return idFor(v);
+    if (key === 'name' && parent && isInsight(parent)) return v;
+    if (key === 'next' || key === 'previous') return typeof v === 'string' ? url(v) : v;
+    if (key === 'before' || key === 'after') return 'REDACTED';
+    if (key in TEXT && typeof v === 'string') return TEXT[key];
+    return v;
+  };
+  return walk(value);
+}
+
+/** `<media id>/insights` -> `{media-id}/insights`: the _source line must not carry the id either. */
+export const sourcePath = (path) => path.replace(/^\d+\//, '{media-id}/');
+
 /** The calls the sync makes, in the shape lib/instagram/data.ts sends them. ids come from earlier responses. */
 export function plan(ids, since, until) {
   const day = { metric_type: 'total_value', period: 'day', since, until };
@@ -58,12 +92,12 @@ async function main() {
     const body = await res.json().catch(() => ({}));
     if (name === 'media-page-1') ids.media = body.data?.[0]?.id;
     if (name === 'stories') ids.story = body.data?.[0]?.id;
-    const out = { _source: `recorded ${new Date().toISOString().slice(0, 10)} from GET /${version}/${path}`, ...redact(body, token) };
+    const out = { _source: `recorded ${new Date().toISOString().slice(0, 10)} from GET /${version}/${sourcePath(path)}`, ...redact(redactIdentity(body), token) };
     const file = res.ok ? `${name}.json` : `${name}.error.json`; // an error never overwrites a good fixture
     writeFileSync(join(dir, file), JSON.stringify(out, null, 2) + '\n');
     console.log(`${res.ok ? '[ok]' : '[!!]'} ${name} -> ${file} (HTTP ${res.status}${body.error ? `, code ${body.error.code}${body.error.error_subcode ? `/${body.error.error_subcode}` : ''}` : ''})`);
   }
-  console.log('\nReview the files (no personal captions you do not want in git), then run npm test.');
+  console.log('\nIdentifying values (ids, captions, handles, permalinks, pictures) are replaced by placeholders; skim the files anyway, then run npm test.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((e) => {
