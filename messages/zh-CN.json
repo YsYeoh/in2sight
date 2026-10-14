@@ -328,7 +328,9 @@
       "needs_100_followers": "粉丝达到 100 后 Instagram 才提供此数据",
       "not_enough_history": "历史数据不足，暂无法对比",
       "not_enough_posts": "需要约 30 篇以上帖子才能得出可靠规律",
-      "backfilling": "正在导入历史数据…"
+      "backfilling": "正在导入历史数据…",
+      "needs_5_viewers": "快拍观看者达到 5 人后 Instagram 才提供数据",
+      "few_posts": "至少需要 5 篇有数据的帖子才能对比"
     }
   },
   "setup": {

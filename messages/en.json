@@ -328,7 +328,9 @@
       "needs_100_followers": "Instagram shares this from 100 followers",
       "not_enough_history": "Not enough history to compare yet",
       "not_enough_posts": "Needs ~30+ posts for a reliable pattern",
-      "backfilling": "Importing history…"
+      "backfilling": "Importing history…",
+      "needs_5_viewers": "Instagram shares Story insights from 5 viewers",
+      "few_posts": "Needs 5+ measured posts to compare"
     }
   },
   "setup": {
