@@ -21,8 +21,8 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] `profiles` table: language, timezone, date/time/number format, week start, theme, density, radius (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 
 ## 2. Connect accounts
-- [ ] `lib/instagram.ts`: authorize URL, code→token, long-lived exchange, refresh
-- [ ] `/accounts` page + OAuth callback route
+- [x] `lib/instagram.ts`: authorize URL, code→token, long-lived exchange, refresh (lives in `lib/instagram/oauth.ts`; the refresh job itself is Plan 5) (code done; live verification pending — docs/RUNBOOK_META.md)
+- [x] `/accounts` page + OAuth callback route (code done; live verification pending — docs/RUNBOOK_META.md)
 - [ ] Verify with 1 real account, then connect all
 
 ## 3. Sync
@@ -32,7 +32,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] Per-account error isolation + `needs_reconnect` flag
 - [ ] **Start daily snapshots as early as possible** — history can't be backfilled past ~30 days
 - [ ] First-connect backfill (30d account insights + up to 500 media with lifetime metrics)
-- [ ] Archive / restore / permanent-delete for accounts
+- [x] Archive / restore / permanent-delete for accounts (code done; live verification pending — docs/RUNBOOK_META.md)
 
 ## 3b. Alerts
 - [ ] Rule evaluation after each sync (token expiring, needs reconnect, sync failing, reach drop, post taking off) with dedupe keys
