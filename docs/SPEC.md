@@ -13,7 +13,7 @@ One private dashboard to see insights, traffic and basic analysis across the own
 - 3–4 accounts, currently Personal → must be converted to **Creator** (free) first. Personal accounts have no insights API.
 - Meta app stays in **Dev mode** (no App Review): works for accounts added as Instagram Testers on the app. This is the whole reason we avoid client accounts.
 - Stack fixed: Next.js (App Router, TypeScript) on Vercel; Supabase (Postgres + Auth). **Scheduler (owner decision 2026-10-14):** any HTTP caller hitting `/api/cron/tick` every 30 minutes; recommended **cron-job.org** (free, 1-minute granularity, custom headers, failure notifications, execution history); Supabase `pg_cron` + `pg_net` is the documented fallback. Vercel Hobby cron is once/day, too coarse for Stories, so Vercel Cron is not used.
-- Deps (each replaces a lot of code): Tailwind + shadcn/ui, TanStack Table, next-intl, Recharts, GSAP (motion), Three.js (one lazy-loaded globe), `web-push`, `write-excel-file`, `puppeteer-core` + `@sparticuz/chromium`. No others without a reason.
+- Deps (each replaces a lot of code): Tailwind + shadcn/ui, TanStack Table, next-intl, Recharts, GSAP (motion), the audience globe is hand-written canvas 2D (no Three.js; owner decision 2026-10-17), `web-push`, `write-excel-file`, `puppeteer-core` + `@sparticuz/chromium`. No others without a reason.
 
 ## 3. Meta API approach
 - **Instagram API with Instagram Login** (graph.instagram.com). No Facebook Page needed.
@@ -99,7 +99,7 @@ Upsert only; rows are deleted solely by the explicit "Delete all data permanentl
 - **Ceiling:** Chromium cold start adds seconds to the first PDF after idle; if volume grows, move PDF generation to a small dedicated service.
 
 ## 8. UI (v1)
-Pages: Login · Overview (account cards by group, comparison) · Account detail (trends, posts table with tags, Stories, audience, best-time heatmap, calendar, flags) · Accounts (connect / reconnect / status / group) · Tags. Design pass with `frontend-design`. Charts: Recharts. Mobile-first and responsive (§8b.5). Visual reference: the approved mockups in `.superpowers/brainstorm/` (kit-forms, kit-data, kit-charts, app-prototype).
+Pages: Login · Overview (account cards by group, comparison) · Account detail (trends, posts table with tags, Stories, audience, best-time heatmap, flags; links to the calendar filtered to the account) · Calendar (all accounts or one) · Accounts (connect / reconnect / status / group) · Tags. Design pass with `frontend-design`. Charts: Recharts. Mobile-first and responsive (§8b.5). Visual reference: the approved mockups in `.superpowers/brainstorm/` (kit-forms, kit-data, kit-charts, app-prototype).
 
 ## 8b. Frontend architecture (owner rules)
 1. **Reuse.** shadcn/ui primitives in `components/ui/`; our shared pieces in `components/shared/` (`AppShell`, `DataTable`, `StatCard`, `ChartCard`, `EmptyState`, `PageHeader`). Inline first, extract on the second use. Pages hold wiring only; logic is pure functions in `lib/`.

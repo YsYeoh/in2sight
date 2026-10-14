@@ -55,7 +55,11 @@ function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {
               <AvatarFallback>{[...c.username][0]?.toUpperCase()}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <h3 className="truncate font-medium">@{c.username}</h3>
+              <h3 className="truncate font-medium">
+                <Link href={`/accounts/${c.id}`} className="underline-offset-4 hover:underline">
+                  @{c.username}
+                </Link>
+              </h3>
               {c.displayName ? <p className="truncate text-xs text-muted-foreground">{c.displayName}</p> : null}
             </div>
             {c.state === 'needs_reconnect' ? (

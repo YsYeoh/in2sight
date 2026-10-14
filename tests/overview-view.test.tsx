@@ -90,6 +90,12 @@ describe('OverviewView', () => {
     expect(screen.getByRole('heading', { name: `@${LONG}` }).className).toContain('truncate');
   });
 
+  it('each card links to its account detail page', () => {
+    view();
+    expect(screen.getByRole('link', { name: '@brand.one' })).toHaveAttribute('href', '/accounts/brand.one');
+    expect(screen.getByRole('link', { name: `@${LONG}` })).toHaveAttribute('href', `/accounts/${LONG}`);
+  });
+
   it('renders in Simplified Chinese', () => {
     view(undefined, 'zh-CN');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('总览');
