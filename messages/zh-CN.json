@@ -6,6 +6,11 @@
     "loading": "加载中…",
     "empty": "暂无数据"
   },
+  "table": {
+    "empty": "暂无内容",
+    "sortBy": "排序方式",
+    "defaultOrder": "默认顺序"
+  },
   "nav": {
     "overview": "总览",
     "accounts": "账号",

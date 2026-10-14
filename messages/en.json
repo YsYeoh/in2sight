@@ -6,6 +6,11 @@
     "loading": "Loading…",
     "empty": "No data yet"
   },
+  "table": {
+    "empty": "Nothing to show yet",
+    "sortBy": "Sort by",
+    "defaultOrder": "Default order"
+  },
   "nav": {
     "overview": "Overview",
     "accounts": "Accounts",
