@@ -1,5 +1,8 @@
 export const IG_SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights'] as const;
 
+/** Per request. Keeps one hung call from eating the tick's time budget. */
+const IG_TIMEOUT_MS = 10_000;
+
 export interface IgConfig { appId: string; appSecret: string; redirectUri: string; apiVersion: string }
 export interface IgProfile { userId: string; username: string; name: string | null; accountType: string | null; profilePictureUrl: string | null }
 
@@ -81,11 +84,14 @@ export async function exchangeLongLived(cfg: IgConfig, shortToken: string, fetch
   return longLived(await call('token', fetchFn, u.toString()), now);
 }
 
-export async function refreshLongLived(accessToken: string, fetchFn: typeof fetch = fetch, now: Date = new Date()) {
+/** The token travels in the query string: time out, and never follow a redirect to another host. */
+export const graphInit = (): RequestInit => ({ signal: AbortSignal.timeout(IG_TIMEOUT_MS), redirect: 'error' });
+
+export async function refreshLongLived(accessToken: string, fetchFn: typeof fetch = fetch, now: Date = new Date(), init: RequestInit = graphInit()) {
   const u = new URL('https://graph.instagram.com/refresh_access_token');
   u.searchParams.set('grant_type', 'ig_refresh_token');
   u.searchParams.set('access_token', accessToken);
-  return longLived(await call('token', fetchFn, u.toString()), now);
+  return longLived(await call('token', fetchFn, u.toString(), init), now);
 }
 
 export async function fetchProfile(cfg: IgConfig, accessToken: string, fetchFn: typeof fetch = fetch): Promise<IgProfile> {

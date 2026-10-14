@@ -6,10 +6,11 @@ import { runAccount, type AccountOutcome, type SyncErrorKey } from '@/lib/sync/r
 import { byOldestAttempt, dueJobs, type JobKind } from '@/lib/sync/schedule';
 import type { SyncStore } from '@/lib/sync/store';
 
-/** Route maxDuration is 60s; work stops at 45s so a 10s Instagram timeout plus the state write still fit. */
-export const TICK_BUDGET_MS = 45_000;
+/** Route maxDuration is 60s. Work stops at 35s: a call started just before the deadline can take its 10s timeout (twice for
+ *  the two-call jobs) and the state write still has to fit. */
+export const TICK_BUDGET_MS = 35_000;
 /** Don't start an account with less than this left: a half-started account only wastes calls. */
-export const MIN_ACCOUNT_MS = 5_000;
+const MIN_ACCOUNT_MS = 5_000;
 /** Longer than any invocation can live, so a crashed tick's lease expires well before the next tick. */
 export const LEASE_MS = 120_000;
 
@@ -21,7 +22,7 @@ export interface TickDeps {
   newId?: () => string;
 }
 
-export interface TickAccount {
+interface TickAccount {
   accountId: string;
   outcome: AccountOutcome | 'locked' | 'idle';
   jobs: JobKind[];
@@ -58,26 +59,35 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
     }
     const now = new Date(clock());
     const state = states.get(account.id)!;
-    const jobs = dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state }, now, tz, { manual });
-    if (jobs.length === 0) {
+    if (dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state }, now, tz, { manual }).length === 0) {
       out.push({ accountId: account.id, outcome: state.leaseUntil && Date.parse(state.leaseUntil) > now.getTime() ? 'locked' : 'idle', jobs: [] });
       continue;
     }
     const leaseId = newId();
     try {
-      if (!(await deps.store.claimLease(account.id, leaseId, new Date(now.getTime() + LEASE_MS).toISOString(), now.toISOString()))) {
+      const claimed = await deps.store.claimLease(account.id, leaseId, new Date(now.getTime() + LEASE_MS).toISOString(), now.toISOString());
+      if (!claimed) {
         out.push({ accountId: account.id, outcome: 'locked', jobs: [] });
+        continue;
+      }
+      // The snapshot above can be stale (a double-fired tick may have just finished this account): plan from the claimed row.
+      // Its last_attempt_at is our own claim stamp and must not count for back-off; the lease is ours, not "another tick's".
+      const fresh = { ...claimed, lastAttemptAt: state.lastAttemptAt, leaseUntil: null };
+      const jobs = dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state: fresh }, now, tz, { manual });
+      if (jobs.length === 0) {
+        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: fresh.consecutiveFailures, lastErrorKey: fresh.lastErrorKey, dailyDoneThrough: fresh.dailyDoneThrough, lastRun: fresh.lastRun });
+        out.push({ accountId: account.id, outcome: 'idle', jobs: [] });
         continue;
       }
       const token = await deps.store.getToken(account.id);
       if (!token) {
         // connected without a stored token: nothing can be fetched until the owner reconnects
         await deps.accounts.update(account.id, { status: 'needs_reconnect', lastError: 'token_missing' });
-        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: state.consecutiveFailures + 1, lastErrorKey: 'token_invalid', dailyDoneThrough: state.dailyDoneThrough, lastRun: state.lastRun });
+        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: fresh.consecutiveFailures + 1, lastErrorKey: 'token_invalid', dailyDoneThrough: fresh.dailyDoneThrough, lastRun: fresh.lastRun });
         out.push({ accountId: account.id, outcome: 'needs_reconnect', jobs: [], errorKey: 'token_invalid' });
         continue;
       }
-      const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state, tz, now, deadline, clock }, jobs);
+      const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline, clock }, jobs);
       await deps.store.saveState(account.id, leaseId, patch);
       out.push({ accountId: account.id, outcome: result.outcome, jobs: result.jobs, ...(result.errorKey ? { errorKey: result.errorKey } : {}) });
       if (result.outcome === 'partial') stoppedEarly = true;

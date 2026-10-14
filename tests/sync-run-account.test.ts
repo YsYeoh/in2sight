@@ -117,10 +117,19 @@ describe('media jobs', () => {
   it('first media list asks for up to 500 posts; later lists stop at 30 days', async () => {
     const first = ctx();
     await run(first.c, ['mediaList']);
-    expect(first.ig.listMedia).toHaveBeenCalledWith('IGQ-secret', 500);
+    expect(first.ig.listMedia).toHaveBeenCalledWith('IGQ-secret', 500, undefined, expect.any(Function));
     const later = ctx({ state: { lastRun: { mediaList: '2026-10-14T00:00:00.000Z' } } });
     await run(later.c, ['mediaList']);
-    expect(later.ig.listMedia).toHaveBeenCalledWith('IGQ-secret', 100, '2026-09-14T02:00:00.000Z');
+    expect(later.ig.listMedia).toHaveBeenCalledWith('IGQ-secret', 100, '2026-09-14T02:00:00.000Z', expect.any(Function));
+  });
+
+  it('a media list cut short by the time budget is stored but stays due (the backfill must finish)', async () => {
+    const { c, ig, mem } = ctx({ budgetCalls: 1 }); // the runAccount check passes, the post-list check does not
+    ig.listMedia.mockResolvedValue([post('p1', '2026-10-13T00:00:00.000Z')]);
+    const { result, patch } = await run(c, ['mediaList']);
+    expect(result.outcome).toBe('partial');
+    expect(mem.media.has('p1')).toBe(true);
+    expect(patch.lastRun.mediaList).toBeUndefined();
   });
 
   it('backfill: every listed post gets its lifetime metrics on the first pass', async () => {

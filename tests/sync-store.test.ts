@@ -50,14 +50,15 @@ describe('supabaseSyncStore', () => {
     expect(r.calls[0].filters).toEqual([['in', 'account_id', ['a1', 'a2']]]);
   });
 
-  it('claimLease: ensures the row, then one conditional UPDATE that only matches a free or expired lease', async () => {
-    const won = recorder([{ data: null }, { data: [{ account_id: 'a1' }] }]);
-    expect(await supabaseSyncStore(won.db).claimLease('a1', 'L1', '2026-10-14T02:02:00.000Z', NOW)).toBe(true);
+  it('claimLease: ensures the row, then one conditional UPDATE (free or expired lease) that stamps the attempt and returns the fresh row', async () => {
+    const won = recorder([{ data: null }, { data: [{ account_id: 'a1', consecutive_failures: 2, last_run: { stories: NOW } }] }]);
+    const state = await supabaseSyncStore(won.db).claimLease('a1', 'L1', '2026-10-14T02:02:00.000Z', NOW);
+    expect(state).toMatchObject({ accountId: 'a1', consecutiveFailures: 2, lastRun: { stories: NOW } });
     expect(won.calls[0]).toMatchObject({ table: 'sync_state', op: 'upsert', args: [{ account_id: 'a1' }, { onConflict: 'account_id', ignoreDuplicates: true }] });
-    expect(won.calls[1]).toMatchObject({ table: 'sync_state', op: 'update', args: [{ lease_id: 'L1', lease_until: '2026-10-14T02:02:00.000Z' }, 'account_id'] });
-    expect(won.calls[1].filters).toEqual([['eq', 'account_id', 'a1'], ['or', `lease_until.is.null,lease_until.lt.${NOW}`]]);
+    expect(won.calls[1]).toMatchObject({ table: 'sync_state', op: 'update', args: [{ lease_id: 'L1', lease_until: '2026-10-14T02:02:00.000Z', last_attempt_at: NOW }, '*'] });
+    expect(won.calls[1].filters).toEqual([['eq', 'account_id', 'a1'], ['or', `lease_until.is.null,lease_until.lt."${NOW}"`]]);
     const lost = recorder([{ data: null }, { data: [] }]);
-    expect(await supabaseSyncStore(lost.db).claimLease('a1', 'L2', NOW, NOW)).toBe(false);
+    expect(await supabaseSyncStore(lost.db).claimLease('a1', 'L2', NOW, NOW)).toBeNull();
   });
 
   it('saveState releases the lease only if this tick still holds it', async () => {
@@ -108,7 +109,7 @@ describe('supabaseSyncStore', () => {
       ['eq', 'account_id', 'a1'],
       ['neq', 'media_type', 'STORY'],
       ['is', 'gone_at', null],
-      ['or', 'posted_at.gte.2026-09-14T02:00:00.000Z,last_metrics_at.is.null'],
+      ['or', 'posted_at.gte."2026-09-14T02:00:00.000Z",last_metrics_at.is.null'],
     ]);
   });
 

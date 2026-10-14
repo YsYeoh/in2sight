@@ -59,9 +59,11 @@ export function memoryStore(init: MemoryInit = {}) {
     loadStates: async (ids) => new Map(ids.map((id) => [id, states.get(id) ?? emptyState(id)])),
     claimLease: async (id, leaseId, until, now) => {
       const s = states.get(id) ?? { ...emptyState(id), leaseId: null };
-      if (s.leaseUntil && s.leaseUntil >= now) return false;
-      states.set(id, { ...s, leaseId, leaseUntil: until });
-      return true;
+      if (s.leaseUntil && s.leaseUntil >= now) return null;
+      const claimed = { ...s, leaseId, leaseUntil: until, lastAttemptAt: now }; // like the real UPDATE: stamps the attempt
+      states.set(id, claimed);
+      const { leaseId: _drop, ...state } = claimed;
+      return state;
     },
     saveState: async (id, leaseId, patch) => {
       const s = states.get(id);

@@ -97,9 +97,9 @@ const stories: Job = async (c) => {
 const mediaList: Job = async (c) => {
   const first = !c.state.lastRun.mediaList;
   const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
-  const items = first ? await c.ig.listMedia(c.token, MEDIA_BACKFILL_MAX) : await c.ig.listMedia(c.token, MEDIA_RECENT_MAX, since);
+  const items = await c.ig.listMedia(c.token, first ? MEDIA_BACKFILL_MAX : MEDIA_RECENT_MAX, first ? undefined : since, () => outOfTime(c));
   await c.store.upsertMedia(c.account.id, items);
-  return { done: true };
+  return { done: !outOfTime(c) }; // out of time mid-paging: keep what we got, stay due (the first run's backfill must finish)
 };
 
 /** After this many failed posts in a row the loop gives up: Instagram is down or our metric request is broken. */
@@ -177,7 +177,7 @@ const tokenRefresh: Job = async (c) => {
   return { done: true };
 };
 
-export const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, tokenRefresh };
+const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, tokenRefresh };
 
 function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): SyncErrorKey {
   if (kind === 'rate_limit' || kind === 'app_rate_limit') return 'rate_limited';

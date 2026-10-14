@@ -83,6 +83,33 @@ describe('runTick', () => {
     expect((await runTick(later, { trigger: 'cron' })).accounts[0].outcome).toBe('ok');
   });
 
+  it('claiming stamps last_attempt_at, so an account killed mid-run goes to the back of the queue', async () => {
+    const { deps, mem } = setup();
+    mem.states.set('a2', { ...emptyState('a2'), leaseId: null, lastAttemptAt: new Date(T0 - 3_600_000).toISOString() });
+    const real = mem.store.getToken;
+    mem.store.getToken = async (id) => {
+      if (id === 'a1') throw new Error('killed'); // stands in for a function killed after the claim
+      return real(id);
+    };
+    await runTick(deps, { trigger: 'manual', accountId: 'a1' });
+    expect(mem.states.get('a1')?.lastAttemptAt).toBe(new Date(T0).toISOString());
+    mem.store.getToken = real;
+    const next = await runTick({ ...deps, clock: () => T0 + LEASE_MS + 1 }, { trigger: 'cron' });
+    expect(next.accounts.map((a) => a.accountId)).toEqual(['a2', 'a1']);
+  });
+
+  it('plans from the row the claim returns: work another tick just finished is not run again', async () => {
+    const { deps, mem, ig } = setup([account({ id: 'a1' })]);
+    const iso = new Date(T0).toISOString();
+    mem.states.set('a1', { ...emptyState('a1'), leaseId: null, dailyDoneThrough: '2026-10-13', lastRun: { stories: iso, daily: iso, mediaList: iso, audience: iso } });
+    mem.store.loadStates = async (ids) => new Map(ids.map((id) => [id, emptyState(id)])); // the stale snapshot taken before the other tick finished
+    const s = await runTick(deps, { trigger: 'cron' });
+    expect(s.accounts[0]).toMatchObject({ outcome: 'ok', jobs: ['mediaMetrics'] });
+    expect(ig.listStories).not.toHaveBeenCalled();
+    expect(ig.accountDay).not.toHaveBeenCalled();
+    expect(mem.states.get('a1')).toMatchObject({ leaseId: null, lastRun: { stories: iso, mediaMetrics: iso } }); // other tick's progress kept
+  });
+
   it('stops before the time budget and leaves remaining accounts due; the next tick starts with them', async () => {
     const list = [account({ id: 'a1' }), account({ id: 'a2' }), account({ id: 'a3' })];
     const { deps, ig, mem } = setup(list, { a1: 't1', a2: 't2', a3: 't3' });
@@ -91,12 +118,12 @@ describe('runTick', () => {
       now += 300; // 90 backfill days x 300ms = 27s per account
       return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
     });
-    const first = await runTick({ ...deps, clock: () => now }, { trigger: 'cron', budgetMs: 45_000 });
+    const first = await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
     expect(first.stoppedEarly).toBe(true);
     expect(first.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['a1', 'ok'], ['a2', 'partial']]);
     expect(mem.states.get('a3')).toBeUndefined();
     now += 30 * 60_000;
-    const second = await runTick({ ...deps, clock: () => now }, { trigger: 'cron', budgetMs: 45_000 });
+    const second = await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
     expect(second.accounts[0].accountId).toBe('a3'); // never attempted -> first in line
   });
 
