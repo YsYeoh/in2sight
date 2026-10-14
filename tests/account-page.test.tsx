@@ -60,4 +60,11 @@ describe('account detail page', () => {
     expect(calls).not.toContain('stories');
   });
 
+  it('posts tab loads only its own data (posts with tags + tag list)', async () => {
+    accounts.push(acct(ID));
+    const el = await run(ID, { tab: 'posts', format: 'REELS' });
+    expect(el.props.tab).toBe('posts');
+    expect(calls).toEqual(expect.arrayContaining(['postRows', 'tags']));
+    expect(calls).not.toContain('daily');
+  });
 });

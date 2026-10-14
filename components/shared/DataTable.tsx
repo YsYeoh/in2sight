@@ -1,8 +1,8 @@
 'use client';
 
 // Sortable table on md+, card list on phones (CSS breakpoints only, both rendered; never matchMedia).
-// ponytail: client-side sort of already-loaded rows; TanStack Table (SPEC §2) comes in with the part-2 Posts table
-// when it needs pagination / column visibility.
+// ponytail: client-side sort of already-loaded rows (≤ 500) + an optional "Show more" page; TanStack Table (SPEC §2)
+// comes in when server-side paging or column visibility is needed.
 import { useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -36,10 +36,12 @@ export function sortRows<T>(rows: T[], columns: Column<T>[], sort: Sort): T[] {
     .map((x) => x.row);
 }
 
-export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort }) {
+export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null, pageSize }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort; pageSize?: number }) {
   const t = useTranslations('table');
   const [sort, setSort] = useState<Sort>(initialSort);
-  const sorted = sortRows(rows, columns, sort);
+  const [shown, setShown] = useState(pageSize ?? Number.POSITIVE_INFINITY);
+  const all = sortRows(rows, columns, sort);
+  const sorted = all.slice(0, shown); // sort everything, then show the first page: "Show more" never reorders
   const [first, ...rest] = columns;
   const toggle = (key: string) => setSort((s) => (s?.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }));
   const sortable = columns.filter((c) => c.sortValue);
@@ -139,6 +141,14 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = 
               ))}
         </ul>
       </div>
+
+      {!loading && all.length > sorted.length ? (
+        <div className="mt-[var(--gp)] flex justify-center">
+          <Button type="button" variant="outline" size="sm" onClick={() => setShown((n) => n + (pageSize ?? all.length))}>
+            {t('showMore')}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -10,7 +10,8 @@
     "empty": "Nothing to show yet",
     "sortBy": "Sort by",
     "defaultOrder": "Default order",
-    "ascending": "Ascending"
+    "ascending": "Ascending",
+    "showMore": "Show more"
   },
   "nav": {
     "overview": "Overview",
@@ -326,12 +327,47 @@
       "bestTimePosts": "Your post performance",
       "bestTimeScope": "Heatmap scope",
       "thisAccount": "This account",
-      "pooled": "{count, plural, one {# account pooled} other {# accounts pooled}}"
+      "pooled": "{count, plural, one {# account pooled} other {# accounts pooled}}",
+      "posts": {
+        "caption": "Posts",
+        "count": "Showing {shown} of {total} posts",
+        "empty": "No posts match these filters",
+        "format": "Format",
+        "tag": "Tag",
+        "all": "All",
+        "untagged": "Untagged",
+        "from": "From",
+        "to": "To",
+        "apply": "Apply",
+        "reset": "Reset",
+        "post": "Post",
+        "open": "Open {post} on Instagram",
+        "noCaption": "No caption",
+        "likes": "Likes",
+        "comments": "Comments",
+        "saves": "Saves",
+        "shares": "Shares",
+        "tags": "Tags",
+        "edit": "Edit",
+        "editTags": "Edit tags of {post}",
+        "tagTitle": "Tags for this post",
+        "noTags": "No tags yet.",
+        "manageTags": "Create tags",
+        "save": "Save",
+        "cancel": "Cancel"
+      }
     },
     "tags": {
       "title": "Tags",
       "empty": "Tags arrive with the dashboards",
-      "emptyHint": "You'll label posts here once accounts are connected."
+      "emptyHint": "You'll label posts here once accounts are connected.",
+      "errors": {
+        "invalid_name": "Use 1–40 characters (no control characters).",
+        "duplicate": "A tag with this name already exists.",
+        "not_found": "That tag or post no longer exists. Reload the page.",
+        "too_many": "A post can have at most 10 tags.",
+        "unexpected": "Something went wrong. Please try again."
+      }
     }
   },
   "metrics": {
