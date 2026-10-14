@@ -1924,3 +1924,1311 @@ git commit -m "feat: calendar month model in the owner timezone" -m "Co-Authored
 ```
 
 ---
+
+### Task 9: Account page, header + tabs, Overview tab UI
+
+**Files:**
+- Create: `app/(app)/accounts/[id]/page.tsx`, `components/account/AccountView.tsx`, `components/account/AccountOverview.tsx`, `components/shared/PeriodSelect.tsx`, `components/shared/useKpiDelta.ts`, `components/charts/useBestTimeRows.ts`
+- Modify: `components/overview/OverviewView.tsx` (use the extracted `PeriodSelect` + `useKpiDelta`), `app/styleguide/DashboardGallery.tsx` (use `useBestTimeRows`), `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/account-view.test.tsx`, `tests/account-page.test.tsx`
+
+**Interfaces:**
+- Consumes: `parseTab`, `TABS`, `Tab`, `poolFor`, `buildAccountOverview`, `AccountOverviewModel` (Task 5); `loadOnline` (Task 3); `loadDaily`, `loadPosts` (`lib/dashboard/read.ts`); `parsePeriod`, `fromDayFor` (`lib/dashboard/overview.ts`); `listSyncStatus`; `supabaseAccountsStore(db).list()`; `isUuid` (Task 2); `Heatmap`, `SeriesChart`, `ChartCard`, `DataTable`, `StatCard`, `PageHeader`; Radix `Tabs` from `components/ui/tabs.tsx`.
+- Produces: `AccountView({ account: AccountHead; tab: Tab; children })` and `interface AccountHead { id; username; displayName; groupName }`; `AccountOverview({ model })`; `PeriodSelect({ period })`; `useKpiDelta(): (id, kpi) => StatDelta | null`; `useBestTimeRows(): { hours: string[]; rows(h: Heatmap, kind: 'posts' | 'online') }`; the page's internal `tabContent(tab, ctx)` switch that Tasks 10 and 11 extend.
+
+Second-use extractions (CLAUDE.md "extract on the second use"): `PeriodSelect` and `useDelta` move out of `OverviewView.tsx` verbatim (`useDelta` is renamed `useKpiDelta`); the heatmap label code moves out of the styleguide gallery into `useBestTimeRows`, which also labels the new followers-online grid.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/account-view.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import type { ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { AccountOverview } from '@/components/account/AccountOverview';
+import { AccountView } from '@/components/account/AccountView';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { StoredAccount } from '@/lib/accounts/types';
+import type { DailyRow, Post } from '@/lib/analysis/types';
+import { buildAccountOverview, type AccountOverviewInput } from '@/lib/dashboard/account';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { addDays } from '@/lib/sync/time';
+
+const push = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
+beforeEach(() => {
+  push.mockReset();
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(() => vi.unstubAllGlobals());
+
+const TODAY = '2026-10-15';
+const NOW = new Date('2026-10-15T04:00:00Z');
+const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const acct = (o: Partial<StoredAccount> = {}): StoredAccount => ({ id: ID, igUserId: '1', username: 'brand.one', displayName: 'Brand One', accountType: null, profilePictureUrl: null, groupName: 'Brand X', status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-01T00:00:00Z', connectedAt: '2026-09-01T00:00:00Z', ...o });
+const days = (n: number): DailyRow[] => Array.from({ length: n }, (_, i) => ({ day: addDays(TODAY, i - n), followers: 1000, reach: 100, views: 200, accountsEngaged: null, interactions: 10, follows: null, unfollows: null, linkTaps: null }));
+const post = (id: string, day: string, reach: number): Post => ({ id, accountId: ID, mediaType: 'REELS', postedAt: `${day}T02:00:00Z`, permalink: `https://www.instagram.com/reel/${id}/`, reach, views: null, likes: 10, comments: null, shares: null, saves: null });
+const empty: AccountOverviewInput = { account: acct(), sync: undefined, daily: [], posts: [], online: [], pooled: { accounts: 1, posts: [], online: [] } };
+const opts = { period: 7 as const, today: TODAY, now: NOW, tz: 'Asia/Kuala_Lumpur', weekStart: 'mon' as const };
+
+function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        {ui}
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('AccountView', () => {
+  const head = { id: ID, username: 'brand.one', displayName: 'Brand One', groupName: 'Brand X' };
+
+  it('header, back link, calendar link, external Instagram link with noopener', () => {
+    wrap(<AccountView account={head} tab="overview"><p>panel</p></AccountView>);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('@brand.one');
+    expect(screen.getByText('Brand One · Brand X')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: en.pages.account.back })).toHaveAttribute('href', '/overview');
+    expect(screen.getByRole('link', { name: en.pages.account.calendar })).toHaveAttribute('href', `/calendar?account=${ID}`);
+    const ig = screen.getByRole('link', { name: en.pages.account.instagram });
+    expect(ig).toHaveAttribute('href', 'https://www.instagram.com/brand.one/');
+    expect(ig).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(ig).toHaveAttribute('target', '_blank');
+  });
+
+  it('tabs have tablist/tab/tabpanel roles; only the active panel holds the content', () => {
+    wrap(<AccountView account={head} tab="posts"><p>posts panel</p></AccountView>);
+    const list = screen.getByRole('tablist', { name: en.pages.account.tabs });
+    const tabs = within(list).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Posts', 'Stories', 'Audience']);
+    expect(within(list).getByRole('tab', { name: 'Posts' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('posts panel');
+  });
+
+  it('choosing a tab (click or keyboard) navigates to ?tab=…', async () => {
+    const user = userEvent.setup();
+    wrap(<AccountView account={head} tab="overview"><p>x</p></AccountView>);
+    await user.click(screen.getByRole('tab', { name: 'Audience' }));
+    expect(push).toHaveBeenCalledWith('?tab=audience', { scroll: false });
+    screen.getByRole('tab', { name: 'Overview' }).focus();
+    await user.keyboard('{ArrowRight}'); // manual activation: arrows move focus only
+    expect(screen.getByRole('tab', { name: 'Posts' })).toHaveFocus();
+    expect(push).toHaveBeenCalledTimes(1);
+    await user.keyboard('{Enter}');
+    expect(push).toHaveBeenLastCalledWith('?tab=posts', { scroll: false });
+  });
+});
+
+describe('AccountOverview', () => {
+  it('KPIs with comparison, charts, formats, flags, period links and the best-time toggles', async () => {
+    const user = userEvent.setup();
+    const history = Array.from({ length: 6 }, (_, i) => post(`h${i}`, addDays('2026-09-20', i), 100));
+    const model = buildAccountOverview({ ...empty, sync: { lastSuccessAt: '2026-10-15T03:00:00Z', lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-14' }, daily: days(14), posts: [...history, post('hit', '2026-10-12', 900)], pooled: { accounts: 3, posts: history, online: [] } }, opts);
+    wrap(<AccountOverview model={model} />);
+    const kpis = screen.getByRole('region', { name: en.pages.account.kpis });
+    expect(within(kpis).getAllByText(en.pages.overview.vsPrevious.replace('{days}', '7')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: en.pages.account.trendTitle })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Post taking off/ })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('link', { name: '30 days' })).toHaveAttribute('href', '?period=30');
+    expect(screen.getAllByText(en.analysis.format.REELS).length).toBeGreaterThan(0);
+    // default = followers online (SPEC §7); no online data → the reason shows
+    expect(screen.getByRole('button', { name: en.pages.account.bestTimeOnline })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(en.analysis.reasons.needs_100_followers)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: en.pages.account.bestTimePosts }));
+    expect(screen.getByText(en.analysis.reasons.not_enough_posts)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '3 accounts pooled' }));
+    expect(screen.getByRole('button', { name: '3 accounts pooled' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('account with no data renders every reason and no NaN (zh-CN)', () => {
+    const { container } = wrap(<AccountOverview model={buildAccountOverview(empty, opts)} />, 'zh-CN');
+    expect(screen.getByText(zh.analysis.reasons.backfilling)).toBeInTheDocument();
+    expect(screen.getByText(zh.pages.account.noFlags)).toBeInTheDocument();
+    expect(screen.getByText(zh.pages.overview.neverSynced)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/NaN|Infinity|undefined/);
+  });
+});
+```
+
+`tests/account-page.test.tsx`:
+
+```tsx
+import { isValidElement, type ReactElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { calls, accounts } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[] }));
+
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push('requireOwner') }));
+vi.mock('next/navigation', () => ({
+  notFound: () => {
+    throw new Error('NEXT_NOT_FOUND');
+  },
+  useRouter: () => ({ push: vi.fn() }),
+}));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push('session'), {}) }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push('ADMIN') }));
+vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (await import('@/lib/prefs')).DEFAULT_PREFS }));
+vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ list: async () => accounts }) }));
+vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => ({}) }));
+vi.mock('@/lib/dashboard/read', () => ({ loadDaily: async () => (calls.push('daily'), []), loadPosts: async () => (calls.push('posts'), []) }));
+vi.mock('@/lib/dashboard/detail-read', () => ({
+  loadOnline: async () => (calls.push('online'), {}),
+  loadPostRows: async () => (calls.push('postRows'), []),
+  loadTags: async () => (calls.push('tags'), []),
+  loadStories: async () => (calls.push('stories'), []),
+  loadAudience: async () => (calls.push('audience'), { age_gender: null, country: null, city: null }),
+}));
+
+import AccountPage from '@/app/(app)/accounts/[id]/page';
+
+const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const acct = (id: string, status = 'active', o: Record<string, unknown> = {}) => ({ id, igUserId: id, username: `u${id.slice(0, 4)}`, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status, archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-09-01T00:00:00Z', ...o });
+const run = (id: string, sp: Record<string, string | string[]> = {}) => AccountPage({ params: Promise.resolve({ id }), searchParams: Promise.resolve(sp) }) as Promise<ReactElement<{ tab: string; children: ReactElement }>>;
+
+beforeEach(() => {
+  calls.length = 0;
+  accounts.length = 0;
+});
+
+describe('account detail page', () => {
+  it('not a uuid → notFound, after requireOwner and before any database client', async () => {
+    await expect(run('not-a-uuid')).rejects.toThrow('NEXT_NOT_FOUND');
+    await expect(run(`${ID}'--`)).rejects.toThrow('NEXT_NOT_FOUND');
+    expect(calls.filter((c) => c !== 'requireOwner')).toEqual([]);
+    expect(calls[0]).toBe('requireOwner');
+  });
+
+  it('unknown and archived accounts → notFound (archived accounts are hidden, SPEC §7c)', async () => {
+    accounts.push(acct(ID, 'archived'));
+    await expect(run(ID)).rejects.toThrow('NEXT_NOT_FOUND');
+    accounts.length = 0;
+    await expect(run(ID)).rejects.toThrow('NEXT_NOT_FOUND');
+  });
+
+  it('renders the overview tab by default (and for an injected tab) with the owner session only', async () => {
+    accounts.push(acct(ID));
+    const el = await run(ID.toUpperCase(), { tab: '<script>' });
+    expect(isValidElement(el)).toBe(true);
+    expect(el.props.tab).toBe('overview');
+    expect(calls).toContain('daily');
+    expect(calls).not.toContain('ADMIN');
+    expect(calls).not.toContain('stories');
+  });
+
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/account-view.test.tsx tests/account-page.test.tsx`
+Expected: FAIL with `Failed to resolve import "@/components/account/AccountOverview"` (and `@/app/(app)/accounts/[id]/page`).
+
+- [ ] **Step 3: Add the messages** — merge into both files.
+
+`messages/en.json`:
+
+```json
+{
+  "analysis": {
+    "onlineCell": "{day} {hour} · {value} followers online",
+    "format": { "REELS": "Reel", "CAROUSEL_ALBUM": "Carousel", "IMAGE": "Image", "STORY": "Story" }
+  },
+  "pages": {
+    "account": {
+      "back": "Overview",
+      "calendar": "Calendar",
+      "instagram": "Open on Instagram",
+      "tabs": "Account sections",
+      "tab": { "overview": "Overview", "posts": "Posts", "stories": "Stories", "audience": "Audience" },
+      "kpis": "Key numbers",
+      "syncStatus": "Sync status",
+      "trendTitle": "Reach and views",
+      "trendSummary": "Daily reach and views over the last {days} days.",
+      "followersTitle": "Followers",
+      "followersSummary": "Daily follower count over the last {days} days.",
+      "formatsTitle": "Format comparison",
+      "formatsHint": "Average reach and engagement per format, from each post's latest metrics",
+      "format": "Format",
+      "avgReach": "Avg reach",
+      "flagsTitle": "Flags",
+      "noFlags": "Nothing unusual in this period",
+      "bestTimeTitle": "Best time to post",
+      "bestTimeView": "Heatmap data",
+      "bestTimeOnline": "Followers online",
+      "bestTimePosts": "Your post performance",
+      "bestTimeScope": "Heatmap scope",
+      "thisAccount": "This account",
+      "pooled": "{count, plural, one {# account pooled} other {# accounts pooled}}"
+    }
+  }
+}
+```
+
+`messages/zh-CN.json`:
+
+```json
+{
+  "analysis": {
+    "onlineCell": "{day} {hour} · {value} 位粉丝在线",
+    "format": { "REELS": "Reels 短视频", "CAROUSEL_ALBUM": "轮播", "IMAGE": "图片", "STORY": "快拍" }
+  },
+  "pages": {
+    "account": {
+      "back": "总览",
+      "calendar": "日历",
+      "instagram": "在 Instagram 中打开",
+      "tabs": "账号分区",
+      "tab": { "overview": "概览", "posts": "帖子", "stories": "快拍", "audience": "受众" },
+      "kpis": "关键数据",
+      "syncStatus": "同步状态",
+      "trendTitle": "触达与浏览量",
+      "trendSummary": "近 {days} 天的每日触达和浏览量。",
+      "followersTitle": "粉丝",
+      "followersSummary": "近 {days} 天的每日粉丝数。",
+      "formatsTitle": "内容形式对比",
+      "formatsHint": "按形式统计的平均触达和互动率，取每篇帖子的最新数据",
+      "format": "形式",
+      "avgReach": "平均触达",
+      "flagsTitle": "提醒",
+      "noFlags": "这段时间没有异常",
+      "bestTimeTitle": "最佳发帖时间",
+      "bestTimeView": "热力图数据",
+      "bestTimeOnline": "粉丝在线",
+      "bestTimePosts": "你的帖子表现",
+      "bestTimeScope": "热力图范围",
+      "thisAccount": "此账号",
+      "pooled": "{count, plural, other {合并 # 个账号}}"
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Extract the shared pieces**
+
+`components/shared/PeriodSelect.tsx`:
+
+```tsx
+'use client';
+
+import Link from 'next/link';
+import { useTranslations } from 'next-intl';
+import { Button } from '@/components/ui/button';
+import { PERIODS, type Period } from '@/lib/analysis/types';
+
+/** 7 / 30 / 90 days as links (?period=N): the URL is the state. Labels live under pages.overview (first user). */
+export function PeriodSelect({ period }: { period: Period }) {
+  const t = useTranslations('pages.overview');
+  return (
+    <nav aria-label={t('period')} className="inline-flex rounded-md border bg-card p-0.5">
+      {PERIODS.map((p) => (
+        <Button key={p} asChild size="sm" variant={p === period ? 'secondary' : 'ghost'}>
+          <Link href={`?period=${p}`} aria-current={p === period ? 'page' : undefined} scroll={false}>
+            {t('periodOption', { days: p })}
+          </Link>
+        </Button>
+      ))}
+    </nav>
+  );
+}
+```
+
+`components/shared/useKpiDelta.ts`:
+
+```ts
+'use client';
+
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import type { StatDelta } from '@/components/shared/StatCard';
+import type { Kpi, KpiId } from '@/lib/analysis/growth';
+import { deltaView } from '@/lib/metrics';
+
+/** KPI → what StatCard/DeltaPill show; percentage points get their translated unit. */
+export function useKpiDelta() {
+  const t = useTranslations('pages.overview');
+  const { prefs } = usePrefs();
+  return (id: KpiId, k: Kpi | undefined): StatDelta | null => {
+    const d = k ? deltaView(id, k, prefs) : null;
+    return d && { ...d, text: d.unit === 'points' ? t('points', { value: d.text }) : d.text };
+  };
+}
+```
+
+`components/charts/useBestTimeRows.ts`:
+
+```ts
+'use client';
+
+import { useTranslations } from 'next-intl';
+import type { HeatmapCell } from '@/components/charts/Heatmap';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import type { Heatmap } from '@/lib/analysis/best-time';
+import { formatCompact, formatHour, formatPercent } from '@/lib/format';
+
+/**
+ * Best-time grid → Heatmap rows with translated weekday labels and per-cell screen-reader text.
+ * 'posts' cells hold an average engagement rate; 'online' cells an average count of followers online.
+ */
+export function useBestTimeRows() {
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+  const hours = Array.from({ length: 24 }, (_, h) => formatHour(h, prefs));
+  const rows = (h: Heatmap, kind: 'posts' | 'online'): { label: string; cells: HeatmapCell[] }[] =>
+    h.rows.map((r) => {
+      const day = ta(`weekday.${r.weekday}`);
+      return {
+        label: day,
+        cells: r.cells.map((c, i) => ({
+          value: c.value,
+          lowSample: kind === 'posts' && c.lowSample,
+          label:
+            kind === 'online'
+              ? ta('onlineCell', { day, hour: hours[i], value: formatCompact(c.value, prefs) })
+              : c.lowSample
+                ? ta('heatCellLow', { day, hour: hours[i], reason: ta('lowSample') })
+                : ta('heatCell', { day, hour: hours[i], value: formatPercent(c.value, prefs), count: c.count }),
+        })),
+      };
+    });
+  return { hours, rows };
+}
+```
+
+In `components/overview/OverviewView.tsx`:
+1. Delete the local `function useDelta() {…}` and `function PeriodSelect(…) {…}` blocks (from the `/** KPI → what StatCard/DeltaPill show …` comment down to just before `function MiniStat(`).
+2. Replace every `useDelta()` with `useKpiDelta()` (four places: `MiniStat`, `AccountCardView`, `Comparison`, `OverviewView`).
+3. Imports: replace `import { DeltaPill, StatCard, type StatDelta } from '@/components/shared/StatCard';` with
+   ```ts
+   import { PeriodSelect } from '@/components/shared/PeriodSelect';
+   import { DeltaPill, StatCard } from '@/components/shared/StatCard';
+   import { useKpiDelta } from '@/components/shared/useKpiDelta';
+   ```
+   replace `import { PERIODS, type Period } from '@/lib/analysis/types';` with `import type { Period } from '@/lib/analysis/types';` and `import { deltaView, formatMetric } from '@/lib/metrics';` with `import { formatMetric } from '@/lib/metrics';`.
+
+In `app/styleguide/DashboardGallery.tsx`:
+1. Add `import { useBestTimeRows } from '@/components/charts/useBestTimeRows';` after the `Heatmap` import, and drop `formatHour` from the `@/lib/format` import.
+2. Replace `const hours = Array.from({ length: 24 }, (_, h) => formatHour(h, prefs));` with `const bestTime = useBestTimeRows();`.
+3. In the `<Heatmap …>` element use `columns={bestTime.hours}` and replace the whole `rows={heat.rows.map(…)}` expression with `rows={bestTime.rows(heat, 'posts')}`.
+
+- [ ] **Step 5: Implement the views**
+
+`components/account/AccountView.tsx`:
+
+```tsx
+'use client';
+
+// Account detail frame: back link, header, and the four tabs. The tab is URL state (?tab=…): choosing one navigates and
+// the server renders ONLY that tab's data as `children`. Radix Tabs gives tablist/tab/tabpanel roles + arrow keys;
+// activationMode="manual" so arrowing between tabs does not fire a navigation per key press.
+import { useTransition, type ReactNode } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, CalendarDays, ExternalLink } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TABS, type Tab } from '@/lib/dashboard/account';
+import { cn } from '@/lib/utils';
+
+export interface AccountHead {
+  id: string;
+  username: string;
+  displayName: string | null;
+  groupName: string | null;
+}
+
+export function AccountView({ account, tab, children }: { account: AccountHead; tab: Tab; children: ReactNode }) {
+  const t = useTranslations('pages.account');
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const subtitle = [account.displayName, account.groupName].filter(Boolean).join(' · ') || undefined;
+  return (
+    <>
+      <Link href="/overview" className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+        <ArrowLeft aria-hidden="true" className="size-3.5" />
+        {t('back')}
+      </Link>
+      <PageHeader
+        title={`@${account.username}`}
+        subtitle={subtitle}
+        actions={
+          <>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/calendar?account=${account.id}`}>
+                <CalendarDays aria-hidden="true" />
+                {t('calendar')}
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <a href={`https://www.instagram.com/${encodeURIComponent(account.username)}/`} target="_blank" rel="noopener noreferrer">
+                <ExternalLink aria-hidden="true" />
+                {t('instagram')}
+              </a>
+            </Button>
+          </>
+        }
+      />
+      <Tabs value={tab} activationMode="manual" onValueChange={(v) => start(() => router.push(`?tab=${v}`, { scroll: false }))} className="min-w-0">
+        <TabsList aria-label={t('tabs')} className="max-w-full justify-start overflow-x-auto">
+          {TABS.map((v) => (
+            <TabsTrigger key={v} value={v} className="flex-none">
+              {t(`tab.${v}`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {TABS.map((v) => (
+          <TabsContent key={v} value={v} aria-busy={pending || undefined} className={cn('min-w-0 pt-[var(--gp)] transition-opacity', pending && 'opacity-60')}>
+            {v === tab ? children : null}
+          </TabsContent>
+        ))}
+      </Tabs>
+    </>
+  );
+}
+```
+
+`components/account/AccountOverview.tsx`:
+
+```tsx
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { Heatmap } from '@/components/charts/Heatmap';
+import { SeriesChart } from '@/components/charts/SeriesChart';
+import { useBestTimeRows } from '@/components/charts/useBestTimeRows';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ChartCard } from '@/components/shared/ChartCard';
+import { DataTable } from '@/components/shared/DataTable';
+import { PeriodSelect } from '@/components/shared/PeriodSelect';
+import { StatCard } from '@/components/shared/StatCard';
+import { useKpiDelta } from '@/components/shared/useKpiDelta';
+import { Button } from '@/components/ui/button';
+import type { KpiId } from '@/lib/analysis/growth';
+import type { AccountOverviewModel } from '@/lib/dashboard/account';
+import { formatCompact, formatDateTime, formatDay, formatDelta, formatNumber, formatPercent } from '@/lib/format';
+import { formatMetric } from '@/lib/metrics';
+
+const KPI_IDS: KpiId[] = ['followers', 'reach', 'views', 'engagementRate', 'posts', 'netFollows'];
+
+function Toggle<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { id: T; text: string }[]; onChange: (v: T) => void }) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex flex-wrap gap-1">
+      {options.map((o) => (
+        <Button key={o.id} type="button" size="sm" variant={o.id === value ? 'secondary' : 'ghost'} aria-pressed={o.id === value} onClick={() => onChange(o.id)}>
+          {o.text}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+export function AccountOverview({ model }: { model: AccountOverviewModel }) {
+  const t = useTranslations('pages.account');
+  const to = useTranslations('pages.overview');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const tErr = useTranslations('accounts.errors');
+  const { prefs } = usePrefs();
+  const delta = useKpiDelta();
+  const bestTime = useBestTimeRows();
+  const [view, setView] = useState<'online' | 'posts'>('online'); // SPEC §7: followers online is the default
+  const [scope, setScope] = useState<'account' | 'pooled'>('account');
+  const heat = model.heat[view][scope];
+  const vs = to('vsPrevious', { days: model.period });
+  const fmtX = (d: string) => formatDay(d, prefs);
+  const fmtY = (n: number) => formatCompact(n, prefs);
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 text-xs text-muted-foreground">
+          <span className="sr-only">{t('syncStatus')}: </span>
+          {model.lastSyncedAt ? to('lastSynced', { time: formatDateTime(model.lastSyncedAt, prefs) }) : to('neverSynced')}
+          {model.syncErrorKey ? <span className="ml-1 text-destructive">· {tErr.has(model.syncErrorKey) ? tErr(model.syncErrorKey) : tErr('unexpected')}</span> : null}
+        </p>
+        <PeriodSelect period={model.period} />
+      </div>
+
+      {model.state === 'needs_reconnect' ? (
+        <p className="flex items-center gap-2 text-sm text-destructive">
+          <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />
+          <Link href="/accounts" className="underline-offset-4 hover:underline">
+            {to('reconnectHint')}
+          </Link>
+        </p>
+      ) : model.state === 'backfilling' || model.state === 'no_data' ? (
+        <p className="text-sm text-muted-foreground">{ta(`reasons.${model.state}`)}</p>
+      ) : null}
+
+      <section aria-label={t('kpis')} className="grid grid-cols-2 gap-[var(--gp)] md:grid-cols-3 xl:grid-cols-6">
+        {KPI_IDS.map((id) => (
+          <StatCard key={id} label={tm(id)} value={formatMetric(id, model.kpis[id].value, prefs, { full: id === 'followers' })} delta={delta(id, model.kpis[id])} comparison={vs} note={model.kpis[id].reason ? ta(`reasons.${model.kpis[id].reason}`) : undefined} />
+        ))}
+      </section>
+
+      <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-2">
+        <ChartCard title={t('trendTitle')} summary={t('trendSummary', { days: model.period })}>
+          <SeriesChart kind="line" data={model.trend} xKey="day" series={[{ key: 'reach', label: tm('reach') }, { key: 'views', label: tm('views') }]} title={t('trendTitle')} formatX={fmtX} formatY={fmtY} />
+        </ChartCard>
+        <ChartCard title={t('followersTitle')} summary={t('followersSummary', { days: model.period })}>
+          <SeriesChart kind="area" data={model.trend} xKey="day" series={[{ key: 'followers', label: tm('followers') }]} title={t('followersTitle')} formatX={fmtX} formatY={fmtY} />
+        </ChartCard>
+      </div>
+
+      <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-2">
+        <ChartCard title={t('formatsTitle')} subtitle={t('formatsHint')}>
+          <DataTable
+            rows={model.formats}
+            rowKey={(r) => r.mediaType}
+            caption={t('formatsTitle')}
+            empty={ta('reasons.no_data')}
+            initialSort={{ key: 'avgReach', dir: 'desc' }}
+            columns={[
+              { key: 'format', header: t('format'), cell: (r) => ta(`format.${r.mediaType}`) },
+              { key: 'posts', header: tm('posts'), cell: (r) => formatNumber(r.posts, prefs), sortValue: (r) => r.posts, align: 'right' },
+              { key: 'avgReach', header: t('avgReach'), cell: (r) => formatCompact(r.avgReach, prefs), sortValue: (r) => r.avgReach, align: 'right' },
+              { key: 'er', header: tm('engagementRate'), cell: (r) => formatPercent(r.engagementRate, prefs), sortValue: (r) => r.engagementRate, align: 'right' },
+            ]}
+          />
+        </ChartCard>
+
+        <ChartCard title={t('flagsTitle')}>
+          {model.flags.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('noFlags')}</p>
+          ) : (
+            <ul className="grid gap-2 text-sm">
+              {model.flags.map((f) =>
+                f.kind === 'taking_off' ? (
+                  <li key={f.postId} className="flex min-w-0 items-center gap-2 text-success">
+                    <TrendingUp aria-hidden="true" className="size-4 shrink-0" />
+                    <span className="min-w-0 truncate">
+                      {f.permalink ? (
+                        <a href={f.permalink} target="_blank" rel="noopener noreferrer" className="underline-offset-4 hover:underline">
+                          {to('takingOff', { ratio: formatNumber(f.ratio, prefs, { maximumFractionDigits: 1 }) })}
+                        </a>
+                      ) : (
+                        to('takingOff', { ratio: formatNumber(f.ratio, prefs, { maximumFractionDigits: 1 }) })
+                      )}
+                      <span className="ml-1.5 text-xs text-muted-foreground">{formatDateTime(f.postedAt, prefs)}</span>
+                    </span>
+                  </li>
+                ) : (
+                  <li key="drop" className="flex items-center gap-2 text-destructive">
+                    <TrendingDown aria-hidden="true" className="size-4 shrink-0" />
+                    {to('reachDrop', { change: formatDelta(f.change, prefs) })}
+                  </li>
+                ),
+              )}
+            </ul>
+          )}
+        </ChartCard>
+      </div>
+
+      <ChartCard
+        title={t('bestTimeTitle')}
+        subtitle={heat.reason ? ta(`reasons.${heat.reason}`) : undefined}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Toggle label={t('bestTimeView')} value={view} onChange={setView} options={[{ id: 'online', text: t('bestTimeOnline') }, { id: 'posts', text: t('bestTimePosts') }]} />
+            <Toggle label={t('bestTimeScope')} value={scope} onChange={setScope} options={[{ id: 'account', text: t('thisAccount') }, { id: 'pooled', text: t('pooled', { count: model.pooledAccounts }) }]} />
+          </div>
+        }
+      >
+        <Heatmap caption={t('bestTimeTitle')} columns={bestTime.hours} rows={bestTime.rows(heat, view)} lowLabel={ta('low')} highLabel={ta('high')} />
+      </ChartCard>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Implement the page** — `app/(app)/accounts/[id]/page.tsx` (wiring only; the `switch` gains the other tabs in Tasks 10 and 11):
+
+```tsx
+import { notFound } from 'next/navigation';
+import { AccountOverview } from '@/components/account/AccountOverview';
+import { AccountView } from '@/components/account/AccountView';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
+import { loadOnline } from '@/lib/dashboard/detail-read';
+import { fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
+import { loadDaily, loadPosts } from '@/lib/dashboard/read';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { listSyncStatus } from '@/lib/sync/store';
+import { addDays, localDay } from '@/lib/sync/time';
+import { isUuid } from '@/lib/tags';
+
+type SearchParams = Record<string, string | string[] | undefined>;
+type Ctx = { db: Awaited<ReturnType<typeof createServerSupabase>>; account: StoredAccount; accounts: StoredAccount[]; sp: SearchParams; now: Date; today: string; prefs: Awaited<ReturnType<typeof getPrefs>> };
+
+/** Each tab loads only its own data. */
+async function tabContent(tab: Tab, c: Ctx) {
+  switch (tab) {
+    default: {
+      const period = parsePeriod(c.sp.period);
+      const pool = poolFor(c.account, c.accounts);
+      const others = pool.filter((a) => a.id !== c.account.id);
+      const [daily, posts, sync, online, otherPosts] = await Promise.all([
+        loadDaily(c.db, c.account.id, fromDayFor(period, c.today)),
+        loadPosts(c.db, c.account.id),
+        listSyncStatus(c.db),
+        loadOnline(c.db, pool.map((a) => a.id), addDays(c.today, -30)), // Instagram keeps 30 days of online_followers
+        Promise.all(others.map((a) => loadPosts(c.db, a.id))),
+      ]);
+      const model = buildAccountOverview(
+        { account: c.account, sync: sync[c.account.id], daily, posts, online: online[c.account.id] ?? [], pooled: { accounts: pool.length, posts: [...posts, ...otherPosts.flat()], online: Object.values(online).flat() } },
+        { period, today: c.today, now: c.now, tz: c.prefs.timezone, weekStart: c.prefs.weekStart },
+      );
+      return <AccountOverview model={model} />;
+    }
+  }
+}
+
+export default async function AccountPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
+  await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
+  const { id } = await params;
+  if (!isUuid(id)) notFound();
+  const sp = await searchParams;
+  const tab = parseTab(sp.tab);
+  const prefs = await getPrefs();
+  const now = new Date();
+  const today = localDay(now, prefs.timezone);
+  const db = await createServerSupabase(); // owner session: RLS applies, never the admin client
+  const accounts = (await supabaseAccountsStore(db).list()).filter((a) => a.status !== 'archived'); // archived = hidden (SPEC §7c)
+  const account = accounts.find((a) => a.id === id.toLowerCase());
+  if (!account) notFound();
+  return (
+    <AccountView account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }} tab={tab}>
+      {await tabContent(tab, { db, account, accounts, sp, now, today, prefs })}
+    </AccountView>
+  );
+}
+```
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `npx vitest run tests/account-view.test.tsx tests/account-page.test.tsx tests/overview-view.test.tsx tests/dashboard-gallery.test.tsx tests/messages.test.ts`
+Expected: PASS. Then `npm run typecheck && npm run lint`: no errors.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add "app/(app)/accounts/[id]/page.tsx" components/account/AccountView.tsx components/account/AccountOverview.tsx components/shared/PeriodSelect.tsx components/shared/useKpiDelta.ts components/charts/useBestTimeRows.ts components/overview/OverviewView.tsx app/styleguide/DashboardGallery.tsx messages/en.json messages/zh-CN.json tests/account-view.test.tsx tests/account-page.test.tsx
+git commit -m "feat: account detail page with tabs and the overview tab" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 10: Posts tab UI + tag picker (+ DataTable paging)
+
+**Files:**
+- Create: `components/account/PostsTab.tsx`, `components/account/TagPicker.tsx`, `components/shared/TagBadge.tsx`
+- Modify: `components/shared/DataTable.tsx` (optional `pageSize`), `app/(app)/accounts/[id]/page.tsx` (posts branch), `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/posts-tab.test.tsx` (new), `tests/account-page.test.tsx` (one more case)
+
+**Interfaces:**
+- Consumes: `buildPosts`, `parsePostFilters`, `PostView`, `PostFilters` (Task 6); `loadPostRows`, `loadTags` (Task 3); `setPostTagsAction`, `TagResult` (Task 4); `MAX_TAGS_PER_POST`, `TAG_COLORS` (Task 2); `FEED_FORMATS`; `ResponsiveDialog*`, `FormField`, `Checkbox`, `Input`.
+- Produces: `PostsTab({ posts, total, tags, filters, setPostTags })`, `POSTS_PAGE = 50`, `TagPicker({ postId, label, tags, selected, setPostTags })`, `type SetPostTags = (mediaId: string, tagIds: string[]) => Promise<TagResult>`, `TagBadge({ tag, className? })` (reused by Task 12), `DataTable` prop `pageSize?: number`; message keys `pages.tags.errors.*` (used here and by Task 12).
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/posts-tab.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { PostsTab, POSTS_PAGE } from '@/components/account/PostsTab';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { Tag } from '@/lib/analysis/types';
+import type { PostFilters, PostView } from '@/lib/dashboard/content';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })); // Radix Checkbox measures itself
+afterEach(() => vi.unstubAllGlobals());
+
+const T1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const TAGS: Tag[] = [{ id: T1, name: '🔥 Promo', color: 'chart-2' }];
+const NONE: PostFilters = { format: null, tag: null, from: null, to: null };
+const post = (i: number, o: Partial<PostView> = {}): PostView => ({ id: `m${i}`, mediaType: 'IMAGE', postedAt: new Date(Date.UTC(2026, 8, 1) + i * 3_600_000).toISOString(), permalink: `https://www.instagram.com/p/m${i}/`, caption: `Caption ${i}`, reach: 100 + i, views: null, likes: i, comments: null, saves: null, shares: null, engagementRate: 0.01, tags: [], ...o });
+
+function view(posts: PostView[], o: { tags?: Tag[]; filters?: PostFilters; setPostTags?: ReturnType<typeof vi.fn> } = {}) {
+  const setPostTags = o.setPostTags ?? vi.fn(async () => ({ ok: true as const }));
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <PostsTab posts={posts} total={posts.length} tags={o.tags ?? TAGS} filters={o.filters ?? NONE} setPostTags={setPostTags} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return { setPostTags };
+}
+
+describe('PostsTab', () => {
+  it('500 posts render 50 rows then show more (sorted newest first)', async () => {
+    const user = userEvent.setup();
+    view(Array.from({ length: 500 }, (_, i) => post(i)));
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('row')).toHaveLength(POSTS_PAGE + 1); // + header row
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('Caption 499');
+    expect(screen.getByText('Showing 500 of 500 posts')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: en.table.showMore }));
+    expect(within(table).getAllByRole('row')).toHaveLength(2 * POSTS_PAGE + 1);
+  });
+
+  it('null caption and permalink: placeholder text, no external link; a permalink opens with noopener', () => {
+    view([post(1, { caption: null, permalink: null }), post(2)]);
+    const table = screen.getByRole('table');
+    expect(within(table).getByText(en.pages.account.posts.noCaption)).toBeInTheDocument();
+    const links = within(table).getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(links[0]).toHaveAttribute('href', 'https://www.instagram.com/p/m2/');
+  });
+
+  it('filters are a GET form that keeps the tab and shows the current values', () => {
+    const { container } = render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+          <PostsTab posts={[]} total={3} tags={TAGS} filters={{ format: 'REELS', tag: T1, from: '2026-10-01', to: null }} setPostTags={vi.fn()} />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    const form = container.querySelector('form')!;
+    expect(form).toHaveAttribute('method', 'get');
+    expect(form.querySelector('input[name="tab"]')).toHaveValue('posts');
+    expect(screen.getByLabelText(en.pages.account.posts.format)).toHaveValue('REELS');
+    expect(screen.getByLabelText(en.pages.account.posts.tag)).toHaveValue(T1);
+    expect(screen.getByLabelText(en.pages.account.posts.from)).toHaveValue('2026-10-01');
+    expect(screen.getByRole('link', { name: en.pages.account.posts.reset })).toHaveAttribute('href', '?tab=posts');
+    expect(screen.getAllByText(en.pages.account.posts.empty).length).toBeGreaterThan(0);
+  });
+
+  it('tag picker: saves the chosen tags through the server action; an error key is translated', async () => {
+    const user = userEvent.setup();
+    const setPostTags = vi.fn().mockResolvedValueOnce({ ok: false, error: 'not_found' }).mockResolvedValueOnce({ ok: true });
+    view([post(1)], { setPostTags });
+    const table = screen.getByRole('table');
+    await user.click(within(table).getByRole('button', { name: /Edit tags of/ }));
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
+    expect(setPostTags).toHaveBeenCalledWith('m1', [T1]);
+    expect(await screen.findByRole('alert')).toHaveTextContent(en.pages.tags.errors.not_found);
+    await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('no tags yet: the picker links to the Tags page', async () => {
+    const user = userEvent.setup();
+    view([post(1)], { tags: [] });
+    await user.click(within(screen.getByRole('table')).getByRole('button', { name: /Edit tags of/ }));
+    expect(screen.getByRole('link', { name: en.pages.account.posts.manageTags })).toHaveAttribute('href', '/tags');
+  });
+});
+```
+
+Append this case inside the `describe('account detail page', …)` block of `tests/account-page.test.tsx` (before its closing `});`):
+
+```tsx
+  it('posts tab loads only its own data (posts with tags + tag list)', async () => {
+    accounts.push(acct(ID));
+    const el = await run(ID, { tab: 'posts', format: 'REELS' });
+    expect(el.props.tab).toBe('posts');
+    expect(calls).toEqual(expect.arrayContaining(['postRows', 'tags']));
+    expect(calls).not.toContain('daily');
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/posts-tab.test.tsx tests/account-page.test.tsx`
+Expected: FAIL with `Failed to resolve import "@/components/account/PostsTab"`, and the new page case fails (`expected [...] to include 'postRows'`).
+
+- [ ] **Step 3: Add the messages** — merge into both files (`pages.tags.errors` goes INTO the existing `pages.tags` object).
+
+`messages/en.json`:
+
+```json
+{
+  "table": { "showMore": "Show more" },
+  "pages": {
+    "account": {
+      "posts": {
+        "caption": "Posts",
+        "count": "Showing {shown} of {total} posts",
+        "empty": "No posts match these filters",
+        "format": "Format",
+        "tag": "Tag",
+        "all": "All",
+        "untagged": "Untagged",
+        "from": "From",
+        "to": "To",
+        "apply": "Apply",
+        "reset": "Reset",
+        "post": "Post",
+        "open": "Open {post} on Instagram",
+        "noCaption": "No caption",
+        "likes": "Likes",
+        "comments": "Comments",
+        "saves": "Saves",
+        "shares": "Shares",
+        "tags": "Tags",
+        "edit": "Edit",
+        "editTags": "Edit tags of {post}",
+        "tagTitle": "Tags for this post",
+        "noTags": "No tags yet.",
+        "manageTags": "Create tags",
+        "save": "Save",
+        "cancel": "Cancel"
+      }
+    },
+    "tags": {
+      "errors": {
+        "invalid_name": "Use 1–40 characters (no control characters).",
+        "duplicate": "A tag with this name already exists.",
+        "not_found": "That tag or post no longer exists. Reload the page.",
+        "too_many": "A post can have at most 10 tags.",
+        "unexpected": "Something went wrong. Please try again."
+      }
+    }
+  }
+}
+```
+
+`messages/zh-CN.json`:
+
+```json
+{
+  "table": { "showMore": "显示更多" },
+  "pages": {
+    "account": {
+      "posts": {
+        "caption": "帖子",
+        "count": "显示 {shown} / {total} 篇帖子",
+        "empty": "没有符合筛选条件的帖子",
+        "format": "形式",
+        "tag": "标签",
+        "all": "全部",
+        "untagged": "未加标签",
+        "from": "开始日期",
+        "to": "结束日期",
+        "apply": "应用",
+        "reset": "重置",
+        "post": "帖子",
+        "open": "在 Instagram 中打开{post}",
+        "noCaption": "无文案",
+        "likes": "点赞",
+        "comments": "评论",
+        "saves": "收藏",
+        "shares": "分享",
+        "tags": "标签",
+        "edit": "编辑",
+        "editTags": "编辑{post}的标签",
+        "tagTitle": "此帖子的标签",
+        "noTags": "还没有标签。",
+        "manageTags": "创建标签",
+        "save": "保存",
+        "cancel": "取消"
+      }
+    },
+    "tags": {
+      "errors": {
+        "invalid_name": "请使用 1–40 个字符（不含控制字符）。",
+        "duplicate": "已有同名标签。",
+        "not_found": "该标签或帖子已不存在，请刷新页面。",
+        "too_many": "每篇帖子最多 10 个标签。",
+        "unexpected": "出了点问题，请重试。"
+      }
+    }
+  }
+}
+```
+
+- [ ] **Step 4: `DataTable` paging** — in `components/shared/DataTable.tsx`:
+1. Replace the two `ponytail:` comment lines at the top with:
+   ```ts
+   // ponytail: client-side sort of already-loaded rows (≤ 500) + an optional "Show more" page; TanStack Table (SPEC §2)
+   // comes in when server-side paging or column visibility is needed.
+   ```
+2. Add `pageSize` to the props: `…, initialSort = null, pageSize }: { …; initialSort?: Sort; pageSize?: number }`.
+3. Replace `const sorted = sortRows(rows, columns, sort);` with:
+   ```ts
+   const [shown, setShown] = useState(pageSize ?? Number.POSITIVE_INFINITY);
+   const all = sortRows(rows, columns, sort);
+   const sorted = all.slice(0, shown); // sort everything, then show the first page: "Show more" never reorders
+   ```
+4. Just before the final closing `</div>` of the component's root (after the phone `</div>` that wraps the card list), add:
+   ```tsx
+   {!loading && all.length > sorted.length ? (
+     <div className="mt-[var(--gp)] flex justify-center">
+       <Button type="button" variant="outline" size="sm" onClick={() => setShown((n) => n + (pageSize ?? all.length))}>
+         {t('showMore')}
+       </Button>
+     </div>
+   ) : null}
+   ```
+
+- [ ] **Step 5: Implement the components**
+
+`components/shared/TagBadge.tsx`:
+
+```tsx
+import type { Tag } from '@/lib/analysis/types';
+import { TAG_COLORS } from '@/lib/tags';
+import { cn } from '@/lib/utils';
+
+/** A tag chip in its chart-token colour. Unknown colours fall back to chart-1 (the value ends up in a CSS var()). */
+export function TagBadge({ tag, className }: { tag: Tag; className?: string }) {
+  const color = (TAG_COLORS as readonly string[]).includes(tag.color) ? tag.color : 'chart-1';
+  return (
+    <span
+      className={cn('inline-flex max-w-40 items-center gap-1 rounded-full border px-1.5 py-px text-xs text-foreground', className)}
+      style={{ background: `color-mix(in srgb, var(--${color}) 14%, transparent)`, borderColor: `color-mix(in srgb, var(--${color}) 40%, transparent)` }}
+    >
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ background: `var(--${color})` }} />
+      <span className="min-w-0 truncate" dir="auto">
+        {tag.name}
+      </span>
+    </span>
+  );
+}
+```
+
+`components/account/TagPicker.tsx`:
+
+```tsx
+'use client';
+
+import { useState, useTransition } from 'react';
+import Link from 'next/link';
+import { useTranslations } from 'next-intl';
+import {
+  ResponsiveDialog,
+  ResponsiveDialogClose,
+  ResponsiveDialogContent,
+  ResponsiveDialogDescription,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from '@/components/shared/ResponsiveDialog';
+import { TagBadge } from '@/components/shared/TagBadge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import type { Tag } from '@/lib/analysis/types';
+import { MAX_TAGS_PER_POST } from '@/lib/tags';
+import type { TagResult } from '@/app/(app)/tags/actions';
+
+export type SetPostTags = (mediaId: string, tagIds: string[]) => Promise<TagResult>;
+
+function PickerForm({ postId, label, tags, initial, setPostTags, onDone }: { postId: string; label: string; tags: Tag[]; initial: string[]; setPostTags: SetPostTags; onDone: () => void }) {
+  const t = useTranslations('pages.account.posts');
+  const tErr = useTranslations('pages.tags.errors');
+  const [picked, setPicked] = useState<string[]>(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const toggle = (id: string, on: boolean) => setPicked((p) => (on ? [...p, id] : p.filter((x) => x !== id)));
+  return (
+    <form
+      className="grid gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        start(async () => {
+          const r = await setPostTags(postId, picked);
+          if (r.ok) onDone();
+          else setError(tErr(r.error));
+        });
+      }}
+    >
+      <ResponsiveDialogHeader>
+        <ResponsiveDialogTitle>{t('tagTitle')}</ResponsiveDialogTitle>
+        <ResponsiveDialogDescription className="truncate">{label}</ResponsiveDialogDescription>
+      </ResponsiveDialogHeader>
+      {tags.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {t('noTags')}{' '}
+          <Link href="/tags" className="font-medium text-primary underline-offset-4 hover:underline">
+            {t('manageTags')}
+          </Link>
+        </p>
+      ) : (
+        <fieldset className="grid max-h-[50dvh] gap-2 overflow-y-auto">
+          <legend className="sr-only">{t('tagTitle')}</legend>
+          {tags.map((tag) => {
+            const on = picked.includes(tag.id);
+            return (
+              <label key={tag.id} className="flex min-w-0 items-center gap-2">
+                <Checkbox checked={on} disabled={!on && picked.length >= MAX_TAGS_PER_POST} onCheckedChange={(v) => toggle(tag.id, v === true)} />
+                <TagBadge tag={tag} />
+              </label>
+            );
+          })}
+        </fieldset>
+      )}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      <ResponsiveDialogFooter>
+        <ResponsiveDialogClose asChild>
+          <Button type="button" variant="outline">
+            {t('cancel')}
+          </Button>
+        </ResponsiveDialogClose>
+        <Button type="submit" disabled={pending || tags.length === 0}>
+          {t('save')}
+        </Button>
+      </ResponsiveDialogFooter>
+    </form>
+  );
+}
+
+/** Edit button + dialog with one checkbox per tag. Saving replaces the post's tags (setPostTagsAction). */
+export function TagPicker({ postId, label, tags, selected, setPostTags }: { postId: string; label: string; tags: Tag[]; selected: string[]; setPostTags: SetPostTags }) {
+  const t = useTranslations('pages.account.posts');
+  const [open, setOpen] = useState(false);
+  return (
+    <ResponsiveDialog open={open} onOpenChange={setOpen}>
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label={t('editTags', { post: label })}>
+        {t('edit')}
+      </Button>
+      <ResponsiveDialogContent>{open ? <PickerForm postId={postId} label={label} tags={tags} initial={selected} setPostTags={setPostTags} onDone={() => setOpen(false)} /> : null}</ResponsiveDialogContent>
+    </ResponsiveDialog>
+  );
+}
+```
+
+`components/account/PostsTab.tsx`:
+
+```tsx
+'use client';
+
+import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { TagPicker, type SetPostTags } from '@/components/account/TagPicker';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { DataTable, type Column } from '@/components/shared/DataTable';
+import { FormField } from '@/components/shared/FormField';
+import { TagBadge } from '@/components/shared/TagBadge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { FEED_FORMATS } from '@/lib/analysis/posts';
+import type { Tag } from '@/lib/analysis/types';
+import type { PostFilters, PostView } from '@/lib/dashboard/content';
+import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
+
+export const POSTS_PAGE = 50;
+const SELECT = 'h-[var(--ctl)] w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground';
+
+/** Filters are a plain GET form: the URL is the state and the server re-filters (works without JavaScript too). */
+function Filters({ tags, filters }: { tags: Tag[]; filters: PostFilters }) {
+  const t = useTranslations('pages.account.posts');
+  const ta = useTranslations('analysis');
+  return (
+    <form method="get" className="grid grid-cols-2 items-end gap-[var(--gp)] md:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+      <input type="hidden" name="tab" value="posts" />
+      <FormField id="f-format" label={t('format')}>
+        {(p) => (
+          <select {...p} name="format" defaultValue={filters.format ?? ''} className={SELECT}>
+            <option value="">{t('all')}</option>
+            {FEED_FORMATS.map((f) => (
+              <option key={f} value={f}>
+                {ta(`format.${f}`)}
+              </option>
+            ))}
+          </select>
+        )}
+      </FormField>
+      <FormField id="f-tag" label={t('tag')}>
+        {(p) => (
+          <select {...p} name="tag" defaultValue={filters.tag ?? ''} className={SELECT}>
+            <option value="">{t('all')}</option>
+            <option value="untagged">{t('untagged')}</option>
+            {tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </FormField>
+      <FormField id="f-from" label={t('from')}>
+        {(p) => <Input {...p} type="date" name="from" defaultValue={filters.from ?? ''} />}
+      </FormField>
+      <FormField id="f-to" label={t('to')}>
+        {(p) => <Input {...p} type="date" name="to" defaultValue={filters.to ?? ''} />}
+      </FormField>
+      <div className="col-span-2 flex gap-2 md:col-span-1">
+        <Button type="submit">{t('apply')}</Button>
+        <Button asChild variant="ghost">
+          <Link href="?tab=posts">{t('reset')}</Link>
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export function PostsTab({ posts, total, tags, filters, setPostTags }: { posts: PostView[]; total: number; tags: Tag[]; filters: PostFilters; setPostTags: SetPostTags }) {
+  const t = useTranslations('pages.account.posts');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+  const count = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
+  const label = (p: PostView) => `${ta(`format.${p.mediaType}`)} · ${formatDateTime(p.postedAt, prefs)}`;
+
+  const columns: Column<PostView>[] = [
+    {
+      key: 'post',
+      header: t('post'),
+      sortValue: (p) => p.postedAt,
+      cell: (p) => (
+        <span className="flex min-w-0 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{label(p)}</span>
+            {p.permalink ? (
+              <a href={p.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
+                <ExternalLink aria-hidden="true" className="size-3.5" />
+              </a>
+            ) : null}
+          </span>
+          <span className="truncate text-xs font-normal text-muted-foreground" dir="auto">
+            {p.caption ?? t('noCaption')}
+          </span>
+        </span>
+      ),
+    },
+    { key: 'reach', header: tm('reach'), sortValue: (p) => p.reach, cell: (p) => formatCompact(p.reach, prefs), align: 'right' },
+    { key: 'views', header: tm('views'), sortValue: (p) => p.views, cell: (p) => formatCompact(p.views, prefs), align: 'right' },
+    { key: 'likes', header: t('likes'), sortValue: (p) => p.likes, cell: (p) => count(p.likes), align: 'right' },
+    { key: 'comments', header: t('comments'), sortValue: (p) => p.comments, cell: (p) => count(p.comments), align: 'right' },
+    { key: 'saves', header: t('saves'), sortValue: (p) => p.saves, cell: (p) => count(p.saves), align: 'right' },
+    { key: 'shares', header: t('shares'), sortValue: (p) => p.shares, cell: (p) => count(p.shares), align: 'right' },
+    { key: 'er', header: tm('engagementRate'), sortValue: (p) => p.engagementRate, cell: (p) => formatPercent(p.engagementRate, prefs), align: 'right' },
+    {
+      key: 'tags',
+      header: t('tags'),
+      cell: (p) => (
+        <span className="flex min-w-0 flex-wrap items-center gap-1">
+          {p.tags.map((tag) => (
+            <TagBadge key={tag.id} tag={tag} />
+          ))}
+          <TagPicker postId={p.id} label={label(p)} tags={tags} selected={p.tags.map((x) => x.id)} setPostTags={setPostTags} />
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      <Filters tags={tags} filters={filters} />
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {t('count', { shown: formatNumber(posts.length, prefs), total: formatNumber(total, prefs) })}
+      </p>
+      <DataTable rows={posts} columns={columns} rowKey={(p) => p.id} caption={t('caption')} empty={t('empty')} initialSort={{ key: 'post', dir: 'desc' }} pageSize={POSTS_PAGE} />
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Wire the posts tab** — `app/(app)/accounts/[id]/page.tsx` becomes:
+
+```tsx
+import { notFound } from 'next/navigation';
+import { AccountOverview } from '@/components/account/AccountOverview';
+import { AccountView } from '@/components/account/AccountView';
+import { PostsTab } from '@/components/account/PostsTab';
+import { setPostTagsAction } from '@/app/(app)/tags/actions';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
+import { buildPosts, parsePostFilters } from '@/lib/dashboard/content';
+import { loadOnline, loadPostRows, loadTags } from '@/lib/dashboard/detail-read';
+import { fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
+import { loadDaily, loadPosts } from '@/lib/dashboard/read';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { listSyncStatus } from '@/lib/sync/store';
+import { addDays, localDay } from '@/lib/sync/time';
+import { isUuid } from '@/lib/tags';
+
+type SearchParams = Record<string, string | string[] | undefined>;
+type Ctx = { db: Awaited<ReturnType<typeof createServerSupabase>>; account: StoredAccount; accounts: StoredAccount[]; sp: SearchParams; now: Date; today: string; prefs: Awaited<ReturnType<typeof getPrefs>> };
+
+/** Each tab loads only its own data. */
+async function tabContent(tab: Tab, c: Ctx) {
+  switch (tab) {
+    case 'posts': {
+      const [rows, tags] = await Promise.all([loadPostRows(c.db, c.account.id), loadTags(c.db)]);
+      const filters = parsePostFilters(c.sp);
+      // the imported server action is passed straight to the client component (never wrapped in a closure here)
+      return <PostsTab posts={buildPosts(rows, tags, filters, c.prefs.timezone)} total={rows.length} tags={tags} filters={filters} setPostTags={setPostTagsAction} />;
+    }
+    default: {
+      const period = parsePeriod(c.sp.period);
+      const pool = poolFor(c.account, c.accounts);
+      const others = pool.filter((a) => a.id !== c.account.id);
+      const [daily, posts, sync, online, otherPosts] = await Promise.all([
+        loadDaily(c.db, c.account.id, fromDayFor(period, c.today)),
+        loadPosts(c.db, c.account.id),
+        listSyncStatus(c.db),
+        loadOnline(c.db, pool.map((a) => a.id), addDays(c.today, -30)), // Instagram keeps 30 days of online_followers
+        Promise.all(others.map((a) => loadPosts(c.db, a.id))),
+      ]);
+      const model = buildAccountOverview(
+        { account: c.account, sync: sync[c.account.id], daily, posts, online: online[c.account.id] ?? [], pooled: { accounts: pool.length, posts: [...posts, ...otherPosts.flat()], online: Object.values(online).flat() } },
+        { period, today: c.today, now: c.now, tz: c.prefs.timezone, weekStart: c.prefs.weekStart },
+      );
+      return <AccountOverview model={model} />;
+    }
+  }
+}
+
+export default async function AccountPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
+  await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
+  const { id } = await params;
+  if (!isUuid(id)) notFound();
+  const sp = await searchParams;
+  const tab = parseTab(sp.tab);
+  const prefs = await getPrefs();
+  const now = new Date();
+  const today = localDay(now, prefs.timezone);
+  const db = await createServerSupabase(); // owner session: RLS applies, never the admin client
+  const accounts = (await supabaseAccountsStore(db).list()).filter((a) => a.status !== 'archived'); // archived = hidden (SPEC §7c)
+  const account = accounts.find((a) => a.id === id.toLowerCase());
+  if (!account) notFound();
+  return (
+    <AccountView account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }} tab={tab}>
+      {await tabContent(tab, { db, account, accounts, sp, now, today, prefs })}
+    </AccountView>
+  );
+}
+```
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `npx vitest run tests/posts-tab.test.tsx tests/account-page.test.tsx tests/data-table.test.tsx tests/messages.test.ts`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add components/account/PostsTab.tsx components/account/TagPicker.tsx components/shared/TagBadge.tsx components/shared/DataTable.tsx "app/(app)/accounts/[id]/page.tsx" messages/en.json messages/zh-CN.json tests/posts-tab.test.tsx tests/account-page.test.tsx
+git commit -m "feat: posts tab with filters, paging and tag assignment" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
