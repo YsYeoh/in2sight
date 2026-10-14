@@ -62,8 +62,7 @@ export function memoryStore(init: MemoryInit = {}) {
       if (s.leaseUntil && s.leaseUntil >= now) return null;
       const claimed = { ...s, leaseId, leaseUntil: until, lastAttemptAt: now }; // like the real UPDATE: stamps the attempt
       states.set(id, claimed);
-      const { leaseId: _drop, ...state } = claimed;
-      return state;
+      return claimed;
     },
     saveState: async (id, leaseId, patch) => {
       const s = states.get(id);
