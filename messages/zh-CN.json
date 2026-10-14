@@ -269,6 +269,23 @@
       "emptyHint": "连接账号后即可在这里为帖子打标签。"
     }
   },
+  "metrics": {
+    "followers": "粉丝",
+    "reach": "触达",
+    "views": "播放",
+    "engagementRate": "互动率",
+    "posts": "帖子",
+    "netFollows": "净增粉丝"
+  },
+  "analysis": {
+    "reasons": {
+      "no_data": "暂无数据",
+      "needs_100_followers": "粉丝达到 100 后 Instagram 才提供此数据",
+      "not_enough_history": "历史数据不足，暂无法对比",
+      "not_enough_posts": "需要约 30 篇以上帖子才能得出可靠规律",
+      "backfilling": "正在导入历史数据…"
+    }
+  },
   "setup": {
     "title": "快好了",
     "body": "登录前需要先配置 Supabase 连接。请把下列变量添加到 .env.local（以及 Vercel）后刷新页面。",
