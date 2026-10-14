@@ -143,6 +143,67 @@ describe('media jobs', () => {
     expect(mem.metrics.map((m) => m.mediaId)).toEqual(['ok']);
   });
 
+  const refs = (...ids: string[]) => ids.map((id, i) => ({ id, accountId: 'a1', postedAt: `2026-10-${13 - i}T00:00:00.000Z`, lastMetricsAt: null }));
+  const GOOD = { reach: 1, views: 1, likes: 1, comments: 1, shares: 1, saves: 1, totalInteractions: 4, replies: null, tapsForward: null, tapsBack: null, exits: null };
+
+  it('a post from before the Creator conversion (code 100 / 2108006) is skipped for good and later posts still get metrics', async () => {
+    const { c, ig, mem } = ctx({ media: refs('old', 'p2') });
+    ig.feedInsights.mockImplementation(async (_t: string, id: string) => {
+      if (id === 'old') throw igErr(100, 400, 2108006);
+      return GOOD;
+    });
+    const { result } = await run(c, ['mediaMetrics']);
+    expect(result.outcome).toBe('ok');
+    expect(mem.metrics.map((m) => m.mediaId)).toEqual(['p2']);
+    expect(mem.media.get('old')?.lastMetricsAt).toBe(NOW.toISOString());
+  });
+
+  it('a persistent unclassified error on one post does not block the next post, is reported, and the post is marked attempted', async () => {
+    const { c, ig, mem } = ctx({ media: refs('bad', 'p2') });
+    ig.feedInsights.mockImplementation(async (_t: string, id: string) => {
+      if (id === 'bad') throw igErr(100);
+      return GOOD;
+    });
+    const { result } = await run(c, ['mediaMetrics']);
+    expect(result).toMatchObject({ outcome: 'failed', errorKey: 'instagram_error' });
+    expect(mem.metrics.map((m) => m.mediaId)).toEqual(['p2']);
+    expect(mem.media.get('bad')?.lastMetricsAt).toBe(NOW.toISOString()); // no longer the head of the queue
+    // next tick: only p2 is eligible later, bad is not retried at once
+    const again = ctx({ media: [{ id: 'bad', accountId: 'a1', postedAt: '2026-10-13T00:00:00.000Z', lastMetricsAt: NOW.toISOString() }] });
+    await run(again.c, ['mediaMetrics']);
+    expect(again.ig.feedInsights).not.toHaveBeenCalled();
+  });
+
+  it('a transient error on one post is reported but the loop carries on; it stays due (not marked)', async () => {
+    const { c, ig, mem } = ctx({ media: refs('flaky', 'p2') });
+    ig.feedInsights.mockImplementation(async (_t: string, id: string) => {
+      if (id === 'flaky') throw igErr(2, 500);
+      return GOOD;
+    });
+    const { result } = await run(c, ['mediaMetrics']);
+    expect(result).toMatchObject({ outcome: 'failed', errorKey: 'instagram_unavailable' });
+    expect(mem.metrics.map((m) => m.mediaId)).toEqual(['p2']);
+    expect(mem.media.get('flaky')?.lastMetricsAt).toBeNull();
+  });
+
+  it('three failures in a row abort the loop (outage or broken metric request), keeping the first error', async () => {
+    const { c, ig, mem } = ctx({ media: refs('b1', 'b2', 'b3', 'b4', 'b5') });
+    ig.feedInsights.mockRejectedValue(igErr(100));
+    const { result } = await run(c, ['mediaMetrics']);
+    expect(ig.feedInsights).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({ outcome: 'failed', errorKey: 'instagram_error' });
+    expect(mem.media.get('b4')?.lastMetricsAt).toBeNull();
+  });
+
+  it('an auth error mid-loop still aborts and flips the account to needs_reconnect', async () => {
+    const { c, ig, accts } = ctx({ media: refs('p1', 'p2') });
+    ig.feedInsights.mockRejectedValue(igErr(190, 400, 463));
+    const { result } = await run(c, ['mediaMetrics']);
+    expect(result).toMatchObject({ outcome: 'needs_reconnect', errorKey: 'token_invalid' });
+    expect(ig.feedInsights).toHaveBeenCalledTimes(1);
+    expect(accts.byId.get('a1')?.status).toBe('needs_reconnect');
+  });
+
   it('captured media are marked even when a later post fails, so they are not re-fetched next tick', async () => {
     const { c, ig, mem } = ctx({ media: [{ id: 'p1', accountId: 'a1', postedAt: '2026-10-13T00:00:00.000Z', lastMetricsAt: null }, { id: 'p2', accountId: 'a1', postedAt: '2026-10-12T00:00:00.000Z', lastMetricsAt: null }] });
     ig.feedInsights.mockImplementation(async (_t: string, id: string) => {

@@ -44,7 +44,7 @@ export function classifyIgError(e: unknown): IgErrorClass {
   if (c !== undefined && ((M.IG_ERROR.auth as readonly number[]).includes(c) || (c >= 200 && c <= 299))) return 'auth';
   if (c !== undefined && (M.IG_ERROR.appRateLimit as readonly number[]).includes(c)) return 'app_rate_limit';
   if ((c !== undefined && (M.IG_ERROR.rateLimit as readonly number[]).includes(c)) || e.status === 429) return 'rate_limit';
-  if (c === M.IG_ERROR.notEnoughViewers) return 'no_data';
+  if (c === M.IG_ERROR.notEnoughViewers || (c === M.IG_ERROR.invalidParam && e.subcode === M.IG_ERROR.preConversionSubcode)) return 'no_data';
   if (c === M.IG_ERROR.invalidParam && e.subcode === M.IG_ERROR.objectMissingSubcode) return 'gone';
   if ((c !== undefined && (M.IG_ERROR.transient as readonly number[]).includes(c)) || (e.status ?? 0) >= 500) return 'transient';
   if (e.status === 401) return 'auth';

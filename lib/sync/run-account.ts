@@ -102,25 +102,53 @@ const mediaList: Job = async (c) => {
   return { done: true };
 };
 
-/** Snapshots for media that are due (pickDueMedia). Deleted media are marked gone; unfinished work stays due. */
+/** After this many failed posts in a row the loop gives up: Instagram is down or our metric request is broken. */
+const MEDIA_FAIL_STREAK = 3;
+
+/**
+ * Snapshots for media that are due (pickDueMedia, newest first). Per-post outcomes of the insights call:
+ *  - gone: marked gone. no_data (under-5 viewers, pre-Creator post 2108006): marked captured, retried at the next interval.
+ *  - other (unclassified IG error): marked attempted (last_metrics_at) so ONE post can never sit at the head of the queue and
+ *    starve older ones; its error key is still reported. Posts older than 30 days then drop out of pickDueMedia for good.
+ *  - transient: not marked (a 5xx may pass), loop carries on; it stays due.
+ *  - auth / rate limits: abort the job like before. MEDIA_FAIL_STREAK failures in a row also abort.
+ * The first per-post error is rethrown at the end so the account shows it; the loop itself never stops for one bad post.
+ */
 const mediaMetrics: Job = async (c) => {
   const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
   const due = pickDueMedia(await c.store.mediaForMetrics(c.account.id, since), c.now);
   const at = c.now.toISOString();
   const captured: string[] = [];
+  let firstError: unknown;
+  let streak = 0;
   try {
     for (const id of due) {
-      if (outOfTime(c)) return { done: false };
+      if (outOfTime(c)) {
+        if (firstError) throw firstError;
+        return { done: false };
+      }
+      let values;
       try {
-        await c.store.insertMetrics(id, at, await c.ig.feedInsights(c.token, id));
-        captured.push(id);
+        values = await c.ig.feedInsights(c.token, id);
       } catch (e) {
         const k = classifyIgError(e);
+        if (k === 'other' || k === 'transient') {
+          firstError ??= e;
+          if (k === 'other') captured.push(id);
+          if (++streak >= MEDIA_FAIL_STREAK) throw firstError;
+          continue;
+        }
+        if (k !== 'gone' && k !== 'no_data') throw e; // auth, rate limits
         if (k === 'gone') await c.store.markGone(id, at);
-        else if (k === 'no_data') captured.push(id); // nothing to record now; try again at the next interval
-        else throw e;
+        else captured.push(id);
+        streak = 0;
+        continue;
       }
+      await c.store.insertMetrics(id, at, values);
+      captured.push(id);
+      streak = 0;
     }
+    if (firstError) throw firstError;
   } finally {
     await c.store.markCaptured(captured, at);
   }

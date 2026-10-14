@@ -77,4 +77,6 @@ export const IG_ERROR = {
   notEnoughViewers: 10,
   invalidParam: 100,
   objectMissingSubcode: 33,
+  /** code 100 + this subcode: media posted before the account became professional has no insights, ever. Not re-verified against Meta's docs (no network in the fix wave): check on the first live run. */
+  preConversionSubcode: 2108006,
 } as const;
