@@ -26,12 +26,15 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] Verify with 1 real account, then connect all
 
 ## 3. Sync
-- [ ] Verify current metric names (feed, Reels, **Stories**) vs Meta docs; put in one constants file
-- [ ] `/api/cron/sync` (daily), `/api/cron/stories` (every 3h), `/api/cron/refresh` (weekly)
-- [ ] Supabase `pg_cron` + `pg_net` schedules calling those routes with `CRON_SECRET` (no Vercel Cron)
-- [ ] Per-account error isolation + `needs_reconnect` flag
-- [ ] **Start daily snapshots as early as possible** — history can't be backfilled past ~30 days
-- [ ] First-connect backfill (30d account insights + up to 500 media with lifetime metrics)
+- [x] Verify current metric names (feed, Reels, **Stories**) vs Meta docs; put in one constants file (`lib/instagram/metrics.ts`; UNCERTAIN items re-verified live by `npm run record:fixtures` — docs/RUNBOOK_SYNC.md §3)
+- [x] `/api/cron/tick` every 30 min: Stories every tick, post metrics hourly (<48h) / daily (<30d), account day + audience daily, token refresh (code done; live verification pending — docs/RUNBOOK_SYNC.md)
+- [ ] Scheduler: cron-job.org calling `/api/cron/tick` every 30 min with `Authorization: Bearer CRON_SECRET` (owner — docs/RUNBOOK_SYNC.md §5; pg_cron/pg_net fallback §6)
+- [x] Per-account error isolation + `needs_reconnect` flag
+- [ ] **Start daily snapshots as early as possible** — account insights only reach back ~90 days
+- [x] First-connect backfill (90d account insights + up to 500 media with lifetime metrics) (code done; live verification pending — docs/RUNBOOK_SYNC.md)
+- [x] Accounts page: last synced, sync error, Sync now (code done; live verification pending — docs/RUNBOOK_SYNC.md)
+- [ ] Apply migration `20261015000001_sync.sql` (`npx supabase db push`; on the owner's go-ahead — docs/RUNBOOK_SYNC.md §0)
+- [ ] Record real Instagram fixtures (docs/RUNBOOK_SYNC.md §4)
 - [x] Archive / restore / permanent-delete for accounts (code done; live verification pending — docs/RUNBOOK_META.md)
 
 ## 3b. Alerts
