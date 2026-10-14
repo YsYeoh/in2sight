@@ -18,7 +18,7 @@ describe('secret-key client isolation', () => {
       .filter((f) => {
         const src = readFileSync(f, 'utf8');
         // multiline: the directive may follow leading comments
-        return /^\s*['"]use client['"]/m.test(src) && /(supabase\/admin|createAdminSupabase|getServerEnv|getSupabaseSecretKey|SUPABASE_SECRET_KEY)/.test(src);
+        return /^\s*['"]use client['"]/m.test(src) && /(supabase\/admin|createAdminSupabase|getServerEnv|getSupabaseSecretKey|SUPABASE_SECRET_KEY|IG_APP_SECRET|getInstagramEnv)/.test(src);
       });
     expect(offenders).toEqual([]);
   });
@@ -35,6 +35,18 @@ describe('secret-key client isolation', () => {
       })
       .filter((f) => /\.(ts|tsx)$/.test(f))
       .filter((f) => readFileSync(f, 'utf8').includes('SUPABASE_SECRET_KEY'))
+      .map((f) => f.replace(process.cwd() + '\\', '').replace(process.cwd() + '/', '').replaceAll('\\', '/'));
+    expect(users).toEqual(['lib/env.ts']);
+  });
+
+  it('the Instagram app secret variable is referenced only by lib/env.ts', () => {
+    const users = ['app', 'components', 'lib', 'proxy.ts']
+      .flatMap((d) => {
+        const p = join(process.cwd(), d);
+        return statSync(p).isDirectory() ? files(p) : [p];
+      })
+      .filter((f) => /\.(ts|tsx)$/.test(f))
+      .filter((f) => readFileSync(f, 'utf8').includes('IG_APP_SECRET'))
       .map((f) => f.replace(process.cwd() + '\\', '').replace(process.cwd() + '/', '').replaceAll('\\', '/'));
     expect(users).toEqual(['lib/env.ts']);
   });

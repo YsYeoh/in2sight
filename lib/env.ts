@@ -42,3 +42,10 @@ export function getSupabaseUrl() {
 export function getSupabaseSecretKey() {
   return need({ SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY }).SUPABASE_SECRET_KEY;
 }
+
+/** Instagram app credentials (server-only: the app secret must never reach a browser bundle). */
+export function getInstagramEnv() {
+  const v = need({ IG_APP_ID: process.env.IG_APP_ID, IG_APP_SECRET: process.env.IG_APP_SECRET, IG_REDIRECT_URI: process.env.IG_REDIRECT_URI });
+  const version = process.env.IG_API_VERSION?.trim();
+  return { appId: v.IG_APP_ID, appSecret: v.IG_APP_SECRET, redirectUri: v.IG_REDIRECT_URI, apiVersion: version ? version : 'v25.0' };
+}

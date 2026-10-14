@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EnvError, getServerEnv, getSupabasePublic, getSupabaseSecretKey, getSupabaseUrl, isSupabaseConfigured } from '@/lib/env';
+import { EnvError, getInstagramEnv, getServerEnv, getSupabasePublic, getSupabaseSecretKey, getSupabaseUrl, isSupabaseConfigured } from '@/lib/env';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 afterEach(() => vi.unstubAllEnvs());
@@ -101,6 +101,24 @@ describe('getSupabasePublic', () => {
       expect(e).toBeInstanceOf(EnvError);
       expect((e as EnvError).missing).toEqual(['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY']);
       expect((e as Error).message).not.toContain('x.supabase.co');
+    }
+  });
+});
+
+describe('getInstagramEnv', () => {
+  it('reads the four variables and defaults the API version', () => {
+    vi.stubEnv('IG_APP_ID', '123'); vi.stubEnv('IG_APP_SECRET', 'abc'); vi.stubEnv('IG_REDIRECT_URI', 'https://x/cb'); vi.stubEnv('IG_API_VERSION', '');
+    expect(getInstagramEnv()).toEqual({ appId: '123', appSecret: 'abc', redirectUri: 'https://x/cb', apiVersion: 'v25.0' });
+  });
+
+  it('lists missing NAMES only', () => {
+    vi.stubEnv('IG_APP_ID', '123'); vi.stubEnv('IG_APP_SECRET', ''); vi.stubEnv('IG_REDIRECT_URI', '');
+    try {
+      getInstagramEnv();
+      throw new Error('no');
+    } catch (e) {
+      expect((e as EnvError).missing).toEqual(['IG_APP_SECRET', 'IG_REDIRECT_URI']);
+      expect((e as Error).message).not.toContain('123');
     }
   });
 });
