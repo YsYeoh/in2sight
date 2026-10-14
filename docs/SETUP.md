@@ -65,7 +65,7 @@ Run it once for `CRON_SECRET` (and again later for `REPORT_SIGNING_SECRET`).
 | `SUPABASE_SECRET_KEY` | Supabase → API Keys (`sb_secret_…`) | server only (sync jobs, token storage) |
 | `SUPABASE_PROJECT_REF` | the 20 characters before `.supabase.co` | tooling |
 | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD` | optional, for the Supabase CLI | migrations via CLI (not needed if I apply them with the connected Supabase tool) |
-| `CRON_SECRET` | you generate it | the Supabase scheduler proves itself to our cron endpoints |
+| `CRON_SECRET` | you generate it | the scheduler (cron-job.org, see docs/RUNBOOK_SYNC.md) proves itself to `/api/cron/tick` |
 | `IG_APP_ID`, `IG_APP_SECRET` | Meta → Instagram → API setup with Instagram business login | connecting Instagram accounts |
 | `IG_API_VERSION` | leave `v25.0` | Instagram API calls |
 | `IG_REDIRECT_URI` | `<your-app-url>/api/instagram/callback` | where Instagram sends you back after login |

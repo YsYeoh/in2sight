@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
-    "check:env": "node --env-file-if-exists=.env.local scripts/check-env.mjs"
+    "check:env": "node --env-file-if-exists=.env.local scripts/check-env.mjs",
+    "record:fixtures": "node --env-file-if-exists=.env.local scripts/record-ig-fixtures.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

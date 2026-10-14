@@ -52,7 +52,7 @@ If your dashboard only shows the legacy tab, use `anon` for the publishable vari
 
 ## 5. Database extensions
 
-*Database → Extensions* → search and **enable** `pg_cron` (scheduler) and `pg_net` (lets the scheduler call our API). This step is optional: the database migrations I write also run `create extension if not exists`, but enabling them now lets you confirm your plan supports them.
+*Database → Extensions* → search and **enable** `pg_cron` (scheduler) and `pg_net` (lets the scheduler call our API). This step is optional: they are only needed for the fallback scheduler (docs/RUNBOOK_SYNC.md §6); the recommended scheduler is cron-job.org.
 
 ## 6. Generate `CRON_SECRET`
 
@@ -85,7 +85,7 @@ After applying, follow `RUNBOOK_AUTH.md` to verify login and 2FA.
 
 ## What I do next
 
-With the connected Supabase tool I can list your projects to confirm I can reach it, then apply the schema (accounts, tags, daily metrics, profiles, notifications…) with row-level security, the cron schedules, and the login + 2FA code. The database password and access token in `.env.example` are only needed if you'd rather run migrations yourself with the Supabase CLI.
+With the connected Supabase tool I can list your projects to confirm I can reach it, then apply the schema (accounts, tags, daily metrics, profiles, notifications…) with row-level security and the login + 2FA code. The database password and access token in `.env.example` are only needed if you'd rather run migrations yourself with the Supabase CLI.
 
 ## If a key leaks
 
