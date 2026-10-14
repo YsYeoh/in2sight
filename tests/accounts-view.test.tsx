@@ -154,6 +154,30 @@ describe('AccountsView', () => {
     expect(await screen.findByText('Something went wrong. Please try again.')).toBeInTheDocument();
   });
 
+  it('a rejected (non-redirect) action shows the generic error and re-enables the buttons', async () => {
+    const actions = setup();
+    actions.restore.mockRejectedValueOnce(new Error('boom'));
+    const archived = screen.getByText(/Archived \(1\)/).closest('details')!;
+    archived.setAttribute('open', '');
+    const restore = within(archived).getByRole('button', { name: 'Restore' });
+    await userEvent.click(restore);
+    expect(await screen.findByText('Something went wrong. Please try again.')).toBeInTheDocument();
+    expect(restore).toBeEnabled();
+  });
+
+  it('a group literally named like the isolated section does not collide with it', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ accounts: [acct({ id: '1', username: 'a', groupName: 'Isolated accounts' }), acct({ id: '2', username: 'b' })] });
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(2);
+    expect(spy.mock.calls.flat().join(' ')).not.toMatch(/same key/);
+    spy.mockRestore();
+  });
+
+  it('an account without a group shows "No group", not a bare dash', () => {
+    setup({ accounts: [acct({ id: '2', username: 'b' })] });
+    expect(screen.getAllByText('No group').length).toBeGreaterThan(0);
+  });
+
   it('renders hostile group names and usernames as inert text', () => {
     setup({ accounts: [acct({ id: '9', username: 'x', groupName: '<img src=x onerror=alert(1)>' })] });
     expect(document.querySelector('img[src="x"]')).toBeNull();

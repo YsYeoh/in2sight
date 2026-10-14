@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -42,11 +42,6 @@ describe('ConnectDialog', () => {
     expect(screen.getByRole('link', { name: 'Continue with Instagram' })).toHaveAttribute('href', '/api/instagram/connect?group=Brand%20%26%20Co');
   });
 
-  it('starts from the default group when given one', async () => {
-    await open({ defaultGroup: 'Personal' });
-    expect(screen.getByLabelText('Group (optional)')).toHaveValue('Personal');
-  });
-
   it('offers the existing groups as suggestions', async () => {
     await open();
     const list = document.getElementById(screen.getByLabelText('Group (optional)').getAttribute('list')!)!;
@@ -67,5 +62,16 @@ describe('ConnectDialog', () => {
     await open();
     await userEvent.type(screen.getByLabelText('Group (optional)'), '   ');
     expect(screen.getByRole('link', { name: 'Continue with Instagram' })).toHaveAttribute('href', '/api/instagram/connect');
+  });
+
+  it('disables Continue when the group has control characters, instead of silently dropping it', async () => {
+    await open();
+    const input = screen.getByLabelText('Group (optional)');
+    fireEvent.change(input, { target: { value: 'BrandX' } });
+    const cont = screen.getByText('Continue with Instagram');
+    expect(screen.queryByRole('link', { name: 'Continue with Instagram' })).not.toBeInTheDocument();
+    expect(cont.closest('button')).toBeDisabled();
+    fireEvent.change(input, { target: { value: 'Brand X' } });
+    expect(screen.getByRole('link', { name: 'Continue with Instagram' })).toBeInTheDocument();
   });
 });

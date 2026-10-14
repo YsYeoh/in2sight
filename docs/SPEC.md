@@ -33,7 +33,7 @@ Browser ── Next.js (Vercel) ── Supabase Postgres (RLS, owner only)
 ```
 - Cron routes protected by `CRON_SECRET` (sent as a header by pg_net); use Supabase **service role** server-side only.
 - Dashboard reads via the user session (RLS). Tokens table is **service-role only**, never exposed to the browser.
-- One Meta client module (`lib/instagram.ts`): thin `fetch` wrapper, no SDK.
+- One Meta client module (`lib/instagram/oauth.ts`): thin `fetch` wrapper, no SDK.
 
 ## 5. Data model (Postgres)
 | Table | Key columns |

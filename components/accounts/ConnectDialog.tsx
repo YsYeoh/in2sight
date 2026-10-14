@@ -23,10 +23,11 @@ export function connectHref(group: string | null | undefined): string {
   return `/api/instagram/connect${g.ok && g.value ? `?group=${encodeURIComponent(g.value)}` : ''}`;
 }
 
-export function ConnectDialog({ groups, trigger, defaultGroup = '' }: { groups: string[]; trigger: ReactNode; defaultGroup?: string }) {
+export function ConnectDialog({ groups, trigger }: { groups: string[]; trigger: ReactNode }) {
   const t = useTranslations('accounts.connect');
-  const [group, setGroup] = useState(defaultGroup);
+  const [group, setGroup] = useState('');
   const listId = useId();
+  const valid = normalizeGroup(group).ok;
   return (
     <ResponsiveDialog>
       <ResponsiveDialogTrigger asChild>{trigger}</ResponsiveDialogTrigger>
@@ -51,9 +52,13 @@ export function ConnectDialog({ groups, trigger, defaultGroup = '' }: { groups: 
           <ResponsiveDialogClose asChild>
             <Button variant="outline">{t('cancel')}</Button>
           </ResponsiveDialogClose>
-          <Button asChild>
-            <a href={connectHref(group)}>{t('continue')}</a>
-          </Button>
+          {valid ? (
+            <Button asChild>
+              <a href={connectHref(group)}>{t('continue')}</a>
+            </Button>
+          ) : (
+            <Button disabled>{t('continue')}</Button>
+          )}
         </ResponsiveDialogFooter>
       </ResponsiveDialogContent>
     </ResponsiveDialog>

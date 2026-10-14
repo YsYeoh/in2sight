@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { EllipsisVertical, Plus, Users } from 'lucide-react';
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
 import { useTranslations } from 'next-intl';
 import { ConfirmDialog } from '@/components/accounts/ConfirmDialog';
 import { connectHref, ConnectDialog } from '@/components/accounts/ConnectDialog';
@@ -56,13 +57,13 @@ function Identity({ a }: { a: StoredAccount }) {
 }
 
 function GroupBadge({ name }: { name: string | null }) {
-  const t = useTranslations('accounts.token');
+  const t = useTranslations('accounts');
   return name ? (
     <Badge variant="outline" className="max-w-48 truncate">
       {name}
     </Badge>
   ) : (
-    <span className="text-muted-foreground">{t('unknown')}</span>
+    <span className="text-muted-foreground">{t('noGroup')}</span>
   );
 }
 
@@ -210,7 +211,7 @@ export function AccountsView({
     setError(null);
   };
 
-  // no catch: a redirect thrown by the owner check must reach Next's router
+  // a redirect thrown by the owner check must reach Next's router; anything else is a generic error
   async function run(fn: () => Promise<Result>, onDone: () => void) {
     setBusy(true);
     setError(null);
@@ -218,6 +219,9 @@ export function AccountsView({
       const r = await fn();
       if (r.ok) onDone();
       else setError(errorText(r.error));
+    } catch (e) {
+      if (isRedirectError(e)) throw e;
+      setError(errorText());
     } finally {
       setBusy(false);
     }
@@ -230,7 +234,7 @@ export function AccountsView({
   }
 
   const menu = { now: nowDate, onEditGroup: setEditGroup, onArchive: setPendingArchive };
-  const sections = [...named.map(([name, list]) => ({ name, list })), ...(isolated.length ? [{ name: t('isolated'), list: isolated }] : [])];
+  const sections = [...named.map(([name, list]) => ({ key: `g:${name}`, name, list })), ...(isolated.length ? [{ key: 'isolated', name: t('isolated'), list: isolated }] : [])];
   const noticeError = notice?.error && NOTICE_ERRORS.includes(notice.error) ? notice.error : null;
   const addButton = (
     <Button>
@@ -263,8 +267,8 @@ export function AccountsView({
         <EmptyState icon={<Users aria-hidden="true" className="size-5" />} title={t('empty')} description={t('emptyHint')} action={<ConnectDialog groups={allGroups} trigger={addButton} />} />
       ) : (
         <div className="grid gap-[calc(var(--gp)*1.5)]">
-          {sections.map(({ name, list }) => (
-            <section key={name}>
+          {sections.map(({ key, name, list }) => (
+            <section key={key}>
               <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
                 <span className="min-w-0 truncate">{name}</span>
                 <Badge variant="secondary">{formatNumber(list.length, prefs)}</Badge>
