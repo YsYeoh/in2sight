@@ -101,4 +101,41 @@ describe('combine', () => {
     expect(c.reachByDay[6].value).toBe(15);
     expect(combine([])).toBeNull();
   });
+
+  it('a newly connected account does not show up as follower growth', () => {
+    const a = summarize([row('2026-10-01', { followers: 900 }), row('2026-10-08', { followers: 950 }), row(TODAY, { followers: 1000 })], [], 7, TODAY, KL);
+    const b = summarize([row(TODAY, { followers: 12000 })], [], 7, TODAY, KL); // connected today: no history
+    const k = kpis(combine([a, b])!);
+    expect(k.followers).toMatchObject({ value: 13000, prior: null, diff: null, change: null, reason: 'not_enough_history' });
+  });
+
+  it('followers: every account with history compares normally', () => {
+    const mk = (n: number) => summarize([row('2026-10-08', { followers: n }), row(TODAY, { followers: n + 50 })], [], 7, TODAY, KL);
+    expect(kpis(combine([mk(100), mk(200)])!).followers).toMatchObject({ value: 400, prior: 300, diff: 100 });
+  });
+
+  it('engagement rate ignores an account with reach but no interactions', () => {
+    const ok = days(14, () => ({ reach: 100, interactions: 10 }));
+    const noInt = days(14, () => ({ reach: 900 }));
+    const k = kpis(combine([summarize(ok, [], 7, TODAY, KL), summarize(noInt, [], 7, TODAY, KL)])!);
+    expect(k.engagementRate.value).toBeCloseTo(0.1);
+    expect(k.engagementRate.diff).toBeCloseTo(0);
+    expect(k.reach.value).toBe(7 * 1000); // reach itself still sums every account
+  });
+});
+
+describe('stale accounts', () => {
+  it('a latest reach day older than the lag allows ends the window at yesterday, leaving gaps', () => {
+    const rows = days(14, () => ({ reach: 100 }), '2026-10-07'); // stopped syncing a week ago
+    const s = summarize(rows, [], 7, TODAY, KL);
+    expect(s.endDay).toBe('2026-10-14');
+    expect(s.current.days).toBe(0);
+    expect(s.reachByDay.every((d) => d.value === null)).toBe(true);
+    expect(kpis(s).reach.reason).toBe('no_data');
+  });
+
+  it('three days behind yesterday still counts as lag', () => {
+    expect(summarize(days(14, () => ({ reach: 1 }), '2026-10-11'), [], 7, TODAY, KL).endDay).toBe('2026-10-11');
+    expect(summarize(days(14, () => ({ reach: 1 }), '2026-10-10'), [], 7, TODAY, KL).endDay).toBe('2026-10-14');
+  });
 });

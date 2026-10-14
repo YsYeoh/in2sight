@@ -67,6 +67,20 @@ describe('buildOverview', () => {
     expect(state).toEqual({ r: 'needs_reconnect', x: 'needs_reconnect', b: 'backfilling', e: 'no_data', ok: 'ok' });
   });
 
+  it('totals only add up healthy accounts: a reconnecting account does not remove the comparison for the rest', () => {
+    const m = buildOverview(
+      input({
+        accounts: [acct('a', { groupName: 'G' }), acct('r', { groupName: 'G', status: 'needs_reconnect' }), acct('n', { groupName: 'H' }), acct('x', { groupName: 'H', status: 'needs_reconnect' })],
+        sync: { a: synced, r: synced, n: synced, x: synced },
+        daily: { a: days(14, 100), r: days(2, 100), n: [], x: [] },
+      }),
+      OPTS,
+    );
+    expect(m.sections[0].totals?.reach).toMatchObject({ value: 700, prior: 700, reason: null }); // r (2 days of data) is left out
+    expect(m.totals?.reach.value).toBe(700);
+    expect(m.sections[1].totals?.reach).toMatchObject({ value: null, reason: 'no_data' }); // nothing healthy left in H
+  });
+
   it('surfaces sync errors only while failing, and flags (taking off, reach drop)', () => {
     const posts: Post[] = [
       ...Array.from({ length: 6 }, (_, i) => ({ id: `h${i}`, accountId: 'solo', mediaType: 'IMAGE' as const, postedAt: addDays('2026-09-20', i) + 'T00:00:00Z', permalink: null, reach: 100, views: null, likes: null, comments: null, shares: null, saves: null, interactions: null })),
