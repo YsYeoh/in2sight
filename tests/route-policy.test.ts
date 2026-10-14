@@ -25,13 +25,17 @@ describe('anonymous visitor', () => {
   });
 
   it('endpoints that authenticate themselves stay reachable', () => {
-    for (const p of ['/api/cron/sync', '/api/cron/stories', '/api/instagram/deauthorize', '/api/instagram/delete']) {
+    for (const p of ['/api/cron/tick', '/api/instagram/deauthorize', '/api/instagram/delete']) {
       expect(d({ pathname: p }), p).toEqual(next);
     }
   });
 
   it('look-alike paths are NOT public', () => {
     expect(d({ pathname: '/api/cronjobs' })).toEqual(to('/login'));
+    // only the one cron endpoint that exists is exempt, exactly (no suffix, extra segment, slash or case tricks)
+    for (const p of ['/api/cron/tick-evil', '/api/cron/tick/x', '/api/cron/ticks', '/api/cron/tick/', '/api/cron/TICK', '/api/cron/sync', '/api/cron', '/api/cron/', '/api/cron/tick%2Fx', '/x/api/cron/tick']) {
+      expect(d({ pathname: p }), p).toEqual(to('/login'));
+    }
     expect(d({ pathname: '/api/instagram/callback' })).toEqual(to('/login'));
     expect(d({ pathname: '/login-help' })).toEqual(to('/login'));
   });
