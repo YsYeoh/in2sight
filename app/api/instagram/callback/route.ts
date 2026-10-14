@@ -3,6 +3,7 @@ import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import { assertOwner } from '@/lib/auth/assert-owner';
 import { EnvError, getInstagramEnv } from '@/lib/env';
 import { processCallback } from '@/lib/instagram/connect-flow';
+import { clearSyncError } from '@/lib/sync/store';
 import { STATE_COOKIE } from '@/lib/instagram/state';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
@@ -18,9 +19,10 @@ export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams;
   let redirect: string;
   try {
+    const db = createAdminSupabase();
     const result = await processCallback(
       { code: q.get('code'), state: q.get('state'), error: q.get('error'), cookie: request.cookies.get(STATE_COOKIE)?.value },
-      { cfg: getInstagramEnv(), store: supabaseAccountsStore(createAdminSupabase()) },
+      { cfg: getInstagramEnv(), store: supabaseAccountsStore(db), onConnected: (id) => clearSyncError(db, id) },
     );
     redirect = result.redirect;
   } catch (e) {
