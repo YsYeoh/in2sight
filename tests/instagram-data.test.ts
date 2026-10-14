@@ -123,6 +123,7 @@ describe('errors', () => {
     expect(classifyIgError(await fail({ error: { code: 4 } }, 400))).toBe('app_rate_limit');
     expect(classifyIgError(await fail(fixture('error-not-enough-viewers'), 400))).toBe('no_data');
     expect(classifyIgError(await fail(fixture('error-object-missing'), 400))).toBe('gone');
+    expect(classifyIgError(await fail({ error: { code: 100, error_subcode: 2108006 } }, 400))).toBe('no_data'); // posted before the account turned professional
     expect(classifyIgError(await fail({ error: { code: 2 } }, 500))).toBe('transient');
     expect(classifyIgError(await fail({}, 502))).toBe('transient');
     expect(classifyIgError(await fail({ error: { code: 100 } }, 400))).toBe('other');
