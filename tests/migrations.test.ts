@@ -60,3 +60,30 @@ describe('migrations', () => {
       expect(all, `profiles allows ${v}`).toContain(`'${v}'`);
   });
 });
+
+describe('accounts migration', () => {
+  const accounts = all;
+
+  it('creates accounts with the columns the app relies on', () => {
+    for (const col of ['ig_user_id', 'username', 'display_name', 'account_type', 'profile_picture_url', 'group_name', 'status', 'archived_at', 'last_error', 'token_expires_at', 'connected_at'])
+      expect(accounts, col).toMatch(new RegExp(`\\b${col}\\b`));
+    expect(accounts).toMatch(/ig_user_id\s+text\s+not\s+null\s+unique/i);
+    expect(accounts).toMatch(/status\s+in\s*\(\s*'active'\s*,\s*'needs_reconnect'\s*,\s*'archived'\s*\)/i);
+    expect(accounts).toMatch(/char_length\(group_name\)\s+between\s+1\s+and\s+40/i);
+  });
+
+  it('account_tokens is invisible to the owner browser session: an explicit deny-all policy plus a revoke', () => {
+    expect(accounts).toMatch(/create\s+policy\s+\w+\s+on\s+public\.account_tokens[^;]*using\s*\(\s*false\s*\)[^;]*with\s+check\s*\(\s*false\s*\)/i);
+    expect(accounts).not.toMatch(/create\s+policy\s+\w+\s+on\s+public\.account_tokens[^;]*using\s*\(\s*true\s*\)/i);
+    expect(accounts).toMatch(/revoke\s+all\s+on\s+public\.account_tokens\s+from\s+anon\s*,\s*authenticated/i);
+  });
+
+  it('the owner session can only read accounts (select policy gated on is_owner); writes go through the admin client', () => {
+    expect(accounts).toMatch(/create\s+policy\s+accounts_owner_select\s+on\s+public\.accounts[^;]*for\s+select[^;]*public\.is_owner\(\)/i);
+    expect(accounts).not.toMatch(/create\s+policy\s+\w+\s+on\s+public\.accounts[^;]*for\s+(all|insert|update|delete)\b/i);
+  });
+
+  it('tokens cascade away with their account', () => {
+    expect(accounts).toMatch(/account_id\s+uuid\s+primary\s+key\s+references\s+public\.accounts\s*\(id\)\s+on\s+delete\s+cascade/i);
+  });
+});
