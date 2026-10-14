@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { NAV_ITEMS, isActive } from '@/lib/nav';
 
 describe('navigation model', () => {
-  it('lists the four main destinations in order', () => {
-    expect(NAV_ITEMS.map((i) => i.href)).toEqual(['/overview', '/accounts', '/tags', '/settings']);
-    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['overview', 'accounts', 'tags', 'settings']);
+  it('lists the five main destinations in order', () => {
+    expect(NAV_ITEMS.map((i) => i.href)).toEqual(['/overview', '/accounts', '/tags', '/calendar', '/settings']);
+    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['overview', 'accounts', 'tags', 'calendar', 'settings']);
   });
 
   it('isActive matches the route and its children, not look-alike prefixes', () => {
