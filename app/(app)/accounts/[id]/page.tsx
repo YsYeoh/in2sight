@@ -1,11 +1,14 @@
 import { notFound } from 'next/navigation';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
+import { PostsTab } from '@/components/account/PostsTab';
+import { setPostTagsAction } from '@/app/(app)/tags/actions';
 import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
-import { loadOnline } from '@/lib/dashboard/detail-read';
+import { buildPosts, parsePostFilters } from '@/lib/dashboard/content';
+import { loadOnline, loadPostRows, loadTags } from '@/lib/dashboard/detail-read';
 import { fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
 import { loadDaily, loadPosts } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
@@ -20,6 +23,12 @@ type Ctx = { db: Awaited<ReturnType<typeof createServerSupabase>>; account: Stor
 /** Each tab loads only its own data. */
 async function tabContent(tab: Tab, c: Ctx) {
   switch (tab) {
+    case 'posts': {
+      const [rows, tags] = await Promise.all([loadPostRows(c.db, c.account.id), loadTags(c.db)]);
+      const filters = parsePostFilters(c.sp);
+      // the imported server action is passed straight to the client component (never wrapped in a closure here)
+      return <PostsTab posts={buildPosts(rows, tags, filters, c.prefs.timezone)} total={rows.length} tags={tags} filters={filters} setPostTags={setPostTagsAction} />;
+    }
     default: {
       const period = parsePeriod(c.sp.period);
       const pool = poolFor(c.account, c.accounts);

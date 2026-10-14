@@ -10,7 +10,8 @@
     "empty": "暂无内容",
     "sortBy": "排序方式",
     "defaultOrder": "默认顺序",
-    "ascending": "升序"
+    "ascending": "升序",
+    "showMore": "显示更多"
   },
   "nav": {
     "overview": "总览",
@@ -326,12 +327,47 @@
       "bestTimePosts": "你的帖子表现",
       "bestTimeScope": "热力图范围",
       "thisAccount": "此账号",
-      "pooled": "{count, plural, other {合并 # 个账号}}"
+      "pooled": "{count, plural, other {合并 # 个账号}}",
+      "posts": {
+        "caption": "帖子",
+        "count": "显示 {shown} / {total} 篇帖子",
+        "empty": "没有符合筛选条件的帖子",
+        "format": "形式",
+        "tag": "标签",
+        "all": "全部",
+        "untagged": "未加标签",
+        "from": "开始日期",
+        "to": "结束日期",
+        "apply": "应用",
+        "reset": "重置",
+        "post": "帖子",
+        "open": "在 Instagram 中打开{post}",
+        "noCaption": "无文案",
+        "likes": "点赞",
+        "comments": "评论",
+        "saves": "收藏",
+        "shares": "分享",
+        "tags": "标签",
+        "edit": "编辑",
+        "editTags": "编辑{post}的标签",
+        "tagTitle": "此帖子的标签",
+        "noTags": "还没有标签。",
+        "manageTags": "创建标签",
+        "save": "保存",
+        "cancel": "取消"
+      }
     },
     "tags": {
       "title": "标签",
       "empty": "标签功能随数据看板推出",
-      "emptyHint": "连接账号后即可在这里为帖子打标签。"
+      "emptyHint": "连接账号后即可在这里为帖子打标签。",
+      "errors": {
+        "invalid_name": "请使用 1–40 个字符（不含控制字符）。",
+        "duplicate": "已有同名标签。",
+        "not_found": "该标签或帖子已不存在，请刷新页面。",
+        "too_many": "每篇帖子最多 10 个标签。",
+        "unexpected": "出了点问题，请重试。"
+      }
     }
   },
   "metrics": {
