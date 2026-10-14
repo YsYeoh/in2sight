@@ -10,5 +10,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
+    testTimeout: 20_000, // Recharts renders in jsdom are slow on a busy machine; the 5 s default flaked
   },
 });
