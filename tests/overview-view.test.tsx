@@ -22,7 +22,7 @@ const acct = (id: string, o: Partial<StoredAccount> = {}): StoredAccount => ({ i
 const days = (n: number, reach: number, followers = 1000): DailyRow[] => Array.from({ length: n }, (_, i) => ({ day: addDays(TODAY, i - n), followers, reach, views: reach * 2, accountsEngaged: null, interactions: reach / 10, follows: null, unfollows: null, linkTaps: null }));
 const synced = { lastSuccessAt: '2026-10-15T03:00:00Z', lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-14' };
 const LONG = 'a_really_long_instagram_handle_that_goes_on_and_on_forever';
-const hit: Post = { id: 'hit', accountId: 'brand.one', mediaType: 'REELS', postedAt: '2026-10-13T00:00:00Z', permalink: 'https://www.instagram.com/reel/hit/', reach: 900, views: null, likes: null, comments: null, shares: null, saves: null, interactions: null };
+const hit: Post = { id: 'hit', accountId: 'brand.one', mediaType: 'REELS', postedAt: '2026-10-13T00:00:00Z', permalink: 'https://www.instagram.com/reel/hit/', reach: 900, views: null, likes: null, comments: null, shares: null, saves: null };
 const history: Post[] = Array.from({ length: 6 }, (_, i) => ({ ...hit, id: `h${i}`, mediaType: 'IMAGE', postedAt: `${addDays('2026-09-20', i)}T00:00:00Z`, reach: 100 }));
 
 const input: OverviewInput = {
@@ -57,6 +57,9 @@ describe('OverviewView', () => {
     expect(screen.getByRole('link', { name: '7 days' })).toHaveAttribute('aria-current', 'page');
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
     expect(headings.slice(0, 2)).toEqual([expect.stringContaining('Brand X'), expect.stringContaining(en.pages.overview.isolated)]);
+    // each group section is named by its own heading, even for names with spaces and the isolated group
+    expect(screen.getByRole('region', { name: /Brand X/ })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: new RegExp(en.pages.overview.isolated) })).toBeInTheDocument();
   });
 
   it('card states: reconnect badge + link, backfilling note, sync error, taking-off flag linking to the post', () => {

@@ -8,7 +8,7 @@ const TODAY = '2026-10-15';
 const row = (day: string, o: Partial<DailyRow> = {}): DailyRow => ({ day, followers: null, reach: null, views: null, accountsEngaged: null, interactions: null, follows: null, unfollows: null, linkTaps: null, ...o });
 /** n consecutive days ending yesterday (oldest first), each built by f(i). */
 const days = (n: number, f: (i: number) => Partial<DailyRow>, end = addDays(TODAY, -1)) => Array.from({ length: n }, (_, i) => row(addDays(end, i - n + 1), f(i)));
-const post = (id: string, postedAt: string, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt, permalink: null, reach: null, views: null, likes: null, comments: null, shares: null, saves: null, interactions: null, ...o });
+const post = (id: string, postedAt: string, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt, permalink: null, reach: null, views: null, likes: null, comments: null, shares: null, saves: null, ...o });
 
 describe('summarize + kpis', () => {
   it('compares the period with the preceding period of equal length', () => {

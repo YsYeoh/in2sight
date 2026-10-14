@@ -83,8 +83,8 @@ describe('buildOverview', () => {
 
   it('surfaces sync errors only while failing, and flags (taking off, reach drop)', () => {
     const posts: Post[] = [
-      ...Array.from({ length: 6 }, (_, i) => ({ id: `h${i}`, accountId: 'solo', mediaType: 'IMAGE' as const, postedAt: addDays('2026-09-20', i) + 'T00:00:00Z', permalink: null, reach: 100, views: null, likes: null, comments: null, shares: null, saves: null, interactions: null })),
-      { id: 'hit', accountId: 'solo', mediaType: 'REELS', postedAt: '2026-10-13T00:00:00Z', permalink: null, reach: 500, views: null, likes: null, comments: null, shares: null, saves: null, interactions: null },
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `h${i}`, accountId: 'solo', mediaType: 'IMAGE' as const, postedAt: addDays('2026-09-20', i) + 'T00:00:00Z', permalink: null, reach: 100, views: null, likes: null, comments: null, shares: null, saves: null })),
+      { id: 'hit', accountId: 'solo', mediaType: 'REELS', postedAt: '2026-10-13T00:00:00Z', permalink: null, reach: 500, views: null, likes: null, comments: null, shares: null, saves: null },
     ];
     const drop = [...days(14, 100).slice(0, 7), ...days(7, 50)];
     const m = buildOverview(input({ accounts: [acct('solo')], sync: { solo: { ...synced, lastErrorKey: 'rate_limited', consecutiveFailures: 2 } }, daily: { solo: drop }, posts: { solo: posts } }), OPTS);

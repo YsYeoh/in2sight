@@ -28,7 +28,6 @@ export interface Post {
   comments: number | null;
   shares: number | null;
   saves: number | null;
-  interactions: number | null;
 }
 
 /** One online_followers row: 24 values, index = hour as Instagram reports it (hour base UNCERTAIN, see lib/instagram/metrics.ts). */

@@ -37,7 +37,7 @@ In every theme and mode:
 
 1. Period selector 7 / 30 / 90 days: numbers change, the URL shows `?period=…`, "vs previous N days" follows.
 2. Compare one account's 7-day reach on its card with Instagram's app (Professional dashboard → Insights → Accounts reached, last 7 days). Expect the same order of magnitude, not an exact match: we sum daily reach (SPEC §7), Instagram shows unique accounts.
-3. An account under 100 followers: net follows show "Instagram shares this from 100 followers".
+3. An account under 100 followers: Instagram returns little data, so the card shows dashes and a short reason instead of numbers (never 0, NaN or a fake change).
 4. A freshly connected account: card says "Importing history…" until the first daily sync writes a day.
 5. An account in `needs_reconnect`: red "Needs reconnect" badge + link to `/accounts`.
 6. Comparison card: group scope first (if a group has 2+ accounts), "All accounts" widens it; isolated accounts appear only under "All accounts".
