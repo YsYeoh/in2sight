@@ -143,7 +143,7 @@ describe('clearSyncError', () => {
 describe('listSyncStatus', () => {
   it('maps rows by account id and is empty on error', async () => {
     const r = recorder([{ data: [{ account_id: 'a1', last_success_at: NOW, last_error_key: null, consecutive_failures: 0 }] }]);
-    expect(await listSyncStatus(r.db)).toEqual({ a1: { lastSuccessAt: NOW, lastErrorKey: null, consecutiveFailures: 0 } });
+    expect(await listSyncStatus(r.db)).toEqual({ a1: { lastSuccessAt: NOW, lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: null } });
     expect(await listSyncStatus(recorder([{ error: { message: 'x' } }]).db)).toEqual({});
   });
 });
