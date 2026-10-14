@@ -48,6 +48,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] `/api/export/pdf` (puppeteer-core + @sparticuz/chromium), signed short-lived token, bundled Noto Sans SC
 
 ## 4. Analysis
+- [x] Plan 6 part 1 (analysis + Overview) written: `docs/superpowers/plans/2026-10-16-06-analysis-overview.md` (implementation pending)
 - [ ] `lib/analysis`: growth, top posts, format comparison, best-time heatmap, per-tag, flags (+ vitest)
 
 ## 5. UI foundation (before pages)
