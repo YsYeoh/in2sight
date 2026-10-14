@@ -152,3 +152,13 @@ export function formatCountry(code: string, p: Pick<FormatPrefs, 'locale'>): str
     return c;
   }
 }
+
+const MONTHS_EN_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** A calendar month 'YYYY-MM' (already in the owner's timezone): "October 2026" in English, year-month with the CJK 'nian'/'yue' suffixes in zh-CN. */
+export function formatMonth(month: string, p: Pick<FormatPrefs, 'locale'>): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  const i = m ? Number(m[2]) - 1 : -1;
+  if (!m || i < 0 || i > 11) return DASH;
+  return p.locale === 'zh-CN' ? `${m[1]}\u5e74${i + 1}\u6708` : `${MONTHS_EN_FULL[i]} ${m[1]}`;
+}
