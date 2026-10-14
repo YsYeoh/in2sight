@@ -42,6 +42,13 @@ describe('Sparkline', () => {
     expect(container.querySelectorAll('polyline')).toHaveLength(2);
     expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
+  it('a single day between gaps is drawn as a dot, not lost', () => {
+    const { container } = render(<Sparkline data={[1, null, 5, null, 2, 3]} />);
+    const dots = container.querySelectorAll('[data-dot]');
+    expect(dots).toHaveLength(2); // days 1 and 5; the 2-day run is a normal line
+    expect(container.querySelectorAll('polyline')).toHaveLength(3);
+    expect(dots[0].getAttribute('points')).toMatch(/^0\.00,/);
+  });
   it('renders nothing with fewer than two points or a flat/empty series without NaN', () => {
     expect(render(<Sparkline data={[null, 5]} />).container.innerHTML).toBe('');
     const { container } = render(<Sparkline data={[0, 0, 0]} />);

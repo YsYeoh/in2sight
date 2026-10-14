@@ -24,9 +24,10 @@ export function Sparkline({ data, className, height = 32 }: { data: (number | nu
   if (cur.length) segments.push(cur.join(' '));
   return (
     <svg data-slot="sparkline" aria-hidden="true" focusable="false" className={cn('block w-full text-chart-1', className)} height={height} viewBox={`0 0 100 ${height}`} preserveAspectRatio="none">
-      {segments.map((pts) => (
-        <polyline key={pts} points={pts} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-      ))}
+      {segments.map((pts) => {
+        const dot = !pts.includes(' '); // a lone day between gaps: a zero-length round-capped line is a dot at any stretch
+        return <polyline key={pts} data-dot={dot ? '' : undefined} points={dot ? `${pts} ${pts}` : pts} fill="none" stroke="currentColor" strokeWidth={dot ? 4 : 1.6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />;
+      })}
     </svg>
   );
 }
