@@ -169,6 +169,81 @@
       "email": "登录账号"
     }
   },
+  "accounts": {
+    "title": "账号",
+    "subtitle": "连接、分组并监控你的 Instagram 账号",
+    "add": "添加账号",
+    "isolated": "独立账号",
+    "archivedTitle": "已归档（{count}）",
+    "connectedAs": "已连接 {username}",
+    "empty": "还没有账号",
+    "emptyHint": "连接一个 Instagram 账号即可开始收集数据洞察。",
+    "columns": {
+      "account": "账号",
+      "group": "分组",
+      "token": "令牌",
+      "status": "状态",
+      "connected": "连接时间"
+    },
+    "status": {
+      "active": "正常",
+      "expiring": "即将过期",
+      "reconnect": "需重连",
+      "archived": "已归档"
+    },
+    "token": {
+      "daysLeft": "剩余 {days} 天",
+      "expired": "已过期",
+      "unknown": "—",
+      "label": "令牌有效期"
+    },
+    "menu": {
+      "open": "账号操作",
+      "editGroup": "修改分组",
+      "reconnect": "重新连接",
+      "archive": "归档",
+      "restore": "恢复",
+      "delete": "永久删除"
+    },
+    "connect": {
+      "title": "添加 Instagram 账号",
+      "group": "分组（可选）",
+      "groupHint": "留空则作为独立账号。",
+      "notes": "仅支持创作者或商业账号。你将在 Instagram 官方页面登录并授予只读权限。",
+      "continue": "使用 Instagram 继续",
+      "cancel": "取消"
+    },
+    "group": {
+      "title": "修改分组",
+      "save": "保存"
+    },
+    "archive": {
+      "title": "归档 @{username}？",
+      "body": "将停止同步并隐藏该账号，历史数据会保留，重新连接即可恢复。",
+      "confirm": "归档"
+    },
+    "delete": {
+      "title": "永久删除 @{username}？",
+      "body": "该账号已收集的所有历史数据都将被清除，且无法恢复。请输入用户名以确认。",
+      "confirm": "永久删除",
+      "cancel": "取消"
+    },
+    "errors": {
+      "access_denied": "未获得 Instagram 授权。",
+      "state_mismatch": "登录会话已过期，请重试。",
+      "missing_code": "Instagram 未返回登录凭证，请重试。",
+      "exchange_failed": "Instagram 拒绝了登录，请重试。",
+      "profile_failed": "无法读取账号资料，请重试。",
+      "not_professional": "该账号不是创作者或商业账号，请先在 Instagram 中切换。",
+      "save_failed": "无法保存账号，请重试。",
+      "not_configured": "尚未配置 Instagram。请参阅 docs/META_SETUP.md。",
+      "unauthorized": "你没有执行此操作的权限。",
+      "unexpected": "出了点问题，请重试。",
+      "invalid_group": "分组名称无效（最多 40 个字符）。",
+      "not_found": "该账号已不存在。",
+      "not_archived": "只有已归档的账号才能执行此操作。"
+    }
+  },
   "pages": {
     "overview": {
       "title": "总览",
@@ -180,9 +255,6 @@
       "title": "标签",
       "empty": "标签功能随数据看板推出",
       "emptyHint": "连接账号后即可在这里为帖子打标签。"
-    },
-    "accounts": {
-      "title": "账号"
     }
   },
   "setup": {
