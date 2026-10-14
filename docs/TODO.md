@@ -48,23 +48,25 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] `/api/export/pdf` (puppeteer-core + @sparticuz/chromium), signed short-lived token, bundled Noto Sans SC
 
 ## 4. Analysis
-- [x] Plan 6 part 1 (analysis + Overview) written: `docs/superpowers/plans/2026-10-16-06-analysis-overview.md` (implementation pending)
-- [ ] `lib/analysis`: growth, top posts, format comparison, best-time heatmap, per-tag, flags (+ vitest)
+- [x] Plan 6 part 1 (analysis + Overview) written: `docs/superpowers/plans/2026-10-16-06-analysis-overview.md` (part 1 implemented; part 2 pending)
+- [x] `lib/analysis`: growth, top posts, format comparison, best-time heatmap, per-tag (tags arrive in Plan 6 part 2), flags (+ vitest) (Plan 6 part 1)
 
 ## 5. UI foundation (before pages)
 - [x] Tailwind + shadcn/ui, FormField/PageHeader/EmptyState/ResponsiveDialog/AppShell (Plan 2)
-- [ ] DataTable, StatCard, ChartCard (Plan 6)
-- [ ] /styleguide gallery: primitives done (Plan 2); charts/tables/motion added in Plan 6
+- [x] DataTable, StatCard, ChartCard (Plan 6)
+- [x] /styleguide gallery: primitives (Plan 2); stat cards, charts, heatmap, data table (Plan 6) — code done; visual matrix pending in docs/RUNBOOK_DASHBOARDS.md
 - [x] Theme tokens + 4 themes (Ink, Sunset, Forest, Mono) × light/dark; radius presets; text-contrast test (chart colours are checked visually in the styleguide)
 - [x] next-intl with en + zh-CN, key/placeholder parity test, language switcher (PrefsBar)
 - [x] `lib/format.ts` (date/time/number per user settings)
-- [ ] `lib/metrics.ts` registry (Plan 2/6)
+- [x] `lib/metrics.ts` registry (Plan 6)
 - [x] Responsive shell: bottom tab bar / icon rail / sidebar; bottom-sheet dialogs; touch targets (dialog close X is 16px — known gap)
-- [ ] DataTable card mode (Plan 6)
-- [ ] PWA: manifest, icons, service worker (static + offline page only), install prompt; motion gating (reduced-motion, mobile, Save-Data)
+- [x] DataTable card mode (Plan 6)
+- [x] Motion gating helper (`lib/motion.ts`: reduced-motion, coarse pointer, Save-Data) (Plan 6)
+- [ ] PWA: manifest, icons, service worker (static + offline page only), install prompt
 
 ## 6. UI pages (use `frontend-design`)
-- [ ] Overview (grouped cards), Account detail (incl. Stories, calendar, flags, tags), Accounts (connect/group), Tags
+- [x] Overview (grouped cards, totals, comparison, period selector) — code done; visual verification with real data pending (docs/RUNBOOK_DASHBOARDS.md)
+- [ ] Account detail (incl. Stories, calendar, flags, tags), Tags page (Plan 6 part 2)
 
 ## 7. Later
 - [ ] (C) Weekly AI summary per account via Claude API

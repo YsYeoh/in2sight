@@ -60,6 +60,15 @@
     "sampleDelta": "Change",
     "greeting": "Welcome back, {name}",
     "gallery": {
+      "stats": "Stat cards",
+      "charts": "Charts",
+      "lineChart": "Line chart",
+      "areaChart": "Area chart",
+      "barChart": "Bar chart",
+      "heatmap": "Best time heatmap",
+      "dataTable": "Data table",
+      "sampleComparison": "vs previous 30 days",
+      "sampleSummary": "Sample data: daily reach of three accounts over 30 days.",
       "buttons": "Buttons",
       "inputs": "Inputs",
       "select": "Select",
@@ -301,6 +310,11 @@
     "netFollows": "Net follows"
   },
   "analysis": {
+    "low": "Low",
+    "high": "High",
+    "lowSample": "too few posts",
+    "heatCell": "{day} {hour}:00 · {value} · {count} posts",
+    "weekday": { "0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat" },
     "reasons": {
       "no_data": "No data yet",
       "needs_100_followers": "Instagram shares this from 100 followers",

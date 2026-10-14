@@ -60,6 +60,15 @@
     "sampleDelta": "变化",
     "greeting": "欢迎回来,{name}",
     "gallery": {
+      "stats": "统计卡片",
+      "charts": "图表",
+      "lineChart": "折线图",
+      "areaChart": "面积图",
+      "barChart": "柱状图",
+      "heatmap": "最佳发布时间热力图",
+      "dataTable": "数据表",
+      "sampleComparison": "对比前 30 天",
+      "sampleSummary": "示例数据：三个账号近 30 天的每日触达。",
       "buttons": "按钮",
       "inputs": "输入框",
       "select": "下拉选择",
@@ -301,6 +310,11 @@
     "netFollows": "净增粉丝"
   },
   "analysis": {
+    "low": "低",
+    "high": "高",
+    "lowSample": "帖子太少",
+    "heatCell": "{day} {hour}:00 · {value} · {count} 篇帖子",
+    "weekday": { "0": "周日", "1": "周一", "2": "周二", "3": "周三", "4": "周四", "5": "周五", "6": "周六" },
     "reasons": {
       "no_data": "暂无数据",
       "needs_100_followers": "粉丝达到 100 后 Instagram 才提供此数据",
