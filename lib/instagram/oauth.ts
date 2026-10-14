@@ -3,17 +3,18 @@ export const IG_SCOPES = ['instagram_business_basic', 'instagram_business_manage
 export interface IgConfig { appId: string; appSecret: string; redirectUri: string; apiVersion: string }
 export interface IgProfile { userId: string; username: string; name: string | null; accountType: string | null; profilePictureUrl: string | null }
 
-type Kind = 'oauth' | 'token' | 'profile' | 'network';
+type Kind = 'oauth' | 'token' | 'profile' | 'data' | 'network';
 const MESSAGES: Record<Kind, string> = {
   oauth: 'instagram oauth failed',
   token: 'instagram token request failed',
   profile: 'instagram profile request failed',
+  data: 'instagram data request failed',
   network: 'instagram request failed (network)',
 };
 
 /** Fixed message per kind: response bodies, tokens, codes and secrets never end up in an error. */
 export class InstagramApiError extends Error {
-  constructor(public kind: Kind, public status?: number, public code?: number) {
+  constructor(public kind: Kind, public status?: number, public code?: number, public subcode?: number) {
     super(MESSAGES[kind]);
     this.name = 'InstagramApiError';
   }
@@ -30,7 +31,7 @@ export function buildAuthorizeUrl(cfg: IgConfig, state: string): string {
   return u.toString();
 }
 
-async function call(kind: Kind, fetchFn: typeof fetch, url: string, init?: RequestInit): Promise<Record<string, unknown>> {
+export async function call(kind: Kind, fetchFn: typeof fetch, url: string, init?: RequestInit): Promise<Record<string, unknown>> {
   let res: Response;
   try {
     res = await fetchFn(url, init);
@@ -44,9 +45,10 @@ async function call(kind: Kind, fetchFn: typeof fetch, url: string, init?: Reque
     // non-JSON body: fall through with the status only
   }
   if (!res.ok) {
-    const err = body.error as { code?: unknown } | undefined;
+    const err = body.error as { code?: unknown; error_subcode?: unknown } | undefined;
     const raw = typeof err === 'object' && err ? err.code : body.code;
-    throw new InstagramApiError(kind, res.status, typeof raw === 'number' ? raw : undefined);
+    const sub = typeof err === 'object' && err ? err.error_subcode : undefined;
+    throw new InstagramApiError(kind, res.status, typeof raw === 'number' ? raw : undefined, typeof sub === 'number' ? sub : undefined);
   }
   return body;
 }
