@@ -271,6 +271,12 @@
     }
   },
   "pages": {
+    "error": {
+      "title": "出了点问题",
+      "hint": "无法加载此页面。请重试，或前往账号页面。",
+      "retry": "重试",
+      "accounts": "前往账号"
+    },
     "overview": {
       "title": "总览",
       "empty": "还没有账号",
