@@ -311,7 +311,7 @@
   "metrics": {
     "followers": "粉丝",
     "reach": "触达",
-    "views": "播放",
+    "views": "浏览量",
     "engagementRate": "互动率",
     "posts": "帖子",
     "netFollows": "净增粉丝"
@@ -320,7 +320,8 @@
     "low": "低",
     "high": "高",
     "lowSample": "帖子太少",
-    "heatCell": "{day} {hour}:00 · {value} · {count} 篇帖子",
+    "heatCell": "{day} {hour} · {value} · {count, plural, other {#篇帖子}}",
+    "heatCellLow": "{day} {hour}，{reason}",
     "weekday": { "0": "周日", "1": "周一", "2": "周二", "3": "周三", "4": "周四", "5": "周五", "6": "周六" },
     "reasons": {
       "no_data": "暂无数据",

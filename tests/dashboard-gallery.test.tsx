@@ -26,6 +26,11 @@ describe.each([
     for (const label of [g.stats, g.charts, g.lineChart, g.areaChart, g.barChart, g.dataTable]) expect(screen.getAllByText(label).length, label).toBeGreaterThan(0);
     expect(screen.getByRole('table', { name: g.heatmap })).toBeInTheDocument();
     expect(screen.getAllByText(messages.analysis.weekday['1']).length).toBeGreaterThan(0);
+    // sample values go through lib/format.ts (the 24h default shows 13:00; plural count is ICU)
+    expect(screen.getAllByText('18,204').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('+3.1%').length).toBeGreaterThan(0);
+    expect(container.textContent).toMatch(locale === 'en' ? /\d+ posts/ : /\d+篇帖子/);
+    expect(container.textContent).toContain('13:00');
     expect(container.textContent).not.toMatch(/NaN|Infinity|undefined/);
   });
 });

@@ -12,7 +12,7 @@ import { DataTable } from '@/components/shared/DataTable';
 import { StatCard } from '@/components/shared/StatCard';
 import { postHeatmap } from '@/lib/analysis/best-time';
 import type { Post } from '@/lib/analysis/types';
-import { formatCompact, formatDay, formatPercent } from '@/lib/format';
+import { formatCompact, formatDay, formatDelta, formatHour, formatNumber, formatPercent } from '@/lib/format';
 import { addDays } from '@/lib/sync/time';
 
 const DAYS = Array.from({ length: 30 }, (_, i) => addDays('2026-09-15', i));
@@ -44,7 +44,7 @@ export function DashboardGallery() {
   const to = useTranslations('pages.overview');
   const { prefs } = usePrefs();
   const heat = postHeatmap(POSTS, prefs.timezone, prefs.weekStart);
-  const hours = Array.from({ length: 24 }, (_, h) => String(h));
+  const hours = Array.from({ length: 24 }, (_, h) => formatHour(h, prefs));
   const fmtY = (n: number) => formatCompact(n, prefs);
   const fmtX = (d: string) => formatDay(d, prefs);
 
@@ -52,9 +52,9 @@ export function DashboardGallery() {
     <section className="grid gap-[var(--gp)]">
       <h2 className="text-[length:var(--fh)] font-medium">{t('stats')}</h2>
       <div className="grid grid-cols-2 gap-[var(--gp)] lg:grid-cols-4">
-        <StatCard label={tm('followers')} value="18,204" delta={{ text: '+3.1%', direction: 'up', tone: 'good' }} comparison={t('sampleComparison')} spark={<Sparkline data={ROWS.map((r) => r.a)} />} />
-        <StatCard label={tm('reach')} value="241K" delta={{ text: '-18.0%', direction: 'down', tone: 'bad' }} comparison={t('sampleComparison')} spark={<Sparkline data={ROWS.map((r) => r.b)} className="text-destructive" />} />
-        <StatCard label={tm('engagementRate')} value="4.8%" delta={{ text: '0.0%', direction: 'flat', tone: 'neutral' }} comparison={t('sampleComparison')} />
+        <StatCard label={tm('followers')} value={formatNumber(18204, prefs)} delta={{ text: formatDelta(0.031, prefs), direction: 'up', tone: 'good' }} comparison={t('sampleComparison')} spark={<Sparkline data={ROWS.map((r) => r.a)} />} />
+        <StatCard label={tm('reach')} value={formatCompact(241000, prefs)} delta={{ text: formatDelta(-0.18, prefs), direction: 'down', tone: 'bad' }} comparison={t('sampleComparison')} spark={<Sparkline data={ROWS.map((r) => r.b)} className="text-destructive" />} />
+        <StatCard label={tm('engagementRate')} value={formatPercent(0.048, prefs)} delta={{ text: formatDelta(0, prefs), direction: 'flat', tone: 'neutral' }} comparison={t('sampleComparison')} />
         <StatCard label={tm('netFollows')} value="—" comparison={t('sampleComparison')} note={ta('reasons.needs_100_followers')} />
       </div>
 
@@ -80,7 +80,9 @@ export function DashboardGallery() {
               cells: r.cells.map((c, h) => ({
                 value: c.value,
                 lowSample: c.lowSample,
-                label: c.lowSample ? `${ta(`weekday.${r.weekday}`)} ${h}:00 · ${ta('lowSample')}` : ta('heatCell', { day: ta(`weekday.${r.weekday}`), hour: h, value: formatPercent(c.value, prefs), count: c.count }),
+                label: c.lowSample
+                  ? ta('heatCellLow', { day: ta(`weekday.${r.weekday}`), hour: hours[h], reason: ta('lowSample') })
+                  : ta('heatCell', { day: ta(`weekday.${r.weekday}`), hour: hours[h], value: formatPercent(c.value, prefs), count: c.count }),
               })),
             }))}
           />

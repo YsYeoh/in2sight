@@ -63,6 +63,11 @@ export function formatTime(v: DateInput, p: FormatPrefs): string {
   return p.locale === 'zh-CN' ? `${h < 12 ? '上午' : '下午'}${h12}:${minute}` : `${h12}:${minute} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+/** An hour of the day 0-23 that is already in the owner's timezone (heatmap columns): no timezone shift. */
+export function formatHour(hour: number, p: FormatPrefs): string {
+  return formatTime(`1970-01-01T${String(hour).padStart(2, '0')}:00:00Z`, { ...p, timezone: 'UTC' });
+}
+
 export function formatDateTime(v: DateInput, p: FormatPrefs): string {
   const d = toDate(v);
   return d ? `${formatDate(d, p)} ${formatTime(d, p)}` : DASH;
