@@ -3232,3 +3232,591 @@ git commit -m "feat: posts tab with filters, paging and tag assignment" -m "Co-A
 ```
 
 ---
+
+### Task 11: Stories + Audience tabs + motion-gated globe
+
+**Files:**
+- Create: `components/account/StoriesTab.tsx`, `components/account/AudienceTab.tsx`, `components/account/Globe.tsx`
+- Modify: `app/(app)/accounts/[id]/page.tsx` (stories + audience branches), `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/stories-audience.test.tsx` (new), `tests/account-page.test.tsx` (two more cases)
+
+**Interfaces:**
+- Consumes: `buildStories`, `StoryView` (Task 6); `buildAudience`, `AudienceModel`, `Ranked`, `GlobePoint` (Task 7); `loadStories`, `loadAudience` (Task 3); `formatCountry` (Task 7); `useHeavyMotion()` (`lib/motion.ts`); `Sparkline`, `ChartCard`, `EmptyState`; `dayStart`, `addDays`.
+- Produces: `StoriesTab({ stories })`, `AudienceTab({ model })`, default export `Globe({ points })`.
+
+Globe notes: zero dependencies (see Decisions). `next/dynamic(() => import('@/components/account/Globe'), { ssr: false })` keeps its code out of the initial bundle and off the server; `useHeavyMotion()` is false during SSR/hydration, on touch devices, under reduced motion and with Save-Data, so it only mounts on capable desktops. It reads `--surface`, `--border`, `--chart-1` from CSS on every frame (theme switches apply live) and cancels its animation frame on unmount.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/stories-audience.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import type { ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { AudienceTab } from '@/components/account/AudienceTab';
+import { StoriesTab } from '@/components/account/StoriesTab';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { buildAudience } from '@/lib/dashboard/audience';
+import { buildStories } from '@/lib/dashboard/content';
+import type { StoryRow } from '@/lib/dashboard/detail-read';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const motion = vi.hoisted(() => ({ heavy: false }));
+vi.mock('@/lib/motion', () => ({ useHeavyMotion: () => motion.heavy }));
+beforeEach(() => {
+  motion.heavy = false;
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null); // jsdom has no canvas; the globe bails out
+});
+afterEach(() => vi.restoreAllMocks());
+
+function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        {ui}
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+const NOW = new Date('2026-10-15T04:00:00Z');
+const snap = (capturedAt: string, views: number, exits: number) => ({ capturedAt, reach: views - 1, views, replies: 1, shares: 0, interactions: 2, tapsForward: 3, tapsBack: 0, exits });
+const story = (id: string, postedAt: string, snapshots: ReturnType<typeof snap>[]): StoryRow => ({ id, postedAt, expiresAt: new Date(Date.parse(postedAt) + 86_400_000).toISOString(), permalink: id === 's1' ? 'https://www.instagram.com/stories/x/1/' : null, snapshots });
+
+describe('StoriesTab', () => {
+  it('zero stories: an empty state that explains why', () => {
+    wrap(<StoriesTab stories={[]} />);
+    expect(screen.getByRole('status')).toHaveTextContent(en.pages.account.stories.empty);
+  });
+
+  it('live and expired stories with final numbers, exit rate and the needs-5-viewers reason', () => {
+    const stories = buildStories(
+      [story('s1', '2026-10-15T01:00:00Z', [snap('2026-10-15T01:30:00Z', 10, 1), snap('2026-10-15T02:00:00Z', 20, 2)]), story('s2', '2026-10-13T01:00:00Z', [snap('2026-10-13T23:30:00Z', 50, 5)]), story('s3', '2026-10-12T01:00:00Z', [])],
+      NOW,
+    );
+    wrap(<StoriesTab stories={stories} />);
+    const cards = screen.getAllByRole('listitem');
+    expect(cards).toHaveLength(3);
+    expect(within(cards[0]).getByText(en.pages.account.stories.live)).toBeInTheDocument();
+    expect(within(cards[0]).getByText('10.0%')).toBeInTheDocument(); // 2 exits ÷ 20 views
+    expect(within(cards[0]).getByText('2 snapshots so far')).toBeInTheDocument();
+    expect(within(cards[0]).getByRole('link')).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(cards[1]).getByText(en.pages.account.stories.expired)).toBeInTheDocument();
+    expect(within(cards[2]).getByText(en.analysis.reasons.needs_5_viewers)).toBeInTheDocument();
+    expect(screen.getByText('3 Stories in the last 14 days')).toBeInTheDocument();
+  });
+});
+
+describe('AudienceTab', () => {
+  const day = '2026-10-14';
+  const model = buildAudience({
+    age_gender: { day, data: { '18-24|F': 30, '18-24|M': 10, '25-34|F': 20, '25-34|U': 5 } },
+    country: { day, data: { MY: 60, SG: 20, XK: 5, ZZ: 5, ID: 2, TH: 2, PH: 2, VN: 2, JP: 1, KR: 1 } },
+    city: { day, data: { 'Kuala Lumpur, Federal Territory of Kuala Lumpur': 30 } },
+  });
+
+  it('no audience data (under 100 followers): the reason, not empty charts', () => {
+    wrap(<AudienceTab model={buildAudience({ age_gender: null, country: null, city: null })} />);
+    expect(screen.getByRole('status')).toHaveTextContent(en.analysis.reasons.needs_100_followers);
+  });
+
+  it('ranked countries with names, unknown country codes stay in the list, Other bucket, no globe without motion', () => {
+    const { container } = wrap(<AudienceTab model={model} />);
+    const countries = screen.getByRole('heading', { name: en.pages.account.audience.countries }).closest('[data-slot="card"]') as HTMLElement;
+    const items = within(countries).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items[0]).toContain('Malaysia');
+    expect(items[0]).toContain('60.0%');
+    expect(items.some((x) => x?.includes('ZZ') || x?.includes('Unknown Region'))).toBe(true);
+    expect(items.at(-1)).toContain(en.pages.account.audience.other);
+    expect(items).toHaveLength(9); // top 8 + Other
+    expect(container.querySelector('canvas')).toBeNull(); // the accessible list is the baseline
+    expect(screen.getByText('Kuala Lumpur, Federal Territory of Kuala Lumpur')).toBeInTheDocument();
+    expect(screen.getByText('18-24')).toBeInTheDocument();
+  });
+
+  it('the globe renders only when the motion gate allows it, and is hidden from assistive tech', async () => {
+    motion.heavy = true;
+    const { container } = wrap(<AudienceTab model={model} />);
+    await vi.waitFor(() => expect(container.querySelector('canvas[data-slot="globe"]')).not.toBeNull());
+    expect(container.querySelector('canvas')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getAllByText('Malaysia').length).toBeGreaterThan(0); // list still there
+  });
+
+  it('zh-CN country names', () => {
+    wrap(<AudienceTab model={model} />, 'zh-CN');
+    expect(screen.getByText('马来西亚')).toBeInTheDocument();
+  });
+});
+```
+
+Append inside the `describe('account detail page', …)` block of `tests/account-page.test.tsx`:
+
+```tsx
+  it.each([
+    ['stories', 'stories'],
+    ['audience', 'audience'],
+  ])('%s tab loads only its own data', async (tab, call) => {
+    accounts.push(acct(ID));
+    const el = await run(ID, { tab });
+    expect(el.props.tab).toBe(tab);
+    expect(calls).toContain(call);
+    expect(calls).not.toContain('daily');
+    expect(calls).not.toContain('postRows');
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/stories-audience.test.tsx tests/account-page.test.tsx`
+Expected: FAIL with `Failed to resolve import "@/components/account/AudienceTab"`; the new page cases fail.
+
+- [ ] **Step 3: Add the messages** — merge into `pages.account` in both files.
+
+`messages/en.json`:
+
+```json
+{
+  "pages": {
+    "account": {
+      "stories": {
+        "empty": "No Stories captured in the last 14 days",
+        "emptyHint": "Stories are captured every 30 minutes while they are live. Stories from before the account was connected can't be retrieved.",
+        "summary": "{count} Stories in the last 14 days",
+        "live": "Live",
+        "expired": "Expired",
+        "replies": "Replies",
+        "shares": "Shares",
+        "exitRate": "Exit rate",
+        "tapsForward": "Taps forward",
+        "liveHint": "{count, plural, one {# snapshot so far} other {# snapshots so far}}",
+        "finalHint": "Final numbers · {count, plural, one {# snapshot} other {# snapshots}}",
+        "open": "Open the Story from {time} on Instagram"
+      },
+      "audience": {
+        "emptyHint": "Audience data appears once the account has 100+ followers and the daily sync has run.",
+        "asOf": "As of {date}",
+        "countries": "Top countries",
+        "cities": "Top cities",
+        "ageGender": "Age and gender",
+        "other": "Other",
+        "female": "Women",
+        "male": "Men",
+        "unknown": "Unspecified",
+        "split": "{female} women, {male} men"
+      }
+    }
+  }
+}
+```
+
+`messages/zh-CN.json`:
+
+```json
+{
+  "pages": {
+    "account": {
+      "stories": {
+        "empty": "近 14 天没有采集到快拍",
+        "emptyHint": "快拍在发布期间每 30 分钟采集一次。连接账号之前的快拍无法获取。",
+        "summary": "近 14 天共 {count} 条快拍",
+        "live": "进行中",
+        "expired": "已过期",
+        "replies": "回复",
+        "shares": "分享",
+        "exitRate": "退出率",
+        "tapsForward": "向前点按",
+        "liveHint": "{count, plural, other {目前已采集 # 次}}",
+        "finalHint": "最终数据 · {count, plural, other {共采集 # 次}}",
+        "open": "在 Instagram 中打开 {time} 的快拍"
+      },
+      "audience": {
+        "emptyHint": "账号粉丝达到 100 人且每日同步运行后，这里会显示受众数据。",
+        "asOf": "数据日期：{date}",
+        "countries": "主要国家/地区",
+        "cities": "主要城市",
+        "ageGender": "年龄与性别",
+        "other": "其他",
+        "female": "女性",
+        "male": "男性",
+        "unknown": "未指定",
+        "split": "女性 {female}，男性 {male}"
+      }
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Implement the globe** — `components/account/Globe.tsx`:
+
+```tsx
+'use client';
+
+// Decorative audience globe (SPEC §8): a slowly rotating orthographic sphere with a graticule and one dot per country,
+// sized by audience share. Plain canvas 2D, no dependency. Loaded with next/dynamic({ ssr: false }) and rendered ONLY
+// when useHeavyMotion() allows; the ranked country list next to it carries the same data for everyone (aria-hidden here).
+// Colours are theme tokens read from CSS at draw time, so theme/mode switches apply on the next frame.
+import { useEffect, useRef } from 'react';
+import type { GlobePoint } from '@/lib/dashboard/audience';
+
+const RAD = Math.PI / 180;
+const SPEED = 0.12; // degrees of longitude per frame (~7°/s at 60 fps)
+
+export default function Globe({ points }: { points: GlobePoint[] }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const max = Math.max(...points.map((p) => p.share), 1e-6);
+    const top = [...points].sort((a, b) => b.share - a.share)[0];
+    let rot = top ? -top.lon : 0; // start with the biggest audience facing the viewer
+    let raf = 0;
+
+    const draw = () => {
+      const size = canvas.clientWidth || 240;
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== Math.round(size * dpr)) canvas.width = canvas.height = Math.round(size * dpr);
+      const css = getComputedStyle(canvas);
+      const token = (name: string) => css.getPropertyValue(name).trim();
+      const c = size / 2;
+      const r = c - 4;
+      const tilt = 15 * RAD; // look slightly down on the northern hemisphere, where most audiences are
+      const project = (lat: number, lon: number) => {
+        const phi = lat * RAD;
+        const lam = (lon + rot) * RAD;
+        const x = Math.cos(phi) * Math.sin(lam);
+        const y0 = Math.sin(phi);
+        const z0 = Math.cos(phi) * Math.cos(lam);
+        const y = y0 * Math.cos(tilt) - z0 * Math.sin(tilt);
+        const z = y0 * Math.sin(tilt) + z0 * Math.cos(tilt);
+        return { x: c + r * x, y: c - r * y, visible: z > 0 };
+      };
+      const path = (pts: { x: number; y: number; visible: boolean }[]) => {
+        ctx.beginPath();
+        let pen = false;
+        for (const p of pts) {
+          if (!p.visible) pen = false;
+          else if (pen) ctx.lineTo(p.x, p.y);
+          else {
+            ctx.moveTo(p.x, p.y);
+            pen = true;
+          }
+        }
+        ctx.stroke();
+      };
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size, size);
+      ctx.beginPath();
+      ctx.arc(c, c, r, 0, 2 * Math.PI);
+      ctx.fillStyle = token('--surface');
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = token('--border');
+      ctx.stroke();
+      ctx.lineWidth = 0.5;
+      for (let lon = -180; lon < 180; lon += 30) path(Array.from({ length: 37 }, (_, i) => project(-90 + i * 5, lon)));
+      for (let lat = -60; lat <= 60; lat += 30) path(Array.from({ length: 73 }, (_, i) => project(lat, -180 + i * 5)));
+      ctx.fillStyle = token('--chart-1');
+      ctx.globalAlpha = 0.8;
+      for (const p of points) {
+        const q = project(p.lat, p.lon);
+        if (!q.visible) continue;
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 2 + 10 * Math.sqrt(p.share / max), 0, 2 * Math.PI);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      rot = (rot + SPEED) % 360;
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => cancelAnimationFrame(raf);
+  }, [points]);
+
+  return <canvas ref={ref} aria-hidden="true" data-slot="globe" className="mx-auto aspect-square w-full max-w-64" />;
+}
+```
+
+- [ ] **Step 5: Implement the tabs**
+
+`components/account/StoriesTab.tsx`:
+
+```tsx
+'use client';
+
+import { ExternalLink, Film } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { Sparkline } from '@/components/charts/Sparkline';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import type { StoryView } from '@/lib/dashboard/content';
+import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
+
+export function StoriesTab({ stories }: { stories: StoryView[] }) {
+  const t = useTranslations('pages.account.stories');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+
+  if (stories.length === 0) return <EmptyState icon={<Film className="size-5" aria-hidden />} title={t('empty')} description={t('emptyHint')} />;
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      <p className="text-xs text-muted-foreground">{t('summary', { count: formatNumber(stories.length, prefs) })}</p>
+      <ul className="grid gap-[var(--gp)] sm:grid-cols-2 xl:grid-cols-3">
+        {stories.map((s) => {
+          const f = s.final;
+          const metrics = [
+            [tm('views'), formatCompact(f?.views ?? null, prefs)],
+            [tm('reach'), formatCompact(f?.reach ?? null, prefs)],
+            [t('replies'), formatNumber(f?.replies ?? null, prefs)],
+            [t('shares'), formatNumber(f?.shares ?? null, prefs)],
+            [t('exitRate'), formatPercent(s.exitRate, prefs)],
+            [t('tapsForward'), formatNumber(f?.tapsForward ?? null, prefs)],
+          ] as const;
+          return (
+            <li key={s.id} className="min-w-0">
+              <Card className="h-full min-w-0">
+                <CardContent className="grid min-w-0 gap-2">
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium">{formatDateTime(s.postedAt, prefs)}</span>
+                    <Badge variant={s.live ? 'default' : 'secondary'}>{s.live ? t('live') : t('expired')}</Badge>
+                  </div>
+                  {s.reason ? (
+                    <p className="text-xs text-muted-foreground">{ta(`reasons.${s.reason}`)}</p>
+                  ) : (
+                    <>
+                      <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-xs">
+                        {metrics.map(([label, value]) => (
+                          <div key={label} className="min-w-0">
+                            <dt className="truncate text-muted-foreground">{label}</dt>
+                            <dd className="truncate font-medium tabular-nums">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <Sparkline data={s.progression} className="text-chart-2" />
+                    </>
+                  )}
+                  <div className="mt-auto flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                    <span className="truncate">{s.live ? t('liveHint', { count: s.snapshots }) : t('finalHint', { count: s.snapshots })}</span>
+                    {s.permalink ? (
+                      <a href={s.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open', { time: formatDateTime(s.postedAt, prefs) })} className="shrink-0 hover:text-foreground">
+                        <ExternalLink aria-hidden="true" className="size-3.5" />
+                      </a>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+```
+
+`components/account/AudienceTab.tsx`:
+
+```tsx
+'use client';
+
+import dynamic from 'next/dynamic';
+import { Users } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ChartCard } from '@/components/shared/ChartCard';
+import { EmptyState } from '@/components/shared/EmptyState';
+import type { AudienceModel, Ranked } from '@/lib/dashboard/audience';
+import { formatCountry, formatDay, formatPercent } from '@/lib/format';
+import { useHeavyMotion } from '@/lib/motion';
+
+// Heavy, decorative and browser-only: its code loads only when the motion gate allows it (never during SSR).
+const Globe = dynamic(() => import('@/components/account/Globe'), { ssr: false });
+
+/** Ranked horizontal bars as a list: the accessible form of the data (name + share in text, bar is decoration). */
+function RankedBars({ data, name, otherLabel }: { data: Ranked; name: (key: string) => string; otherLabel: string }) {
+  const { prefs } = usePrefs();
+  const rows = [...data.rows.map((r) => ({ key: r.key, label: name(r.key), share: r.share })), ...(data.other ? [{ key: '\u0000other', label: otherLabel, share: data.other.share }] : [])];
+  const max = Math.max(...rows.map((r) => r.share), 1e-6);
+  return (
+    <ol className="grid gap-1.5 text-sm">
+      {rows.map((r) => (
+        <li key={r.key} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2">
+          <span className="truncate" dir="auto">
+            {r.label}
+          </span>
+          <span className="text-xs tabular-nums text-muted-foreground">{formatPercent(r.share, prefs)}</span>
+          <span aria-hidden="true" className="col-span-2 h-1.5 overflow-hidden rounded-full bg-muted">
+            <span className="block h-full rounded-full bg-chart-1" style={{ width: `${(r.share / max) * 100}%` }} />
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function AudienceTab({ model }: { model: AudienceModel }) {
+  const t = useTranslations('pages.account.audience');
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+  const heavy = useHeavyMotion();
+
+  if (model.reason) return <EmptyState icon={<Users className="size-5" aria-hidden />} title={ta(`reasons.${model.reason}`)} description={t('emptyHint')} />;
+
+  const asOf = (day: string) => t('asOf', { date: formatDay(day, prefs) });
+  const missing = <p className="text-sm text-muted-foreground">{ta('reasons.needs_100_followers')}</p>;
+  const maxAge = Math.max(...(model.ages?.rows.map((r) => r.total) ?? [0]), 1);
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-2">
+      <ChartCard title={t('countries')} subtitle={model.countries ? asOf(model.countries.day) : undefined}>
+        <div className="grid min-w-0 items-center gap-[var(--gp)] sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {heavy && model.globe.length > 0 ? <Globe points={model.globe} /> : null}
+          <div className={heavy && model.globe.length > 0 ? 'min-w-0' : 'min-w-0 sm:col-span-2'}>{model.countries ? <RankedBars data={model.countries} name={(code) => formatCountry(code, prefs)} otherLabel={t('other')} /> : missing}</div>
+        </div>
+      </ChartCard>
+
+      <ChartCard title={t('cities')} subtitle={model.cities ? asOf(model.cities.day) : undefined}>
+        {model.cities ? <RankedBars data={model.cities} name={(city) => city} otherLabel={t('other')} /> : missing}
+      </ChartCard>
+
+      <ChartCard title={t('ageGender')} subtitle={model.ages ? asOf(model.ages.day) : undefined}>
+        {model.ages ? (
+          <>
+            <ul aria-hidden="true" className="mb-2 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+              <li className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-chart-1" />{t('female')}</li>
+              <li className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-chart-2" />{t('male')}</li>
+              <li className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-muted-foreground" />{t('unknown')}</li>
+            </ul>
+            <ol className="grid gap-1.5 text-sm">
+              {model.ages.rows.map((r) => (
+                <li key={r.age} className="grid min-w-0 grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2">
+                  <span className="truncate tabular-nums">{r.age}</span>
+                  <span aria-hidden="true" className="flex h-2 overflow-hidden rounded-full bg-muted" style={{ width: `${(r.total / maxAge) * 100}%` }}>
+                    <span className="bg-chart-1" style={{ width: `${(r.female / r.total) * 100}%` }} />
+                    <span className="bg-chart-2" style={{ width: `${(r.male / r.total) * 100}%` }} />
+                    <span className="bg-muted-foreground" style={{ width: `${(r.unknown / r.total) * 100}%` }} />
+                  </span>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {formatPercent(r.share, prefs)}
+                    <span className="sr-only">{t('split', { female: formatPercent(r.female / r.total, prefs), male: formatPercent(r.male / r.total, prefs) })}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : (
+          missing
+        )}
+      </ChartCard>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Wire both tabs** — `app/(app)/accounts/[id]/page.tsx` becomes:
+
+```tsx
+import { notFound } from 'next/navigation';
+import { AccountOverview } from '@/components/account/AccountOverview';
+import { AccountView } from '@/components/account/AccountView';
+import { AudienceTab } from '@/components/account/AudienceTab';
+import { PostsTab } from '@/components/account/PostsTab';
+import { StoriesTab } from '@/components/account/StoriesTab';
+import { setPostTagsAction } from '@/app/(app)/tags/actions';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
+import { buildAudience } from '@/lib/dashboard/audience';
+import { buildPosts, buildStories, parsePostFilters } from '@/lib/dashboard/content';
+import { loadAudience, loadOnline, loadPostRows, loadStories, loadTags } from '@/lib/dashboard/detail-read';
+import { fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
+import { loadDaily, loadPosts } from '@/lib/dashboard/read';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { listSyncStatus } from '@/lib/sync/store';
+import { addDays, dayStart, localDay } from '@/lib/sync/time';
+import { isUuid } from '@/lib/tags';
+
+type SearchParams = Record<string, string | string[] | undefined>;
+type Ctx = { db: Awaited<ReturnType<typeof createServerSupabase>>; account: StoredAccount; accounts: StoredAccount[]; sp: SearchParams; now: Date; today: string; prefs: Awaited<ReturnType<typeof getPrefs>> };
+
+/** Each tab loads only its own data. */
+async function tabContent(tab: Tab, c: Ctx) {
+  switch (tab) {
+    case 'posts': {
+      const [rows, tags] = await Promise.all([loadPostRows(c.db, c.account.id), loadTags(c.db)]);
+      const filters = parsePostFilters(c.sp);
+      // the imported server action is passed straight to the client component (never wrapped in a closure here)
+      return <PostsTab posts={buildPosts(rows, tags, filters, c.prefs.timezone)} total={rows.length} tags={tags} filters={filters} setPostTags={setPostTagsAction} />;
+    }
+    case 'stories': {
+      const since = dayStart(addDays(c.today, -13), c.prefs.timezone).toISOString(); // today + the 13 days before it
+      return <StoriesTab stories={buildStories(await loadStories(c.db, c.account.id, since), c.now)} />;
+    }
+    case 'audience':
+      return <AudienceTab model={buildAudience(await loadAudience(c.db, c.account.id))} />;
+    default: {
+      const period = parsePeriod(c.sp.period);
+      const pool = poolFor(c.account, c.accounts);
+      const others = pool.filter((a) => a.id !== c.account.id);
+      const [daily, posts, sync, online, otherPosts] = await Promise.all([
+        loadDaily(c.db, c.account.id, fromDayFor(period, c.today)),
+        loadPosts(c.db, c.account.id),
+        listSyncStatus(c.db),
+        loadOnline(c.db, pool.map((a) => a.id), addDays(c.today, -30)), // Instagram keeps 30 days of online_followers
+        Promise.all(others.map((a) => loadPosts(c.db, a.id))),
+      ]);
+      const model = buildAccountOverview(
+        { account: c.account, sync: sync[c.account.id], daily, posts, online: online[c.account.id] ?? [], pooled: { accounts: pool.length, posts: [...posts, ...otherPosts.flat()], online: Object.values(online).flat() } },
+        { period, today: c.today, now: c.now, tz: c.prefs.timezone, weekStart: c.prefs.weekStart },
+      );
+      return <AccountOverview model={model} />;
+    }
+  }
+}
+
+export default async function AccountPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
+  await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
+  const { id } = await params;
+  if (!isUuid(id)) notFound();
+  const sp = await searchParams;
+  const tab = parseTab(sp.tab);
+  const prefs = await getPrefs();
+  const now = new Date();
+  const today = localDay(now, prefs.timezone);
+  const db = await createServerSupabase(); // owner session: RLS applies, never the admin client
+  const accounts = (await supabaseAccountsStore(db).list()).filter((a) => a.status !== 'archived'); // archived = hidden (SPEC §7c)
+  const account = accounts.find((a) => a.id === id.toLowerCase());
+  if (!account) notFound();
+  return (
+    <AccountView account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }} tab={tab}>
+      {await tabContent(tab, { db, account, accounts, sp, now, today, prefs })}
+    </AccountView>
+  );
+}
+```
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `npx vitest run tests/stories-audience.test.tsx tests/account-page.test.tsx tests/messages.test.ts`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add components/account/StoriesTab.tsx components/account/AudienceTab.tsx components/account/Globe.tsx "app/(app)/accounts/[id]/page.tsx" messages/en.json messages/zh-CN.json tests/stories-audience.test.tsx tests/account-page.test.tsx
+git commit -m "feat: stories and audience tabs with a motion-gated globe" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
