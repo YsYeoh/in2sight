@@ -21,7 +21,7 @@ describe('record-ig-fixtures', () => {
     const out = redactIdentity(body);
     const s = JSON.stringify(out);
     for (const secret of ['17900000000000001', '17900000000000002', 'my secret launch', 'AbC', 'XyZ', '17841400000000001', 'QVFJ']) expect(s).not.toContain(secret);
-    expect(out.data.map((m) => m.media_type)).toEqual(['IMAGE', 'VIDEO']);
+    expect(out.data.map((m: { media_type: string }) => m.media_type)).toEqual(['IMAGE', 'VIDEO']);
     expect(out.data[1].caption).toBeNull();
     expect(out.data[0].timestamp).toBe('2026-10-13T10:00:00+0000');
     expect(typeof out.data[0].id).toBe('string');
