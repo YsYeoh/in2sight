@@ -12,14 +12,14 @@ One private dashboard to see insights, traffic and basic analysis across the own
 - Single user (owner). One Supabase Auth login; no multi-tenant.
 - 3–4 accounts, currently Personal → must be converted to **Creator** (free) first. Personal accounts have no insights API.
 - Meta app stays in **Dev mode** (no App Review): works for accounts added as Instagram Testers on the app. This is the whole reason we avoid client accounts.
-- Stack fixed: Next.js (App Router, TypeScript) on Vercel; Supabase (Postgres + Auth + `pg_cron`/`pg_net` as the scheduler). Vercel Hobby cron is once/day, too coarse for Stories, so Vercel Cron is not used.
+- Stack fixed: Next.js (App Router, TypeScript) on Vercel; Supabase (Postgres + Auth). **Scheduler (owner decision 2026-10-14):** any HTTP caller hitting `/api/cron/tick` every 30 minutes; recommended **cron-job.org** (free, 1-minute granularity, custom headers, failure notifications, execution history); Supabase `pg_cron` + `pg_net` is the documented fallback. Vercel Hobby cron is once/day, too coarse for Stories, so Vercel Cron is not used.
 - Deps (each replaces a lot of code): Tailwind + shadcn/ui, TanStack Table, next-intl, Recharts, GSAP (motion), Three.js (one lazy-loaded globe), `web-push`, `write-excel-file`, `puppeteer-core` + `@sparticuz/chromium`. No others without a reason.
 
 ## 3. Meta API approach
 - **Instagram API with Instagram Login** (graph.instagram.com). No Facebook Page needed.
 - Permissions: `instagram_business_basic`, `instagram_business_manage_insights`.
 - Connect flow per account: "Connect account" → Instagram authorize → callback → code → short-lived token → **long-lived token (60 days)** → store.
-- Token refresh: weekly cron refreshes any token expiring within 14 days (a successful refresh renews it for another 60 days, so healthy accounts never expire). If refresh fails, mark account `needs_reconnect`. The "token expiring" alert (7d / 2d) therefore only fires when refreshes keep failing.
+- Token refresh: the sync tick refreshes any token expiring within 14 days (retried at most daily) (a successful refresh renews it for another 60 days, so healthy accounts never expire). If refresh fails, mark account `needs_reconnect`. The "token expiring" alert (7d / 2d) therefore only fires when refreshes keep failing.
 - History limits: account-level insights reach back a limited window (Meta's insights guide, checked Oct 2026: "User Metrics data is stored for up to 90 days"; individual metrics may reach back less — verify per metric when building the sync, Plan 5). **Connect early and snapshot daily** — our DB is the history.
 - Metric names change often (e.g. `impressions` → `views`). Verify against current docs when implementing; keep metric lists in one file.
 
@@ -27,13 +27,12 @@ One private dashboard to see insights, traffic and basic analysis across the own
 ```
 Browser ── Next.js (Vercel) ── Supabase Postgres (RLS, owner only)
                 │
-   Supabase pg_cron ──► /api/cron/sync     (daily)    ─► Instagram Graph ─► upsert snapshots
-   (via pg_net)    ├──► /api/cron/stories  (every 3h) ─► capture live Stories + their insights
-                   └──► /api/cron/refresh  (weekly)   ─► refresh tokens
+   cron-job.org ──► /api/cron/tick (every 30 min) ─► due jobs per account ─► Instagram Graph ─► upsert snapshots
+   (fallback: Supabase pg_cron + pg_net)   Stories every tick · post metrics hourly/daily · account day · audience · token refresh
 ```
-- Cron routes protected by `CRON_SECRET` (sent as a header by pg_net); use Supabase **service role** server-side only.
+- `/api/cron/tick` requires `Authorization: Bearer <CRON_SECRET>` (constant-time compare; fails closed if unset), answers `202` at once and runs the work after the response (Next `after()`) within a time budget; a per-account lease stops overlapping or retried ticks from double-running. Use Supabase **service role** server-side only.
 - Dashboard reads via the user session (RLS). Tokens table is **service-role only**, never exposed to the browser.
-- One Meta client module (`lib/instagram/oauth.ts`): thin `fetch` wrapper, no SDK.
+- Meta client: `lib/instagram/oauth.ts` (auth/tokens) + `lib/instagram/data.ts` (insights reads), thin `fetch` wrappers, no SDK; all metric names in `lib/instagram/metrics.ts`.
 
 ## 5. Data model (Postgres)
 | Table | Key columns |
@@ -43,18 +42,22 @@ Browser ── Next.js (Vercel) ── Supabase Postgres (RLS, owner only)
 | `notifications` | id, account_id, kind, severity, payload jsonb, dedupe_key (unique), created_at, read_at |
 | `push_subscriptions` | id, endpoint (unique), keys jsonb, user_agent, created_at |
 | `account_tokens` | account_id (pk, fk), access_token, expires_at, refreshed_at — service-role only |
-| `account_daily` | account_id, day, followers, reach, views, profile_views, accounts_engaged, total_interactions, follows, unfollows, link_taps — pk(account_id, day) |
-| `media` | id (IG media id), account_id, media_type (incl. `STORY`), permalink, caption, posted_at, expires_at (stories) |
+| `account_daily` | account_id, day, followers, reach, views, profile_views (stays null: removed from the API), accounts_engaged, total_interactions, follows, unfollows, link_taps — pk(account_id, day) |
+| `media` | id (IG media id), account_id, media_type (`IMAGE`/`CAROUSEL_ALBUM`/`REELS`/`STORY`), permalink, caption, posted_at, expires_at (stories), last_metrics_at, gone_at (deleted on Instagram; history kept) |
 | `media_metrics` | media_id, captured_at (timestamptz), reach, views, likes, comments, shares, saves, total_interactions, replies, taps_forward, taps_back, exits — pk(media_id, captured_at); story-only columns null for other types |
 | `tags` | id, name, color |
 | `media_tags` | media_id, tag_id — pk(media_id, tag_id). Manual tagging in the UI; hashtag-to-tag auto-suggest is later |
 | `audience_snapshots` | account_id, day, kind (`age_gender`/`country`/`city`), data jsonb |
 | `online_followers` | account_id, day, hourly jsonb (24 values) |
+| `sync_state` | account_id (pk), lease_id, lease_until, last_attempt_at, last_success_at, consecutive_failures, last_error_key, daily_done_through, last_run jsonb (per-job last success) |
+| `sync_runs` | id, started_at, finished_at, trigger (`cron`/`manual`), summary jsonb (counts and error keys, never tokens) |
 
-Upsert only; rows are deleted solely by the explicit "Delete all data permanently" action (§7c). Feed-post metrics are re-captured daily for posts <30 days old, so we see growth curves. Story metrics are captured every 3h while live; the last snapshot before `expires_at` is the final value. Flags are computed on read, not stored.
+Upsert only; rows are deleted solely by the explicit "Delete all data permanently" action (§7c). Feed-post metrics are re-captured daily for posts <30 days old, so we see growth curves. Story metrics are captured every tick (30 min) while live; the last snapshot before `expires_at` is the final value. Flags are computed on read, not stored.
 
 ## 6. Sync jobs
-**Stories job (every 3h):** for each `active` account, list live Stories, upsert into `media`, insert a `media_metrics` snapshot per story. Stories exist for 24h only, so a missed window is lost data; 3h gives ~8 snapshots per story.
+**Scheduling:** one tick every 30 minutes (see §2/§4); a pure function decides per account which jobs are due from `sync_state`. Work that does not fit the tick's time budget stays due for the next tick.
+
+**Stories job (every tick):** for each `active` account, list live Stories, upsert into `media`, insert a `media_metrics` snapshot per story. Stories exist for 24h only, so a missed window is lost data; a 30-minute tick gives ~48 snapshots per story.
 
 **Daily job:** for each `active` account: fetch followers + yesterday's account insights → `account_daily`; list new media → `media`; fetch insights for posts <30 days old → `media_metrics`; fetch audience + online_followers (if ≥100 followers) → snapshots. One account failing must not stop the others; log per-account result, flip status on auth errors. `archived` accounts are skipped by every job. After the daily and Stories jobs finish, the alert rules (§7c) are evaluated and push notifications sent.
 
