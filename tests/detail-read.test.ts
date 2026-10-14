@@ -1,0 +1,120 @@
+import { describe, expect, it } from 'vitest';
+import { loadAudience, loadMonthMedia, loadOnline, loadPostRows, loadStories, loadTags, STORY_LIMIT } from '@/lib/dashboard/detail-read';
+import { MEDIA_LIMIT } from '@/lib/dashboard/read';
+
+type Call = { table: string; select: string; ops: unknown[][] };
+
+/** Fake Supabase client: every chained call is recorded; an awaited query resolves to the next result queued for its table. */
+function fakeDb(results: Record<string, { data?: unknown; error?: unknown }[]>) {
+  const calls: Call[] = [];
+  const db = {
+    from(table: string) {
+      const call: Call = { table, select: '', ops: [] };
+      calls.push(call);
+      const chain: Record<string, unknown> = {};
+      chain.select = (s: string) => ((call.select = s), chain);
+      for (const op of ['eq', 'neq', 'gte', 'lt', 'in', 'order', 'limit']) chain[op] = (...a: unknown[]) => (call.ops.push([op, ...a]), chain);
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(results[table]?.shift() ?? { data: [], error: null }).then(res, rej);
+      return chain;
+    },
+  };
+  return { db: db as never, calls };
+}
+
+const noStar = (calls: Call[]) => calls.forEach((c) => expect(c.select).not.toContain('*'));
+
+describe('loadPostRows', () => {
+  it('feed posts with latest metrics, caption and tag ids; null caption and permalink survive', async () => {
+    const f = fakeDb({
+      media: [
+        {
+          data: [
+            { id: 'm1', account_id: 'a1', media_type: 'REELS', posted_at: '2026-10-10T10:00:00Z', permalink: null, caption: null, media_metrics: [{ reach: 50, likes: 3 }], media_tags: [{ tag_id: 't1' }, { tag_id: null }] },
+            { id: 'm2', account_id: 'a1', media_type: 'IMAGE', posted_at: '2026-10-09T10:00:00Z', permalink: 'https://www.instagram.com/p/x/', caption: 'Hello', media_metrics: [], media_tags: null },
+            { id: 'bad', account_id: 'a1', media_type: 'VIDEO', posted_at: '2026-10-09T10:00:00Z' },
+          ],
+        },
+      ],
+    });
+    const rows = await loadPostRows(f.db, 'a1');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ id: 'm1', caption: null, permalink: null, reach: 50, tagIds: ['t1'] });
+    expect(rows[1]).toMatchObject({ id: 'm2', caption: 'Hello', reach: null, tagIds: [] });
+    expect(f.calls[0].select).toContain('media_tags(tag_id)');
+    expect(f.calls[0].ops).toContainEqual(['neq', 'media_type', 'STORY']);
+    expect(f.calls[0].ops).toContainEqual(['limit', MEDIA_LIMIT]);
+    expect(f.calls[0].ops).toContainEqual(['limit', 1, { referencedTable: 'media_metrics' }]);
+    noStar(f.calls);
+  });
+
+  it('throws a fixed message that never echoes the database error', async () => {
+    const f = fakeDb({ media: [{ error: { message: 'secret detail' } }] });
+    await expect(loadPostRows(f.db, 'a1')).rejects.toThrow(/^dashboard read: post rows failed$/);
+  });
+});
+
+describe('loadStories', () => {
+  it('stories since a date with every snapshot oldest first; a story without snapshots keeps an empty list', async () => {
+    const f = fakeDb({
+      media: [
+        {
+          data: [
+            { id: 's1', posted_at: '2026-10-14T08:00:00Z', expires_at: '2026-10-15T08:00:00Z', permalink: null, media_metrics: [{ captured_at: '2026-10-14T08:30:00Z', views: 10, exits: 1, total_interactions: 2 }] },
+            { id: 's2', posted_at: '2026-10-13T08:00:00Z', expires_at: null, permalink: null, media_metrics: [] },
+          ],
+        },
+      ],
+    });
+    const out = await loadStories(f.db, 'a1', '2026-10-01T00:00:00.000Z');
+    expect(out[0].snapshots[0]).toEqual({ capturedAt: '2026-10-14T08:30:00Z', reach: null, views: 10, replies: null, shares: null, interactions: 2, tapsForward: null, tapsBack: null, exits: 1 });
+    expect(out[1].snapshots).toEqual([]);
+    expect(f.calls[0].ops).toEqual([
+      ['eq', 'account_id', 'a1'],
+      ['eq', 'media_type', 'STORY'],
+      ['gte', 'posted_at', '2026-10-01T00:00:00.000Z'],
+      ['order', 'posted_at', { ascending: false }],
+      ['order', 'captured_at', { ascending: true, referencedTable: 'media_metrics' }],
+      ['limit', STORY_LIMIT],
+    ]);
+    noStar(f.calls);
+  });
+});
+
+describe('loadAudience', () => {
+  it('latest snapshot per kind; missing kinds are null; non-numeric counts dropped', async () => {
+    const f = fakeDb({
+      audience_snapshots: [{ data: [{ day: '2026-10-14', data: { '18-24|F': 10, '25-34|M': 'x' } }] }, { data: [{ day: '2026-10-14', data: { MY: 40, XK: 2 } }] }, { data: [] }],
+    });
+    const out = await loadAudience(f.db, 'a1');
+    expect(out.age_gender).toEqual({ day: '2026-10-14', data: { '18-24|F': 10 } });
+    expect(out.country).toEqual({ day: '2026-10-14', data: { MY: 40, XK: 2 } });
+    expect(out.city).toBeNull();
+    expect(f.calls.map((c) => c.ops[1])).toEqual([['eq', 'kind', 'age_gender'], ['eq', 'kind', 'country'], ['eq', 'kind', 'city']]);
+    for (const c of f.calls) expect(c.ops).toContainEqual(['limit', 1]);
+    noStar(f.calls);
+  });
+});
+
+describe('loadOnline, loadTags, loadMonthMedia', () => {
+  it('online followers grouped by account; no query without accounts', async () => {
+    const f = fakeDb({ online_followers: [{ data: [{ account_id: 'a1', day: '2026-10-13', hourly: [1, 'x', 3] }] }] });
+    expect(await loadOnline(f.db, ['a1', 'a2'], '2026-09-14')).toEqual({ a1: [{ day: '2026-10-13', hourly: [1, null, 3] }], a2: [] });
+    expect(f.calls[0].ops[0]).toEqual(['in', 'account_id', ['a1', 'a2']]);
+    const empty = fakeDb({});
+    expect(await loadOnline(empty.db, [], '2026-09-14')).toEqual({});
+    expect(empty.calls).toHaveLength(0);
+  });
+
+  it('tags ordered by name with explicit columns', async () => {
+    const f = fakeDb({ tags: [{ data: [{ id: 't1', name: 'Promo', color: 'chart-2' }] }] });
+    expect(await loadTags(f.db)).toEqual([{ id: 't1', name: 'Promo', color: 'chart-2' }]);
+    expect(f.calls[0].select).toBe('id,name,color');
+  });
+
+  it('month media: posts and stories in [from, to) for the accounts', async () => {
+    const f = fakeDb({ media: [{ data: [{ id: 's', account_id: 'a1', media_type: 'STORY', posted_at: '2026-10-01T00:00:00Z', permalink: null, caption: null }] }] });
+    expect(await loadMonthMedia(f.db, ['a1'], '2026-09-30T16:00:00.000Z', '2026-10-31T16:00:00.000Z')).toEqual([{ id: 's', accountId: 'a1', mediaType: 'STORY', postedAt: '2026-10-01T00:00:00Z', permalink: null, caption: null }]);
+    expect(f.calls[0].ops.slice(0, 3)).toEqual([['in', 'account_id', ['a1']], ['gte', 'posted_at', '2026-09-30T16:00:00.000Z'], ['lt', 'posted_at', '2026-10-31T16:00:00.000Z']]);
+    noStar(f.calls);
+  });
+});
