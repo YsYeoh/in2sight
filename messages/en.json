@@ -320,7 +320,8 @@
     "low": "Low",
     "high": "High",
     "lowSample": "too few posts",
-    "heatCell": "{day} {hour}:00 · {value} · {count} posts",
+    "heatCell": "{day} {hour} · {value} · {count, plural, one {# post} other {# posts}}",
+    "heatCellLow": "{day} {hour} · {reason}",
     "weekday": { "0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat" },
     "reasons": {
       "no_data": "No data yet",

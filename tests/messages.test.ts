@@ -12,7 +12,7 @@ function flatten(o: Record<string, unknown>, prefix = ''): Record<string, string
   return out;
 }
 
-const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',');
+const placeholders = (s: string) => [...s.matchAll(/\{(\w+)[,}]/g)].map((m) => m[1]).sort().join(',');
 
 const fe = flatten(en);
 const fz = flatten(zh);

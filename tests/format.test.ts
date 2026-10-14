@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCompact, formatDate, formatDateTime, formatDelta, formatNumber, formatPercent, formatTime, type FormatPrefs } from '@/lib/format';
+import { formatCompact, formatDate, formatDateTime, formatDelta, formatHour, formatNumber, formatPercent, formatTime, type FormatPrefs } from '@/lib/format';
 
 const P: FormatPrefs = { locale: 'en', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', numberFormat: '1,234.5', timezone: 'Asia/Kuala_Lumpur' };
 const with_ = (o: Partial<FormatPrefs>): FormatPrefs => ({ ...P, ...o });
@@ -63,6 +63,16 @@ describe('formatTime', () => {
 
   it('shows an em dash for invalid input', () => {
     expect(formatTime(null, P)).toBe('—');
+  });
+});
+
+describe('formatHour', () => {
+  it('an hour of the day (already in the owner timezone) follows the 12/24h setting', () => {
+    expect(formatHour(0, P)).toBe('00:00');
+    expect(formatHour(13, P)).toBe('13:00');
+    expect(formatHour(0, with_({ timeFormat: '12h' }))).toBe('12:00 AM');
+    expect(formatHour(13, with_({ timeFormat: '12h' }))).toBe('1:00 PM');
+    expect(formatHour(13, with_({ timeFormat: '12h', locale: 'zh-CN' }))).toBe('下午1:00');
   });
 });
 
