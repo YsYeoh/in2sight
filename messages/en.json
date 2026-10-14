@@ -169,6 +169,81 @@
       "email": "Signed in as"
     }
   },
+  "accounts": {
+    "title": "Accounts",
+    "subtitle": "Connect, group and monitor your Instagram accounts",
+    "add": "Add account",
+    "isolated": "Isolated accounts",
+    "archivedTitle": "Archived ({count})",
+    "connectedAs": "Connected {username}",
+    "empty": "No accounts yet",
+    "emptyHint": "Connect an Instagram account to start collecting insights.",
+    "columns": {
+      "account": "Account",
+      "group": "Group",
+      "token": "Token",
+      "status": "Status",
+      "connected": "Connected"
+    },
+    "status": {
+      "active": "Active",
+      "expiring": "Expiring",
+      "reconnect": "Reconnect",
+      "archived": "Archived"
+    },
+    "token": {
+      "daysLeft": "{days} days left",
+      "expired": "Expired",
+      "unknown": "—",
+      "label": "Token validity"
+    },
+    "menu": {
+      "open": "Account actions",
+      "editGroup": "Edit group",
+      "reconnect": "Reconnect",
+      "archive": "Archive",
+      "restore": "Restore",
+      "delete": "Delete permanently"
+    },
+    "connect": {
+      "title": "Add an Instagram account",
+      "group": "Group (optional)",
+      "groupHint": "Leave empty to keep the account isolated.",
+      "notes": "Creator or Business accounts only. You'll log in on Instagram's own page and approve read-only access.",
+      "continue": "Continue with Instagram",
+      "cancel": "Cancel"
+    },
+    "group": {
+      "title": "Edit group",
+      "save": "Save"
+    },
+    "archive": {
+      "title": "Archive @{username}?",
+      "body": "Syncing stops and the account is hidden. Its history is kept, and reconnecting restores it.",
+      "confirm": "Archive"
+    },
+    "delete": {
+      "title": "Delete @{username} permanently?",
+      "body": "All collected history for this account will be erased. This cannot be undone. Type the username to confirm.",
+      "confirm": "Delete permanently",
+      "cancel": "Cancel"
+    },
+    "errors": {
+      "access_denied": "Instagram access was not granted.",
+      "state_mismatch": "The sign-in session expired. Please try again.",
+      "missing_code": "Instagram did not return a login code. Try again.",
+      "exchange_failed": "Instagram rejected the login. Try again.",
+      "profile_failed": "Couldn't read the account profile. Try again.",
+      "not_professional": "That account is not a Creator or Business account. Switch it in Instagram first.",
+      "save_failed": "Couldn't save the account. Try again.",
+      "not_configured": "Instagram isn't configured yet. See docs/META_SETUP.md.",
+      "unauthorized": "You are not allowed to do that.",
+      "unexpected": "Something went wrong. Please try again.",
+      "invalid_group": "That group name is not valid (max 40 characters).",
+      "not_found": "That account no longer exists.",
+      "not_archived": "Only archived accounts can do that."
+    }
+  },
   "pages": {
     "overview": {
       "title": "Overview",
@@ -180,9 +255,6 @@
       "title": "Tags",
       "empty": "Tags arrive with the dashboards",
       "emptyHint": "You'll label posts here once accounts are connected."
-    },
-    "accounts": {
-      "title": "Accounts"
     }
   },
   "setup": {
