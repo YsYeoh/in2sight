@@ -201,6 +201,15 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
   };
 }
 
+/** After a (re)connect the old failure streak and error no longer apply. Admin client; best-effort, never throws. */
+export async function clearSyncError(db: SupabaseClient, accountId: string): Promise<void> {
+  try {
+    await db.from('sync_state').update({ consecutive_failures: 0, last_error_key: null }).eq('account_id', accountId);
+  } catch {
+    // the next sync run rewrites these fields anyway
+  }
+}
+
 export interface SyncStatus {
   lastSuccessAt: string | null;
   lastErrorKey: string | null;

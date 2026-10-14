@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { listSyncStatus, rowToState, supabaseSyncStore } from '@/lib/sync/store';
+import { clearSyncError, listSyncStatus, rowToState, supabaseSyncStore } from '@/lib/sync/store';
 
 type Call = { table: string; op: string; args: unknown[]; filters: [string, ...unknown[]][] };
 
@@ -126,6 +126,17 @@ describe('supabaseSyncStore', () => {
     expect(await supabaseSyncStore(recorder([{ data: { access_token: 'IGQ' } }]).db).getToken('a1')).toBe('IGQ');
     const err = await supabaseSyncStore(recorder([{ error: { message: 'token IGQ-leak' } }]).db).getToken('a1').catch((e) => e);
     expect(err.message).toBe('sync store: getToken failed');
+  });
+});
+
+describe('clearSyncError', () => {
+  it('resets failures and the error key for one account, and never throws', async () => {
+    const r = recorder();
+    await clearSyncError(r.db, 'a1');
+    expect(r.calls[0]).toMatchObject({ table: 'sync_state', op: 'update', args: [{ consecutive_failures: 0, last_error_key: null }] });
+    expect(r.calls[0].filters).toEqual([['eq', 'account_id', 'a1']]);
+    await expect(clearSyncError(recorder([{ error: { message: 'x' } }]).db, 'a1')).resolves.toBeUndefined();
+    await expect(clearSyncError({} as never, 'a1')).resolves.toBeUndefined();
   });
 });
 

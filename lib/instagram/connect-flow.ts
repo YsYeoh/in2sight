@@ -5,7 +5,7 @@ import { exchangeCode, exchangeLongLived, fetchProfile, isProfessional, type IgC
 import { verifyOAuthState } from '@/lib/instagram/state';
 
 export interface CallbackInput { code: string | null; state: string | null; error: string | null; cookie: string | undefined }
-export interface CallbackDeps { cfg: IgConfig; store: AccountsStore; fetchFn?: typeof fetch; now?: Date }
+export interface CallbackDeps { cfg: IgConfig; store: AccountsStore; fetchFn?: typeof fetch; now?: Date; /** best-effort hook after a successful save (e.g. clear the stale sync error) */ onConnected?: (accountId: string) => Promise<void> }
 
 // redirects are fixed same-origin paths carrying an i18n error KEY, never prose or provider text
 const to = (key: string) => ({ redirect: `/accounts?error=${key}` });
@@ -37,7 +37,7 @@ export async function processCallback(input: CallbackInput, deps: CallbackDeps):
 
   const group = normalizeGroup(st.group);
   try {
-    await connectAccount(deps.store, {
+    const { account } = await connectAccount(deps.store, {
       igUserId: profile.userId,
       username: profile.username,
       displayName: profile.name,
@@ -47,6 +47,11 @@ export async function processCallback(input: CallbackInput, deps: CallbackDeps):
       accessToken: token.accessToken,
       expiresAt: token.expiresAt,
     });
+    try {
+      await deps.onConnected?.(account.id);
+    } catch {
+      // best-effort: never fails the connect
+    }
   } catch {
     return to('save_failed');
   }

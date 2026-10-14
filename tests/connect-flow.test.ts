@@ -42,6 +42,26 @@ const start = (group: string | null = null) => newOAuthState(group);
 const run = (over: Partial<Parameters<typeof processCallback>[0]>, deps: Partial<Parameters<typeof processCallback>[1]> & { store: AccountsStore }) =>
   processCallback({ code: 'CODE', state: null, error: null, cookie: undefined, ...over }, { cfg, ...deps });
 
+describe('processCallback - reconnect clears the stale sync error', () => {
+  it('calls onConnected with the account id after saving', async () => {
+    const { store, calls } = storeSpy();
+    const s = start(null);
+    const seen: string[] = [];
+    const r = await run({ state: s.state, cookie: s.cookie }, { store, fetchFn: happyFetch(), onConnected: async (id) => void (calls.push('clear'), seen.push(id)) });
+    expect(r).toEqual({ redirect: '/accounts?connected=brandx' });
+    expect(seen).toEqual(['a1']);
+    expect(calls.at(-1)).toBe('clear'); // after saveToken
+  });
+
+  it('a failing onConnected can never fail the connect', async () => {
+    const { store, rows } = storeSpy();
+    const s = start(null);
+    const r = await run({ state: s.state, cookie: s.cookie }, { store, fetchFn: happyFetch(), onConnected: async () => { throw new Error('db down'); } });
+    expect(r).toEqual({ redirect: '/accounts?connected=brandx' });
+    expect(rows).toHaveLength(1);
+  });
+});
+
 describe('processCallback - success', () => {
   it('exchanges, fetches the profile, saves the account and redirects with the username', async () => {
     const { store, rows } = storeSpy();
