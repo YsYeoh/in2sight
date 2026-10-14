@@ -4,7 +4,7 @@ const { calls, requireOwner, runTick } = vi.hoisted(() => ({ calls: [] as string
 vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: () => requireOwner() }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => ({}) }));
 vi.mock('@/lib/sync/deps', () => ({ createSyncDeps: () => (calls.push('deps'), { __deps: true }) }));
-vi.mock('@/lib/sync/tick', () => ({ TICK_BUDGET_MS: 45_000, runTick: (...a: unknown[]) => (calls.push('tick'), runTick(...a)) }));
+vi.mock('@/lib/sync/tick', () => ({ TICK_BUDGET_MS: 35_000, runTick: (...a: unknown[]) => (calls.push('tick'), runTick(...a)) }));
 vi.mock('next/cache', () => ({ revalidatePath: (p: string) => calls.push(`revalidate:${p}`) }));
 
 import { syncNowAction } from '@/app/(app)/accounts/actions';
@@ -22,7 +22,7 @@ describe('syncNowAction', () => {
   it('checks the owner first, then runs a manual tick for that one account', async () => {
     expect(await syncNowAction(ID)).toEqual({ ok: true });
     expect(calls.slice(0, 3)).toEqual(['requireOwner', 'deps', 'tick']);
-    expect(runTick).toHaveBeenCalledWith({ __deps: true }, { trigger: 'manual', budgetMs: 45_000, accountId: ID });
+    expect(runTick).toHaveBeenCalledWith({ __deps: true }, { trigger: 'manual', budgetMs: 35_000, accountId: ID });
     expect(calls).toContain('revalidate:/accounts');
   });
 

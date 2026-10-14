@@ -3,7 +3,7 @@
 import type { AccountStatus } from '@/lib/accounts/types';
 import { addDays, localDay, localHour } from '@/lib/sync/time';
 
-export const STORIES_EVERY_MIN = 30; // every tick: a story lives 24h, a missed window is lost data
+const STORIES_EVERY_MIN = 30; // every tick: a story lives 24h, a missed window is lost data
 export const MEDIA_LIST_EVERY_MIN = 60;
 export const SLACK_MIN = 5; // a scheduler firing a few minutes early (or a slow previous tick) still counts as on time
 export const DAILY_HOUR = 6; // owner-local hour after which the daily account + audience jobs run

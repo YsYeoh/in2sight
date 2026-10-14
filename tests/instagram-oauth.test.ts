@@ -58,6 +58,13 @@ describe('exchangeLongLived / refreshLongLived', () => {
     expect(Date.parse(r.expiresAt) - Date.now()).toBeGreaterThan(59 * 86_400_000);
     expect(Date.parse(r.expiresAt) - Date.now()).toBeLessThan(61 * 86_400_000);
   });
+  it('refresh has a request timeout and refuses redirects (the token is in the query string)', async () => {
+    const f = fetchReturning(json({ access_token: 'long2', expires_in: 5184000 }));
+    await refreshLongLived('long1', f);
+    const init = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.redirect).toBe('error');
+  });
   it('refresh uses ig_refresh_token and the now parameter', async () => {
     const f = fetchReturning(json({ access_token: 'long2', expires_in: 5184000 }));
     const now = new Date('2026-10-14T00:00:00Z');

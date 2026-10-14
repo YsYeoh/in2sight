@@ -26,8 +26,12 @@ export interface SyncRun {
 export interface SyncStore {
   ownerTimezone(): Promise<string>;
   loadStates(accountIds: string[]): Promise<Map<string, SyncState>>;
-  /** Atomic: true only if no live lease exists. One UPDATE … WHERE lease free, so two ticks cannot both win. */
-  claimLease(accountId: string, leaseId: string, untilIso: string, nowIso: string): Promise<boolean>;
+  /**
+   * Atomic: the fresh row if no live lease existed, else null. One UPDATE … WHERE lease free, so two ticks cannot both win.
+   * It also stamps last_attempt_at = now, so an account killed mid-run goes to the back of the round-robin, not the front.
+   * The returned state carries that stamp and our own lease; plan from it, but not for rate-limit back-off (see tick.ts).
+   */
+  claimLease(accountId: string, leaseId: string, untilIso: string, nowIso: string): Promise<SyncState | null>;
   /** Writes the state and releases the lease, only if this tick still holds it. */
   saveState(accountId: string, leaseId: string, patch: StatePatch): Promise<void>;
   getToken(accountId: string): Promise<string | null>;
@@ -98,12 +102,13 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
       check('claimLease')(await db.from('sync_state').upsert({ account_id: accountId }, { onConflict: 'account_id', ignoreDuplicates: true }));
       const { data, error } = await db
         .from('sync_state')
-        .update({ lease_id: leaseId, lease_until: untilIso })
+        .update({ lease_id: leaseId, lease_until: untilIso, last_attempt_at: nowIso })
         .eq('account_id', accountId)
-        .or(`lease_until.is.null,lease_until.lt.${nowIso}`)
-        .select('account_id');
+        .or(`lease_until.is.null,lease_until.lt."${nowIso}"`)
+        .select('*');
       if (error) fail('claimLease');
-      return ((data ?? []) as Row[]).length === 1;
+      const rows = (data ?? []) as Row[];
+      return rows.length === 1 ? rowToState(rows[0]) : null;
     },
     async saveState(accountId, leaseId, p) {
       const row: Row = {
@@ -155,7 +160,7 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
         .eq('account_id', accountId)
         .neq('media_type', 'STORY')
         .is('gone_at', null)
-        .or(`posted_at.gte.${sinceIso},last_metrics_at.is.null`);
+        .or(`posted_at.gte."${sinceIso}",last_metrics_at.is.null`);
       if (error) fail('mediaForMetrics');
       return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, postedAt: r.posted_at as string, lastMetricsAt: (r.last_metrics_at as string | null) ?? null }));
     },

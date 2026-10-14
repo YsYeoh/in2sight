@@ -1,12 +1,10 @@
 // Instagram data reads for the sync (graph.instagram.com, Instagram Login tokens). Thin fetch wrapper, no SDK.
 // Errors are InstagramApiError('data' | 'network'): fixed messages, never a URL, body or token.
 import * as M from '@/lib/instagram/metrics';
-import { call, InstagramApiError, refreshLongLived } from '@/lib/instagram/oauth';
+import { call, graphInit, InstagramApiError, refreshLongLived } from '@/lib/instagram/oauth';
 import { parseBreakdown, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem } from '@/lib/instagram/parse';
 
 const HOST = 'https://graph.instagram.com';
-/** Per request. Keeps one hung call from eating the tick's time budget. */
-export const IG_TIMEOUT_MS = 10_000;
 
 export interface AccountDayValues {
   reach: number | null;
@@ -54,7 +52,7 @@ export function classifyIgError(e: unknown): IgErrorClass {
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
-  const getUrl = (url: string) => call('data', fetchFn, url, { signal: AbortSignal.timeout(IG_TIMEOUT_MS) });
+  const getUrl = (url: string) => call('data', fetchFn, url, graphInit());
   const get = (path: string, params: Record<string, string | number>, token: string) => {
     const u = new URL(`${HOST}/${apiVersion}/${path}`);
     for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
@@ -62,11 +60,15 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
     return getUrl(u.toString());
   };
 
-  /** Follows paging.next until maxItems, the last page, or (if given) a page reaching media older than stopBefore. */
-  async function listPaged(path: string, token: string, story: boolean, maxItems: number, stopBefore?: string): Promise<IgMediaItem[]> {
+  /**
+   * Follows paging.next until maxItems, the last page, a page reaching media older than stopBefore, a page cap (items the
+   * parser skips must not let a long cursor be walked to the end), or timeUp() (the tick's budget). Returns what it has.
+   */
+  async function listPaged(path: string, token: string, story: boolean, maxItems: number, stopBefore?: string, timeUp?: () => boolean): Promise<IgMediaItem[]> {
     const out: IgMediaItem[] = [];
+    const maxPages = Math.ceil(maxItems / M.MEDIA_PAGE_SIZE) + 1;
     let body = await get(path, { fields: M.MEDIA_FIELDS, limit: M.MEDIA_PAGE_SIZE }, token);
-    for (;;) {
+    for (let pages = 1; ; pages++) {
       const page = parseMediaPage(body, story);
       for (const item of page.items) {
         if (out.length >= maxItems) return out;
@@ -74,7 +76,7 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
       }
       const reachedOld = stopBefore !== undefined && page.items.some((i) => i.postedAt < stopBefore);
       // the next URL carries the token: only ever follow it to Instagram's own host
-      if (!page.next || reachedOld || out.length >= maxItems || !page.next.startsWith(`${HOST}/`)) return out;
+      if (!page.next || reachedOld || out.length >= maxItems || pages >= maxPages || timeUp?.() || !page.next.startsWith(`${HOST}/`)) return out;
       body = await getUrl(page.next);
     }
   }
@@ -101,7 +103,7 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
       };
     },
 
-    listMedia: (token: string, maxItems: number, stopBefore?: string) => listPaged('me/media', token, false, maxItems, stopBefore),
+    listMedia: (token: string, maxItems: number, stopBefore?: string, timeUp?: () => boolean) => listPaged('me/media', token, false, maxItems, stopBefore, timeUp),
     listStories: (token: string) => listPaged('me/stories', token, true, 100),
 
     async feedInsights(token: string, mediaId: string): Promise<MediaMetricValues> {

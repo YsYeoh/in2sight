@@ -39,7 +39,7 @@ describe('/api/cron/tick', () => {
     expect(runTick).not.toHaveBeenCalled(); // not before the response
     expect(pending).toHaveLength(1);
     await pending[0]();
-    expect(runTick).toHaveBeenCalledWith({ __deps: true }, { trigger: 'cron', budgetMs: 45_000 });
+    expect(runTick).toHaveBeenCalledWith({ __deps: true }, { trigger: 'cron', budgetMs: 35_000 });
   });
 
   it('POST works the same (schedulers differ)', async () => {

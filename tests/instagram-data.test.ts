@@ -70,6 +70,26 @@ describe('igData requests', () => {
     expect(f.calls).toHaveLength(1);
   });
 
+  it('listMedia stops after a page cap even if every item is filtered out (the cursor can be endless)', async () => {
+    const endless = { data: [{ id: 'x', media_type: 'MYSTERY' }], paging: { next: 'https://graph.instagram.com/v25.0/me/media?after=more' } };
+    const f = fakeFetch(() => json(endless));
+    expect(await igData('v25.0', f.fn).listMedia(TOKEN, 100)).toEqual([]);
+    expect(f.calls).toHaveLength(3); // ceil(100 / 50) + 1
+  });
+
+  it('listMedia stops paging once the caller says the time is up', async () => {
+    const f = fakeFetch((u) => json(fixture(u.searchParams.get('after') ? 'media-page-2' : 'media-page-1')));
+    const items = await igData('v25.0', f.fn).listMedia(TOKEN, 500, undefined, () => true);
+    expect(f.calls).toHaveLength(1);
+    expect(items.length).toBeGreaterThan(0); // what the first page returned is kept
+  });
+
+  it('never follows a redirect (the token is in the query string)', async () => {
+    const f = fakeFetch((u) => (u.pathname === '/v25.0/me' ? json(fixture('me')) : undefined));
+    await igData('v25.0', f.fn).profile(TOKEN);
+    expect(f.calls[0].init?.redirect).toBe('error');
+  });
+
   it('listStories reads /me/stories and marks items STORY', async () => {
     const f = fakeFetch((u) => (u.pathname === '/v25.0/me/stories' ? json(fixture('stories')) : undefined));
     expect((await igData('v25.0', f.fn).listStories(TOKEN))[0]).toMatchObject({ kind: 'STORY' });
