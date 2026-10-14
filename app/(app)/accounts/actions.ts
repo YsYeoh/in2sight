@@ -6,6 +6,8 @@ import { archiveAccount, deleteAccountPermanently, restoreAccount, setAccountGro
 import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import type { AccountsStore } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
+import { createSyncDeps } from '@/lib/sync/deps';
+import { runTick, TICK_BUDGET_MS } from '@/lib/sync/tick';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -48,4 +50,22 @@ export async function setGroupAction(id: string, group: string | null): Promise<
   const g = normalizeGroup(group);
   if (!g.ok) return { ok: false, error: 'invalid_group' };
   return guarded((s) => setAccountGroup(s, id, g.value));
+}
+
+// Runs the same per-account runner as the cron tick, now, for one account. Forces Stories + media list; daily and
+// audience still follow their once-a-day rule. Bounded by the page's maxDuration (accounts/page.tsx).
+export async function syncNowAction(id: string): Promise<Result> {
+  await requireOwner();
+  if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'not_found' };
+  try {
+    const summary = await runTick(createSyncDeps(), { trigger: 'manual', budgetMs: TICK_BUDGET_MS, accountId: id });
+    revalidatePath('/accounts');
+    const r = summary.accounts[0];
+    if (!r) return { ok: false, error: 'not_active' };
+    if (r.outcome === 'locked') return { ok: false, error: 'busy' };
+    if (r.outcome === 'failed' || r.outcome === 'needs_reconnect') return { ok: false, error: r.errorKey ?? 'unexpected' };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
 }

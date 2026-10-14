@@ -22,7 +22,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { normalizeGroup } from '@/lib/accounts/group';
 import { tokenStatus } from '@/lib/accounts/token-status';
 import type { StoredAccount } from '@/lib/accounts/types';
-import { formatDate, formatNumber } from '@/lib/format';
+import { formatDate, formatDateTime, formatNumber } from '@/lib/format';
+import type { SyncStatus } from '@/lib/sync/store';
 
 type Result = { ok: boolean; error?: string };
 export interface AccountsActions {
@@ -30,6 +31,7 @@ export interface AccountsActions {
   restore(id: string): Promise<Result>;
   remove(id: string): Promise<Result>;
   setGroup(id: string, group: string | null): Promise<Result>;
+  syncNow(id: string): Promise<Result>;
 }
 
 // error keys the OAuth callback redirects with; anything else in the URL is ignored
@@ -38,8 +40,25 @@ const NOTICE_ERRORS = ['access_denied', 'state_mismatch', 'missing_code', 'excha
 interface RowProps {
   accounts: StoredAccount[];
   now: Date;
+  sync: Record<string, SyncStatus>;
+  busy: boolean;
   onEditGroup: (a: StoredAccount) => void;
   onArchive: (a: StoredAccount) => void;
+  onSyncNow: (a: StoredAccount) => void;
+}
+
+// "last synced" plus the latest error, translated from the key the sync stored
+function SyncInfo({ s }: { s?: SyncStatus }) {
+  const t = useTranslations('accounts');
+  const tErr = useTranslations('accounts.errors');
+  const { prefs } = usePrefs();
+  const err = s?.lastErrorKey && s.consecutiveFailures > 0 ? s.lastErrorKey : null;
+  return (
+    <div className="grid min-w-0 gap-0.5">
+      <span>{s?.lastSuccessAt ? formatDateTime(s.lastSuccessAt, prefs) : t('sync.never')}</span>
+      {err ? <span className="text-xs text-destructive">{tErr.has(err) ? tErr(err) : tErr('unexpected')}</span> : null}
+    </div>
+  );
 }
 
 function Identity({ a }: { a: StoredAccount }) {
@@ -67,7 +86,7 @@ function GroupBadge({ name }: { name: string | null }) {
   );
 }
 
-function RowMenu({ a, onEditGroup, onArchive }: { a: StoredAccount } & Pick<RowProps, 'onEditGroup' | 'onArchive'>) {
+function RowMenu({ a, busy, onEditGroup, onArchive, onSyncNow }: { a: StoredAccount } & Pick<RowProps, 'busy' | 'onEditGroup' | 'onArchive' | 'onSyncNow'>) {
   const t = useTranslations('accounts.menu');
   return (
     <DropdownMenu>
@@ -77,6 +96,11 @@ function RowMenu({ a, onEditGroup, onArchive }: { a: StoredAccount } & Pick<RowP
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {a.status === 'active' ? (
+          <DropdownMenuItem disabled={busy} onSelect={() => onSyncNow(a)}>
+            {t('syncNow')}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onSelect={() => onEditGroup(a)}>{t('editGroup')}</DropdownMenuItem>
         <DropdownMenuItem asChild>
           <a href={connectHref(a.groupName)}>{t('reconnect')}</a>
@@ -90,7 +114,7 @@ function RowMenu({ a, onEditGroup, onArchive }: { a: StoredAccount } & Pick<RowP
   );
 }
 
-function AccountTable({ accounts, now, ...menu }: RowProps) {
+function AccountTable({ accounts, now, sync, ...menu }: RowProps) {
   const t = useTranslations('accounts');
   const { prefs } = usePrefs();
   return (
@@ -102,6 +126,7 @@ function AccountTable({ accounts, now, ...menu }: RowProps) {
             <TableHead>{t('columns.group')}</TableHead>
             <TableHead>{t('columns.token')}</TableHead>
             <TableHead>{t('columns.status')}</TableHead>
+            <TableHead>{t('columns.synced')}</TableHead>
             <TableHead>{t('columns.connected')}</TableHead>
             <TableHead>
               <span className="sr-only">{t('menu.open')}</span>
@@ -123,6 +148,9 @@ function AccountTable({ accounts, now, ...menu }: RowProps) {
               <TableCell>
                 <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
               </TableCell>
+              <TableCell>
+                <SyncInfo s={sync[a.id]} />
+              </TableCell>
               <TableCell>{formatDate(a.connectedAt, prefs)}</TableCell>
               <TableCell>
                 <RowMenu a={a} {...menu} />
@@ -135,7 +163,7 @@ function AccountTable({ accounts, now, ...menu }: RowProps) {
   );
 }
 
-function AccountCards({ accounts, now, ...menu }: RowProps) {
+function AccountCards({ accounts, now, sync, ...menu }: RowProps) {
   const t = useTranslations('accounts');
   const { prefs } = usePrefs();
   return (
@@ -153,6 +181,10 @@ function AccountCards({ accounts, now, ...menu }: RowProps) {
                 <GroupBadge name={a.groupName} />
               </div>
               <TokenMeter expiresAt={a.tokenExpiresAt} now={now} />
+              <div className="flex flex-wrap gap-1 text-xs">
+                <span className="text-muted-foreground">{t('columns.synced')}</span>
+                <SyncInfo s={sync[a.id]} />
+              </div>
               <p className="text-xs text-muted-foreground">
                 {t('columns.connected')} {formatDate(a.connectedAt, prefs)}
               </p>
@@ -184,9 +216,11 @@ export function AccountsView({
   actions,
   notice,
   now,
+  sync = {},
 }: {
   accounts: StoredAccount[];
   actions: AccountsActions;
+  sync?: Record<string, SyncStatus>;
   notice?: { connected?: string; error?: string };
   now: string; // ISO, computed on the server so first paint matches the client
 }) {
@@ -233,7 +267,8 @@ export function AccountsView({
     void run(() => actions.setGroup(editGroup!.id, g.value), closeDialogs);
   }
 
-  const menu = { now: nowDate, onEditGroup: setEditGroup, onArchive: setPendingArchive };
+  const syncNow = (a: StoredAccount) => void run(() => actions.syncNow(a.id), () => {});
+  const menu = { now: nowDate, sync, busy, onEditGroup: setEditGroup, onArchive: setPendingArchive, onSyncNow: syncNow };
   const sections = [...named.map(([name, list]) => ({ key: `g:${name}`, name, list })), ...(isolated.length ? [{ key: 'isolated', name: t('isolated'), list: isolated }] : [])];
   const noticeError = notice?.error && NOTICE_ERRORS.includes(notice.error) ? notice.error : null;
   const addButton = (

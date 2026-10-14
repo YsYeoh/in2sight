@@ -184,7 +184,8 @@
       "group": "分组",
       "token": "令牌",
       "status": "状态",
-      "connected": "连接时间"
+      "connected": "连接时间",
+      "synced": "上次同步"
     },
     "status": {
       "active": "正常",
@@ -204,7 +205,8 @@
       "reconnect": "重新连接",
       "archive": "归档",
       "restore": "恢复",
-      "delete": "永久删除"
+      "delete": "永久删除",
+      "syncNow": "立即同步"
     },
     "connect": {
       "title": "添加 Instagram 账号",
@@ -242,7 +244,16 @@
       "unexpected": "出了点问题，请重试。",
       "invalid_group": "分组名称无效（最多 40 个字符）。",
       "not_found": "该账号已不存在。",
-      "not_archived": "只有已归档的账号才能执行此操作。"
+      "not_archived": "只有已归档的账号才能执行此操作。",
+      "token_invalid": "Instagram 拒绝了访问令牌，请重新连接该账号。",
+      "rate_limited": "Instagram 正在限制请求频率，同步会自动重试。",
+      "instagram_unavailable": "Instagram 暂时不可用，同步会自动重试。",
+      "instagram_error": "Instagram 返回了错误，同步会自动重试。",
+      "busy": "该账号正在同步中。",
+      "not_active": "只有正常状态的账号才能同步。"
+    },
+    "sync": {
+      "never": "尚未同步"
     }
   },
   "pages": {
