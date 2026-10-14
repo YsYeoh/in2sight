@@ -15,7 +15,7 @@ Do the [Vercel step](SETUP.md#step-1--vercel) first: you need `<your-app-url>` (
 3. Instagram sends you back to `<your-app-url>/api/instagram/callback` with a one-time code. The server swaps it for a **60-day token**, stores it (server-only), and refreshes it automatically before it expires.
 4. From then on the scheduled jobs use that token to pull insights. You never repeat this unless an account is revoked.
 
-I can't log in to Instagram for you and I never see your password — **you click through the login for each account** once the Accounts page exists (Plan 4). This guide prepares everything so that works the first time.
+I can't log in to Instagram for you and I never see your password — **you click through the login for each account** on the Accounts page. This guide prepares everything so that works the first time.
 
 ---
 
@@ -28,7 +28,7 @@ On your phone, for **each** account (3–4):
 1. Open Instagram → your profile → **☰ menu → Settings and privacy → Account type and tools → Switch to professional account**.
 2. Choose **Creator** → pick the category that fits → *Done*.
 3. If it asks you to connect a Facebook Page or add contact details, **skip** — not needed.
-4. Check the account can be reached by the API: **if an account is private, switch it to public** while we test. (Sources disagree on whether private accounts work; I'll confirm in Plan 4 and tell you if you can switch back.)
+4. Check the account can be reached by the API: **if an account is private, switch it to public** while we test. (Sources disagree on whether private accounts work; `docs/RUNBOOK_META.md` step 3 tests it; if a private account is refused, keep it public.)
 
 Some metrics (audience demographics, followers online) only exist for accounts with **100+ followers** — smaller accounts still work for everything else.
 
@@ -84,7 +84,7 @@ Leave `instagram_business_manage_messages`, `…manage_comments` and `…content
    - `<your-app-url>/api/instagram/deauthorize`
    - `<your-app-url>/api/instagram/delete`
 
-   (I will build those two endpoints in Plan 4; until then Meta never calls them while you are the only user.)
+   (Both endpoints exist. They verify Meta's signed request and only flag the account as *Needs reconnect*; nothing is deleted automatically. To erase an account's data, archive it and use *Delete permanently* on the Accounts page.)
 5. Put the same address in `.env.local`:
 
 ```
@@ -130,7 +130,7 @@ You should get `data` with numbers. Whatever it returns, tell me **only the mess
 2. `npm run check:env -- --only=meta` → all `[ok]`.
 3. Tell me: *"Meta app is ready, N accounts added as testers/accounts."*
 
-Then in Plan 4 I build the **Add account** button; you'll click it and log in to each account once.
+Then follow `RUNBOOK_META.md`: on the **Accounts** page click **Add account** and log in to each account once.
 
 ---
 

@@ -8,7 +8,7 @@ Everything here uses free plans: **Vercel Hobby**, **Supabase Free**, **Meta for
 | 2 | Create the Supabase project, owner login, keys | [SETUP_SUPABASE.md](SETUP_SUPABASE.md) | the Vercel URL (for the auth redirect list) |
 | 3 | Convert your Instagram accounts, create the Meta app, add testers | [META_SETUP.md](META_SETUP.md) | the Vercel URL (OAuth redirect) |
 | 4 | Fill `.env.local`, run `npm run check:env` | below | steps 1–3 |
-| 5 | Tell me it's done — I continue with Plan 3 (login + 2FA) and Plan 4 (connect accounts) | — | step 4 |
+| 5 | Tell me it's done — login + 2FA and the Accounts page are built, so we then run `RUNBOOK_AUTH.md` then `RUNBOOK_META.md` | — | step 4 |
 
 Why Vercel first: Meta and Supabase both want to know your app's public URL, and Meta compares the OAuth redirect address character for character. The current app already builds, so you can deploy it today.
 
@@ -77,8 +77,8 @@ Run it once for `CRON_SECRET` (and again later for `REPORT_SIGNING_SECRET`).
 Reply with something like: *"Vercel URL is https://…; Supabase project `<ref>` is ready; Meta app is created, accounts added; `npm run check:env` is all green."* (The URL and project ref are not secret. Do not include keys.)
 
 Then I will:
-1. Confirm I can see the Supabase project with the connected Supabase tool, apply the database schema, and set up login with 2FA (Plan 3).
-2. Build the Instagram connect flow and the Accounts page, and walk you through connecting each account (Plan 4).
+1. Confirm I can see the Supabase project with the connected Supabase tool and apply the database migrations (login with 2FA, accounts).
+2. Walk you through `RUNBOOK_AUTH.md` and `RUNBOOK_META.md`: verify login, then connect each Instagram account on the Accounts page.
 
 ## Limits to keep in mind (free plans)
 

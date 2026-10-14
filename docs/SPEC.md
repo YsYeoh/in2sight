@@ -38,11 +38,11 @@ Browser ── Next.js (Vercel) ── Supabase Postgres (RLS, owner only)
 ## 5. Data model (Postgres)
 | Table | Key columns |
 |---|---|
-| `accounts` | id, ig_user_id (unique), username, group_name (nullable; null = isolated account), status (`active`/`needs_reconnect`/`archived`), archived_at, created_at |
+| `accounts` | id, ig_user_id (unique), username, group_name (nullable; null = isolated account), status (`active`/`needs_reconnect`/`archived`), archived_at, created_at, display_name, account_type, profile_picture_url, last_error, token_expires_at (non-secret copy of the token expiry, for the UI), connected_at |
 | `profiles` | user_id, language, timezone, date_format, time_format, week_start, number_format, theme, density, radius, alert settings jsonb (per-type push on/off + thresholds) |
 | `notifications` | id, account_id, kind, severity, payload jsonb, dedupe_key (unique), created_at, read_at |
 | `push_subscriptions` | id, endpoint (unique), keys jsonb, user_agent, created_at |
-| `account_tokens` | account_id (pk, fk), access_token, expires_at — service-role only |
+| `account_tokens` | account_id (pk, fk), access_token, expires_at, refreshed_at — service-role only |
 | `account_daily` | account_id, day, followers, reach, views, profile_views, accounts_engaged, total_interactions, follows, unfollows, link_taps — pk(account_id, day) |
 | `media` | id (IG media id), account_id, media_type (incl. `STORY`), permalink, caption, posted_at, expires_at (stories) |
 | `media_metrics` | media_id, captured_at (timestamptz), reach, views, likes, comments, shares, saves, total_interactions, replies, taps_forward, taps_back, exits — pk(media_id, captured_at); story-only columns null for other types |
