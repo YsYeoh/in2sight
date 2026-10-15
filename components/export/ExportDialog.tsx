@@ -148,12 +148,19 @@ export function ExportDialog({ scopes, defaultScope, period }: { scopes: ScopeOp
 
           <ResponsiveDialogFooter className="flex-wrap gap-2">
             {format === 'pdf' ? (
-              <Button asChild variant="ghost">
-                <a href={exportUrl(request, 'preview')} target="_blank" rel="noopener">
+              sections.length === 0 ? (
+                <Button type="button" variant="ghost" disabled>
                   <ExternalLink aria-hidden="true" />
                   {t('preview')}
-                </a>
-              </Button>
+                </Button>
+              ) : (
+                <Button asChild variant="ghost">
+                  <a href={exportUrl(request, 'preview')} target="_blank" rel="noopener">
+                    <ExternalLink aria-hidden="true" />
+                    {t('preview')}
+                  </a>
+                </Button>
+              )
             ) : null}
             <ResponsiveDialogClose asChild>
               <Button type="button" variant="outline">
