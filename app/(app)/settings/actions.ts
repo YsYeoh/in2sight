@@ -29,6 +29,7 @@ export async function disableAction(factorId: string) {
 
 // Push subscriptions and alert settings. OWNER-SESSION client: RLS (push_subscriptions_owner_all, profiles_owner_all)
 // applies to every write. Never the admin client here. Errors are keys, never Supabase text.
+const MAX_SUBSCRIPTIONS = 20; // a single owner has a handful of devices; the cap bounds what a hostile session could store
 export type PushResult = { ok: true } | { ok: false; error: 'invalid' | 'unexpected' };
 
 export async function saveSubscriptionAction(subscription: unknown, userAgent: unknown): Promise<PushResult> {
@@ -37,6 +38,10 @@ export async function saveSubscriptionAction(subscription: unknown, userAgent: u
   if (!s) return { ok: false, error: 'invalid' };
   try {
     const db = await createServerSupabase();
+    const existing = await db.from('push_subscriptions').select('endpoint').limit(MAX_SUBSCRIPTIONS + 1);
+    if (existing.error) return { ok: false, error: 'unexpected' };
+    const have = (existing.data ?? []) as { endpoint: string }[];
+    if (have.length >= MAX_SUBSCRIPTIONS && !have.some((r) => r.endpoint === s.endpoint)) return { ok: false, error: 'invalid' };
     const { error } = await db.from('push_subscriptions').upsert({ endpoint: s.endpoint, keys: s.keys, user_agent: clipUserAgent(userAgent) }, { onConflict: 'endpoint' });
     return error ? { ok: false, error: 'unexpected' } : { ok: true };
   } catch {

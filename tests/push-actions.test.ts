@@ -12,7 +12,7 @@ function fakeDb() {
     from(table: string) {
       calls.push(['from', table]);
       const chain: Record<string, unknown> = {};
-      for (const op of ['upsert', 'delete', 'eq']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      for (const op of ['upsert', 'delete', 'eq', 'select', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
       chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(queue.shift() ?? { error: null }).then(res, rej);
       return chain;
     },
@@ -118,8 +118,28 @@ describe('push and alert-settings actions', () => {
     expect(calls).toContainEqual(['eq', 'endpoint', SUB.endpoint]);
   });
 
+  const rows = (n: number, first = 'https://fcm.googleapis.com/fcm/send/other0') => ({ data: Array.from({ length: n }, (_, i) => ({ endpoint: i === 0 ? first : `https://fcm.googleapis.com/fcm/send/other${i}` })) });
+
+  it('a new endpoint is refused once 20 subscriptions exist, before any upsert', async () => {
+    queue.push(rows(20));
+    expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: false, error: 'invalid' });
+    expect(calls.some((c) => c[0] === 'upsert')).toBe(false);
+  });
+
+  it('with 19 subscriptions a new endpoint is saved', async () => {
+    queue.push(rows(19));
+    expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: true });
+    expect(calls.some((c) => c[0] === 'upsert')).toBe(true);
+  });
+
+  it('re-subscribing an endpoint that already exists still works at 20', async () => {
+    queue.push(rows(20, SUB.endpoint));
+    expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: true });
+    expect(calls.some((c) => c[0] === 'upsert')).toBe(true);
+  });
+
   it('a database error returns unexpected (never the Supabase message)', async () => {
-    queue.push({ error: { message: 'duplicate key value violates…' } });
+    queue.push({ data: [] }, { error: { message: 'duplicate key value violates…' } });
     expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: false, error: 'unexpected' });
   });
 
