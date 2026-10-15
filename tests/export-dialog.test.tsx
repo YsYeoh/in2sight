@@ -106,6 +106,8 @@ describe('ExportDialog', () => {
     await open();
     await userEvent.click(screen.getByLabelText('PDF report (A4)'));
     for (const s of SECTIONS) await userEvent.click(screen.getByLabelText(en.export.section[s]));
+    expect(screen.queryByRole('link', { name: 'Preview in the browser' })).toBeNull(); // no sections: nothing to preview
+    expect(screen.getByRole('button', { name: 'Preview in the browser' })).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Download' }));
     expect(screen.getByRole('alert')).toHaveTextContent(en.export.errors.no_sections);
     expect(fetchMock).not.toHaveBeenCalled();

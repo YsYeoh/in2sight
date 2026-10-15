@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
+import type { ComponentType } from 'react';
 import { NextIntlClientProvider } from 'next-intl';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
@@ -12,6 +13,13 @@ import { buildReport, type ReportModel } from '@/lib/export/report';
 import { deepMerge } from '@/lib/merge';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { NOW, sampleData, TODAY, TZ } from './fixtures/export-data';
+
+const anim = vi.hoisted(() => ({ line: [] as unknown[], area: [] as unknown[] }));
+vi.mock('recharts', async (orig) => {
+  const actual = await orig<typeof import('recharts')>();
+  const spy = (Real: ComponentType<Record<string, unknown>>, seen: unknown[]) => (p: Record<string, unknown>) => (seen.push(p.isAnimationActive), <Real {...p} />);
+  return { ...actual, Line: spy(actual.Line as ComponentType<Record<string, unknown>>, anim.line), Area: spy(actual.Area as ComponentType<Record<string, unknown>>, anim.area) };
+});
 
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
 afterEach(() => vi.unstubAllGlobals());
@@ -68,9 +76,19 @@ describe('ReportDocument', () => {
 });
 
 describe('SeriesChart animate flag', () => {
-  it('defaults to animated; animate={false} still renders the chart', () => {
-    const { container } = render(<SeriesChart kind="line" data={[{ d: 'a', v: 1 }]} xKey="d" series={[{ key: 'v', label: 'V' }]} title="T" animate={false} />);
+  const chart = (kind: 'line' | 'area', animate?: boolean) =>
+    render(<SeriesChart kind={kind} data={[{ d: 'a', v: 1 }]} xKey="d" series={[{ key: 'v', label: 'V' }]} title="T" animate={animate} />);
+
+  it.each([['line', anim.line], ['area', anim.area]] as const)('%s: animate={false} turns the animation off; the default stays on auto', (kind, seen) => {
+    seen.length = 0;
+    const { container } = chart(kind, false);
     expect(container.querySelector('[data-slot="series-chart"]')).not.toBeNull();
+    expect(seen).toContain(false);
+    expect(seen).not.toContain('auto');
+    seen.length = 0;
+    chart(kind);
+    expect(seen).toContain('auto');
+    expect(seen).not.toContain(false);
   });
 });
 
