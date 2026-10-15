@@ -13,7 +13,7 @@ import { DEFAULT_PREFS } from '@/lib/prefs';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/overview' }));
 // a plain anchor: these tests are about the bell, not Next's client router
-vi.mock('next/link', () => ({ default: ({ href, children, onClick, ...p }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} onClick={(e) => (e.preventDefault(), onClick?.(e))} {...p}>{children}</a> }));
+vi.mock('next/link', () => ({ default: ({ href, children, onClick, ...p }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} onClick={(e) => (e.preventDefault(), onClick?.(e))} {...p}>{children}</a>, useLinkStatus: () => ({ pending: false }) }));
 
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };

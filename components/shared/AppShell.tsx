@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ModeToggle } from '@/components/shared/ModeToggle';
+import { NavLink } from '@/components/shared/NavLink';
 import { UserMenu } from '@/components/shared/UserMenu';
 import { NAV_ITEMS, isActive } from '@/lib/nav';
 import { cn } from '@/lib/utils';
@@ -27,15 +27,16 @@ export function AppShell({ children, userEmail, signOutAction, bell }: { childre
         <Brand className="mb-3 px-1.5 pt-1" wordClassName="max-lg:sr-only" />
         <nav aria-label={t('sidebar')} className="flex flex-col gap-1">
           {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
-            <Link
+            <NavLink
               key={href}
               href={href}
+              icon={Icon}
+              iconClassName="size-4"
               aria-current={isActive(pathname, href) ? 'page' : undefined}
               className="flex h-[var(--ctl)] items-center gap-2.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:text-accent-foreground"
             >
-              <Icon aria-hidden className="size-4 shrink-0" />
               <span className="sr-only lg:not-sr-only">{t(key)}</span>
-            </Link>
+            </NavLink>
           ))}
         </nav>
       </aside>
@@ -55,15 +56,16 @@ export function AppShell({ children, userEmail, signOutAction, bell }: { childre
       {/* phones: bottom tab bar */}
       <nav aria-label={t('tabs')} className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
         {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
-          <Link
+          <NavLink
             key={href}
             href={href}
+            icon={Icon}
+            iconClassName="size-5"
             aria-current={isActive(pathname, href) ? 'page' : undefined}
             className="flex min-h-14 flex-col items-center justify-center gap-0.5 text-[length:var(--lb)] text-muted-foreground aria-[current=page]:text-primary"
           >
-            <Icon aria-hidden className="size-5" />
             {t(key)}
-          </Link>
+          </NavLink>
         ))}
       </nav>
     </div>
