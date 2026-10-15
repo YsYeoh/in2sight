@@ -94,7 +94,7 @@ Upsert only; rows are deleted solely by the explicit "Delete all data permanentl
 
 ## 7d. Exports & reports (approved: Excel + PDF)
 - **Excel:** server route `/api/export/xlsx` (auth required) using `write-excel-file` (not `xlsx`: known vulnerabilities in the npm build). Sheets: Summary, Daily, Posts (+tags), Stories, Audience, Tags. Real date cells formatted per the user's date-format setting; headers localized (en / zh-CN).
-- **PDF:** a print-optimized Report page per account and for the Overview (A4, always light). `/api/export/pdf` renders that page with headless Chromium (`puppeteer-core` + `@sparticuz/chromium`) via a short-lived signed token. Bundled Noto Sans SC subset for Chinese. One layout, no second PDF renderer.
+- **PDF:** a print-optimized Report page per account and for the Overview (A4, always light). `/api/export/pdf` renders that page with headless Chromium (`puppeteer-core` + `@sparticuz/chromium`) handing it the report data over the DevTools protocol (the print page itself has no data access; owner decision, Plan 9). Bundled Noto Sans SC subset for Chinese. One layout, no second PDF renderer.
 - **Report options:** section checkboxes (KPIs+deltas, reach/views trend, top posts, format comparison, tag performance, best time, audience, Stories summary, flags), title, optional note. No logo upload in v1.
 - **Ceiling:** Chromium cold start adds seconds to the first PDF after idle; if volume grows, move PDF generation to a small dedicated service.
 

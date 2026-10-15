@@ -46,9 +46,10 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] Apply migration `20261018000001_alerts.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code runs a tick — docs/RUNBOOK_ALERTS.md §0)
 
 ## 3c. Exports
-- [ ] `/api/export/xlsx` (write-excel-file) with the six sheets, user date format, localized headers
-- [ ] Report page (Overview + per account) with section options; print CSS for A4
-- [ ] `/api/export/pdf` (puppeteer-core + @sparticuz/chromium), signed short-lived token, bundled Noto Sans SC
+- [x] Plan 9 written: `docs/superpowers/plans/2026-10-19-09-exports.md`
+- [x] `/api/export/xlsx` (write-excel-file) with the six sheets, user date format, localized headers (code done; live verification pending — not yet opened in Excel/LibreOffice with real data — docs/RUNBOOK_EXPORTS.md §1)
+- [x] Report page (Overview + per account) with section options; print CSS for A4 (code done; live verification pending — preview not yet viewed with real data — docs/RUNBOOK_EXPORTS.md §2)
+- [x] `/api/export/pdf` (puppeteer-core + @sparticuz/chromium), bundled Noto Sans SC; report data handed to Chromium over the DevTools protocol instead of a signed token (owner decision in Plan 9) (code done; live verification pending — Chromium has never run, tests use a fake browser — docs/RUNBOOK_EXPORTS.md §3)
 
 ## 4. Analysis
 - [x] Plan 6 part 1 (analysis + Overview) written: `docs/superpowers/plans/2026-10-16-06-analysis-overview.md` (part 1 implemented; part 2 pending)
