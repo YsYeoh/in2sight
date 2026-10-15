@@ -15,7 +15,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 ## 1. Foundation
 - [x] Next.js (TS, App Router) scaffold
 - [x] Deploy to Vercel (done by owner, live at https://in2sight.yongsen.space)
-- [x] Supabase migrations: all tables + RLS (5 migrations applied to the live project 2026-10-15/16 via `npx supabase db push`; local and remote lists match)
+- [x] Supabase migrations: all tables + RLS (5 migrations applied to the live project 2026-10-14/15 via `npx supabase db push`; local and remote lists match)
 - [x] Supabase Auth: single owner login (sign-ups disabled); middleware guards all pages (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 - [x] 2FA: TOTP enroll/verify UI in Settings → Account; middleware enforces AAL2 once enrolled (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 - [x] `profiles` table: language, timezone, date/time/number format, week start, theme, density, radius (code done; live verification pending — docs/RUNBOOK_AUTH.md)
