@@ -23,7 +23,8 @@ create policy notifications_owner_update on public.notifications
   for update to authenticated
   using (public.is_owner())
   with check (public.is_owner());
-revoke insert, update, delete on public.notifications from anon, authenticated;
+revoke all on public.notifications from anon, authenticated;
+grant select on public.notifications to authenticated;
 grant update (read_at) on public.notifications to authenticated;
 
 -- One row per subscribed browser/device. The owner session subscribes (upsert on endpoint) and unsubscribes
@@ -40,4 +41,5 @@ create policy push_subscriptions_owner_all on public.push_subscriptions
   for all to authenticated
   using (public.is_owner())
   with check (public.is_owner());
-revoke all on public.push_subscriptions from anon;
+revoke all on public.push_subscriptions from anon, authenticated;
+grant select, insert, update, delete on public.push_subscriptions to authenticated;
