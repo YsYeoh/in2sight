@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { CircleUserRound, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -179,14 +179,25 @@ function Comparison({ model }: { model: OverviewModel }) {
   );
 }
 
-export function OverviewView({ model }: { model: OverviewModel }) {
+export function OverviewView({ model, exportButton }: { model: OverviewModel; exportButton?: ReactNode }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
   const uid = useId();
-  const header = <PageHeader title={t('title')} subtitle={t('subtitle')} actions={<PeriodSelect period={model.period} />} />;
+  const header = (
+    <PageHeader
+      title={t('title')}
+      subtitle={t('subtitle')}
+      actions={
+        <>
+          {exportButton}
+          <PeriodSelect period={model.period} />
+        </>
+      }
+    />
+  );
 
   if (model.sections.length === 0) {
     return (

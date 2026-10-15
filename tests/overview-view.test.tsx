@@ -96,6 +96,17 @@ describe('OverviewView', () => {
     expect(screen.getByRole('link', { name: `@${LONG}` })).toHaveAttribute('href', `/accounts/${LONG}`);
   });
 
+  it('shows the export button passed by the page in the header, also with no accounts', () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+          <OverviewView model={buildOverview({ accounts: [], sync: {}, daily: {}, posts: {} }, { period: 30, today: TODAY, now: NOW, tz: 'UTC', locale: 'en' })} exportButton={<button type="button">Export</button>} />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
+  });
+
   it('renders in Simplified Chinese', () => {
     view(undefined, 'zh-CN');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('总览');
