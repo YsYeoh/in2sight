@@ -69,7 +69,7 @@ Run it once for `CRON_SECRET` (and again later for `REPORT_SIGNING_SECRET`).
 | `IG_APP_ID`, `IG_APP_SECRET` | Meta → Instagram → API setup with Instagram business login | connecting Instagram accounts |
 | `IG_API_VERSION` | leave `v25.0` | Instagram API calls |
 | `IG_REDIRECT_URI` | `<your-app-url>/api/instagram/callback` | where Instagram sends you back after login |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | later (Plan 7) | push notifications |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Plan 8 (optional: without them alerts stay in-app) | push notifications — docs/RUNBOOK_ALERTS.md §1 |
 | `REPORT_SIGNING_SECRET` | later (Plan 8) | PDF report links |
 
 ## Step 5 — Tell me it's done

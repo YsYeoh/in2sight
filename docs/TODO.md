@@ -38,9 +38,12 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] Archive / restore / permanent-delete for accounts (code done; live verification pending — docs/RUNBOOK_META.md)
 
 ## 3b. Alerts
-- [ ] Rule evaluation after each sync (token expiring, needs reconnect, sync failing, reach drop, post taking off) with dedupe keys
-- [ ] `notifications` table + bell/notification centre UI
-- [ ] Web Push: VAPID keys, `push_subscriptions`, `web-push` sender, subscribe/unsubscribe in Settings, per-type toggles + thresholds
+- [x] Plan 8 written: `docs/superpowers/plans/2026-10-18-08-alerts-pwa.md`
+- [x] Rule evaluation after each sync (token expiring, needs reconnect, sync failing, reach drop, post taking off) with dedupe keys (code done; live verification pending — docs/RUNBOOK_ALERTS.md)
+- [x] `notifications` table + bell/notification centre UI (code done; live verification pending — docs/RUNBOOK_ALERTS.md)
+- [x] Web Push: `push_subscriptions`, `web-push` sender, subscribe/unsubscribe in Settings, per-type toggles + thresholds (code done; no push has been sent to a real device yet — docs/RUNBOOK_ALERTS.md §2–4)
+- [ ] VAPID keys in `.env.local` and Vercel (owner — docs/RUNBOOK_ALERTS.md §1)
+- [ ] Apply migration `20261018000001_alerts.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code runs a tick — docs/RUNBOOK_ALERTS.md §0)
 
 ## 3c. Exports
 - [ ] `/api/export/xlsx` (write-excel-file) with the six sheets, user date format, localized headers
@@ -63,7 +66,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] Responsive shell: bottom tab bar / icon rail / sidebar; bottom-sheet dialogs; touch targets (dialog close X is 16px — known gap)
 - [x] DataTable card mode (Plan 6)
 - [x] Motion gating helper (`lib/motion.ts`: reduced-motion, coarse pointer, Save-Data) (Plan 6)
-- [ ] PWA: manifest, icons, service worker (static + offline page only), install prompt
+- [x] PWA: manifest, icons, service worker (static + offline page only), install prompt (code done; not yet installed on a real phone — docs/RUNBOOK_ALERTS.md §3, §7)
 
 ## 6. UI pages (use `frontend-design`)
 - [x] Overview (grouped cards, totals, comparison, period selector) — code done; visual verification with real data pending (docs/RUNBOOK_DASHBOARDS.md)
@@ -72,4 +75,4 @@ See `docs/META_SETUP.md` for click-by-click notes.
 
 ## 7. Later
 - [ ] (C) Weekly AI summary per account via Claude API
-- [ ] Alerts when a token needs reconnect
+- [x] Alerts when a token needs reconnect (Plan 8 `needs_reconnect` + `token_expiring` rules)
