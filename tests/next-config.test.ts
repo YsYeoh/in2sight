@@ -16,6 +16,12 @@ describe('next.config', () => {
     );
   });
 
+  it('ships the Chromium binary with the PDF route only; both browser packages stay external', () => {
+    expect(nextConfig.outputFileTracingIncludes).toEqual({ '/api/export/pdf': ['./node_modules/@sparticuz/chromium/bin/**'] });
+    const builtIn = readFileSync(join(process.cwd(), 'node_modules/next/dist/lib/server-external-packages.jsonc'), 'utf8');
+    for (const p of ['"puppeteer-core"', '"@sparticuz/chromium"']) expect(builtIn).toContain(p); // else add serverExternalPackages
+  });
+
   it('keeps the Tailwind turbopack wiring untouched', () => {
     const src = readFileSync(join(process.cwd(), 'next.config.ts'), 'utf8');
     expect(src).toMatch(/"\*\.css":\s*\{\s*loaders:\s*\["@tailwindcss\/turbopack"\],\s*as:\s*"\*\.css",\s*\}/);

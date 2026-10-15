@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  // @sparticuz/chromium finds its brotli binary at run time (import.meta.url + ../bin), which file tracing cannot see.
+  // puppeteer-core and @sparticuz/chromium are already in Next's built-in serverExternalPackages list.
+  outputFileTracingIncludes: {
+    "/api/export/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
+  },
   // The service worker must always be revalidated (a stale sw.js would pin an old worker) and may control the whole site.
   async headers() {
     return [
