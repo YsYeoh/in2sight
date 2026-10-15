@@ -60,6 +60,14 @@ describe('account detail page', () => {
     expect(calls).not.toContain('stories');
   });
 
+  it('offers the Export dialog scoped to this account, with every live account as an option', async () => {
+    accounts.push(acct(ID), acct('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'archived'));
+    const el = (await run(ID, { period: '90' })) as unknown as ReactElement<{ exportButton: ReactElement<{ defaultScope: string; period: number; scopes: { value: string }[] }> }>;
+    expect(el.props.exportButton.props.defaultScope).toBe(`a:${ID}`);
+    expect(el.props.exportButton.props.period).toBe(90);
+    expect(el.props.exportButton.props.scopes.map((s) => s.value)).toEqual(['all', `a:${ID}`]); // archived accounts are not offered
+  });
+
   it('posts tab loads only its own data (posts with tags + tag list)', async () => {
     accounts.push(acct(ID));
     const el = await run(ID, { tab: 'posts', format: 'REELS' });

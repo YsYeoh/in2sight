@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { ExportDialog } from '@/components/export/ExportDialog';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
 import { AudienceTab } from '@/components/account/AudienceTab';
@@ -13,6 +14,7 @@ import { buildAudience } from '@/lib/dashboard/audience';
 import { buildPosts, buildStories, parsePostFilters } from '@/lib/dashboard/content';
 import { loadAudience, loadOnline, loadPostRows, loadStories, loadTags } from '@/lib/dashboard/detail-read';
 import { fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
+import { exportScopes } from '@/lib/export/params';
 import { loadDaily, loadPosts } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -72,7 +74,11 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
   const account = accounts.find((a) => a.id === id.toLowerCase());
   if (!account) notFound();
   return (
-    <AccountView account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }} tab={tab}>
+    <AccountView
+      account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }}
+      tab={tab}
+      exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} period={parsePeriod(sp.period)} />}
+    >
       {await tabContent(tab, { db, account, accounts, sp, now, today, prefs })}
     </AccountView>
   );

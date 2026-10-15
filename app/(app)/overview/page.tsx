@@ -1,5 +1,7 @@
+import { ExportDialog } from '@/components/export/ExportDialog';
 import { OverviewView } from '@/components/overview/OverviewView';
 import { requireOwner } from '@/lib/auth/require-owner';
+import { exportScopes } from '@/lib/export/params';
 import { buildOverview, fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
 import { loadOverviewInput } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
@@ -14,5 +16,6 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   const today = localDay(now, prefs.timezone);
   const db = await createServerSupabase(); // owner session: RLS applies, never the admin client
   const input = await loadOverviewInput(db, fromDayFor(period, today));
-  return <OverviewView model={buildOverview(input, { period, today, now, tz: prefs.timezone, locale: prefs.locale })} />;
+  const model = buildOverview(input, { period, today, now, tz: prefs.timezone, locale: prefs.locale });
+  return <OverviewView model={model} exportButton={<ExportDialog scopes={exportScopes(input.accounts)} defaultScope="all" period={period} />} />;
 }

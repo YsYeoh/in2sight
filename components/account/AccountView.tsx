@@ -21,7 +21,7 @@ interface AccountHead {
   groupName: string | null;
 }
 
-export function AccountView({ account, tab, children }: { account: AccountHead; tab: Tab; children: ReactNode }) {
+export function AccountView({ account, tab, exportButton, children }: { account: AccountHead; tab: Tab; exportButton?: ReactNode; children: ReactNode }) {
   const t = useTranslations('pages.account');
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -37,6 +37,7 @@ export function AccountView({ account, tab, children }: { account: AccountHead; 
         subtitle={subtitle}
         actions={
           <>
+            {exportButton}
             <Button asChild variant="outline" size="sm">
               <Link href={`/calendar?account=${account.id}`}>
                 <CalendarDays aria-hidden="true" />
