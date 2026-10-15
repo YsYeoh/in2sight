@@ -1,9 +1,11 @@
+import { Suspense } from 'react';
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { ServiceWorker } from '@/components/pwa/ServiceWorker';
+import { NavigationProgress } from '@/components/shared/NavigationProgress';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { htmlAttrs } from '@/lib/prefs';
@@ -34,6 +36,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <NextIntlClientProvider locale={prefs.locale} messages={messages}>
           <PrefsProvider initial={prefs} persist={setPrefs}>
+            {/* useSearchParams: its own Suspense boundary, so a prerendered page can never fail the build or blank the app */}
+            <Suspense fallback={null}>
+              <NavigationProgress />
+            </Suspense>
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster position="bottom-right" />
             <ServiceWorker enabled={process.env.NODE_ENV === 'production'} />

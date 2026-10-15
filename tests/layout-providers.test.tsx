@@ -14,6 +14,11 @@ describe('root layout providers', () => {
     expect(layout.indexOf('<TooltipProvider')).toBeGreaterThan(layout.indexOf('<PrefsProvider'));
   });
 
+  it('mounts the navigation progress bar inside PrefsProvider, in its own Suspense boundary', () => {
+    expect(layout).toMatch(/<Suspense fallback=\{null\}>\s*<NavigationProgress \/>\s*<\/Suspense>/);
+    expect(layout.indexOf('<NavigationProgress')).toBeGreaterThan(layout.indexOf('<PrefsProvider'));
+  });
+
   it('a Tooltip shows its content on hover inside TooltipProvider', async () => {
     // jsdom has no ResizeObserver; Radix Popper needs one.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
