@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { calls, requireOwner, queue } = vi.hoisted(() => ({
   calls: [] as unknown[][],
   requireOwner: vi.fn(),
-  queue: [] as { error?: unknown }[],
+  queue: [] as { data?: unknown; error?: unknown }[],
 }));
 
 /** Owner-session fake: records every call; each awaited query resolves to the next queued result. */

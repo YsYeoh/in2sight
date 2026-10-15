@@ -26,6 +26,13 @@ describe('runAlerts', () => {
     expect(payload).toEqual({ title: '需要重新连接', body: expect.stringContaining('@user_a1'), url: '/accounts', tag: 'needs_reconnect:a1' });
   });
 
+  it("push text uses the owner's number format", async () => {
+    const { deps, ctx, push } = setup([], { prefs: { numberFormat: '1.234,5' } });
+    vi.mocked(deps.store.insertNew).mockResolvedValue([{ kind: 'reach_drop', accountId: 'a1', severity: 'warning', dedupeKey: 'k', payload: { username: 'cafe', pct: 25.5 } }]);
+    await runAlerts(deps, ctx);
+    expect(JSON.parse((push as ReturnType<typeof vi.fn>).mock.calls[0][1] as string).body).toContain('25,5%');
+  });
+
   it('the next tick finds the same alert and does nothing (dedupe)', async () => {
     const { deps, ctx, push } = setup([broken('a1')]);
     await runAlerts(deps, ctx);

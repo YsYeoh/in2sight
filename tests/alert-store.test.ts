@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Alert } from '@/lib/alerts/rules';
 import { DEFAULT_ALERT_SETTINGS } from '@/lib/alerts/settings';
+import { DEFAULT_PREFS } from '@/lib/prefs';
 import { supabaseAlertStore } from '@/lib/alerts/store';
 
 type Call = { table: string; op: string; args: unknown[]; filters: unknown[][] };
@@ -29,11 +30,15 @@ const alert = (key: string): Alert => ({ kind: 'needs_reconnect', accountId: 'a1
 
 describe('supabaseAlertStore', () => {
   it('context: owner settings parsed, language validated; no owner or junk gives defaults', async () => {
-    const r = recorder([{ data: { user_id: 'u1' } }, { data: { alert_settings: { reachDropPct: 30, junk: 1 }, language: 'zh-CN' } }]);
-    expect(await supabaseAlertStore(r.db).context()).toEqual({ settings: { ...DEFAULT_ALERT_SETTINGS, reachDropPct: 30 }, locale: 'zh-CN' });
-    expect(r.calls[1]).toMatchObject({ table: 'profiles', args: ['alert_settings,language'], filters: [['eq', 'user_id', 'u1']] });
-    expect(await supabaseAlertStore(recorder([{ data: null }]).db).context()).toEqual({ settings: DEFAULT_ALERT_SETTINGS, locale: 'en' });
-    expect(await supabaseAlertStore(recorder([{ data: { user_id: 'u1' } }, { data: { alert_settings: 'x', language: 'fr' } }]).db).context()).toEqual({ settings: DEFAULT_ALERT_SETTINGS, locale: 'en' });
+    const row = { alert_settings: { reachDropPct: 30, junk: 1 }, language: 'zh-CN', timezone: 'Europe/Berlin', date_format: 'DD/MM/YYYY', time_format: '12h', number_format: '1.234,5', week_start: 'sun' };
+    const r = recorder([{ data: { user_id: 'u1' } }, { data: row }]);
+    expect(await supabaseAlertStore(r.db).context()).toEqual({
+      settings: { ...DEFAULT_ALERT_SETTINGS, reachDropPct: 30 },
+      prefs: { ...DEFAULT_PREFS, locale: 'zh-CN', timezone: 'Europe/Berlin', dateFormat: 'DD/MM/YYYY', timeFormat: '12h', numberFormat: '1.234,5', weekStart: 'sun' },
+    });
+    expect(r.calls[1]).toMatchObject({ table: 'profiles', args: ['alert_settings,language,timezone,date_format,time_format,number_format,week_start'], filters: [['eq', 'user_id', 'u1']] });
+    expect(await supabaseAlertStore(recorder([{ data: null }]).db).context()).toEqual({ settings: DEFAULT_ALERT_SETTINGS, prefs: DEFAULT_PREFS });
+    expect(await supabaseAlertStore(recorder([{ data: { user_id: 'u1' } }, { data: { alert_settings: 'x', language: 'fr', number_format: 'bogus' } }]).db).context()).toEqual({ settings: DEFAULT_ALERT_SETTINGS, prefs: DEFAULT_PREFS });
   });
 
   it('a database error throws a fixed message (never the Supabase text)', async () => {
