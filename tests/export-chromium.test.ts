@@ -18,10 +18,10 @@ afterEach(() => {
 });
 
 describe('launchChromium', () => {
-  it('serverless: the @sparticuz build in headless shell mode, A4 viewport, bounded launch', async () => {
+  it('serverless: the @sparticuz build in headless shell mode, viewport = A4 content width (703), bounded launch', async () => {
     vi.stubEnv('CHROMIUM_PATH', '');
     await launchChromium();
-    expect(launched[0]).toMatchObject({ executablePath: '/tmp/chromium', headless: 'shell', args: ['--default', '--serverless'], defaultViewport: { width: 794, height: 1123 }, timeout: 15_000 });
+    expect(launched[0]).toMatchObject({ executablePath: '/tmp/chromium', headless: 'shell', args: ['--default', '--serverless'], defaultViewport: { width: 703, height: 1123 }, timeout: 15_000 });
   });
 
   it('CHROMIUM_PATH: a local Chrome, plain headless, no serverless flags', async () => {

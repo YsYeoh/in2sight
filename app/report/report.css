@@ -23,6 +23,8 @@
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+  /* the @page margin is the padding on paper. The headless viewport is the printed content width (703px) and the screen
+     padding is >= 0, so the charts (measured on screen) are never wider than the paper box. */
   [data-report] {
     max-width: none;
     padding: 0;
