@@ -73,7 +73,7 @@ describe('PostsTab', () => {
       </NextIntlClientProvider>,
     );
     const form = container.querySelector('form')!;
-    expect(form).toHaveAttribute('method', 'get');
+    expect(form.method).toBe('get'); // next/form: a GET form without a method attribute
     expect(form.querySelector('input[name="tab"]')).toHaveValue('posts');
     expect(screen.getByLabelText(en.pages.account.posts.format)).toHaveValue('REELS');
     expect(screen.getByLabelText(en.pages.account.posts.tag)).toHaveValue(T1);

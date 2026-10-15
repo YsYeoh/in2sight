@@ -1,5 +1,6 @@
 'use client';
 
+import Form from 'next/form';
 import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -7,6 +8,7 @@ import { TagPicker, type SetPostTags } from '@/components/account/TagPicker';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FormField } from '@/components/shared/FormField';
+import { formHref, startProgress } from '@/components/shared/NavigationProgress';
 import { TagBadge } from '@/components/shared/TagBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,12 +20,12 @@ import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/li
 export const POSTS_PAGE = 50;
 const SELECT = 'h-[var(--ctl)] w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground';
 
-/** Filters are a plain GET form: the URL is the state and the server re-filters (works without JavaScript too). */
+/** Filters are a GET form (next/form: a client navigation, still a plain GET without JavaScript): the URL is the state. */
 function Filters({ tags, filters }: { tags: Tag[]; filters: PostFilters }) {
   const t = useTranslations('pages.account.posts');
   const ta = useTranslations('analysis');
   return (
-    <form method="get" className="grid grid-cols-2 items-end gap-[var(--gp)] md:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+    <Form action="" onSubmit={(e) => startProgress(formHref(e.currentTarget))} className="grid grid-cols-2 items-end gap-[var(--gp)] md:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
       <input type="hidden" name="tab" value="posts" />
       <FormField id="f-format" label={t('format')}>
         {(p) => (
@@ -62,7 +64,7 @@ function Filters({ tags, filters }: { tags: Tag[]; filters: PostFilters }) {
           <Link href="?tab=posts">{t('reset')}</Link>
         </Button>
       </div>
-    </form>
+    </Form>
   );
 }
 

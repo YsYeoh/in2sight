@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CalendarDays, ExternalLink } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { startProgress } from '@/components/shared/NavigationProgress';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -26,6 +27,11 @@ export function AccountView({ account, tab, exportButton, children }: { account:
   const router = useRouter();
   const [pending, start] = useTransition();
   const subtitle = [account.displayName, account.groupName].filter(Boolean).join(' · ') || undefined;
+  const choose = (v: string) => {
+    const href = `?tab=${v}`;
+    startProgress(href); // router.push is not a link click: tell the top bar
+    start(() => router.push(href, { scroll: false }));
+  };
   return (
     <>
       <Link href="/overview" className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
@@ -53,7 +59,7 @@ export function AccountView({ account, tab, exportButton, children }: { account:
           </>
         }
       />
-      <Tabs value={tab} activationMode="manual" onValueChange={(v) => start(() => router.push(`?tab=${v}`, { scroll: false }))} className="min-w-0">
+      <Tabs value={tab} activationMode="manual" onValueChange={choose} className="min-w-0">
         <TabsList aria-label={t('tabs')} className="max-w-full justify-start overflow-x-auto">
           {TABS.map((v) => (
             <TabsTrigger key={v} value={v} className="flex-none">
