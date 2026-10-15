@@ -3,7 +3,7 @@ import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import { requireOwner } from '@/lib/auth/require-owner';
 import { listSyncStatus } from '@/lib/sync/store';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { archiveAccountAction, deleteAccountAction, restoreAccountAction, setGroupAction, syncNowAction } from './actions';
+import { archiveAccountAction, deleteAccountAction, restoreAccountAction, setGroupAction, syncNowAction } from '../actions';
 
 // Server actions inherit the page's limit: "Sync now" runs a tick (35s budget) inside the action.
 export const maxDuration = 60;

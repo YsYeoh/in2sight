@@ -53,7 +53,7 @@ export async function setGroupAction(id: string, group: string | null): Promise<
 }
 
 // Runs the same per-account runner as the cron tick, now, for one account. Forces Stories + media list; daily and
-// audience still follow their once-a-day rule. Bounded by the page's maxDuration (accounts/page.tsx).
+// audience still follow their once-a-day rule. Bounded by the page's maxDuration (accounts/(list)/page.tsx).
 export async function syncNowAction(id: string): Promise<Result> {
   await requireOwner();
   if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'not_found' };
