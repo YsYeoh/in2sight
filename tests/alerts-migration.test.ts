@@ -22,7 +22,9 @@ describe('alerts migration', () => {
   it('notifications: the owner can read and mark read, nothing else (inserts come from the admin client)', () => {
     const ps = policies('notifications');
     expect(ps.map((p) => p.match(/for\s+(\w+)/i)?.[1].toLowerCase()).sort()).toEqual(['select', 'update']);
-    expect(sql).toMatch(/revoke\s+insert\s*,\s*update\s*,\s*delete\s+on\s+public\.notifications\s+from\s+anon\s*,\s*authenticated/i);
+    expect(sql).toMatch(/revoke\s+all\s+on\s+public\.notifications\s+from\s+anon\s*,\s*authenticated/i);
+    expect(sql).toMatch(/grant\s+select\s+on\s+public\.notifications\s+to\s+authenticated/i);
+    expect(sql).not.toMatch(/grant\s+(all|insert|delete)[^;]*on\s+public\.notifications/i);
     expect(sql).toMatch(/grant\s+update\s*\(\s*read_at\s*\)\s+on\s+public\.notifications\s+to\s+authenticated/i);
   });
 
@@ -41,6 +43,7 @@ describe('alerts migration', () => {
     expect(body).toMatch(/endpoint\s+like\s+'https:\/\/%'/i);
     expect(body).toMatch(/char_length\(endpoint\)\s*<=\s*1024/i);
     expect(body).toMatch(/keys\s+jsonb\s+not\s+null/i);
-    expect(sql).toMatch(/revoke\s+all\s+on\s+public\.push_subscriptions\s+from\s+anon/i);
+    expect(sql).toMatch(/revoke\s+all\s+on\s+public\.push_subscriptions\s+from\s+anon\s*,\s*authenticated/i);
+    expect(sql).toMatch(/grant\s+select\s*,\s*insert\s*,\s*update\s*,\s*delete\s+on\s+public\.push_subscriptions\s+to\s+authenticated/i);
   });
 });
