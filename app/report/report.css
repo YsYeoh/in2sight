@@ -1,0 +1,34 @@
+/* Report pages (/report and /report/print): A4 print rules. Tokens only, no raw colours. */
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+/* Inter for Latin, then the bundled Noto Sans SC (@fontsource, unicode-range slices) so Chinese never prints as
+   boxes on a machine without CJK fonts (headless Chromium on Vercel has none). */
+[data-report] {
+  font-family: var(--font-inter), "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+@media print {
+  html,
+  body {
+    background: var(--background);
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  [data-report] {
+    max-width: none;
+    padding: 0;
+  }
+  [data-report] section,
+  [data-report] tr {
+    break-inside: avoid;
+  }
+}
