@@ -10,6 +10,7 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { NavLink } from '@/components/shared/NavLink';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { PeriodSelect } from '@/components/shared/PeriodSelect';
 import { DeltaPill, StatCard } from '@/components/shared/StatCard';
@@ -56,9 +57,9 @@ function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {
             </Avatar>
             <div className="min-w-0 flex-1">
               <h3 className="truncate font-medium">
-                <Link href={`/accounts/${c.id}`} className="underline-offset-4 hover:underline">
+                <NavLink href={`/accounts/${c.id}`} className="underline-offset-4 hover:underline">
                   @{c.username}
-                </Link>
+                </NavLink>
               </h3>
               {c.displayName ? <p className="truncate text-xs text-muted-foreground">{c.displayName}</p> : null}
             </div>
