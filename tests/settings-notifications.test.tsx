@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import en from '@/messages/en.json';
 import { AlertSettingsForm, type AlertSettingsFormProps } from '@/components/settings/AlertSettingsForm';
 import { NotificationsCard, type NotificationsCardProps } from '@/components/settings/NotificationsCard';
-import { DEFAULT_ALERT_SETTINGS } from '@/lib/alerts/settings';
+import { DEFAULT_ALERT_SETTINGS, parseAlertSettings } from '@/lib/alerts/settings';
 
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
@@ -181,9 +181,18 @@ describe('AlertSettingsForm', () => {
     await userEvent.clear(pct);
     await userEvent.type(pct, '35');
     await userEvent.click(screen.getByRole('button', { name: en.common.save }));
-    expect(p.save).toHaveBeenCalledWith(expect.objectContaining({ push: expect.objectContaining({ taking_off: true }), reachDropPct: 35, takingOffRatio: 2, syncFailures: 2 }));
+    expect(p.save).toHaveBeenCalledWith(expect.objectContaining({ push: expect.objectContaining({ taking_off: true }), reachDropPct: '35', takingOffRatio: '2', syncFailures: '2' }));
     expect(await screen.findByRole('status')).toHaveTextContent(M.saved);
     expect(screen.getByLabelText(M.syncFailures)).toHaveValue(3); // the server's normalised value wins
+  });
+
+  it('an emptied number field is saved as the default, not the minimum', async () => {
+    const p = form({ initial: { ...DEFAULT_ALERT_SETTINGS, reachDropPct: 50 }, save: vi.fn(async (raw: unknown) => ({ ok: true as const, settings: parseAlertSettings(raw) })) });
+    const pct = screen.getByLabelText(M.reachDropPct);
+    await userEvent.clear(pct);
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(p.save).toHaveBeenCalledWith(expect.objectContaining({ reachDropPct: '' }));
+    await waitFor(() => expect(pct).toHaveValue(DEFAULT_ALERT_SETTINGS.reachDropPct));
   });
 
   it('out-of-range numbers are stopped by the browser (min/max) before reaching the server', async () => {

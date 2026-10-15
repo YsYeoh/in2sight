@@ -21,7 +21,7 @@ export function AlertSettingsForm({ initial, save }: AlertSettingsFormProps) {
   const tk = useTranslations('notifications.kinds');
   const tc = useTranslations('common');
   const [push, setPush] = useState(initial.push);
-  // numbers are kept as typed text; the server clamps and returns what it stored
+  // numbers are kept and sent as typed text; the server parses them (empty = the default), clamps and returns what it stored
   const [nums, setNums] = useState(() => Object.fromEntries(NUMBERS.map((k) => [k, String(initial[k])])) as Record<(typeof NUMBERS)[number], string>);
   const [result, setResult] = useState<'saved' | 'error' | null>(null);
   const [pending, start] = useTransition();
@@ -29,7 +29,7 @@ export function AlertSettingsForm({ initial, save }: AlertSettingsFormProps) {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     start(async () => {
-      const r = await save({ push, ...Object.fromEntries(NUMBERS.map((k) => [k, Number(nums[k])])) });
+      const r = await save({ push, ...Object.fromEntries(NUMBERS.map((k) => [k, nums[k]])) });
       if (!r.ok) return setResult('error');
       setPush(r.settings.push);
       setNums(Object.fromEntries(NUMBERS.map((k) => [k, String(r.settings[k])])) as typeof nums);
