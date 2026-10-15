@@ -1,8 +1,6 @@
 import { AccountsView } from '@/components/accounts/AccountsView';
-import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import { requireOwner } from '@/lib/auth/require-owner';
-import { listSyncStatus } from '@/lib/sync/store';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
 import { archiveAccountAction, deleteAccountAction, restoreAccountAction, setGroupAction, syncNowAction } from '../actions';
 
 // Server actions inherit the page's limit: "Sync now" runs a tick (35s budget) inside the action.
@@ -14,8 +12,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
   const sp = await searchParams;
   const connected = first(sp.connected)?.slice(0, 60); // the view ignores unknown error keys
-  const db = await createServerSupabase(); // owner session: RLS applies
-  const [accounts, sync] = await Promise.all([supabaseAccountsStore(db).list(), listSyncStatus(db)]);
+  const [accounts, sync] = await Promise.all([loadAccounts(), loadSyncStatus()]); // owner session: RLS applies
   return (
     <AccountsView
       accounts={accounts}
