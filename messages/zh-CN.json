@@ -520,5 +520,12 @@
     "body": "登录前需要先配置 Supabase 连接。请把下列变量添加到 .env.local（以及 Vercel）后刷新页面。",
     "docs": "分步指南：docs/SETUP.md",
     "check": "检查配置："
+  },
+  "pwa": {
+    "offline": {
+      "title": "你已离线",
+      "body": "in2sight 需要联网才能显示你的数据洞察。此设备上不会保存任何私密数据。",
+      "retry": "重试"
+    }
   }
 }

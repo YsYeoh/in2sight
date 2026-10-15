@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
@@ -7,6 +7,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { htmlAttrs } from '@/lib/prefs';
 import { getPrefs } from '@/lib/prefs.server';
+import { themeColor } from '@/lib/pwa';
 import { setPrefs } from '@/app/actions';
 import './globals.css';
 
@@ -15,7 +16,14 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 export const metadata: Metadata = {
   title: 'in2sight',
   description: 'Instagram insights across all your accounts',
+  icons: { apple: '/icons/apple-touch-icon.png' },
+  appleWebApp: { capable: true, title: 'in2sight', statusBarStyle: 'default' },
 };
+
+// The browser bar follows the chosen theme + mode (PrefsProvider updates the tag on switch).
+export async function generateViewport(): Promise<Viewport> {
+  return { themeColor: themeColor(await getPrefs()) };
+}
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const prefs = await getPrefs();
