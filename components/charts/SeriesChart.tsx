@@ -28,6 +28,7 @@ export function SeriesChart({
   height = 220,
   formatX = String,
   formatY = String,
+  animate = true,
 }: {
   kind: 'line' | 'area' | 'bar';
   data: ChartRow[];
@@ -38,8 +39,10 @@ export function SeriesChart({
   height?: number;
   formatX?: (v: string) => string;
   formatY?: (v: number) => string;
+  animate?: boolean; // false for print/PDF: the snapshot must show the finished chart
 }) {
   const gid = useId().replace(/:/g, '');
+  const anim = animate ? ('auto' as const) : false;
   const common = { data, responsive: true, style: { width: '100%', height }, title, desc, margin: { top: 8, right: 8, bottom: 0, left: 0 } };
   const parts = [
     <CartesianGrid key="grid" vertical={false} stroke="var(--border)" strokeDasharray="3 4" />,
@@ -62,7 +65,7 @@ export function SeriesChart({
         <LineChart {...common}>
           {parts}
           {series.map((s, i) => (
-            <Line key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'var(--surface)', strokeWidth: 2 }} connectNulls={false} />
+            <Line key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'var(--surface)', strokeWidth: 2 }} connectNulls={false} isAnimationActive={anim} />
           ))}
         </LineChart>
       ) : kind === 'area' ? (
@@ -77,14 +80,14 @@ export function SeriesChart({
           </defs>
           {parts}
           {series.map((s, i) => (
-            <Area key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} fill={`url(#${gid}-${i})`} connectNulls={false} />
+            <Area key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} fill={`url(#${gid}-${i})`} connectNulls={false} isAnimationActive={anim} />
           ))}
         </AreaChart>
       ) : (
         <BarChart {...common}>
           {parts}
           {series.map((s, i) => (
-            <Bar key={s.key} dataKey={s.key} name={s.label} fill={seriesColor(i)} radius={[4, 4, 0, 0]} maxBarSize={30} />
+            <Bar key={s.key} dataKey={s.key} name={s.label} fill={seriesColor(i)} radius={[4, 4, 0, 0]} maxBarSize={30} isAnimationActive={anim} />
           ))}
         </BarChart>
       )}

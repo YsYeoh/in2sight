@@ -14,7 +14,7 @@ import { useHeavyMotion } from '@/lib/motion';
 const Globe = dynamic(() => import('@/components/account/Globe'), { ssr: false });
 
 /** Ranked horizontal bars as a list: the accessible form of the data (name + share in text, bar is decoration). */
-function RankedBars({ data, name, otherLabel }: { data: Ranked; name: (key: string) => string; otherLabel: string }) {
+export function RankedBars({ data, name, otherLabel }: { data: Ranked; name: (key: string) => string; otherLabel: string }) {
   const { prefs } = usePrefs();
   const rows = [...data.rows.map((r) => ({ key: r.key, label: name(r.key), share: r.share })), ...(data.other ? [{ key: '\u0000other', label: otherLabel, share: data.other.share }] : [])];
   const max = Math.max(...rows.map((r) => r.share), 1e-6);
