@@ -10,8 +10,9 @@ export type RouteDecision = { type: 'next' } | { type: 'redirect'; to: '/login' 
 const NEXT: RouteDecision = { type: 'next' };
 const go = (to: '/login' | '/login/verify' | '/overview' | '/setup'): RouteDecision => ({ type: 'redirect', to });
 
-// Endpoints that authenticate themselves (cron secret / Meta signed_request) and must work without a browser session.
-const SELF_AUTHENTICATED = [/^\/api\/cron\/tick$/, /^\/api\/instagram\/(deauthorize|delete)$/];
+// Endpoints that authenticate themselves (cron secret / Meta signed_request) and must work without a browser session,
+// plus the data-less report shell that headless Chromium prints (it renders only a model injected by the PDF route).
+const SELF_AUTHENTICATED = [/^\/api\/cron\/tick$/, /^\/api\/instagram\/(deauthorize|delete)$/, /^\/report\/print$/];
 const ENTRY = new Set(['/', '/login', '/login/verify', '/setup']);
 
 export function decideRoute({ pathname, configured, signedIn, aal, mfaRequired }: RouteInput): RouteDecision {
