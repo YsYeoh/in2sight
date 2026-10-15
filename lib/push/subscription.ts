@@ -8,12 +8,19 @@ export interface SubscriptionInput {
 const B64URL = /^[A-Za-z0-9_-]+={0,2}$/;
 const MAX_ENDPOINT = 1024;
 
-/** An https URL without credentials, at most 1024 characters (the DB check matches). */
+// SSRF guard: the server POSTs to these URLs, so only the real push services (FCM, Mozilla autopush, APNs web push,
+// WNS) are accepted: exact host or a dot-prefixed subdomain, default port only. IP literals and look-alikes fail.
+const PUSH_HOSTS = ['fcm.googleapis.com', 'updates.push.services.mozilla.com'];
+const PUSH_SUFFIXES = ['.push.apple.com', '.notify.windows.com'];
+
+/** An https URL on a known push service, without credentials, at most 1024 characters (the DB check matches). */
 export function parseEndpoint(v: unknown): string | null {
   if (typeof v !== 'string' || v.length > MAX_ENDPOINT) return null;
   try {
     const u = new URL(v);
-    return u.protocol === 'https:' && !u.username && !u.password && u.hostname !== '' ? v : null;
+    if (u.protocol !== 'https:' || u.username || u.password || u.port !== '') return null;
+    const h = u.hostname;
+    return PUSH_HOSTS.includes(h) || PUSH_SUFFIXES.some((s) => h.endsWith(s) && h.length > s.length) ? v : null;
   } catch {
     return null;
   }

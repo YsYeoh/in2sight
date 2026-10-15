@@ -44,8 +44,18 @@ describe('parseSubscription', () => {
   it.each([
     ['http endpoint', { ...SUB, endpoint: 'http://push.example/x' }],
     ['javascript: endpoint', { ...SUB, endpoint: 'javascript:alert(1)' }],
-    ['credentials in the URL', { ...SUB, endpoint: 'https://user:pw@push.example/x' }],
-    ['endpoint over 1024 chars', { ...SUB, endpoint: 'https://push.example/' + 'a'.repeat(1010) }],
+    ['credentials in the URL', { ...SUB, endpoint: 'https://user:pw@fcm.googleapis.com/x' }],
+    ['endpoint over 1024 chars', { ...SUB, endpoint: 'https://fcm.googleapis.com/' + 'a'.repeat(1010) }],
+    ['an unknown push host', { ...SUB, endpoint: 'https://push.example/x' }],
+    ['a look-alike prefix host', { ...SUB, endpoint: 'https://evilfcm.googleapis.com.attacker.test/x' }],
+    ['a look-alike suffix host', { ...SUB, endpoint: 'https://fcm.googleapis.com.evil.test/x' }],
+    ['an allowed host as a subdomain of another domain', { ...SUB, endpoint: 'https://x.notify.windows.com.evil.test/x' }],
+    ['a prefix without a dot', { ...SUB, endpoint: 'https://evilpush.apple.com.test/x' }],
+    ['an IPv4 literal', { ...SUB, endpoint: 'https://127.0.0.1/x' }],
+    ['an IPv6 literal', { ...SUB, endpoint: 'https://[::1]/x' }],
+    ['a metadata address', { ...SUB, endpoint: 'https://169.254.169.254/latest' }],
+    ['a non-default port', { ...SUB, endpoint: 'https://fcm.googleapis.com:8443/x' }],
+    ['a bare push.apple.com suffix with no label', { ...SUB, endpoint: 'https://apple.com/x' }],
     ['missing keys', { endpoint: SUB.endpoint }],
     ['short p256dh', { ...SUB, keys: { ...SUB.keys, p256dh: 'abc' } }],
     ['non-base64url auth', { ...SUB, keys: { ...SUB.keys, auth: '<script>alert(1)</script>' } }],
@@ -54,6 +64,16 @@ describe('parseSubscription', () => {
     ['null', null],
   ])('refuses %s', (_n, raw) => {
     expect(parseSubscription(raw)).toBeNull();
+  });
+
+  it.each([
+    'https://fcm.googleapis.com/fcm/send/abc',
+    'https://updates.push.services.mozilla.com/wpush/v2/abc',
+    'https://web.push.apple.com/QAbc',
+    'https://wns2-par02p.notify.windows.com/w/?token=abc',
+    'https://fcm.googleapis.com:443/fcm/send/abc',
+  ])('accepts the real push service endpoint %s', (endpoint) => {
+    expect(parseSubscription({ ...SUB, endpoint })?.endpoint).toBe(endpoint);
   });
 
   it('vapidKeyBytes decodes base64url without padding (a VAPID public key is 65 bytes starting 0x04)', () => {
