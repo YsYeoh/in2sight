@@ -17,7 +17,7 @@ function Brand({ className, wordClassName }: { className?: string; wordClassName
   );
 }
 
-export function AppShell({ children, userEmail, signOutAction }: { children: React.ReactNode; userEmail?: string; signOutAction?: () => Promise<void> }) {
+export function AppShell({ children, userEmail, signOutAction, bell }: { children: React.ReactNode; userEmail?: string; signOutAction?: () => Promise<void>; bell?: React.ReactNode }) {
   const pathname = usePathname();
   const t = useTranslations('nav');
   return (
@@ -44,6 +44,7 @@ export function AppShell({ children, userEmail, signOutAction }: { children: Rea
         <header className="sticky top-0 z-20 flex h-[50px] items-center gap-2 border-b border-border bg-card/85 px-[var(--pg)] backdrop-blur">
           <Brand className="md:hidden" />
           <div className="ml-auto flex items-center gap-1">
+            {bell}
             <ModeToggle />
             <UserMenu email={userEmail} signOutAction={signOutAction} />
           </div>
