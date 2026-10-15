@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FormField } from '@/components/shared/FormField';
+import { InsightOrb } from '@/components/shared/InsightOrb';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,11 +53,13 @@ function Body({ title, body, confirmLabel, cancelLabel, busy, error, requireText
         <AlertDialogAction
           variant="destructive"
           disabled={busy || (requireText !== undefined && typed !== requireText)}
+          aria-busy={busy || undefined}
           onClick={(e) => {
             e.preventDefault(); // stay open until the action reports back
             onConfirm();
           }}
         >
+          {busy ? <InsightOrb size="xs" decorative /> : null}
           {confirmLabel}
         </AlertDialogAction>
       </AlertDialogFooter>

@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { FormField } from '@/components/shared/FormField';
-import { Button } from '@/components/ui/button';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -61,9 +61,9 @@ export function AlertSettingsForm({ initial, save }: AlertSettingsFormProps) {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={pending}>
+            <LoadingButton type="submit" pending={pending}>
               {tc('save')}
-            </Button>
+            </LoadingButton>
             {result === 'saved' ? (
               <p role="status" className="text-sm text-muted-foreground">
                 {t('saved')}

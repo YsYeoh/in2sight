@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { useTranslations } from 'next-intl';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { vapidKeyBytes } from '@/lib/push/subscription';
 import { isIos, isStandalone } from '@/lib/pwa';
@@ -97,16 +97,16 @@ export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove }: N
         {status === 'denied' ? note('denied') : null}
         {status === 'off' ? (
           <div className="flex flex-col items-start gap-1.5">
-            <Button onClick={enable} disabled={pending}>
+            <LoadingButton onClick={enable} pending={pending}>
               {t('enable')}
-            </Button>
+            </LoadingButton>
             <p className="text-xs text-muted-foreground">{t('enableHint')}</p>
           </div>
         ) : null}
         {status === 'on' ? (
-          <Button variant="outline" className="self-start" onClick={disable} disabled={pending}>
+          <LoadingButton variant="outline" className="self-start" onClick={disable} pending={pending}>
             {t('disable')}
-          </Button>
+          </LoadingButton>
         ) : null}
         {error ? (
           <p role="alert" className="text-sm text-destructive">

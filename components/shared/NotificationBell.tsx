@@ -6,6 +6,7 @@ import { useState, useTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { alertHref, alertText, type KindTranslator } from '@/lib/alerts/message';
@@ -54,9 +55,9 @@ export function NotificationBell({ items, unread, markRead, markAllRead }: Notif
       <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] p-0">
         <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
           <h2 className="text-sm font-semibold">{t('title')}</h2>
-          <Button variant="ghost" size="sm" disabled={unread === 0 || pending} onClick={() => start(async () => void (await markAllRead()))}>
+          <LoadingButton variant="ghost" size="sm" pending={pending} disabled={unread === 0} onClick={() => start(async () => void (await markAllRead()))}>
             {t('markAll')}
-          </Button>
+          </LoadingButton>
         </div>
         {items.length === 0 ? (
           <EmptyState icon={<Bell aria-hidden className="size-5" />} title={t('empty')} description={t('emptyHint')} />

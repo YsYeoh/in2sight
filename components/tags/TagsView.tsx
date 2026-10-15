@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import { PageHeader } from '@/components/shared/PageHeader';
 import {
   ResponsiveDialog,
@@ -60,9 +61,9 @@ function CreateForm({ create }: { create: TagsViewProps['create'] }) {
       <FormField id="new-tag" label={t('newTag')} error={error ?? undefined} className="min-w-0 flex-1 basis-48">
         {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" dir="auto" />}
       </FormField>
-      <Button type="submit" disabled={pending || name.trim() === ''}>
+      <LoadingButton type="submit" pending={pending} disabled={name.trim() === ''}>
         {t('add')}
-      </Button>
+      </LoadingButton>
     </form>
   );
 }
@@ -100,9 +101,9 @@ function RenameDialog({ tag, rename, onClose }: { tag: Tag | null; rename: TagsV
                   {t('cancel')}
                 </Button>
               </ResponsiveDialogClose>
-              <Button type="submit" disabled={pending}>
+              <LoadingButton type="submit" pending={pending}>
                 {t('save')}
-              </Button>
+              </LoadingButton>
             </ResponsiveDialogFooter>
           </form>
         ) : null}

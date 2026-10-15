@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -207,6 +207,32 @@ describe('AccountsView', () => {
     setup({}, 'zh-CN');
     expect(screen.getByText('独立账号')).toBeInTheDocument();
     expect(screen.getAllByText('正常').length).toBeGreaterThan(0);
+  });
+
+  it('while Sync now runs, a status line with the orb names the account; it disappears when the action returns', async () => {
+    const actions = setup({ accounts: [acct({ id: '1', username: 'a' })] });
+    let release: (v: { ok: boolean }) => void = () => {};
+    actions.syncNow.mockImplementationOnce(() => new Promise((r) => (release = r)));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Account actions' })[0]);
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Sync now' }));
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Syncing @a');
+    expect(status.querySelector('svg.insight-orb')).not.toBeNull();
+    release({ ok: true });
+    await waitFor(() => expect(screen.queryByText(/Syncing @a/)).not.toBeInTheDocument());
+  });
+
+  it('the confirm button shows the orb and aria-busy while the archive action runs', async () => {
+    const actions = setup();
+    actions.archive.mockImplementationOnce(() => new Promise(() => {}));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Account actions' })[0]);
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Archive' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Archive' }));
+    const confirm = within(dialog).getByRole('button', { name: 'Archive' });
+    expect(confirm).toHaveAttribute('aria-busy', 'true');
+    expect(confirm).toBeDisabled();
+    expect(confirm.querySelector('svg.insight-orb')).not.toBeNull();
   });
 });
 

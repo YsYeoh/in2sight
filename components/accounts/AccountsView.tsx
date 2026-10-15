@@ -11,6 +11,7 @@ import { StatusBadge } from '@/components/accounts/StatusBadge';
 import { TokenMeter } from '@/components/accounts/TokenMeter';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { InsightOrb } from '@/components/shared/InsightOrb';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Alert } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -233,6 +234,8 @@ export function AccountsView({
   const [editGroup, setEditGroup] = useState<StoredAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const tl = useTranslations('loading');
 
   const { named, isolated, archived, allGroups } = groupAccounts(accounts, prefs.locale);
 
@@ -267,7 +270,11 @@ export function AccountsView({
     void run(() => actions.setGroup(editGroup!.id, g.value), closeDialogs);
   }
 
-  const syncNow = (a: StoredAccount) => void run(() => actions.syncNow(a.id), () => {});
+  // a sync runs up to ~35 s inside the action: the menu closes at once, so a status line says it is still working
+  const syncNow = (a: StoredAccount) => {
+    setSyncing(a.username);
+    void run(() => actions.syncNow(a.id), () => {}).finally(() => setSyncing(null));
+  };
   const menu = { now: nowDate, sync, busy, onEditGroup: setEditGroup, onArchive: setPendingArchive, onSyncNow: syncNow };
   const sections = [...named.map(([name, list]) => ({ key: `g:${name}`, name, list })), ...(isolated.length ? [{ key: 'isolated', name: t('isolated'), list: isolated }] : [])];
   const noticeError = notice?.error && NOTICE_ERRORS.includes(notice.error) ? notice.error : null;
@@ -296,6 +303,12 @@ export function AccountsView({
         <Alert variant="destructive" className="mb-[var(--gp)]">
           {error}
         </Alert>
+      ) : null}
+      {syncing ? (
+        <p role="status" className="mb-[var(--gp)] flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+          <InsightOrb size="xs" decorative />
+          <span className="min-w-0 break-words">{tl('syncing', { username: syncing })}</span>
+        </p>
       ) : null}
 
       {accounts.length === 0 ? (

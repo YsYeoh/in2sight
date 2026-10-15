@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -110,18 +111,18 @@ export function TwoFactorCard({ enrolled, startEnrollAction, confirmEnrollAction
               {(p) => <Input {...p} value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" />}
             </FormField>
             <div className="flex gap-2">
-              <Button type="submit" disabled={pending}>
+              <LoadingButton type="submit" pending={pending}>
                 {t('confirm')}
-              </Button>
+              </LoadingButton>
               <Button type="button" variant="ghost" onClick={reset}>
                 {t('cancel')}
               </Button>
             </div>
           </form>
         ) : (
-          <Button onClick={begin} disabled={pending} className="self-start">
+          <LoadingButton onClick={begin} pending={pending} className="self-start">
             {t('enable')}
-          </Button>
+          </LoadingButton>
         )}
         {error && !error.field ? (
           <p role="alert" className="text-xs text-destructive">

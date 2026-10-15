@@ -3,7 +3,7 @@
 import { useActionState } from 'react';
 import { useTranslations } from 'next-intl';
 import { FormField } from '@/components/shared/FormField';
-import { Button } from '@/components/ui/button';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import { Input } from '@/components/ui/input';
 import type { FormState } from '@/lib/auth/sign-in';
 
@@ -23,9 +23,9 @@ export function LoginForm({ action }: { action: (prev: FormState, formData: Form
           {t(`errors.${state.error}`)}
         </p>
       ) : null}
-      <Button type="submit" disabled={pending} className="w-full">
+      <LoadingButton type="submit" pending={pending} className="w-full">
         {pending ? t('login.submitting') : t('login.submit')}
-      </Button>
+      </LoadingButton>
     </form>
   );
 }
