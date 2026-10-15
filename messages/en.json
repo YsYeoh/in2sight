@@ -6,6 +6,15 @@
     "loading": "Loading…",
     "empty": "No data yet"
   },
+  "loading": {
+    "caption1": "Reading your insights…",
+    "caption2": "Crunching the numbers…",
+    "caption3": "Drawing your charts…",
+    "notifications": "Loading notifications…",
+    "syncing": "Syncing @{username}… this can take up to a minute.",
+    "gallery": "Insight Orb",
+    "size": "Size {size}"
+  },
   "table": {
     "empty": "Nothing to show yet",
     "sortBy": "Sort by",

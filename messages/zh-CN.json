@@ -6,6 +6,15 @@
     "loading": "加载中…",
     "empty": "暂无数据"
   },
+  "loading": {
+    "caption1": "正在读取你的洞察数据…",
+    "caption2": "正在计算数据…",
+    "caption3": "正在绘制图表…",
+    "notifications": "正在加载通知…",
+    "syncing": "正在同步 @{username}…最多约需一分钟。",
+    "gallery": "洞察光球",
+    "size": "尺寸 {size}"
+  },
   "table": {
     "empty": "暂无内容",
     "sortBy": "排序方式",
