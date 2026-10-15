@@ -5,9 +5,10 @@ import type { DateFormat, Locale, TimeFormat } from '@/lib/prefs';
 export const CELL_MAX = 32_767;
 
 // A cell starting with one of these is read as a formula by Excel/LibreOffice/Sheets once someone edits or re-saves it
-// as CSV (OWASP "CSV injection"). Full-width variants (U+FF1D, U+FF0B, U+FF0D, U+FF20) are included because some IMEs
-// turn them into formulas too.
-const FORMULA_START = /^[=+\-@\t\r＝＋－＠]/;
+// as CSV (OWASP "CSV injection"). Spreadsheets skip leading whitespace, so the trigger may follow spaces, NBSP,
+// newlines, zero-width characters or a BOM. Full-width variants (U+FF1D, U+FF0B, U+FF0D, U+FF20) are included because
+// some IMEs turn them into formulas too.
+const FORMULA_START = /^[\s\u00a0\u200b-\u200d\u2060\ufeff]*[=+\-@\uff1d\uff0b\uff0d\uff20]|^[\t\r]/;
 
 /**
  * Text from users or Meta (captions, usernames, tag/group/city names) → a cell string, or null for an empty cell.
