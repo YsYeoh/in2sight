@@ -1,0 +1,123 @@
+# Creator Toolkit — design (Plans 10–14)
+
+Status: **draft for owner review** (2026-10-15). Nothing here is built. When approved, `docs/SPEC.md` gets the matching edits (§5 data model, §6 sync, §8 UI) as the first task of each plan, and each phase below gets its own implementation plan.
+
+## 0. Owner decisions already made
+- Followers / unfollowers / viewers: **official sources only + export diff**. No scraping, no unofficial APIs.
+- Top commenters: **included**; adds the `instagram_business_manage_comments` scope (Meta app permission + one reconnect per account).
+- Delivery order: **A loading → B covers → C Post Lab → D toolkit → E settings**.
+- Out of scope (unchanged): AI summaries, competitor tracking, scheduling/publishing posts to Instagram.
+
+## 1. What the owner asked for (restated)
+1. Page transitions feel slow: add proper loading feedback and a custom, innovative spinner (inspired by `thinking-orbs` from libraries.dev and the 21st.dev spinner catalogue — ideas only, own design and code).
+2. Make sure we keep our own long-term copy of Instagram insights.
+3. Show the actual cover of every post, Reel and Story, not just a name.
+4. Deep analysis per post and per Story.
+5. Followers snapshot, comparison, unfollowers.
+6. Who views the account / Stories / posts, including non-followers.
+7. Better Settings UX.
+8. "As much as you can provide" for content creators and social account managers.
+
+## 2. What Instagram's API really allows (verified in docs Oct 2026; UNCONFIRMED items get a live probe first — Task 0 of Plans 11 and 12)
+| Wanted | Possible? | Notes |
+|---|---|---|
+| Follower / following **lists**, unfollower **names** | **No** | No endpoint. Only counts. |
+| Story **viewers** list, post **likers**, profile **visitors** | **No** | Only counts (`views`, `reach`, `likes`, `profile_visits`). |
+| Commenter usernames | **Yes** | `GET /{media-id}/comments?fields=id,text,timestamp,username,like_count` — needs `instagram_business_manage_comments`. |
+| Daily follows & unfollows totals | Yes | `follows_and_unfollows` `breakdown=follow_type`; not returned under 100 followers. Already stored. |
+| Reach split **follower vs non-follower** | Yes | `reach` + `breakdown=follow_type` (FOLLOWER / NON_FOLLOWER / UNKNOWN). `views`+`follow_type` UNCONFIRMED → probe. |
+| Reach/views by format | Yes | `breakdown=media_product_type`. |
+| Per-media: follows, profile_visits, profile_activity (bio link / call / email / direction / text taps), reposts | Yes | Feed/Reels/Stories (see D list in the research report). |
+| Reels: avg watch time, total watch time, skip rate | Yes | `ig_reels_avg_watch_time`, `ig_reels_video_view_total_time`, `reels_skip_rate`. |
+| Story navigation incl. SWIPE_FORWARD | Yes | `navigation` + `story_navigation_action_type` (we drop SWIPE_FORWARD today). |
+| Per-media follower-vs-non-follower split | **No** | `follow_type` is account-level only. |
+| Cover images | Yes | `media_url`, `thumbnail_url` (video only), carousel `children`. **URLs expire** → we copy them. `media_url` omitted for copyrighted media. |
+| Unfollowers **by name** | Only via the owner's own **"Download your information"** export (`followers_1.json`, `following.json`) | Manual upload, snapshot-based. Verify file shape on a real export before coding the parser. |
+| History beyond 90 days | Only what **we** stored from connect day on | Backfill is limited to Meta's window. |
+
+## 3. Phase A — Loading, perceived speed, the "Insight Orb" (Plan 10)
+### Problems found
+Only `/overview` has a `loading.tsx`; every other route blocks on the full server render with zero feedback. Auth work is repeated 2–3× per navigation (proxy `getSessionInfo` incl. `getUser` for aal1, layout `requireOwner` with `getClaims` + `getUser` + `rpc('is_owner')`, page `requireOwner` again); the accounts list and sync status are re-queried per page; the layout awaits notifications before rendering children; queries on `accounts/[id]` and `calendar` are sequential.
+
+### Design
+1. **Instant feedback (≤100 ms):** a `NavLink` wrapper (uses `useLinkStatus`) shows the orb inline on the clicked nav item / button, and a **global top progress bar** (thin, theme token colour, indeterminate → completes on pathname change) runs for every client navigation, `router.push` (tabs, period, filters) and server-action transition. Bottom tab bar and rail get the same pending state.
+2. **Route skeletons:** a `loading.tsx` for **every** route segment (`overview`, `accounts`, `accounts/[id]`, `calendar`, `tags`, `settings`, `report`), each shaped like its page (cards, table rows, chart blocks) using one shared `Skeleton` kit. Tabs inside the account page stream per tab with `Suspense` so the header and tab bar appear immediately.
+3. **The Insight Orb (own design):** an SVG + CSS-only loader (no JS animation loop, ~2 KB): a soft glowing orb filled from the current theme (`--chart-1..3`), three orbiting arcs at different speeds, and a tiny sparkline that draws itself inside the orb in a loop ("the system is reading your numbers"). Sizes: `xs` (inline in buttons/nav), `md` (section), `lg` (full-page/first load, with an optional rotating caption such as "Reading your insights…", i18n). `prefers-reduced-motion` → static orb with a slow opacity pulse; always `role="status"` + visually hidden label. Exposed as `components/shared/InsightOrb.tsx` and used by `LoadingButton`, `NavigationProgress`, `RouteLoading`, `SyncNow`, export dialog.
+4. **Server speed:**
+   - `React.cache()` the per-request owner check and the accounts + sync-status loaders so the layout and page share one result per request.
+   - Cheaper owner check: run `getClaims`, `getUser` (aal1 only) and `rpc('is_owner')` in parallel where independent; skip the page-level repeat when the layout already verified in the same request (still fail-closed; pages keep calling `requireOwner()`, but it becomes a cached lookup).
+   - Parallelise sequential loaders; move notification loading in the layout to a streamed `Suspense` island (bell shows skeleton).
+   - Add `Server-Timing` headers (dev + prod, no sensitive data) and a documented budget: click→feedback ≤100 ms; skeleton ≤300 ms; warm page data ≤1.2 s p75 for owner's data volume.
+5. **Acceptance:** every nav item/button/tab shows pending feedback; no route lacks a skeleton (test enumerates `app/**/page.tsx` ↔ `loading.tsx`); orb passes reduced-motion test; auth work per navigation measured before/after and reduced.
+
+## 4. Phase B — Visual content library (Plan 11)
+### Data
+- `media` gains: `media_url_source` (not persisted long-term), `cover_path` (Storage object key), `cover_status` (`pending|ok|unavailable|failed`), `cover_captured_at`, `video_duration`? (only if API gives; else null), `like_count`, `comments_count`, `is_shared_to_feed`, `media_product_type` (stop dropping it), `children_count`. Also `media_children` (media_id, position, cover_path) for carousels (first 10).
+- **Private Supabase Storage bucket `covers`**, objects `covers/{account_id}/{media_id}.jpg` (original `thumbnail_url` for videos, `media_url` for images; no resizing dependency; typical 50–150 KB; ~1,000 posts ≈ 100 MB — within the free 1 GB; add a size dashboard in Settings → Data).
+- **Stories are captured while live** (first sight → download immediately, because the CDN image dies at 24 h); posts/Reels backfilled for everything the API still lists; failures retried with backoff, then `unavailable` (type-icon placeholder).
+- Serving: `GET /api/media/[id]/cover` (owner-only via `assertOwner`, streams from Storage, `Cache-Control: private, max-age=31536000, immutable` keyed by object version) — no public bucket, no long-lived signed URLs, nothing for the service worker to cache (path stays out of its allowlist).
+- SSRF/safety: fetch only `https` hosts that match Instagram CDN suffixes (`cdninstagram.com`, `fbcdn.net`), size cap (5 MB), content-type check (`image/*`), timeout; never log URLs (they carry tokens).
+- Permanent account delete removes Storage objects; archive keeps them. Respect Meta Platform Terms §3.d (delete when no longer needed / on deauthorize+delete callbacks → delete covers too).
+### UI
+- `MediaThumb` component (aspect 4:5 feed, 9:16 Reels/Stories, 1:1 carousel; format badge, play glyph, carousel count, "expired" ribbon for gone Stories; blur-up skeleton; alt text = caption snippet).
+- Posts tab: **Grid | Table** toggle (grid is the default on phones). Stories tab: **filmstrip per day**. Calendar cells and day list show covers. Flags ("taking off"), tag assignment, top-posts, export Posts sheet (cover not embedded; permalink stays).
+- A **post detail drawer** on click (cover, caption, key numbers) with "Open Post Lab" (Phase C).
+
+## 5. Phase C — Post Lab: deep per-post / per-Story analysis (Plan 12)
+### New captured metrics (all nullable columns on `media_metrics`; one probe task first)
+Feed/Reels: `follows`, `profile_visits`, `reposts`, `like_count`/`comments_count` (fields), `profile_activity` (jsonb by `action_type`); Reels: `avg_watch_ms`, `total_watch_ms`, `skip_rate`; Stories: add `swipe_forward`, `shares`, `follows`, `profile_visits`, `reposts`, `profile_activity`. Cadence stays: hourly <48 h, daily <30 d; add a **7-day checkpoint** so the velocity curve has 1 h / 6 h / 24 h / 48 h / 7 d points.
+### Route `/accounts/[id]/media/[mediaId]` (posts, Reels, carousels, Stories)
+1. Header: big cover, caption, date/time in owner timezone, format, tags (editable), permalink, "gone/expired" state.
+2. **Scorecard** (each number with comparison): reach, views, interactions, engagement rate, **save rate, share rate, follow rate per 1,000 reach**, profile visits, link taps; each shows **percentile vs your last 30/90 posts of the same format** and Δ vs median. Verdict chip: *Breakout / Above typical / Typical / Below typical / Too early* (with sample-size guard).
+3. **Velocity curve:** cumulative reach/views at 1 h, 6 h, 24 h, 48 h, 7 d vs median curve of comparable posts ("this post ran 2.3× faster in the first 6 h").
+4. Reels: watch-time panel (avg watch, total watch, skip rate vs your median).
+5. Stories: navigation funnel (forward / back / exit / swipe), reply count, **story-sequence view** — the day's Stories in order with reach drop-off and exit rate per frame, best/worst frame.
+6. **Caption lab:** length, hashtag count and list, emoji, question/CTA words, mentions; correlation to the account's own results is shown only with n ≥ 20 posts.
+7. "Similar posts" (same format/tag) strip for context.
+8. Pure analysis in `lib/analysis/post-lab.ts` (+ tests), all null-safe; no verdict below the sample guard.
+
+## 6. Phase D — Creator toolkit (Plans 13a/13b)
+Every tool states its data source, sample size and "why you can/can't trust this".
+**Audience & growth**
+- **Followers daily:** store `followers_count` daily going forward (already for today; make it continuous); chart + growth rate + 7/30/90 projection.
+- **Follow flow:** daily follows vs unfollows (+ follower/non-follower split when ≥100 followers), churn %, best/worst days, **"what happened that day"** overlay (posts, Stories published).
+- **Loyalty vs discovery:** reach by `follow_type` over time (store a daily breakdown row), trend + per-format (`media_product_type`) reach.
+- **Demographics over time:** age/gender/country/city history from the snapshots we already keep, with change highlighting; engaged-audience demographics added.
+- **Top commenters ("fans"):** comments ingested (author username/id, timestamp, like_count, text) for recent posts, ranked leaderboard per account and across accounts, first-seen/last-seen, "new fan" and "gone quiet" lists. Third-party personal data → owner-only, deleted with the account, never exported unless chosen.
+- **Followers diff (export upload):** upload `followers_N.json` + `following.json` from "Download your information"; stored as dated snapshots (lower-cased usernames, timestamps from the file). Compare any two snapshots (or snapshot vs previous) → **new followers, unfollowers, not-following-back, you-don't-follow-back, mutuals**, searchable, exportable, with a guided "how to get the file" panel (en/zh). Clearly labelled snapshot-based. Parser is pure, size-capped, validates shape, never executes content.
+**Content intelligence**
+- **Insights feed:** rule-based findings with evidence ("Reels posted Tue 19:00–21:00 reach 2.1× your median — n=9"), freshness, dismiss/snooze; the same findings feed the weekly digest.
+- **Leaderboards:** best posts by reach / saves / shares / follow rate / profile visits, per format, per tag, per week; "repeat this" and "retire this" lists.
+- **Format & time lab:** existing format comparison + best time upgraded with posting-length, day-part and "frequency vs reach" curves.
+- **Cadence & consistency:** posts per week, longest gap, streaks, gap warnings, Story days covered.
+- **Hashtag lab:** per-hashtag usage + median reach/saves (min-sample guard).
+- **Compare accounts:** side-by-side KPIs, share of reach, growth ranking.
+- **Goals:** per-account targets (followers, avg reach, posts/week) with pace & forecast.
+- **Planner board:** idea → drafting → scheduled-for (date/time slot) → published (auto-link to the matching media by time); suggests slots from best-time data; links ideas to tags. No publishing to Instagram.
+- **Weekly & monthly digest page** (+ optional push summary): KPIs with comparison, top/bottom posts, findings, goals pace.
+
+## 7. Phase E — Settings redesign (Plan 14)
+- Sections (desktop: left list; mobile: top segmented list → full-screen sections), **URL-addressable** (`/settings/appearance` …): **Appearance** (theme, light/dark/auto, density, radius — with live preview card), **Language & formats** (language, date/time/number, week start, timezone with a plain explanation "changes where your days start in all charts"), **Notifications** (this device: permission + test state; alert rules grouped with their thresholds; devices list with remove), **Accounts & sync** (connected accounts, token expiry, last sync, Sync now, reconnect), **Security** (2FA, active session/sign out, password), **Data & privacy** (storage used by covers, follower snapshots, export all, delete all, what we store).
+- One consistent save model: appearance = instant with toast; forms = explicit save with dirty tracking + sticky save bar + inline success/error; no silent failure (fix `PrefsProvider` swallowing persist errors → visible retry).
+- Grouped cards with headings, helper text, mobile-first layout (no 10-pill walls: option sets use segmented controls/selects, wrapping rules tested at 360/768/1280).
+
+## 8. Cross-cutting rules
+- Every new table: RLS, owner read-only (writes via admin in sync) except owner-authored data (goals, planner, snapshots uploads) with `is_owner()` policies; lint-compatible; new migrations only (earlier ones are applied live); apply with `supabase db push` before deploying code that needs them.
+- Sync budget: more calls per tick (new metrics, comments, covers). Add a **per-account call budget** and tiering (hot posts hourly, older daily/weekly), honour `X-Business-Use-Case-Usage` when present, stay inside the 35 s tick budget; heavy backfills (covers, comments) are resumable across ticks.
+- Scope change: adding `instagram_business_manage_comments` to the authorize URL + `docs/META_SETUP.md`/runbook; accounts connected before need reconnect (UI shows "Reconnect to enable comments"). Features degrade gracefully without the scope.
+- i18n en + zh-CN complete; tokens only; responsive 360/768/1280; a11y; formats via `lib/format.ts`; motion gated; no new heavy dependencies without justification.
+- Privacy: third-party usernames (commenters, follower snapshots) are personal data of others: owner-only, never in logs, deleted with the account, included in "delete all data".
+- Each plan ends with an opus whole-branch review, runbook for live checks, honest TODO ticks.
+
+## 9. Plan breakdown
+| Plan | Content | Needs from owner |
+|---|---|---|
+| 10 | Phase A: orb, progress bar, skeletons, auth/query speed-ups, Server-Timing | nothing |
+| 11 | Phase B: probe, migration, cover capture + Storage bucket, `MediaThumb`, grid/filmstrip, drawer | create the `covers` bucket is done by migration; apply migration |
+| 12 | Phase C: new metrics + 7-day checkpoint, Post Lab | apply migration; live probe results |
+| 13a | Phase D-1: follower/follow-flow/loyalty/demographics trends, followers diff upload, goals, compare | upload an export to test |
+| 13b | Phase D-2: comments ingestion + fans, insights feed, leaderboards, hashtag lab, cadence, planner, digests | enable permission in Meta app + reconnect |
+| 14 | Phase E: Settings redesign | nothing |
+
+## 10. Open items to resolve with live probes (Task 0 of Plans 11 and 12)
+`views`+`follow_type`; `follower_count` series; `caption`/`media_product_type` under Instagram Login; max `since`/`until` range; thumbnail/media fields on `/me/stories`; media URL lifetime; export file names (`recently_unfollowed_profiles.json`, pending requests).
