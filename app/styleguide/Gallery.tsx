@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { FormField } from '@/components/shared/FormField';
+import { InsightOrb } from '@/components/shared/InsightOrb';
 import {
   ResponsiveDialog,
   ResponsiveDialogClose,
@@ -60,6 +61,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 
 export function Gallery() {
   const t = useTranslations('styleguide.gallery');
+  const tl = useTranslations('loading');
   const { prefs } = usePrefs();
   const rows: [string, number, number][] = [
     [t('reach'), 184200, 0.032],
@@ -230,6 +232,18 @@ export function Gallery() {
         <Skeleton className="h-4 w-3/4" />
         <Skeleton className="h-4 w-1/2" />
         <Progress value={60} aria-label={t('loading')} />
+      </Group>
+
+      <Group title={tl('gallery')}>
+        <div className="flex flex-wrap items-end gap-6">
+          {(['xs', 'md', 'lg'] as const).map((size) => (
+            <div key={size} className="flex flex-col items-center gap-2">
+              <InsightOrb size={size} label={tl('size', { size })} />
+              <span className="text-xs text-muted-foreground">{tl('size', { size })}</span>
+            </div>
+          ))}
+          <InsightOrb size="lg" captions />
+        </div>
       </Group>
     </div>
   );
