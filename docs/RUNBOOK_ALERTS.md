@@ -35,7 +35,7 @@ where table_name = 'notifications' and grantee = 'authenticated';   -- expect: S
 
 ## 3. Enable notifications on a phone
 
-- **Android (Chrome):** open `<app-url>`, sign in; the "Install in2sight" bar appears (or Chrome menu → Install app). Install, open from the home screen, Settings → Notifications → Enable → Allow.
+- **Android (Chrome):** open `<app-url>`, sign in; the "Install in2sight" bar appears (or Chrome menu → Install app). Install, open from the home screen, Settings → Notifications → Enable → Allow. If the Install button doesn't appear (the browser decides when), use the browser's own Install menu.
 - **iPhone/iPad (iOS 16.4+, Safari):** in Safari the Settings card says push needs the Home Screen app, and the app shows "tap Share, then Add to Home Screen". Do that, open **in2sight from the Home Screen**, sign in (the installed app has its own session), Settings → Notifications → Enable → Allow.
 
 Each device appears as its own row in `push_subscriptions`.
@@ -54,7 +54,7 @@ Other alerts happen on their own: "Reconnect needed" when a token is revoked (In
 
 ## 5. Read what happened
 
-- **Bell:** newest 20, unread first marked with a dot; "Mark all read" clears the badge.
+- **Bell:** newest 20; unread ones carry a dot; "Mark all read" clears the badge.
 - **`notifications` table:** `kind`, `severity`, `payload` (parameters only), `dedupe_key`, `created_at`, `read_at`.
 - **`sync_runs.summary.alerts`:** `{ created, pushed, failed }` per tick. `failed` counts accounts whose rules could not be evaluated + push deliveries that failed + a failed insert. Never contains endpoints, keys or tokens.
 

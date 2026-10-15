@@ -57,7 +57,8 @@ const tokenExpiring: Rule = ({ account: a, now }) => {
   return [{ kind: 'token_expiring', accountId: a.id, severity: stage === 2 ? 'critical' : 'warning', dedupeKey: `token_expiring:${a.id}:${new Date(expires).toISOString().slice(0, 10)}:${stage}`, payload: { username: a.username, days: Math.max(1, Math.ceil(left / DAY)) } }];
 };
 
-/** Key: needs_reconnect:<account>:<last success>. One alert per broken stretch; a successful sync starts a new one. */
+/** Key: needs_reconnect:<account>:<last success>. One alert per broken stretch; a successful sync starts a new one.
+ *  Accepted: a second outage before any successful sync shares the key, so it is not alerted again. */
 const needsReconnect: Rule = ({ account: a, sync }) =>
   a.status === 'needs_reconnect' ? [{ kind: 'needs_reconnect', accountId: a.id, severity: 'critical', dedupeKey: `needs_reconnect:${a.id}:${sync.lastSuccessAt ?? 'never'}`, payload: { username: a.username } }] : [];
 
@@ -78,9 +79,7 @@ const reachDropRule: Rule = ({ account: a, daily, lastReachDropAt, settings, now
 
 /** Key: taking_off:<media id>. Once per post, ever. */
 const takingOffRule: Rule = ({ account: a, posts, settings, now }) =>
-  a.status === 'archived'
-    ? []
-    : takingOff(posts, now, TAKING_OFF_WITHIN_DAYS, settings.takingOffRatio).map((f) => ({ kind: 'taking_off' as const, accountId: a.id, severity: 'info' as const, dedupeKey: `taking_off:${f.postId}`, payload: { username: a.username, ratio: round1(f.ratio), postId: f.postId } }));
+  takingOff(posts, now, TAKING_OFF_WITHIN_DAYS, settings.takingOffRatio).map((f) => ({ kind: 'taking_off' as const, accountId: a.id, severity: 'info' as const, dedupeKey: `taking_off:${f.postId}`, payload: { username: a.username, ratio: round1(f.ratio), postId: f.postId } }));
 
 const RULES: Rule[] = [needsReconnect, tokenExpiring, syncFailing, reachDropRule, takingOffRule];
 
