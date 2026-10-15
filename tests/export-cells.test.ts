@@ -3,17 +3,22 @@ import { CELL_MAX, excelDateFormat, excelDateTimeFormat, safeText, sheetNames } 
 import { wallClock } from '@/lib/format';
 
 const BRAND = '品牌'; // 品牌
+// invisible characters, spelled out so the source stays readable
+const NBSP = String.fromCharCode(0xa0);
+const ZWSP = String.fromCharCode(0x200b);
+const WJ = String.fromCharCode(0x2060);
+const BOM = String.fromCharCode(0xfeff);
 const GRIN = '\u{1F600}'; // 😀
 
 describe('safeText (formula injection guard)', () => {
   it('prefixes an apostrophe to text Excel would treat as a formula', () => {
     // last four: full-width = + - @
-    for (const s of ['=HYPERLINK("http://evil","x")', '+1+1', '-2+3', '@SUM(A1)', '\t=1', '\r=1', '＝1+1', '＋1', '－1', '＠x'])
+    for (const s of ['=HYPERLINK("http://evil","x")', '+1+1', '-2+3', '@SUM(A1)', '\t=1', '\r=1', '＝1+1', '＋1', '－1', '＠x', ' =HYPERLINK(1)', `${NBSP}=1+1`, '\n=cmd', `${ZWSP}=1`, `${BOM}+1`, ` ${WJ}@x`])
       expect(safeText(s), JSON.stringify(s)).toBe(`'${s}`);
   });
 
   it('leaves ordinary text alone and empties to null (an empty cell, never "")', () => {
-    for (const s of ['hello', ' =not a formula', `${BRAND} ✨`, "'already quoted", '#hashtag', '1+1']) expect(safeText(s)).toBe(s);
+    for (const s of ['hello', 'a =b', ' hello', '5', `${BRAND} ✨`, "'already quoted", '#hashtag', '1+1']) expect(safeText(s)).toBe(s);
     expect(safeText('')).toBeNull();
     expect(safeText(null)).toBeNull();
     expect(safeText(undefined)).toBeNull();
