@@ -1,21 +1,21 @@
 # in2sight — TODO
 
-Status: spec approved 2026-10-13; docs + mockups pushed. Implementation follows `docs/superpowers/plans/2026-10-13-00-roadmap.md` (Plan 1 in progress when this line is stale — check git log). Check items off as done.
+Status: all roadmap plans 1–9 built and live on https://in2sight.yongsen.space; Supabase migrations applied (5/5); cron-job.org tick configured. Now building the creator toolkit (docs/superpowers/specs/2026-10-15-creator-toolkit-design.md): Plan 10 loading → 11 covers → 12 Post Lab → 13 toolkit → 14 settings. "code done; live verification pending" means the owner still has to look at it on the deployed site. Check items off as done.
 
 ## 0. Owner actions (Claude can't do these)
-- [ ] Convert each Instagram account to **Creator** (Settings → Account type and tools → Switch to professional account)
-- [ ] Create a Meta developer account at developers.facebook.com (free; phone verification)
-- [ ] Create a Meta app, add the **Instagram** product → "API setup with Instagram login"
-- [ ] Add each account as **Instagram Tester**, accept the invite in each account (Settings → Apps and websites → Tester invites)
-- [ ] Deploy to Vercel, create the Supabase project, fill `.env.local`, run `npm run check:env` — follow `docs/SETUP.md` and `docs/SETUP_SUPABASE.md`
+- [x] Convert each Instagram account to **Creator** (Settings → Account type and tools → Switch to professional account)
+- [x] Create a Meta developer account at developers.facebook.com (free; phone verification)
+- [x] Create a Meta app, add the **Instagram** product → "API setup with Instagram login"
+- [x] Add each account as **Instagram Tester**, accept the invite in each account (Settings → Apps and websites → Tester invites)
+- [x] Deploy to Vercel, create the Supabase project, fill `.env.local`, run `npm run check:env` — follow `docs/SETUP.md` and `docs/SETUP_SUPABASE.md`
 - [x] Approve `docs/SPEC.md` (done 2026-10-13)
 
 See `docs/META_SETUP.md` for click-by-click notes.
 
 ## 1. Foundation
 - [x] Next.js (TS, App Router) scaffold
-- [ ] Deploy to Vercel (owner does this — docs/SETUP.md)
-- [ ] Supabase migrations: all tables in SPEC §5 + RLS
+- [x] Deploy to Vercel (done by owner, live at https://in2sight.yongsen.space)
+- [x] Supabase migrations: all tables + RLS (5 migrations applied to the live project 2026-10-15/16 via `npx supabase db push`; local and remote lists match)
 - [x] Supabase Auth: single owner login (sign-ups disabled); middleware guards all pages (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 - [x] 2FA: TOTP enroll/verify UI in Settings → Account; middleware enforces AAL2 once enrolled (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 - [x] `profiles` table: language, timezone, date/time/number format, week start, theme, density, radius (code done; live verification pending — docs/RUNBOOK_AUTH.md)
@@ -28,12 +28,12 @@ See `docs/META_SETUP.md` for click-by-click notes.
 ## 3. Sync
 - [x] Verify current metric names (feed, Reels, **Stories**) vs Meta docs; put in one constants file (`lib/instagram/metrics.ts`; UNCERTAIN items re-verified live by `npm run record:fixtures` — docs/RUNBOOK_SYNC.md §3)
 - [x] `/api/cron/tick` every 30 min: Stories every tick, post metrics hourly (<48h) / daily (<30d), account day + audience daily, token refresh (code done; live verification pending — docs/RUNBOOK_SYNC.md)
-- [ ] Scheduler: cron-job.org calling `/api/cron/tick` every 30 min with `Authorization: Bearer CRON_SECRET` (owner — docs/RUNBOOK_SYNC.md §5; pg_cron/pg_net fallback §6)
+- [x] Scheduler (owner confirmed configured): cron-job.org calling `/api/cron/tick` every 30 min with `Authorization: Bearer CRON_SECRET` (owner — docs/RUNBOOK_SYNC.md §5; pg_cron/pg_net fallback §6)
 - [x] Per-account error isolation + `needs_reconnect` flag
 - [ ] **Start daily snapshots as early as possible** — account insights only reach back ~90 days
 - [x] First-connect backfill (90d account insights + up to 500 media with lifetime metrics) (code done; live verification pending — docs/RUNBOOK_SYNC.md)
 - [x] Accounts page: last synced, sync error, Sync now (code done; live verification pending — docs/RUNBOOK_SYNC.md)
-- [ ] Apply migration `20261015000001_sync.sql` (`npx supabase db push`; on the owner's go-ahead — docs/RUNBOOK_SYNC.md §0)
+- [x] Applied migration `20261015000001_sync.sql` (`npx supabase db push`; on the owner's go-ahead — docs/RUNBOOK_SYNC.md §0)
 - [ ] Record real Instagram fixtures (docs/RUNBOOK_SYNC.md §4)
 - [x] Archive / restore / permanent-delete for accounts (code done; live verification pending — docs/RUNBOOK_META.md)
 
@@ -42,8 +42,8 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] Rule evaluation after each sync (token expiring, needs reconnect, sync failing, reach drop, post taking off) with dedupe keys (code done; live verification pending — docs/RUNBOOK_ALERTS.md)
 - [x] `notifications` table + bell/notification centre UI (code done; live verification pending — docs/RUNBOOK_ALERTS.md)
 - [x] Web Push: `push_subscriptions`, `web-push` sender, subscribe/unsubscribe in Settings, per-type toggles + thresholds (code done; no push has been sent to a real device yet — docs/RUNBOOK_ALERTS.md §2–4)
-- [ ] VAPID keys in `.env.local` and Vercel (owner — docs/RUNBOOK_ALERTS.md §1)
-- [ ] Apply migration `20261018000001_alerts.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code runs a tick — docs/RUNBOOK_ALERTS.md §0)
+- [x] VAPID keys in `.env.local` and Vercel (done; owner — docs/RUNBOOK_ALERTS.md §1)
+- [x] Applied migration `20261018000001_alerts.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code runs a tick — docs/RUNBOOK_ALERTS.md §0)
 
 ## 3c. Exports
 - [x] Plan 9 written: `docs/superpowers/plans/2026-10-19-09-exports.md`
@@ -72,7 +72,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 ## 6. UI pages (use `frontend-design`)
 - [x] Overview (grouped cards, totals, comparison, period selector) — code done; visual verification with real data pending (docs/RUNBOOK_DASHBOARDS.md)
 - [x] Account detail (Overview / Posts / Stories / Audience with globe), Tags page, Calendar (Plan 7) — code done; the tags migration and visual verification with real data pending (the globe and the new pages have not been viewed in a browser yet; docs/RUNBOOK_DASHBOARDS.md §4)
-- [ ] Apply migration `20261017000001_tags.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code is used — docs/RUNBOOK_DASHBOARDS.md §4.0)
+- [x] Applied migration `20261017000001_tags.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code is used — docs/RUNBOOK_DASHBOARDS.md §4.0)
 
 ## 6b. Loading feedback and speed (Plan 10)
 - [x] Insight Orb loader, top progress bar, inline pending orb on nav items and buttons, Sync now status line — code + tests done; not yet seen on the deployed site (docs/RUNBOOK_PERF.md §2–3)
