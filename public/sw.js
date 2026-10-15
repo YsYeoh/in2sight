@@ -6,7 +6,10 @@
 const VERSION = 'v1';
 const CACHE = `in2sight-static-${VERSION}`;
 const OFFLINE = '/offline';
-const PRECACHE = [OFFLINE, '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
+const PRECACHE = [OFFLINE, '/icons/icon-192.png', '/icons/icon-512.png'];
+// ponytail: old hashed chunks are evicted only on a VERSION bump, plus this crude cap (oldest first by insertion order).
+const MAX_ENTRIES = 200;
+const KEEP_ENTRIES = 150;
 const STATIC = [/^\/_next\/static\//, /^\/icons\//, /^\/favicon\.ico$/];
 
 self.addEventListener('install', (event) => {
@@ -24,6 +27,10 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k.startsWith('in2sight-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => caches.open(CACHE))
+      .then((cache) =>
+        cache.keys().then((reqs) => (reqs.length > MAX_ENTRIES ? Promise.all(reqs.slice(0, reqs.length - KEEP_ENTRIES).map((r) => cache.delete(r))) : null)),
+      )
       .then(() => self.clients.claim()),
   );
 });
@@ -46,7 +53,7 @@ self.addEventListener('fetch', (event) => {
       (hit) =>
         hit ||
         fetch(req).then((res) => {
-          if (res.ok && res.type === 'basic') {
+          if (res.status === 200 && res.type === 'basic') {
             const copy = res.clone();
             event.waitUntil(caches.open(CACHE).then((cache) => cache.put(req, copy)));
           }
@@ -57,7 +64,16 @@ self.addEventListener('fetch', (event) => {
 });
 
 /** Only same-origin paths may be opened from a notification. */
-const safePath = (u) => (typeof u === 'string' && u.startsWith('/') && !u.startsWith('//') && !u.includes('\\') ? u : '/overview');
+const safePath = (u) => {
+  if (typeof u !== 'string') return '/overview';
+  try {
+    // resolve first: new URL() strips tab/CR/LF and turns backslashes into slashes, so only the resolved origin can be trusted
+    const r = new URL(u, self.location.origin);
+    return r.origin === self.location.origin ? r.pathname + r.search + r.hash : '/overview';
+  } catch {
+    return '/overview';
+  }
+};
 const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 
 self.addEventListener('push', (event) => {

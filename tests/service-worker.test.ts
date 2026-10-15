@@ -9,9 +9,9 @@ const ORIGIN = 'https://app.test';
 type Handler = (e: Record<string, unknown>) => void;
 type Req = { url: string; method: string; mode: string };
 
-const basic = (body: string) => Object.defineProperty(new Response(body), 'type', { value: 'basic' }); // like a same-origin fetch
+const basic = (body: string, status = 200) => Object.defineProperty(new Response(body, { status }), 'type', { value: 'basic' }); // like a same-origin fetch
 
-function load(o: { offline?: boolean } = {}) {
+function load(o: { offline?: boolean; status?: number } = {}) {
   const handlers: Record<string, Handler> = {};
   const store = new Map<string, Map<string, Response>>();
   const key = (r: string | Req) => (typeof r === 'string' ? new URL(r, ORIGIN).href : r.url);
@@ -19,13 +19,18 @@ function load(o: { offline?: boolean } = {}) {
     open: vi.fn(async (name: string) => {
       if (!store.has(name)) store.set(name, new Map());
       const m = store.get(name)!;
-      return { addAll: async (urls: string[]) => urls.forEach((u) => m.set(key(u), basic(`cached ${u}`))), put: async (r: Req, res: Response) => void m.set(key(r), res) };
+      return {
+        addAll: async (urls: string[]) => urls.forEach((u) => m.set(key(u), basic(`cached ${u}`))),
+        put: async (r: Req, res: Response) => void m.set(key(r), res),
+        keys: async () => [...m.keys()].map((url) => ({ url, method: 'GET', mode: 'cors' })), // insertion order, like the real Cache
+        delete: async (r: Req) => m.delete(key(r)),
+      };
     }),
     match: async (r: string | Req) => [...store.values()].find((m) => m.has(key(r)))?.get(key(r)),
     keys: async () => [...store.keys()],
     delete: vi.fn(async (k: string) => store.delete(k)),
   };
-  const fetch = vi.fn(async (r: Req) => (o.offline ? Promise.reject(new TypeError('Failed to fetch')) : basic(`network ${r.url}`)));
+  const fetch = vi.fn(async (r: Req) => (o.offline ? Promise.reject(new TypeError('Failed to fetch')) : basic(`network ${r.url}`, o.status)));
   const self = {
     addEventListener: (t: string, fn: Handler) => void (handlers[t] = fn),
     location: { origin: ORIGIN },
@@ -47,10 +52,10 @@ const req = (path: string, o: Partial<Req> = {}): Req => ({ url: new URL(path, O
 const cachedUrls = (store: Map<string, Map<string, Response>>) => [...store.values()].flatMap((m) => [...m.keys()]);
 
 describe('service worker', () => {
-  it('install precaches the offline page, manifest and icons, then activates at once', async () => {
+  it('install precaches the offline page and icons, then activates at once', async () => {
     const sw = load();
     await sw.fire('install').settled();
-    expect(cachedUrls(sw.store).sort()).toEqual([`${ORIGIN}/icons/icon-192.png`, `${ORIGIN}/icons/icon-512.png`, `${ORIGIN}/manifest.webmanifest`, `${ORIGIN}/offline`]);
+    expect(cachedUrls(sw.store).sort()).toEqual([`${ORIGIN}/icons/icon-192.png`, `${ORIGIN}/icons/icon-512.png`, `${ORIGIN}/offline`]);
     expect([...sw.store.keys()]).toEqual(['in2sight-static-v1']);
     expect(sw.self.skipWaiting).toHaveBeenCalled();
   });
@@ -109,6 +114,54 @@ describe('service worker', () => {
     expect(calls[1][0]).toHaveLength(120);
     expect(calls[1][1].body).toBe('');
     expect(calls.map((c) => c[1].data.url)).toEqual(['/overview', '/overview', '/overview']);
+  });
+
+  it('does not cache a non-200 static response (e.g. a 206 partial)', async () => {
+    const sw = load({ status: 206 });
+    const r = sw.fire('fetch', { request: req('/_next/static/chunks/big.js') });
+    await r.responded;
+    await r.settled();
+    expect(cachedUrls(sw.store)).toEqual([]);
+  });
+
+  it('activate trims the static cache to 150 entries (oldest first) once it holds more than 200', async () => {
+    const sw = load();
+    const big = new Map<string, Response>(Array.from({ length: 201 }, (_, i) => [`${ORIGIN}/_next/static/c${i}.js`, basic('x')]));
+    sw.store.set('in2sight-static-v1', big);
+    await sw.fire('activate').settled();
+    const left = [...big.keys()];
+    expect(left).toHaveLength(150);
+    expect(left[0]).toBe(`${ORIGIN}/_next/static/c51.js`);
+    expect(left.at(-1)).toBe(`${ORIGIN}/_next/static/c200.js`);
+  });
+
+  it('activate leaves a cache of 200 or fewer entries alone', async () => {
+    const sw = load();
+    const m = new Map<string, Response>(Array.from({ length: 200 }, (_, i) => [`${ORIGIN}/_next/static/c${i}.js`, basic('x')]));
+    sw.store.set('in2sight-static-v1', m);
+    await sw.fire('activate').settled();
+    expect(m.size).toBe(200);
+  });
+
+  it.each([
+    ['tab hidden in the path', '/\t/evil.example'],
+    ['protocol-relative', '//evil.example'],
+    ['backslash host', '\\\\evil.example'],
+    ['single backslash host', '/\\evil.example'],
+    ['javascript scheme', 'javascript:alert(1)'],
+    ['absolute foreign url', 'https://evil.example/x'],
+  ])('push url: %s falls back to /overview', async (_n, url) => {
+    const sw = load();
+    await sw.fire('push', { data: { json: () => ({ title: 'T', url }) } }).settled();
+    const call = (sw.self.registration.showNotification.mock.calls as unknown as [string, { data: { url: string } }][])[0];
+    expect(call[1].data.url).toBe('/overview');
+  });
+
+  it('push url: a normal path with query and hash is kept', async () => {
+    const sw = load();
+    await sw.fire('push', { data: { json: () => ({ title: 'T', url: '/accounts/a1?tab=posts#top' }) } }).settled();
+    const call = (sw.self.registration.showNotification.mock.calls as unknown as [string, { data: { url: string } }][])[0];
+    expect(call[1].data.url).toBe('/accounts/a1?tab=posts#top');
   });
 
   it('notification click focuses an open window on that page, else opens one', async () => {
