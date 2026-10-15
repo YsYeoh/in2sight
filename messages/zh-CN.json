@@ -637,7 +637,6 @@
       "defaultTitle": "Instagram 报告",
       "range": "{from} 至 {to} · {days} 天",
       "generated": "生成于 {time}",
-      "accounts": "{count, plural, other {# 个账号}}",
       "perAccount": "各账号",
       "noData": "此时间范围内没有数据",
       "storiesCount": "快拍数",
