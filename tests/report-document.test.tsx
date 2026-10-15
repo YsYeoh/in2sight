@@ -17,8 +17,11 @@ import { NOW, sampleData, TODAY, TZ } from './fixtures/export-data';
 const anim = vi.hoisted(() => ({ line: [] as unknown[], area: [] as unknown[] }));
 vi.mock('recharts', async (orig) => {
   const actual = await orig<typeof import('recharts')>();
-  const spy = (Real: ComponentType<Record<string, unknown>>, seen: unknown[]) => (p: Record<string, unknown>) => (seen.push(p.isAnimationActive), <Real {...p} />);
-  return { ...actual, Line: spy(actual.Line as ComponentType<Record<string, unknown>>, anim.line), Area: spy(actual.Area as ComponentType<Record<string, unknown>>, anim.area) };
+  const spy = (Real: ComponentType<Record<string, unknown>>, seen: unknown[]) => {
+    const Spy = (p: Record<string, unknown>) => (seen.push(p.isAnimationActive), <Real {...p} />);
+    return Spy;
+  };
+  return { ...actual, Line: spy(actual.Line as unknown as ComponentType<Record<string, unknown>>, anim.line), Area: spy(actual.Area as unknown as ComponentType<Record<string, unknown>>, anim.area) };
 });
 
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
