@@ -53,7 +53,7 @@ Generate the two random secrets like this (works in any terminal with Node):
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Run it once for `CRON_SECRET` (and again later for `REPORT_SIGNING_SECRET`).
+Run it once for `CRON_SECRET`.
 
 ### What each variable is for
 
@@ -70,7 +70,8 @@ Run it once for `CRON_SECRET` (and again later for `REPORT_SIGNING_SECRET`).
 | `IG_API_VERSION` | leave `v25.0` | Instagram API calls |
 | `IG_REDIRECT_URI` | `<your-app-url>/api/instagram/callback` | where Instagram sends you back after login |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Plan 8 (optional: without them alerts stay in-app) | push notifications — docs/RUNBOOK_ALERTS.md §1 |
-| `REPORT_SIGNING_SECRET` | later (Plan 8) | PDF report links |
+| `REPORT_SIGNING_SECRET` | not needed | unused since Plan 9 (the PDF renderer gets the report without a link — docs/RUNBOOK_EXPORTS.md §0) |
+| `CHROMIUM_PATH` | optional, local only | a locally installed Chrome for trying PDF export off Vercel; never set it in Vercel — docs/RUNBOOK_EXPORTS.md §5 |
 
 ## Step 5 — Tell me it's done
 
