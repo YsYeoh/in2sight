@@ -21,7 +21,7 @@ describe.each([
       </NextIntlClientProvider>,
     );
     const g = messages.styleguide.gallery;
-    for (const label of [g.buttons, g.inputs, g.select, g.choices, g.tabs, g.feedback, g.dialogs, g.table, g.empty, g.toast, g.loading]) {
+    for (const label of [g.buttons, g.inputs, g.select, g.choices, g.tabs, g.feedback, g.dialogs, g.table, g.empty, g.toast, g.loading, messages.loading.gallery]) {
       expect(screen.getByText(label), label).toBeInTheDocument();
     }
     expect(document.querySelector('[data-variant="destructive"]')).not.toBeNull();

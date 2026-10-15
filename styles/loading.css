@@ -1,0 +1,188 @@
+/*
+ * Loading visuals (Plan 10): the Insight Orb, the top navigation bar, the inline link hint.
+ * Un-layered like density.css. Colours come only from theme tokens (--chart-1..3, --surface).
+ * prefers-reduced-motion: the arcs, the sparkline and the bar crawl stop; the orb only pulses (block at the end).
+ */
+.insight-orb {
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+}
+.insight-orb .orb-halo {
+  transform-box: view-box;
+  transform-origin: 24px 24px;
+  animation: orb-breathe 2.4s ease-in-out infinite;
+}
+.insight-orb .orb-arc {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform-box: view-box;
+  transform-origin: 24px 24px;
+  animation: orb-spin 1.4s linear infinite;
+}
+.insight-orb .orb-arc-2 {
+  animation-duration: 2.2s;
+  animation-direction: reverse;
+}
+.insight-orb .orb-arc-3 {
+  animation-duration: 3.4s;
+}
+.insight-orb .orb-spark {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 100;
+  animation: orb-draw 2.4s ease-in-out infinite;
+}
+
+@keyframes orb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.55;
+  }
+}
+@keyframes orb-draw {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
+  55%,
+  80% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+@keyframes orb-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* lg captions: three lines in one grid cell, each visible for a third of the loop */
+.orb-captions {
+  display: grid;
+  text-align: center;
+}
+.orb-captions > span {
+  grid-area: 1 / 1;
+  opacity: 0;
+  animation: orb-caption 9s infinite;
+}
+.orb-captions > span:nth-child(2) {
+  animation-delay: 3s;
+}
+.orb-captions > span:nth-child(3) {
+  animation-delay: 6s;
+}
+@keyframes orb-caption {
+  0% {
+    opacity: 0;
+  }
+  4%,
+  30% {
+    opacity: 1;
+  }
+  36%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* top navigation bar: crawls towards 92 % while loading, fills and fades when done */
+.nav-progress {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 60;
+  height: 3px;
+  pointer-events: none;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--chart-1), var(--chart-2), var(--chart-3));
+}
+.nav-progress[data-state="loading"] {
+  animation: nav-crawl 10s cubic-bezier(0.1, 0.7, 0.2, 1) forwards;
+}
+.nav-progress[data-state="done"] {
+  transform: scaleX(1);
+  opacity: 0;
+  transition: opacity 0.3s ease 0.1s;
+}
+@keyframes nav-crawl {
+  0% {
+    transform: scaleX(0);
+  }
+  10% {
+    transform: scaleX(0.3);
+  }
+  100% {
+    transform: scaleX(0.92);
+  }
+}
+
+/* inline link hint (NavLink): appears only if the navigation takes longer than 100 ms */
+.link-pending {
+  animation: link-pending-in 0.2s ease 0.1s both;
+}
+.link-pending-hide {
+  animation: link-pending-in 0.2s ease 0.1s both reverse;
+}
+@keyframes link-pending-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .insight-orb .orb-halo,
+  .insight-orb .orb-arc,
+  .insight-orb .orb-spark {
+    animation: none;
+  }
+  .insight-orb .orb-spark {
+    stroke-dashoffset: 0;
+  }
+  /* static arcs spread around the orb instead of stacking at 3 o'clock */
+  .insight-orb .orb-arc-2 {
+    transform: rotate(130deg);
+  }
+  .insight-orb .orb-arc-3 {
+    transform: rotate(250deg);
+  }
+  .insight-orb {
+    animation: orb-pulse 3s ease-in-out infinite;
+  }
+  .orb-captions > span {
+    animation: none;
+  }
+  .orb-captions > span:first-child {
+    opacity: 1;
+  }
+  .nav-progress[data-state="loading"] {
+    animation: none;
+    transform: scaleX(1);
+    opacity: 0.6;
+  }
+}
