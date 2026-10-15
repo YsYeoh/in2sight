@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react';
 import { Download, ExternalLink } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import {
   ResponsiveDialog,
   ResponsiveDialogClose,
@@ -167,10 +168,10 @@ export function ExportDialog({ scopes, defaultScope, period }: { scopes: ScopeOp
                 {tc('cancel')}
               </Button>
             </ResponsiveDialogClose>
-            <Button type="submit" disabled={pending} aria-busy={pending || undefined}>
-              <Download aria-hidden="true" />
+            <LoadingButton type="submit" pending={pending}>
+              {pending ? null : <Download aria-hidden="true" />}
               {pending ? t('working') : t('download')}
-            </Button>
+            </LoadingButton>
           </ResponsiveDialogFooter>
         </form>
       </ResponsiveDialogContent>

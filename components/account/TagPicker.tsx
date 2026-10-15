@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 import {
   ResponsiveDialog,
   ResponsiveDialogClose,
@@ -76,9 +77,9 @@ function PickerForm({ postId, label, tags, initial, setPostTags, onDone }: { pos
             {t('cancel')}
           </Button>
         </ResponsiveDialogClose>
-        <Button type="submit" disabled={pending || tags.length === 0}>
+        <LoadingButton type="submit" pending={pending} disabled={tags.length === 0}>
           {t('save')}
-        </Button>
+        </LoadingButton>
       </ResponsiveDialogFooter>
     </form>
   );
