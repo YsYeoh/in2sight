@@ -45,7 +45,7 @@ function browser(o: { permission?: NotificationPermission; prompt?: Notification
 }
 
 function card(o: Partial<NotificationsCardProps> = {}) {
-  const props: NotificationsCardProps = { vapidPublicKey: KEY, save: vi.fn(async () => ({ ok: true })), remove: vi.fn(async () => ({ ok: true })), ...o };
+  const props: NotificationsCardProps = { vapidPublicKey: KEY, swEnabled: true, save: vi.fn(async () => ({ ok: true })), remove: vi.fn(async () => ({ ok: true })), ...o };
   render(
     <NextIntlClientProvider locale="en" messages={en}>
       <NotificationsCard {...props} />
@@ -125,6 +125,15 @@ describe('NotificationsCard', () => {
     card();
     await userEvent.click(await screen.findByRole('button', { name: M.enable }));
     await waitFor(() => expect(b.sw.register).toHaveBeenCalledWith('/sw.js'));
+  });
+
+  it('development build (service worker off): explains it, no button, nothing registered', async () => {
+    const b = browser();
+    card({ swEnabled: false });
+    expect(await screen.findByText(M.devOnly)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: M.enable })).toBeNull();
+    expect(b.sw.register).not.toHaveBeenCalled();
+    expect(b.N.requestPermission).not.toHaveBeenCalled();
   });
 
   it('unsupported browser: says so, no button', async () => {
