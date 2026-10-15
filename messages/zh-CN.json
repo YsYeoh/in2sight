@@ -459,6 +459,13 @@
     }
   },
   "notifications": {
+    "title": "通知",
+    "bell": "通知，{count, plural, =0 {无未读} other {# 条未读}}",
+    "unread": "{count, plural, other {# 条未读通知}}",
+    "unreadItem": "未读",
+    "markAll": "全部标为已读",
+    "empty": "暂无通知",
+    "emptyHint": "授权即将到期、同步失败、触达下降和帖子表现突出等提醒会显示在这里。",
     "kinds": {
       "token_expiring": {
         "title": "Instagram 授权即将到期",

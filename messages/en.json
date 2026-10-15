@@ -459,6 +459,13 @@
     }
   },
   "notifications": {
+    "title": "Notifications",
+    "bell": "Notifications, {count, plural, =0 {none unread} one {# unread} other {# unread}}",
+    "unread": "{count, plural, one {# unread notification} other {# unread notifications}}",
+    "unreadItem": "Unread",
+    "markAll": "Mark all read",
+    "empty": "No notifications yet",
+    "emptyHint": "Alerts about expiring access, failing syncs, reach drops and posts taking off show up here.",
     "kinds": {
       "token_expiring": {
         "title": "Instagram access expiring",
