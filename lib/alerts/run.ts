@@ -38,7 +38,7 @@ export interface AlertRunContext {
 export async function runAlerts(deps: AlertDeps, c: AlertRunContext): Promise<AlertRunSummary> {
   const out: AlertRunSummary = { created: 0, pushed: 0, failed: 0 };
   try {
-    const { settings, locale } = await deps.store.context();
+    const { settings, prefs } = await deps.store.context();
     // fresh reads: an account flipped to needs_reconnect (or a failure streak grown) during this tick must alert now
     const accounts = (await c.accounts.list()).filter((a) => a.status !== 'archived' && (!c.accountId || a.id === c.accountId));
     const states = await c.sync.loadStates(accounts.map((a) => a.id));
@@ -65,7 +65,7 @@ export async function runAlerts(deps: AlertDeps, c: AlertRunContext): Promise<Al
     for (const a of toPush) {
       if (subs.length === 0 || c.clock() >= c.deadline) break;
       const gone = new Set<string>();
-      const r = await sendToAll(subs, pushMessage(a, locale), deps.push, async (endpoint) => {
+      const r = await sendToAll(subs, pushMessage(a, prefs), deps.push, async (endpoint) => {
         gone.add(endpoint);
         await deps.store.deleteSubscription(endpoint);
       });

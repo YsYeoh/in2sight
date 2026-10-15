@@ -5,15 +5,16 @@ import type { DailyRow, Post } from '@/lib/analysis/types';
 import type { Alert } from '@/lib/alerts/rules';
 import { parseAlertSettings, type AlertSettings } from '@/lib/alerts/settings';
 import { loadDaily, loadPosts } from '@/lib/dashboard/read';
-import { DEFAULT_PREFS, LOCALES, type Locale } from '@/lib/prefs';
+import { DEFAULT_PREFS, type Prefs } from '@/lib/prefs';
+import { profileRowToPrefs } from '@/lib/prefs.sync';
 import type { PushSub } from '@/lib/push/send';
 
 /** takingOff needs the posts of the last 3 days plus the 20 before them; 60 covers busy accounts. */
 export const ALERT_POSTS = 60;
 
 export interface AlertStore {
-  /** The owner's alert settings and UI language (push text is written in it). */
-  context(): Promise<{ settings: AlertSettings; locale: Locale }>;
+  /** The owner's alert settings and display prefs (push text uses their language and number/date format). */
+  context(): Promise<{ settings: AlertSettings; prefs: Prefs }>;
   daily(accountId: string, fromDay: string): Promise<DailyRow[]>;
   posts(accountId: string): Promise<Post[]>;
   lastReachDropAt(accountId: string): Promise<string | null>;
@@ -36,12 +37,11 @@ export function supabaseAlertStore(db: SupabaseClient): AlertStore {
     async context() {
       const owner = await db.from('owners').select('user_id').limit(1).maybeSingle();
       if (owner.error) fail('context');
-      if (!owner.data) return { settings: parseAlertSettings(null), locale: DEFAULT_PREFS.locale };
-      const p = await db.from('profiles').select('alert_settings,language').eq('user_id', (owner.data as Row).user_id).maybeSingle();
+      if (!owner.data) return { settings: parseAlertSettings(null), prefs: DEFAULT_PREFS };
+      const p = await db.from('profiles').select('alert_settings,language,timezone,date_format,time_format,number_format,week_start').eq('user_id', (owner.data as Row).user_id).maybeSingle();
       if (p.error) fail('context');
       const r = (p.data ?? {}) as Row;
-      const locale = (LOCALES as readonly unknown[]).includes(r.language) ? (r.language as Locale) : DEFAULT_PREFS.locale;
-      return { settings: parseAlertSettings(r.alert_settings), locale };
+      return { settings: parseAlertSettings(r.alert_settings), prefs: profileRowToPrefs(r) ?? DEFAULT_PREFS }; // invalid columns fall back per field
     },
     daily: (accountId, fromDay) => loadDaily(db, accountId, fromDay),
     posts: (accountId) => loadPosts(db, accountId, ALERT_POSTS),
@@ -55,6 +55,7 @@ export function supabaseAlertStore(db: SupabaseClient): AlertStore {
       if (alerts.length === 0) return [];
       const rows = alerts.map((a) => ({ account_id: a.accountId, kind: a.kind, severity: a.severity, payload: a.payload, dedupe_key: a.dedupeKey }));
       const { data, error } = await db.from('notifications').upsert(rows, { onConflict: 'dedupe_key', ignoreDuplicates: true }).select('dedupe_key');
+      // accepted: if an account is deleted mid-tick the FK violation fails this whole batch; the next tick recovers
       if (error) fail('insertNew');
       const inserted = new Set(((data ?? []) as Row[]).map((r) => r.dedupe_key));
       return alerts.filter((a) => inserted.has(a.dedupeKey));

@@ -4,12 +4,13 @@ import type { DailyRow, Post } from '@/lib/analysis/types';
 import type { Alert } from '@/lib/alerts/rules';
 import { DEFAULT_ALERT_SETTINGS, type AlertSettings } from '@/lib/alerts/settings';
 import type { AlertStore } from '@/lib/alerts/store';
-import type { Locale } from '@/lib/prefs';
+import { DEFAULT_PREFS, type Locale, type Prefs } from '@/lib/prefs';
 import type { PushSub } from '@/lib/push/send';
 
 export interface AlertMemInit {
   settings?: AlertSettings;
   locale?: Locale;
+  prefs?: Partial<Prefs>;
   daily?: Record<string, DailyRow[]>;
   posts?: Record<string, Post[]>;
   subs?: PushSub[];
@@ -21,7 +22,7 @@ export function memoryAlertStore(init: AlertMemInit = {}) {
   const rows: (Alert & { createdAt: string })[] = [];
   let subs = [...(init.subs ?? [])];
   const store: AlertStore = {
-    context: vi.fn(async () => ({ settings: init.settings ?? DEFAULT_ALERT_SETTINGS, locale: init.locale ?? 'en' })),
+    context: vi.fn(async () => ({ settings: init.settings ?? DEFAULT_ALERT_SETTINGS, prefs: { ...DEFAULT_PREFS, ...init.prefs, locale: init.locale ?? init.prefs?.locale ?? 'en' } })),
     daily: vi.fn(async (id: string) => init.daily?.[id] ?? []),
     posts: vi.fn(async (id: string) => init.posts?.[id] ?? []),
     lastReachDropAt: vi.fn(async (id: string) => rows.filter((r) => r.accountId === id && r.kind === 'reach_drop').at(-1)?.createdAt ?? null),
