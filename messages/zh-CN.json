@@ -535,5 +535,115 @@
       "body": "in2sight 需要联网才能显示你的数据洞察。此设备上不会保存任何私密数据。",
       "retry": "重试"
     }
+  },
+  "export": {
+    "button": "导出",
+    "title": "导出",
+    "description": "下载 Excel 工作簿或 PDF 报告。",
+    "format": "格式",
+    "formats": {
+      "xlsx": "Excel 工作簿（.xlsx）",
+      "pdf": "PDF 报告（A4）"
+    },
+    "scope": "账号",
+    "scopeAll": "全部账号",
+    "period": "时间范围",
+    "sections": "报告包含的部分",
+    "reportTitle": "标题",
+    "reportTitleHint": "最多 120 个字符。留空则使用默认标题。",
+    "note": "备注（可选）",
+    "noteHint": "打印在标题下方。最多 1000 个字符。",
+    "download": "下载",
+    "preview": "在浏览器中预览",
+    "working": "正在准备…",
+    "pdfSlow": "闲置一段时间后，第一份 PDF 可能需要半分钟左右。",
+    "done": "已开始下载",
+    "section": {
+      "kpis": "关键数据与变化",
+      "trend": "覆盖人数与浏览量趋势",
+      "topPosts": "热门帖子",
+      "formats": "内容形式对比",
+      "tags": "标签表现",
+      "bestTime": "最佳发布时间",
+      "audience": "受众",
+      "stories": "快拍概要",
+      "flags": "提醒"
+    },
+    "errors": {
+      "bad_params": "导出请求无效。请重新打开对话框后再试。",
+      "no_sections": "请至少选择一个部分。",
+      "unauthorized": "会话已结束，请重新登录。",
+      "not_found": "该账号或分组已不存在。",
+      "pdf_failed": "无法生成 PDF。请一分钟后再试。",
+      "not_configured": "服务器未配置 PDF 导出（NEXT_PUBLIC_APP_URL）。",
+      "unexpected": "导出失败，请重试。"
+    },
+    "sheets": {
+      "summary": "概要",
+      "daily": "每日数据",
+      "posts": "帖子",
+      "stories": "快拍",
+      "audience": "受众",
+      "tags": "标签"
+    },
+    "cols": {
+      "account": "账号",
+      "group": "分组",
+      "from": "开始日期",
+      "to": "结束日期",
+      "lastSynced": "上次同步",
+      "change": "{metric}变化",
+      "day": "日期",
+      "accountsEngaged": "互动账号数",
+      "interactions": "互动次数",
+      "follows": "新增关注",
+      "unfollows": "取消关注",
+      "linkTaps": "链接点击",
+      "postedAt": "发布时间",
+      "type": "类型",
+      "caption": "文案",
+      "permalink": "链接",
+      "likes": "点赞",
+      "comments": "评论",
+      "saves": "收藏",
+      "shares": "分享",
+      "tags": "标签",
+      "replies": "回复",
+      "tapsForward": "向前点按",
+      "tapsBack": "向后点按",
+      "exits": "退出",
+      "exitRate": "退出率",
+      "snapshots": "快照数",
+      "snapshotDay": "快照日期",
+      "breakdown": "维度",
+      "item": "项目",
+      "share": "占比",
+      "tag": "标签",
+      "measured": "有数据的帖子",
+      "avgReach": "平均覆盖人数"
+    },
+    "breakdown": {
+      "age_gender": "年龄与性别",
+      "country": "国家/地区",
+      "city": "城市"
+    },
+    "gender": {
+      "F": "女性",
+      "M": "男性",
+      "U": "未说明"
+    },
+    "untagged": "未加标签",
+    "report": {
+      "defaultTitle": "Instagram 报告",
+      "range": "{from} 至 {to} · {days} 天",
+      "generated": "生成于 {time}",
+      "accounts": "{count, plural, other {# 个账号}}",
+      "perAccount": "各账号",
+      "noData": "此时间范围内没有数据",
+      "storiesCount": "快拍数",
+      "avgViews": "平均浏览量",
+      "avgExitRate": "平均退出率",
+      "loading": "正在准备报告…"
+    }
   }
 }

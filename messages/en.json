@@ -535,5 +535,115 @@
       "body": "in2sight needs a connection to show your insights. Nothing private is stored on this device.",
       "retry": "Try again"
     }
+  },
+  "export": {
+    "button": "Export",
+    "title": "Export",
+    "description": "Download an Excel workbook or a PDF report.",
+    "format": "Format",
+    "formats": {
+      "xlsx": "Excel workbook (.xlsx)",
+      "pdf": "PDF report (A4)"
+    },
+    "scope": "Accounts",
+    "scopeAll": "All accounts",
+    "period": "Period",
+    "sections": "Sections in the report",
+    "reportTitle": "Title",
+    "reportTitleHint": "Up to 120 characters. Empty uses the default title.",
+    "note": "Note (optional)",
+    "noteHint": "Printed under the title. Up to 1,000 characters.",
+    "download": "Download",
+    "preview": "Preview in the browser",
+    "working": "Preparing…",
+    "pdfSlow": "The first PDF after a quiet spell can take up to half a minute.",
+    "done": "Download started",
+    "section": {
+      "kpis": "Key numbers and changes",
+      "trend": "Reach and views trend",
+      "topPosts": "Top posts",
+      "formats": "Format comparison",
+      "tags": "Tag performance",
+      "bestTime": "Best time to post",
+      "audience": "Audience",
+      "stories": "Stories summary",
+      "flags": "Flags"
+    },
+    "errors": {
+      "bad_params": "That export request is not valid. Reopen the dialog and try again.",
+      "no_sections": "Choose at least one section.",
+      "unauthorized": "Your session has ended. Sign in again.",
+      "not_found": "That account or group no longer exists.",
+      "pdf_failed": "The PDF could not be generated. Try again in a minute.",
+      "not_configured": "PDF export is not configured on this server (NEXT_PUBLIC_APP_URL).",
+      "unexpected": "The export failed. Try again."
+    },
+    "sheets": {
+      "summary": "Summary",
+      "daily": "Daily",
+      "posts": "Posts",
+      "stories": "Stories",
+      "audience": "Audience",
+      "tags": "Tags"
+    },
+    "cols": {
+      "account": "Account",
+      "group": "Group",
+      "from": "From",
+      "to": "To",
+      "lastSynced": "Last synced",
+      "change": "{metric} change",
+      "day": "Date",
+      "accountsEngaged": "Accounts engaged",
+      "interactions": "Interactions",
+      "follows": "Follows",
+      "unfollows": "Unfollows",
+      "linkTaps": "Link taps",
+      "postedAt": "Posted",
+      "type": "Type",
+      "caption": "Caption",
+      "permalink": "Link",
+      "likes": "Likes",
+      "comments": "Comments",
+      "saves": "Saves",
+      "shares": "Shares",
+      "tags": "Tags",
+      "replies": "Replies",
+      "tapsForward": "Taps forward",
+      "tapsBack": "Taps back",
+      "exits": "Exits",
+      "exitRate": "Exit rate",
+      "snapshots": "Snapshots",
+      "snapshotDay": "Snapshot date",
+      "breakdown": "Breakdown",
+      "item": "Item",
+      "share": "Share",
+      "tag": "Tag",
+      "measured": "Measured posts",
+      "avgReach": "Avg reach"
+    },
+    "breakdown": {
+      "age_gender": "Age and gender",
+      "country": "Country",
+      "city": "City"
+    },
+    "gender": {
+      "F": "Women",
+      "M": "Men",
+      "U": "Unspecified"
+    },
+    "untagged": "Untagged",
+    "report": {
+      "defaultTitle": "Instagram report",
+      "range": "{from} – {to} · {days} days",
+      "generated": "Generated {time}",
+      "accounts": "{count, plural, one {# account} other {# accounts}}",
+      "perAccount": "Per account",
+      "noData": "No data for this period",
+      "storiesCount": "Stories",
+      "avgViews": "Avg views",
+      "avgExitRate": "Avg exit rate",
+      "loading": "Preparing the report…"
+    }
   }
 }
