@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { vapidKeyBytes } from '@/lib/push/subscription';
+import { isIos, isStandalone } from '@/lib/pwa';
 
 type Result = { ok: boolean };
 type Status = 'checking' | 'unsupported' | 'ios-install' | 'not-configured' | 'denied' | 'off' | 'on';
@@ -15,10 +16,6 @@ export interface NotificationsCardProps {
   save: (subscription: unknown, userAgent: string) => Promise<Result>;
   remove: (endpoint: string) => Promise<Result>;
 }
-
-const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-// a feature check (is this the installed app?), not layout: runs in an effect only
-const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches === true || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
 export function NotificationsCard({ vapidPublicKey, save, remove }: NotificationsCardProps) {
   const t = useTranslations('settings.notifications');
