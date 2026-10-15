@@ -13,7 +13,7 @@ export async function launchChromium(): Promise<Browser> {
     args: local ? [] : await puppeteer.defaultArgs({ args: chromium.args, headless: 'shell' }),
     executablePath: local || (await chromium.executablePath()),
     headless: local ? true : 'shell',
-    defaultViewport: { width: 794, height: 1123 }, // A4 at 96 dpi: the md layout, same as the printed page
+    defaultViewport: { width: 703, height: 1123 }, // A4 minus the 12mm @page margins at 96 dpi (793.7 - 2 x 45.3): charts measure at most the printed content width
     timeout: 15_000, // launch timeout: bounds the wait in renderReportPdf's finally
   });
 }

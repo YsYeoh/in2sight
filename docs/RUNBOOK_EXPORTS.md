@@ -36,8 +36,11 @@ Never paste tokens, cookies or `SUPABASE_SECRET_KEY` into chats, screenshots or 
    - A4 pages, light background, your title and note at the top, the date range in your date format.
    - **Chinese text renders as Chinese, not boxes ("tofu")**: title, section headings (switch the app to 简体中文 and export again), captions with Chinese, emoji may show as boxes in a few places (no emoji font is bundled; acceptable).
    - Charts and heatmaps are complete (not mid-animation).
+   - Chart right edge and the last x-axis label are visible; nothing clipped at the page edge.
+   - Chinese bold or semibold text looks slightly heavier or lighter than expected: only the 400 weight of Noto Sans SC is bundled, so Chinese semibold/bold is synthetic (acceptable).
 3. Vercel → Project → Deployments → the deployment → **Functions**: `/api/export/pdf` size is shown (expect roughly 70–80 MB compressed; the limit is 250 MB unzipped). Logs → filter `/api/export/pdf`: duration under 60 s, memory used. If memory is near the limit, raise the function memory (Vercel → Settings → Functions) to 2 GB+.
-4. Open `<app-url>/report/print` in a private window: it shows only "Preparing the report…", with no data and no error. That page never has data unless the PDF route injected it.
+4. Privacy note: the report `title` and `note` travel in the GET query string (`/api/export/pdf?...`), so they can show up in Vercel request logs and browser history. Do not put secrets in them.
+5. Open `<app-url>/report/print` in a private window: it shows only "Preparing the report…", with no data and no error. That page never has data unless the PDF route injected it.
 
 ## 4. Troubleshooting
 
