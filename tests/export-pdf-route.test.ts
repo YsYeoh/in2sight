@@ -25,6 +25,7 @@ vi.mock('@/lib/export/chromium', () => ({
     s.launches++;
     if (s.launchFails) throw new Error('Failed to launch the browser process: /tmp/chromium');
     const page = {
+      setCookie: async () => {},
       setBypassServiceWorker: async () => {},
       setRequestInterception: async () => {},
       on: () => {},
@@ -37,7 +38,7 @@ vi.mock('@/lib/export/chromium', () => ({
       evaluate: async () => true,
       pdf: async () => new TextEncoder().encode('%PDF-1.7 fake'),
     };
-    return { setCookie: async () => {}, newPage: async () => page, close: async () => void s.closed++, process: () => null };
+    return { newPage: async () => page, close: async () => void s.closed++, process: () => null };
   },
 }));
 
@@ -67,6 +68,14 @@ describe('GET /api/export/pdf', () => {
     s.owner = false;
     expect((await get(OK)).status).toBe(401);
     expect([s.loads, s.launches]).toEqual([0, 0]);
+  });
+
+  it('a non-owner gets 401 even when NEXT_PUBLIC_APP_URL is unusable; bad params get 400, never 503', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+    s.owner = false;
+    expect((await get(OK)).status).toBe(401);
+    s.owner = true;
+    expect((await get(`scope=a:${A}&period=30`)).status).toBe(400);
   });
 
   it('tampered parameters are rejected before any read', async () => {
