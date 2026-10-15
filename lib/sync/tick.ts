@@ -1,6 +1,8 @@
 // One scheduler tick: pick due work per account (round-robin, oldest attempt first), lease each account, run it within
-// the time budget, persist state, record a summary. One account failing (bad token, DB hiccup) never stops the others.
+// the time budget, persist state, evaluate alerts, record a summary. One account failing (bad token, DB hiccup) never
+// stops the others.
 import type { AccountsStore } from '@/lib/accounts/types';
+import { ALERT_BUDGET_MS, runAlerts, type AlertDeps, type AlertRunSummary } from '@/lib/alerts/run';
 import type { IgData } from '@/lib/instagram/data';
 import { runAccount, type AccountOutcome, type SyncErrorKey } from '@/lib/sync/run-account';
 import { byOldestAttempt, dueJobs, type JobKind } from '@/lib/sync/schedule';
@@ -18,6 +20,7 @@ export interface TickDeps {
   store: SyncStore;
   accounts: AccountsStore;
   ig: IgData;
+  alerts?: AlertDeps; // omitted: no alert evaluation (tests of the sync itself)
   clock?: () => number;
   newId?: () => string;
 }
@@ -35,6 +38,7 @@ export interface TickSummary {
   durationMs: number;
   stoppedEarly: boolean; // time budget or app-wide rate limit left due work for the next tick
   accounts: TickAccount[];
+  alerts?: AlertRunSummary; // counts only
 }
 
 export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'; budgetMs?: number; accountId?: string }): Promise<TickSummary> {
@@ -101,7 +105,11 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
     }
   }
 
-  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly, accounts: out };
+  // SPEC §6: rules run after the account jobs. runAlerts never throws; the catch is a second net for the tick.
+  const alerts = deps.alerts
+    ? await runAlerts(deps.alerts, { accounts: deps.accounts, sync: deps.store, now: new Date(clock()), tz, deadline: deadline + ALERT_BUDGET_MS, clock, accountId: opts.accountId }).catch(() => ({ created: 0, pushed: 0, failed: 1 }))
+    : undefined;
+  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly, accounts: out, ...(alerts ? { alerts } : {}) };
   await deps.store.recordRun({ startedAt, finishedAt: new Date(clock()).toISOString(), trigger: opts.trigger, summary }).catch(() => {});
   return summary;
 }
