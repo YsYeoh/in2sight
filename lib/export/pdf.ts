@@ -7,12 +7,13 @@ import { PREFS_COOKIE, serializePrefs, type Prefs } from '@/lib/prefs';
 
 export type Launch = () => Promise<Browser>;
 
-export const PRINT_PATH = '/report/print';
-export const BUDGET_MS = 45_000; // inside the route's maxDuration (60 s), leaving time to answer
+const PRINT_PATH = '/report/print';
+const BUDGET_MS = 40_000; // + LAUNCH_WAIT_MS stays inside the route's maxDuration (60 s), leaving time to answer
 const GOTO_MS = 20_000;
 const READY_MS = 15_000;
 const PDF_MS = 20_000;
 const CLOSE_MS = 5_000;
+const LAUNCH_WAIT_MS = 5_000; // how long `finally` waits for a launch still in progress before answering anyway
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -38,7 +39,17 @@ export function appOrigin(raw: string | undefined): string | null {
   }
 }
 
-export async function renderReportPdf(model: ReportModel, o: { origin: string; prefs: Prefs; launch: Launch; budgetMs?: number }): Promise<Uint8Array> {
+// ponytail: one PDF at a time per instance (a second Chromium would blow the memory of a small serverless function);
+// a queued call also waits outside its own budget, which is fine for a single-owner app. A failed render never blocks the next.
+let queue: Promise<unknown> = Promise.resolve();
+
+export function renderReportPdf(model: ReportModel, o: { origin: string; prefs: Prefs; launch: Launch; budgetMs?: number }): Promise<Uint8Array> {
+  const run = queue.then(() => render(model, o));
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+async function render(model: ReportModel, o: { origin: string; prefs: Prefs; launch: Launch; budgetMs?: number }): Promise<Uint8Array> {
   const url = new URL(PRINT_PATH, o.origin);
   const launching = o.launch();
   try {
@@ -46,8 +57,9 @@ export async function renderReportPdf(model: ReportModel, o: { origin: string; p
       (async () => {
         const browser = await launching;
         // the prefs cookie (not a secret) gives the root layout the owner's language, formats and theme; always light
-        await browser.setCookie({ name: PREFS_COOKIE, value: serializePrefs({ ...o.prefs, mode: 'light' }), domain: url.hostname, path: '/', secure: url.protocol === 'https:', sameSite: 'Lax' });
         const page = await browser.newPage();
+        // `url` lets Chromium derive domain, path and secure itself (reliable on localhost too); only the page API takes it
+        await page.setCookie({ name: PREFS_COOKIE, value: serializePrefs({ ...o.prefs, mode: 'light' }), url: url.origin, sameSite: 'Lax' });
         await page.setBypassServiceWorker(true);
         await page.setRequestInterception(true);
         page.on('request', (req) => {
@@ -70,7 +82,8 @@ export async function renderReportPdf(model: ReportModel, o: { origin: string; p
       o.budgetMs ?? BUDGET_MS,
     );
   } finally {
-    // waits for a launch still in progress (puppeteer's own launch timeout bounds it), then closes or kills it
-    await launching.then(closeQuietly, () => undefined);
+    // closes or kills the browser even if it only arrives later; the answer waits for that at most LAUNCH_WAIT_MS
+    const cleanup = launching.then(closeQuietly, () => undefined);
+    await withTimeout(cleanup, LAUNCH_WAIT_MS).catch(() => undefined);
   }
 }

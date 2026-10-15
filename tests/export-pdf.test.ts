@@ -22,6 +22,7 @@ function fakeBrowser(o: { fail?: Step; hang?: Step } = {}) {
     return value;
   };
   const page = {
+    setCookie: async (...c: unknown[]) => void log.push(['cookie', ...c]),
     setBypassServiceWorker: async (v: boolean) => void log.push(['bypassSW', v]),
     setRequestInterception: async (v: boolean) => void log.push(['intercept', v]),
     on: (event: string, h: (req: unknown) => void) => {
@@ -42,7 +43,6 @@ function fakeBrowser(o: { fail?: Step; hang?: Step } = {}) {
   };
   const kill = vi.fn();
   const browser = {
-    setCookie: async (...c: unknown[]) => void log.push(['cookie', ...c]),
     newPage: async () => page,
     close: () => step('close'),
     process: () => ({ kill }),
@@ -71,8 +71,8 @@ describe('renderReportPdf', () => {
   it('opens only /report/print on the app origin with the model injected and light prefs, prints A4, closes the browser', async () => {
     const b = fakeBrowser();
     expect(await run(b)).toBe(PDF);
-    const cookie = b.log.find((l) => l[0] === 'cookie')![1] as { name: string; value: string; domain: string; secure: boolean };
-    expect(cookie).toMatchObject({ name: PREFS_COOKIE, domain: 'app.test', secure: true });
+    const cookie = b.log.find((l) => l[0] === 'cookie')![1] as { name: string; value: string; url: string };
+    expect(cookie).toMatchObject({ name: PREFS_COOKIE, url: 'https://app.test' });
     expect(parsePrefsCookie(cookie.value)).toMatchObject({ locale: 'zh-CN', mode: 'light' });
     expect(b.log).toContainEqual(['inject', model]);
     expect(b.log).toContainEqual(['bypassSW', true]);
@@ -81,6 +81,14 @@ describe('renderReportPdf', () => {
     expect(b.log).toContainEqual(['selector', '[data-report-ready="true"]']);
     expect(b.log.find((l) => l[0] === 'pdfOpts')?.[1]).toMatchObject({ format: 'A4', printBackground: true, preferCSSPageSize: true });
     expect(b.closed()).toBe(1);
+  });
+
+  it('wires the model injection and the request guard BEFORE navigating', async () => {
+    const b = fakeBrowser();
+    await run(b);
+    const at = (name: string) => b.log.findIndex((l) => l[0] === name);
+    expect(at('cookie')).toBeGreaterThanOrEqual(0);
+    for (const before of ['cookie', 'inject', 'intercept', 'on', 'bypassSW']) expect(at(before), before).toBeLessThan(at('gotoUrl'));
   });
 
   it('request interception: same-origin requests continue, everything else is aborted', async () => {
@@ -131,5 +139,35 @@ describe('renderReportPdf', () => {
     setTimeout(release, 60);
     await expect(p).rejects.toThrow('timeout');
     expect(b.closed()).toBe(1);
+  });
+});
+
+describe('renderReportPdf queue and cleanup cap', () => {
+  const opts = (launch: () => Promise<Browser>) => ({ origin: 'https://app.test', prefs: DEFAULT_PREFS, launch });
+
+  it('renders one PDF at a time: the second launch waits for the first to finish', async () => {
+    const first = fakeBrowser({ hang: 'goto' });
+    const second = fakeBrowser();
+    const launches: string[] = [];
+    const p1 = renderReportPdf(model, { ...opts(async () => (launches.push('one'), first.browser)), budgetMs: 60 });
+    const p2 = renderReportPdf(model, opts(async () => (launches.push('two'), second.browser)));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(launches).toEqual(['one']); // first is still stuck on goto
+    await expect(p1).rejects.toThrow('timeout'); // ...and a failure does not poison the chain
+    expect(await p2).toBe(PDF);
+    expect(launches).toEqual(['one', 'two']);
+    expect(first.closed()).toBe(1);
+    expect(second.closed()).toBe(1);
+  });
+
+  it('the answer waits at most 5 s for a launch that never finishes', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let settled = false;
+    const p = renderReportPdf(model, { ...opts(() => never()), budgetMs: 100 }).catch((e: Error) => ((settled = true), e.message));
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(4_800);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(await p).toBe('timeout');
   });
 });
