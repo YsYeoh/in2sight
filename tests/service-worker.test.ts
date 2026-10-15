@@ -1,0 +1,125 @@
+// public/sw.js runs in a fake service-worker global (node:vm): event handlers, caches, fetch and clients are fakes.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
+import { describe, expect, it, vi } from 'vitest';
+
+const SRC = readFileSync(join(process.cwd(), 'public/sw.js'), 'utf8');
+const ORIGIN = 'https://app.test';
+type Handler = (e: Record<string, unknown>) => void;
+type Req = { url: string; method: string; mode: string };
+
+const basic = (body: string) => Object.defineProperty(new Response(body), 'type', { value: 'basic' }); // like a same-origin fetch
+
+function load(o: { offline?: boolean } = {}) {
+  const handlers: Record<string, Handler> = {};
+  const store = new Map<string, Map<string, Response>>();
+  const key = (r: string | Req) => (typeof r === 'string' ? new URL(r, ORIGIN).href : r.url);
+  const caches = {
+    open: vi.fn(async (name: string) => {
+      if (!store.has(name)) store.set(name, new Map());
+      const m = store.get(name)!;
+      return { addAll: async (urls: string[]) => urls.forEach((u) => m.set(key(u), basic(`cached ${u}`))), put: async (r: Req, res: Response) => void m.set(key(r), res) };
+    }),
+    match: async (r: string | Req) => [...store.values()].find((m) => m.has(key(r)))?.get(key(r)),
+    keys: async () => [...store.keys()],
+    delete: vi.fn(async (k: string) => store.delete(k)),
+  };
+  const fetch = vi.fn(async (r: Req) => (o.offline ? Promise.reject(new TypeError('Failed to fetch')) : basic(`network ${r.url}`)));
+  const self = {
+    addEventListener: (t: string, fn: Handler) => void (handlers[t] = fn),
+    location: { origin: ORIGIN },
+    skipWaiting: vi.fn(async () => {}),
+    clients: { claim: vi.fn(async () => {}), matchAll: vi.fn(async () => [] as { url: string; focus: () => void }[]), openWindow: vi.fn(async () => null) },
+    registration: { showNotification: vi.fn(async () => {}) },
+  };
+  runInNewContext(SRC, { self, caches, fetch, Response, URL, Promise, console });
+  const fire = (type: string, init: Record<string, unknown> = {}) => {
+    const waits: Promise<unknown>[] = [];
+    let responded: Promise<Response> | undefined;
+    handlers[type]({ ...init, waitUntil: (p: Promise<unknown>) => void waits.push(p), respondWith: (p: Promise<Response>) => void (responded = p) });
+    return { responded, settled: () => Promise.all(waits) };
+  };
+  return { fire, store, caches, fetch, self };
+}
+
+const req = (path: string, o: Partial<Req> = {}): Req => ({ url: new URL(path, ORIGIN).href, method: 'GET', mode: 'cors', ...o });
+const cachedUrls = (store: Map<string, Map<string, Response>>) => [...store.values()].flatMap((m) => [...m.keys()]);
+
+describe('service worker', () => {
+  it('install precaches the offline page, manifest and icons, then activates at once', async () => {
+    const sw = load();
+    await sw.fire('install').settled();
+    expect(cachedUrls(sw.store).sort()).toEqual([`${ORIGIN}/icons/icon-192.png`, `${ORIGIN}/icons/icon-512.png`, `${ORIGIN}/manifest.webmanifest`, `${ORIGIN}/offline`]);
+    expect([...sw.store.keys()]).toEqual(['in2sight-static-v1']);
+    expect(sw.self.skipWaiting).toHaveBeenCalled();
+  });
+
+  it('activate drops older in2sight caches only, then claims open pages', async () => {
+    const sw = load();
+    for (const k of ['in2sight-static-v0', 'in2sight-static-v1', 'someone-else']) sw.store.set(k, new Map());
+    await sw.fire('activate').settled();
+    expect([...sw.store.keys()].sort()).toEqual(['in2sight-static-v1', 'someone-else']);
+    expect(sw.self.clients.claim).toHaveBeenCalled();
+  });
+
+  it('never caches /api, pages, RSC or cross-origin responses', async () => {
+    const sw = load();
+    for (const r of [req('/api/cron/tick'), req('/api/instagram/connect'), req('/overview?_rsc=1x2y'), req('/accounts/7b0c7c2e?tab=posts'), req('https://abc.supabase.co/rest/v1/media'), req('https://scontent.cdninstagram.com/a.jpg'), req('/_next/static/a.js', { method: 'POST' })]) {
+      expect(sw.fire('fetch', { request: r }).responded, r.url).toBeUndefined(); // not intercepted: the browser fetches it normally
+    }
+    const page = sw.fire('fetch', { request: req('/overview', { mode: 'navigate' }) });
+    expect(await (await page.responded!).text()).toBe(`network ${ORIGIN}/overview`);
+    await page.settled();
+    expect(cachedUrls(sw.store)).toEqual([]);
+  });
+
+  it('static assets: fetched once, then served from the cache', async () => {
+    const sw = load();
+    const first = sw.fire('fetch', { request: req('/_next/static/chunks/app.js') });
+    expect(await (await first.responded!).text()).toBe(`network ${ORIGIN}/_next/static/chunks/app.js`);
+    await first.settled();
+    const second = sw.fire('fetch', { request: req('/_next/static/chunks/app.js') });
+    await second.responded;
+    expect(sw.fetch).toHaveBeenCalledTimes(1);
+    expect(cachedUrls(sw.store)).toEqual([`${ORIGIN}/_next/static/chunks/app.js`]);
+  });
+
+  it('offline: a page navigation gets the cached public offline page', async () => {
+    const sw = load({ offline: true });
+    sw.store.set('in2sight-static-v1', new Map([[`${ORIGIN}/offline`, basic('offline page')]]));
+    const r = sw.fire('fetch', { request: req('/accounts', { mode: 'navigate' }) });
+    expect(await (await r.responded!).text()).toBe('offline page');
+  });
+
+  it('push shows the notification with the sent title, body, tag and same-origin url', async () => {
+    const sw = load();
+    const data = { json: () => ({ title: 'Reconnect needed', body: '@cafe lost its connection', url: '/accounts', tag: 'needs_reconnect:a1' }) };
+    await sw.fire('push', { data }).settled();
+    expect(sw.self.registration.showNotification).toHaveBeenCalledWith('Reconnect needed', { body: '@cafe lost its connection', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', tag: 'needs_reconnect:a1', data: { url: '/accounts' } });
+  });
+
+  it('push with junk, oversized or hostile data still shows something safe', async () => {
+    const sw = load();
+    await sw.fire('push', { data: { json: () => { throw new SyntaxError('not json'); } } }).settled();
+    await sw.fire('push', { data: { json: () => ({ title: 'x'.repeat(500), body: 42, url: 'https://evil.example/phish' }) } }).settled();
+    await sw.fire('push', { data: { json: () => ({ title: 'T', url: '//evil.example' }) } }).settled();
+    const calls = sw.self.registration.showNotification.mock.calls as unknown as [string, { body: string; data: { url: string } }][];
+    expect(calls[0][0]).toBe('in2sight');
+    expect(calls[1][0]).toHaveLength(120);
+    expect(calls[1][1].body).toBe('');
+    expect(calls.map((c) => c[1].data.url)).toEqual(['/overview', '/overview', '/overview']);
+  });
+
+  it('notification click focuses an open window on that page, else opens one', async () => {
+    const sw = load();
+    const close = vi.fn();
+    await sw.fire('notificationclick', { notification: { close, data: { url: '/accounts' } } }).settled();
+    expect(close).toHaveBeenCalled();
+    expect(sw.self.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/accounts`);
+    const focus = vi.fn();
+    sw.self.clients.matchAll.mockResolvedValueOnce([{ url: `${ORIGIN}/accounts`, focus }]);
+    await sw.fire('notificationclick', { notification: { close, data: { url: '/accounts' } } }).settled();
+    expect(focus).toHaveBeenCalled();
+  });
+});
