@@ -180,10 +180,36 @@
     "subtitle": "外观、格式与安全",
     "tabs": {
       "general": "常规",
-      "account": "账户"
+      "account": "账户",
+      "notifications": "通知"
     },
     "account": {
       "email": "登录账号"
+    },
+    "notifications": {
+      "pushTitle": "此设备上的推送通知",
+      "pushDescription": "即使 in2sight 未打开，也能在这台手机或电脑上收到提醒。每台设备需要单独开启。",
+      "enable": "开启通知",
+      "enableHint": "浏览器会请求你的授权。",
+      "disable": "在此设备上关闭",
+      "on": "此设备已开启",
+      "checking": "正在检查此浏览器…",
+      "unsupported": "此浏览器无法接收推送通知。应用内通知（铃铛）仍可使用。",
+      "iosInstall": "在 iPhone 和 iPad 上，推送需要先将应用添加到主屏幕：点按“分享”，再点“添加到主屏幕”，然后从主屏幕打开 in2sight 并在那里开启通知。",
+      "notConfigured": "服务器尚未配置推送（缺少 VAPID 密钥）。应用内通知仍可使用。",
+      "denied": "此网站的通知已被屏蔽。请在浏览器的网站设置中允许通知，然后重新加载此页面。",
+      "error": "无法更改此设备的通知设置，请重试。",
+      "rulesTitle": "提醒",
+      "rulesDescription": "所有提醒都会显示在铃铛中。你可以选择哪些提醒同时发送推送通知，以及触发条件。",
+      "pushFor": "为以下提醒发送推送通知",
+      "reachDropPct": "触达下降（%）",
+      "reachDropPctHint": "最近 7 天的触达比之前 7 天至少下降这么多时提醒（5–90）。",
+      "takingOffRatio": "表现突出（中位数的倍数）",
+      "takingOffRatioHint": "帖子触达达到该账号中位数触达的这个倍数时提醒（1.5–10）。",
+      "syncFailures": "连续同步失败次数",
+      "syncFailuresHint": "连续这么多次同步失败后提醒（1–10）。",
+      "saved": "已保存",
+      "saveError": "保存失败，请重试。"
     }
   },
   "accounts": {

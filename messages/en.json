@@ -180,10 +180,36 @@
     "subtitle": "Appearance, formats and security",
     "tabs": {
       "general": "General",
-      "account": "Account"
+      "account": "Account",
+      "notifications": "Notifications"
     },
     "account": {
       "email": "Signed in as"
+    },
+    "notifications": {
+      "pushTitle": "Push notifications on this device",
+      "pushDescription": "Get alerts on this phone or computer even when in2sight is closed. Each device is enabled separately.",
+      "enable": "Enable notifications",
+      "enableHint": "Your browser will ask for permission.",
+      "disable": "Turn off on this device",
+      "on": "On for this device",
+      "checking": "Checking this browser…",
+      "unsupported": "This browser can't receive push notifications. In-app notifications (the bell) still work.",
+      "iosInstall": "On iPhone and iPad, push needs the app on your Home Screen: tap Share, then Add to Home Screen, open in2sight from the Home Screen and enable notifications there.",
+      "notConfigured": "Push isn't set up on the server yet (VAPID keys are missing). In-app notifications still work.",
+      "denied": "Notifications are blocked for this site. Allow them in your browser's site settings, then reload this page.",
+      "error": "Couldn't change notifications on this device. Try again.",
+      "rulesTitle": "Alerts",
+      "rulesDescription": "Every alert appears under the bell. Choose which ones also send a push notification, and when they fire.",
+      "pushFor": "Send a push notification for",
+      "reachDropPct": "Reach drop (%)",
+      "reachDropPctHint": "Alert when 7-day reach falls at least this much below the previous 7 days (5–90).",
+      "takingOffRatio": "Taking off (× median)",
+      "takingOffRatioHint": "Alert when a post reaches this multiple of the account's median reach (1.5–10).",
+      "syncFailures": "Failed syncs in a row",
+      "syncFailuresHint": "Alert after this many consecutive failed sync runs (1–10).",
+      "saved": "Saved",
+      "saveError": "Couldn't save. Try again."
     }
   },
   "accounts": {
