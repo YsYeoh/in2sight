@@ -7,7 +7,7 @@ export function TabSkeleton({ tab }: { tab: Tab }) {
     case 'posts':
       return (
         <div aria-busy="true" className="grid min-w-0 gap-[var(--gp)]">
-          <SkeletonGrid count={5} className="grid-cols-2 md:grid-cols-5" itemClassName="h-[calc(var(--ctl)*1.8)] rounded-md" />
+          <SkeletonGrid count={5} className="grid-cols-2 md:grid-cols-[repeat(4,minmax(0,1fr))_auto]" itemClassName="h-[calc(var(--ctl)*1.8)] rounded-md" />
           <SkeletonTable rows={8} />
         </div>
       );
