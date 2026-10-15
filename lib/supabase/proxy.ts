@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { decideRoute } from '@/lib/auth/route-policy';
 import { getSessionInfo } from '@/lib/auth/session';
 import { getSupabasePublic, isSupabaseConfigured } from '@/lib/env';
+import { serverTiming, timed, type Span } from '@/lib/server-timing';
 
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
@@ -37,7 +38,12 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   });
 
-  const info = await getSessionInfo(supabase);
+  // Server-Timing: how long the proxy's session check took (names + durations only; docs/RUNBOOK_PERF.md)
+  const started = performance.now();
+  const spans: Span[] = [];
+  const info = await timed(spans, 'auth', () => getSessionInfo(supabase));
   const d = decideRoute({ pathname, configured: true, signedIn: info.signedIn, aal: info.aal, mfaRequired: info.mfaRequired });
-  return d.type === 'redirect' ? redirectTo(d.to, response) : response;
+  const res = d.type === 'redirect' ? redirectTo(d.to, response) : response;
+  res.headers.set('Server-Timing', serverTiming([...spans, { name: 'proxy', dur: performance.now() - started }]));
+  return res;
 }

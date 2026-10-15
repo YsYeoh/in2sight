@@ -99,6 +99,24 @@ describe('proxy', () => {
     const res = await proxy(req('/overview?next=https://evil.example'));
     expect(new URL(res.headers.get('location')!).origin).toBe('https://app.test');
   });
+
+  it.each([
+    ['a pass-through', 'u1'],
+    ['a redirect', null],
+  ])('sends Server-Timing (auth + proxy spans, durations only) on %s', async (_n, sub) => {
+    state.sub = sub;
+    state.setCookie = true;
+    const res = await proxy(req('/overview'));
+    const st = res.headers.get('server-timing')!;
+    expect(st).toMatch(/^auth;dur=\d+\.\d, proxy;dur=\d+\.\d$/);
+    expect(st).not.toMatch(/u1|o@x\.y|sb-/); // never ids, emails or cookie names
+  });
+
+  it('no Server-Timing when Supabase is not configured (nothing was timed)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '');
+    const res = await proxy(req('/styleguide'));
+    expect(res.headers.get('server-timing')).toBeNull();
+  });
 });
 
 describe('matcher', () => {
