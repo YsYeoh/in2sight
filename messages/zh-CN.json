@@ -458,6 +458,30 @@
       "few_posts": "至少需要 5 篇有数据的帖子才能对比"
     }
   },
+  "notifications": {
+    "kinds": {
+      "token_expiring": {
+        "title": "Instagram 授权即将到期",
+        "body": "@{username}：授权将在 {days} 天后到期。请重新连接以继续同步。"
+      },
+      "needs_reconnect": {
+        "title": "需要重新连接",
+        "body": "@{username} 与 Instagram 的连接已断开。请在“账号”页面重新连接。"
+      },
+      "sync_failing": {
+        "title": "同步失败",
+        "body": "@{username}：最近 {runs} 次同步均失败。请查看“账号”页面。"
+      },
+      "reach_drop": {
+        "title": "触达下降",
+        "body": "@{username}：最近 7 天的触达比之前 7 天下降了 {pct}%。"
+      },
+      "taking_off": {
+        "title": "帖子表现突出",
+        "body": "@{username} 的一篇帖子触达达到平时的 {ratio} 倍。"
+      }
+    }
+  },
   "setup": {
     "title": "快好了",
     "body": "登录前需要先配置 Supabase 连接。请把下列变量添加到 .env.local（以及 Vercel）后刷新页面。",
