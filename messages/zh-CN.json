@@ -522,6 +522,13 @@
     "check": "检查配置："
   },
   "pwa": {
+    "install": {
+      "label": "安装 in2sight",
+      "body": "将 in2sight 安装到此设备，获得全屏应用体验和推送通知。",
+      "ios": "在 iPhone 或 iPad 上安装：点按“分享”，再点“添加到主屏幕”。推送通知需要这样做。",
+      "install": "安装",
+      "dismiss": "暂不"
+    },
     "offline": {
       "title": "你已离线",
       "body": "in2sight 需要联网才能显示你的数据洞察。此设备上不会保存任何私密数据。",

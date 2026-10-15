@@ -522,6 +522,13 @@
     "check": "Check your setup:"
   },
   "pwa": {
+    "install": {
+      "label": "Install in2sight",
+      "body": "Install in2sight on this device for a full-screen app and push notifications.",
+      "ios": "To install on iPhone or iPad: tap Share, then Add to Home Screen. Push notifications need this.",
+      "install": "Install",
+      "dismiss": "Not now"
+    },
     "offline": {
       "title": "You're offline",
       "body": "in2sight needs a connection to show your insights. Nothing private is stored on this device.",

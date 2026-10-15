@@ -13,3 +13,9 @@ export const THEME_COLORS: Record<Theme, Record<Mode, string>> = {
 };
 
 export const themeColor = (p: Pick<Prefs, 'theme' | 'mode'>): string => THEME_COLORS[p.theme][p.mode];
+
+/** iPhone/iPad, including iPadOS that reports itself as a Mac. Browser only (call from effects/handlers). */
+export const isIos = (): boolean => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+/** Running as the installed app. A feature check, never used for layout. Browser only. */
+export const isStandalone = (): boolean => window.matchMedia?.('(display-mode: standalone)').matches === true || (navigator as Navigator & { standalone?: boolean }).standalone === true;

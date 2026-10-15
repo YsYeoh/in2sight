@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { ServiceWorker } from '@/components/pwa/ServiceWorker';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { htmlAttrs } from '@/lib/prefs';
@@ -35,6 +36,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <PrefsProvider initial={prefs} persist={setPrefs}>
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster position="bottom-right" />
+            <ServiceWorker enabled={process.env.NODE_ENV === 'production'} />
           </PrefsProvider>
         </NextIntlClientProvider>
       </body>
