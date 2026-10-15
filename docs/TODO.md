@@ -74,6 +74,12 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] Account detail (Overview / Posts / Stories / Audience with globe), Tags page, Calendar (Plan 7) — code done; the tags migration and visual verification with real data pending (the globe and the new pages have not been viewed in a browser yet; docs/RUNBOOK_DASHBOARDS.md §4)
 - [ ] Apply migration `20261017000001_tags.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code is used — docs/RUNBOOK_DASHBOARDS.md §4.0)
 
+## 6b. Loading feedback and speed (Plan 10)
+- [x] Insight Orb loader, top progress bar, inline pending orb on nav items and buttons, Sync now status line — code + tests done; not yet seen on the deployed site (docs/RUNBOOK_PERF.md §2–3)
+- [x] Page-shaped `loading.tsx` for every route (test-enforced), account tab streamed in Suspense, notification bell streamed — code done; streaming not yet observed live (docs/RUNBOOK_PERF.md §4)
+- [x] One owner check per request (React.cache, parallel RPC), per-request accounts/sync-status reads, `Server-Timing` from the proxy — code done
+- [ ] Measure before/after on production and fill docs/RUNBOOK_PERF.md §5 (owner, signed in)
+
 ## 7. Later
 - [ ] (C) Weekly AI summary per account via Claude API
 - [x] Alerts when a token needs reconnect (Plan 8 `needs_reconnect` + `token_expiring` rules)
