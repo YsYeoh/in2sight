@@ -2,10 +2,12 @@
 
 // Month grid on md+, agenda list on phones (CSS breakpoints only: both are rendered, never matchMedia).
 import { useState } from 'react';
+import Form from 'next/form';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { usePrefs } from '@/components/providers/PrefsProvider';
+import { formHref, startProgress } from '@/components/shared/NavigationProgress';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -70,7 +72,7 @@ export function CalendarView({ model, accounts, account, truncated }: { model: M
         title={t('title')}
         subtitle={account ? `@${accounts.find((a) => a.id === account)?.username ?? ''}` : t('allAccounts')}
         actions={
-          <form method="get" className="flex items-center gap-2">
+          <Form action="" onSubmit={(e) => startProgress(formHref(e.currentTarget))} className="flex items-center gap-2">
             <input type="hidden" name="month" value={model.month} />
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               {t('account')}
@@ -88,7 +90,7 @@ export function CalendarView({ model, accounts, account, truncated }: { model: M
                 {t('show')}
               </Button>
             </noscript>
-          </form>
+          </Form>
         }
       />
 
