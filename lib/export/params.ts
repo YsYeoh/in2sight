@@ -3,6 +3,7 @@
 import { normalizeGroup } from '@/lib/accounts/group';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { PERIODS, type Period } from '@/lib/analysis/types';
+import { addDays } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
 
 export const SECTIONS = ['kpis', 'trend', 'topPosts', 'formats', 'tags', 'bestTime', 'audience', 'stories', 'flags'] as const;
@@ -19,6 +20,11 @@ export interface ReportParams extends ExportParams {
   note: string;
 }
 export type Parsed<T> = { ok: true; params: T } | { ok: false; error: 'bad_params' };
+
+/** The raw-data window of an export: the last `period` days including today (owner timezone days). Lives here, not in read.ts, so client code never pulls the dashboard readers. */
+export function exportWindow(period: Period, today: string): { from: string; to: string } {
+  return { from: addDays(today, -(period - 1)), to: today };
+}
 
 export const TITLE_MAX = 120;
 export const NOTE_MAX = 1000;

@@ -7,8 +7,8 @@ import { engagementRate, formatComparison, topPosts } from '@/lib/analysis/posts
 import type { Period } from '@/lib/analysis/types';
 import { buildAudience, type AudienceModel } from '@/lib/dashboard/audience';
 import { buildStories, buildTagStats, snippet, type FeedFormat, type TagStat } from '@/lib/dashboard/content';
-import type { ExportScope, ReportParams, Section } from '@/lib/export/params';
-import { exportWindow, type ExportData } from '@/lib/export/read';
+import { exportWindow, type ExportScope, type ReportParams, type Section } from '@/lib/export/params';
+import type { ExportData } from '@/lib/export/read';
 import type { WeekStart } from '@/lib/prefs';
 import { addDays, localDay } from '@/lib/sync/time';
 
@@ -19,7 +19,6 @@ export interface ReportPost {
   username: string;
   mediaType: FeedFormat;
   postedAt: string;
-  permalink: string | null;
   caption: string | null; // one-line snippet
   reach: number;
   engagementRate: number | null;
@@ -97,7 +96,6 @@ export function buildReport(data: ExportData, p: ReportParams, o: { today: strin
       username: user.get(post.accountId) ?? '',
       mediaType: post.mediaType as FeedFormat,
       postedAt: post.postedAt,
-      permalink: post.permalink,
       caption: snippet(caption.get(post.id) ?? null),
       reach: value,
       engagementRate: engagementRate(post),

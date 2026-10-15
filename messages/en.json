@@ -637,7 +637,6 @@
       "defaultTitle": "Instagram report",
       "range": "{from} – {to} · {days} days",
       "generated": "Generated {time}",
-      "accounts": "{count, plural, one {# account} other {# accounts}}",
       "perAccount": "Per account",
       "noData": "No data for this period",
       "storiesCount": "Stories",

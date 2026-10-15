@@ -24,7 +24,8 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
 }));
 vi.mock('@/lib/sync/store', () => ({ listSyncStatus: rec('sync', {}) }));
 
-import { exportWindow, loadExportData } from '@/lib/export/read';
+import { exportWindow } from '@/lib/export/params';
+import { loadExportData } from '@/lib/export/read';
 import { A, acct, B } from './fixtures/export-data';
 
 const db = {} as SupabaseClient;

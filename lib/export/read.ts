@@ -7,6 +7,7 @@ import { loadAudience, loadOnline, loadPostRows, loadStories, loadTags, type Aud
 import { fromDayFor } from '@/lib/dashboard/overview';
 import { loadDaily } from '@/lib/dashboard/read';
 import { listSyncStatus, type SyncStatus } from '@/lib/sync/store';
+import { exportWindow } from '@/lib/export/params';
 import { addDays, dayStart } from '@/lib/sync/time';
 
 export interface ExportData {
@@ -18,11 +19,6 @@ export interface ExportData {
   audience: Record<string, AudienceSnapshots>;
   online: Record<string, OnlineFollowersRow[]>; // last 30 days (what Instagram keeps)
   tags: Tag[];
-}
-
-/** The raw-data window of an export: the last `period` days including today (owner timezone days). */
-export function exportWindow(period: Period, today: string): { from: string; to: string } {
-  return { from: addDays(today, -(period - 1)), to: today };
 }
 
 const byId = <T>(accounts: StoredAccount[], values: T[]): Record<string, T> => Object.fromEntries(accounts.map((a, i) => [a.id, values[i]]));
