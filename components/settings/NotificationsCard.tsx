@@ -9,15 +9,17 @@ import { vapidKeyBytes } from '@/lib/push/subscription';
 import { isIos, isStandalone } from '@/lib/pwa';
 
 type Result = { ok: boolean };
-type Status = 'checking' | 'unsupported' | 'ios-install' | 'not-configured' | 'denied' | 'off' | 'on';
+type Status = 'checking' | 'dev-only' | 'unsupported' | 'ios-install' | 'not-configured' | 'denied' | 'off' | 'on';
 
 export interface NotificationsCardProps {
   vapidPublicKey: string | null;
+  /** Same production-only flag as <ServiceWorker>: in dev the worker is never registered, so push can't work. */
+  swEnabled: boolean;
   save: (subscription: unknown, userAgent: string) => Promise<Result>;
   remove: (endpoint: string) => Promise<Result>;
 }
 
-export function NotificationsCard({ vapidPublicKey, save, remove }: NotificationsCardProps) {
+export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove }: NotificationsCardProps) {
   const t = useTranslations('settings.notifications');
   const [status, setStatus] = useState<Status>('checking');
   const [error, setError] = useState(false);
@@ -28,6 +30,7 @@ export function NotificationsCard({ vapidPublicKey, save, remove }: Notification
     const set = (s: Status) => alive && setStatus(s);
     (async () => {
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return set(isIos() && !isStandalone() ? 'ios-install' : 'unsupported');
+      if (!swEnabled) return set('dev-only');
       if (!vapidPublicKey) return set('not-configured');
       if (Notification.permission === 'denied') return set('denied');
       const reg = await navigator.serviceWorker.getRegistration();
@@ -36,7 +39,7 @@ export function NotificationsCard({ vapidPublicKey, save, remove }: Notification
     return () => {
       alive = false;
     };
-  }, [vapidPublicKey]);
+  }, [vapidPublicKey, swEnabled]);
 
   // permission is requested ONLY here, from the explicit button (SPEC §7c)
   const enable = () =>
@@ -74,7 +77,7 @@ export function NotificationsCard({ vapidPublicKey, save, remove }: Notification
       }
     });
 
-  const note = (key: 'checking' | 'unsupported' | 'iosInstall' | 'notConfigured' | 'denied') => <p className="text-sm text-muted-foreground">{t(key)}</p>;
+  const note = (key: 'checking' | 'devOnly' | 'unsupported' | 'iosInstall' | 'notConfigured' | 'denied') => <p className="text-sm text-muted-foreground">{t(key)}</p>;
 
   return (
     <Card>
@@ -87,6 +90,7 @@ export function NotificationsCard({ vapidPublicKey, save, remove }: Notification
       </CardHeader>
       <CardContent className="flex flex-col gap-[var(--gp)]">
         {status === 'checking' ? note('checking') : null}
+        {status === 'dev-only' ? note('devOnly') : null}
         {status === 'unsupported' ? note('unsupported') : null}
         {status === 'ios-install' ? note('iosInstall') : null}
         {status === 'not-configured' ? note('notConfigured') : null}

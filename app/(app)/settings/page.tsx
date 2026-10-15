@@ -33,7 +33,7 @@ export default async function SettingsPage() {
           <PrefsBar />
         </TabsContent>
         <TabsContent value="notifications" className="flex flex-col gap-[var(--gp)]">
-          <NotificationsCard vapidPublicKey={vapidPublicKey} save={saveSubscriptionAction} remove={deleteSubscriptionAction} />
+          <NotificationsCard vapidPublicKey={vapidPublicKey} swEnabled={process.env.NODE_ENV === 'production'} save={saveSubscriptionAction} remove={deleteSubscriptionAction} />
           <AlertSettingsForm initial={alertSettings} save={saveAlertSettingsAction} />
         </TabsContent>
         <TabsContent value="account" className="flex flex-col gap-[var(--gp)]">
