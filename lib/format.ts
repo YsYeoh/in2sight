@@ -162,3 +162,15 @@ export function formatMonth(month: string, p: Pick<FormatPrefs, 'locale'>): stri
   if (!m || i < 0 || i > 11) return DASH;
   return p.locale === 'zh-CN' ? `${m[1]}\u5e74${i + 1}\u6708` : `${MONTHS_EN_FULL[i]} ${m[1]}`;
 }
+
+/**
+ * The owner's wall-clock time of an instant as a Date whose UTC fields carry it (2026-10-15T01:30Z in Kuala Lumpur
+ * gives a Date of 2026-10-15T09:30Z). For spreadsheet cells: Excel has no timezones and write-excel-file converts a
+ * Date's UTC time into the cell value. A day string 'YYYY-MM-DD' with tz 'UTC' gives that day at 00:00. Null for junk.
+ */
+export function wallClock(v: DateInput, tz: string): Date | null {
+  const d = toDate(v); // a bare 'YYYY-MM-DD' parses as UTC midnight
+  if (!d) return null;
+  const { year, month, day, hour, minute } = parts(d, tz);
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)));
+}
