@@ -520,5 +520,12 @@
     "body": "in2sight needs its Supabase connection before you can sign in. Add these variables to .env.local (and to Vercel), then reload.",
     "docs": "Step-by-step guide: docs/SETUP.md",
     "check": "Check your setup:"
+  },
+  "pwa": {
+    "offline": {
+      "title": "You're offline",
+      "body": "in2sight needs a connection to show your insights. Nothing private is stored on this device.",
+      "retry": "Try again"
+    }
   }
 }

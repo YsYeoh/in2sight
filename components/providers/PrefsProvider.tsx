@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { htmlAttrs, parsePrefs, type Prefs } from '@/lib/prefs';
+import { themeColor } from '@/lib/pwa';
 
 type Persist = (partial: Partial<Prefs>) => Promise<void> | void;
 
@@ -14,6 +15,7 @@ const PrefsContext = createContext<PrefsContextValue | null>(null);
 
 export function applyPrefsToDocument(p: Prefs, el: HTMLElement = document.documentElement): void {
   for (const [name, value] of Object.entries(htmlAttrs(p))) el.setAttribute(name, value);
+  el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p));
 }
 
 export function PrefsProvider({ initial, persist, children }: { initial: Prefs; persist: Persist; children: ReactNode }) {
