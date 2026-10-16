@@ -2349,7 +2349,7 @@ describe('OAuth callback → progress (reconnect during an active import)', () =
 
 and update the existing tests:
 
-`tests/sync-now-action.test.ts` — after the line `vi.mock('next/cache', () => ({ revalidatePath: (p: string) => calls.push(`revalidate:${p}`) }));` add
+`tests/sync-now-action.test.ts` — directly after the existing `vi.mock('next/cache', …)` line add
 
 ```ts
 vi.mock('next/server', () => ({ after: (fn: () => unknown) => void fn() }));
