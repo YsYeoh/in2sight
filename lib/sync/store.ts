@@ -1,7 +1,7 @@
 // Sync persistence. supabaseSyncStore takes the ADMIN client (writes bypass RLS); listSyncStatus takes the owner session.
 // Errors never include Supabase's message (it can echo values).
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AccountDayValues, MediaMetricValues } from '@/lib/instagram/data';
+import type { AccountDayValues, BreakdownRow, MediaMetricValues } from '@/lib/instagram/data';
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { IgMediaItem } from '@/lib/instagram/parse';
 import { DEFAULT_PREFS, isValidTimeZone } from '@/lib/prefs';
@@ -36,6 +36,10 @@ export interface SyncStore {
   saveState(accountId: string, leaseId: string, patch: StatePatch): Promise<void>;
   getToken(accountId: string): Promise<string | null>;
   upsertDaily(accountId: string, day: string, v: AccountDayValues): Promise<void>;
+  /** Append-only history row per tick (follower curve). Idempotent on (account, captured_at). */
+  insertFollowerSnapshot(accountId: string, capturedAtIso: string, v: { followers: number | null; following: number | null; mediaCount: number | null }): Promise<void>;
+  /** Daily reach/views by follower type x product type; upserts each combination (re-fetching a day settles Meta's lag). */
+  upsertDailyBreakdown(accountId: string, day: string, rows: BreakdownRow[]): Promise<void>;
   upsertFollowers(accountId: string, day: string, followers: number): Promise<void>;
   upsertMedia(accountId: string, items: IgMediaItem[]): Promise<void>;
   mediaForMetrics(accountId: string, sinceIso: string): Promise<MediaRef[]>;
@@ -147,6 +151,16 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
     async upsertFollowers(accountId, day, followers) {
       // separate upsert: only the followers column is written, metrics from other runs are left alone
       check('upsertFollowers')(await db.from('account_daily').upsert({ account_id: accountId, day, followers }, { onConflict: 'account_id,day' }));
+    },
+    async insertFollowerSnapshot(accountId, capturedAtIso, v) {
+      const row = { account_id: accountId, captured_at: capturedAtIso, followers: v.followers, following: v.following, media_count: v.mediaCount };
+      check('insertFollowerSnapshot')(await db.from('follower_snapshots').upsert(row, { onConflict: 'account_id,captured_at', ignoreDuplicates: true }));
+    },
+    async upsertDailyBreakdown(accountId, day, rows) {
+      if (rows.length === 0) return;
+      const at = new Date().toISOString();
+      const data = rows.map((r) => ({ account_id: accountId, day, metric: r.metric, follow_type: r.followType, product_type: r.productType, value: r.value, updated_at: at }));
+      check('upsertDailyBreakdown')(await db.from('account_daily_breakdown').upsert(data, { onConflict: 'account_id,day,metric,follow_type,product_type' }));
     },
     async upsertMedia(accountId, items) {
       if (items.length === 0) return;

@@ -16,6 +16,13 @@ export interface AccountDayValues {
   unfollows: number | null;
 }
 
+export interface BreakdownRow {
+  metric: 'reach' | 'views';
+  followType: string; // FOLLOWER | NON_FOLLOWER | UNKNOWN
+  productType: string; // STORY | REEL | POST | CAROUSEL_CONTAINER | AD
+  value: number;
+}
+
 export interface MediaMetricValues {
   reach: number | null;
   views: number | null;
@@ -82,9 +89,22 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
   }
 
   return {
-    async profile(token: string): Promise<{ followersCount: number | null }> {
+    async profile(token: string): Promise<{ followersCount: number | null; followingCount: number | null; mediaCount: number | null }> {
       const b = await get('me', { fields: M.PROFILE_FIELDS }, token);
-      return { followersCount: num(b.followers_count) };
+      return { followersCount: num(b.followers_count), followingCount: num(b.follows_count), mediaCount: num(b.media_count) };
+    },
+
+    /** One insight day of reach and views split by follower type x product type (two calls). Rows with no value are omitted. */
+    async accountDayBreakdown(token: string, since: number, until: number): Promise<BreakdownRow[]> {
+      const rows: BreakdownRow[] = [];
+      for (const metric of M.BREAKDOWN_METRICS) {
+        const r = parseBreakdown(await get('me/insights', { metric_type: 'total_value', period: 'day', since, until, metric, breakdown: M.BREAKDOWN_DIMS }, token), metric);
+        for (const [key, value] of Object.entries(r)) {
+          const [followType, productType] = key.split('|');
+          if (followType && productType) rows.push({ metric, followType, productType, value });
+        }
+      }
+      return rows;
     },
 
     /** One insight day: since/until are unix seconds of that day's start and the next day's start. */

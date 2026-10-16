@@ -8,7 +8,11 @@
 // UNCERTAIN = documented ambiguously or not at all; the runbook checks it against a real account.
 
 /** GET /me?fields=… Followers have no historic series we rely on, so the daily job snapshots this count. */
-export const PROFILE_FIELDS = 'followers_count,media_count';
+export const PROFILE_FIELDS = 'followers_count,follows_count,media_count';
+
+/** Account-level reach/views split by follower type x media product type (verified live 2026-10-16, docs/META_PROBE_RESULTS.md). */
+export const BREAKDOWN_METRICS = ['reach', 'views'] as const;
+export const BREAKDOWN_DIMS = 'follow_type,media_product_type';
 
 /**
  * GET /me/insights, metric_type=total_value, period=day, since/until = one insight day.

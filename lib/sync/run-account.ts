@@ -62,6 +62,11 @@ const daily: Job = async (c, p) => {
       // treated as "no data that far back" and skipped so the backfill cannot wedge. Tighten once the runbook confirms.
       if (!(classifyIgError(e) === 'other' && day < oldest)) throw e;
     }
+    try {
+      await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until));
+    } catch (e) {
+      if (fatal(e)) throw e; // the follower/non-follower split is an extra; an unsupported day must not wedge the backfill
+    }
     if (!p.dailyDoneThrough || day > p.dailyDoneThrough) p.dailyDoneThrough = day;
   }
   const { followersCount } = await c.ig.profile(c.token);
@@ -69,8 +74,22 @@ const daily: Job = async (c, p) => {
   return { done: true };
 };
 
+/** Only auth and rate-limit problems may stop a job; everything else in an optional extra capture is skipped. */
+const fatal = (e: unknown) => ['auth', 'app_rate_limit', 'rate_limit'].includes(classifyIgError(e));
+
+/** Follower / following / media counts, once per tick (intraday follower curve). A failure here must not cost the Stories capture. */
+async function followerSnapshot(c: RunContext) {
+  try {
+    const p = await c.ig.profile(c.token);
+    await c.store.insertFollowerSnapshot(c.account.id, c.now.toISOString(), { followers: p.followersCount, following: p.followingCount, mediaCount: p.mediaCount });
+  } catch (e) {
+    if (fatal(e)) throw e;
+  }
+}
+
 /** Live stories: upsert, then one metrics snapshot each. Under 5 viewers Instagram refuses (no_data): skip that story. */
 const stories: Job = async (c) => {
+  await followerSnapshot(c);
   const items = await c.ig.listStories(c.token);
   await c.store.upsertMedia(c.account.id, items);
   const at = c.now.toISOString();
