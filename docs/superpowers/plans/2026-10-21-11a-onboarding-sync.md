@@ -1455,3 +1455,560 @@ git commit -m "feat(sync): newest-first progressive backfill with a resumable ba
 ```
 
 ---
+
+### Task 6: Progress sink + runner reports
+
+**Files:**
+- Create: `lib/sync/progress-sink.ts`
+- Modify: `lib/sync/run-account.ts`
+- Test: `tests/sync-progress-sink.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `SyncStore.writeProgress`, `ProgressWrite` (Task 4); `Stage`, `LiveState`, `coveredDays` (Task 3).
+- Produces:
+  - `THROTTLE_MS = 3_000`
+  - `interface ProgressSink { report(stage: Stage, done: number, total: number | null, day?: string | null): Promise<void>; finish(state: 'waiting' | 'failed' | 'done', errorKey: string | null): Promise<void> }`
+  - `progressSink(store: SyncStore, accountId: string, clock: () => number): ProgressSink` — never throws
+  - `RunContext.progress?: ProgressSink` (optional: every existing caller and test stays valid)
+  - Reports: `profile` (before the follower snapshot), `stories` (after listing), `account_days` (before every fetched day, `done` = days covered so far, `total` = 90, `day` = the day), `posts_list`, `post_metrics` (`i` of `n` in this batch), `audience`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-progress-sink.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { progressSink, THROTTLE_MS } from '@/lib/sync/progress-sink';
+import { runAccount, type RunContext } from '@/lib/sync/run-account';
+import { emptyState, type JobKind } from '@/lib/sync/schedule';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const NOW = new Date('2026-10-14T02:00:00Z');
+
+describe('progressSink', () => {
+  it('writes at once on a stage change, otherwise at most every THROTTLE_MS', async () => {
+    const mem = memoryStore();
+    let t = 0;
+    const sink = progressSink(mem.store, 'a1', () => t);
+    await sink.report('account_days', 1, 90, '2026-10-13');
+    t += 1_000;
+    await sink.report('account_days', 2, 90, '2026-10-12'); // throttled
+    t += THROTTLE_MS;
+    await sink.report('account_days', 3, 90, '2026-10-11');
+    await sink.report('posts_list', 0, null); // stage change: immediate
+    expect(mem.progress.map(({ p }) => [p.stage, p.done, p.detailDay])).toEqual([
+      ['account_days', 1, '2026-10-13'],
+      ['account_days', 3, '2026-10-11'],
+      ['posts_list', 0, null],
+    ]);
+    expect(mem.progress.every(({ accountId, p }) => accountId === 'a1' && p.state === 'running' && p.finishedAt === null)).toBe(true);
+  });
+
+  it('finish: done stamps finished_at; waiting and failed do not', async () => {
+    const mem = memoryStore();
+    const sink = progressSink(mem.store, 'a1', () => NOW.getTime());
+    await sink.finish('waiting', null);
+    await sink.finish('failed', 'rate_limited');
+    await sink.finish('done', null);
+    expect(mem.progress.map(({ p }) => [p.state, p.errorKey, p.finishedAt])).toEqual([
+      ['waiting', null, null],
+      ['failed', 'rate_limited', null],
+      ['done', null, NOW.toISOString()],
+    ]);
+  });
+
+  it('a failing progress write never throws and never stops the job', async () => {
+    const ig = fakeIg();
+    const mem = memoryStore();
+    mem.store.writeProgress = async () => {
+      throw new Error('sync store: writeProgress failed');
+    };
+    const acc = account({ id: 'a1' });
+    const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: emptyState('a1'), tz: 'Asia/Kuala_Lumpur', now: NOW, deadline: 1_000, clock: () => 0, progress: progressSink(mem.store, 'a1', () => 0) };
+    await expect(c.progress!.finish('done', null)).resolves.toBeUndefined();
+    const { result } = await runAccount(c, ['stories', 'daily']);
+    expect(result.outcome).toBe('ok');
+    expect(mem.daily).toHaveLength(7);
+  });
+});
+
+describe('runner progress reports', () => {
+  it('reports each onboarding stage in run order, with the day being fetched, and never the token', async () => {
+    const ig = fakeIg();
+    ig.listMedia.mockResolvedValue([{ id: 'p1', kind: 'IMAGE', caption: null, permalink: null, postedAt: '2026-10-12T00:00:00.000Z' }]);
+    const mem = memoryStore();
+    const acc = account({ id: 'a1' });
+    let t = 0;
+    const clock = () => (t += 4_000); // every read moves past the throttle
+    const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: emptyState('a1'), tz: 'Asia/Kuala_Lumpur', now: NOW, deadline: Infinity, clock, progress: progressSink(mem.store, 'a1', clock) };
+    const jobs: JobKind[] = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill'];
+    await runAccount(c, jobs);
+    const stages = mem.progress.map(({ p }) => p.stage).filter((s, i, a) => s !== a[i - 1]);
+    expect(stages).toEqual(['profile', 'stories', 'account_days', 'posts_list', 'post_metrics', 'audience', 'account_days']);
+    const days = mem.progress.filter(({ p }) => p.stage === 'account_days').map(({ p }) => p.detailDay);
+    expect(days[0]).toBe('2026-10-13');
+    expect(days.at(-1)).toBe('2026-07-16');
+    expect(mem.progress.find(({ p }) => p.stage === 'account_days' && p.detailDay === '2026-10-06')?.p).toMatchObject({ done: 7, total: 90 });
+    expect(JSON.stringify(mem.progress)).not.toContain('IGQ-secret');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-progress-sink.test.ts`
+Expected: FAIL — cannot resolve `@/lib/sync/progress-sink`.
+
+- [ ] **Step 3: Create `lib/sync/progress-sink.ts`**
+
+```ts
+// Live progress for the panel: throttled, best-effort writes of the account's sync_progress row. A failing write never
+// throws and is never retried, so progress can never fail or stall a sync. Counts, keys and a day only: no tokens.
+import type { LiveState, Stage } from '@/lib/sync/progress';
+import type { SyncStore } from '@/lib/sync/store';
+
+/** At most one write per account this often while the stage stays the same. */
+export const THROTTLE_MS = 3_000;
+
+export interface ProgressSink {
+  /** What the run is doing now. Written at once when the stage changes, otherwise at most every THROTTLE_MS. */
+  report(stage: Stage, done: number, total: number | null, day?: string | null): Promise<void>;
+  /** End of this account's run in this pass: done (nothing left), waiting (more to do) or failed. */
+  finish(state: Exclude<LiveState, 'running'>, errorKey: string | null): Promise<void>;
+}
+
+export function progressSink(store: SyncStore, accountId: string, clock: () => number): ProgressSink {
+  let stage: Stage | null = null;
+  let snap: { done: number; total: number | null; day: string | null } = { done: 0, total: null, day: null };
+  let last = -Infinity;
+  const write = async (state: LiveState, errorKey: string | null) => {
+    const at = new Date(clock()).toISOString();
+    try {
+      await store.writeProgress(accountId, { stage, state, done: snap.done, total: snap.total, detailDay: snap.day, errorKey, updatedAt: at, finishedAt: state === 'done' ? at : null });
+    } catch {
+      // best-effort: the panel shows the persisted state; the sync carries on
+    }
+  };
+  return {
+    async report(s, done, total, day = null) {
+      const now = clock();
+      const changed = s !== stage;
+      stage = s;
+      snap = { done, total, day };
+      if (!changed && now - last < THROTTLE_MS) return;
+      last = now;
+      await write('running', null);
+    },
+    finish: (state, errorKey) => write(state, errorKey),
+  };
+}
+```
+
+- [ ] **Step 4: Report from the runner** — in `lib/sync/run-account.ts`:
+
+(a) Imports: add these two lines directly above the `import { BACKFILL_DAYS, FIRST_DAYS, … } from '@/lib/sync/schedule';` line:
+
+```ts
+import { coveredDays } from '@/lib/sync/progress';
+import type { ProgressSink } from '@/lib/sync/progress-sink';
+```
+
+(b) `RunContext`: after `  clock: () => number;` add
+
+```ts
+  /** Live progress (only while the account is importing or on a manual run); best-effort, never throws. */
+  progress?: ProgressSink;
+```
+
+(c) In `walkBack`, between `    if (outOfTime(c)) return { done: false };` and `    await fetchDay(c, day);` add
+
+```ts
+    await c.progress?.report('account_days', coveredDays(p), BACKFILL_DAYS, day);
+```
+
+(d) In `daily`'s forward loop (`for (; day <= yesterday; …)`), between `    if (outOfTime(c)) return { done: false };` and `    await fetchDay(c, day);` add the same line:
+
+```ts
+    await c.progress?.report('account_days', coveredDays(p), BACKFILL_DAYS, day);
+```
+
+(e) `stories`: make its first line `  await c.progress?.report('profile', 0, 1);` (before `await followerSnapshot(c);`) and add, directly after `  await c.store.upsertMedia(c.account.id, items);`,
+
+```ts
+  await c.progress?.report('stories', 0, items.length);
+```
+
+(f) `mediaList`: make its first line
+
+```ts
+  await c.progress?.report('posts_list', 0, null);
+```
+
+(g) `captureMedia`: replace `    for (const id of due) {` with `    for (const [i, id] of due.entries()) {` and, right after the `if (outOfTime(c)) { … return { done: false }; }` block inside that loop, add
+
+```ts
+      await c.progress?.report('post_metrics', i, due.length);
+```
+
+(h) `audience`: make its first line
+
+```ts
+  await c.progress?.report('audience', 0, 1);
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/sync-progress-sink.test.ts tests/sync-backfill.test.ts tests/sync-run-account.test.ts tests/sync-capture-v2.test.ts && npx tsc --noEmit`
+Expected: PASS, no type errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/sync/progress-sink.ts lib/sync/run-account.ts tests/sync-progress-sink.test.ts
+git commit -m "feat(sync): throttled best-effort live progress reports from the runner" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Fair lanes in `runTick`
+
+**Files:**
+- Modify (full replacement): `lib/sync/tick.ts`
+- Modify: `tests/sync-tick.test.ts` (two tests rewritten)
+- Test: `tests/sync-lanes.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `dueJobs(…, { lane })`, `isBackfilling`, `type Lane` (Task 2); `progressSink` (Task 6); `StatePatch.backfilledFrom` (Task 4).
+- Produces: `runTick(deps, opts)` with the same signature and `TickSummary` shape as before (`more` = stopped on the time budget with work left, never under an app-wide rate limit); new export `REGULAR_SLICE_MS = 8_000`. `TickSummary.accounts` has ONE entry per account (lane 1 + lane 2 jobs merged; the lane-2 outcome wins when lane 2 ran). Live progress: a sink only when `manual || isBackfilling(state)`; each lane run ends with `finish('failed' | 'waiting' | 'done')`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-lanes.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+import { emptyState, type SyncState } from '@/lib/sync/schedule';
+import { runTick, type TickDeps } from '@/lib/sync/tick';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const T0 = Date.parse('2026-10-14T02:00:00Z'); // 10:00 in Kuala Lumpur
+const DAY = { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
+const ago = (m: number) => new Date(T0 - m * 60_000).toISOString();
+
+/** A complete account (pre-Plan-11a row) whose Stories and media list are due. */
+const complete = (id: string): SyncState & { leaseId: null } => ({ ...emptyState(id), leaseId: null, lastAttemptAt: ago(30), dailyDoneThrough: '2026-10-13', lastRun: { stories: ago(30), daily: ago(60), mediaList: ago(30), audience: ago(60) } });
+
+function setup(list: StoredAccount[], states: (SyncState & { leaseId: null })[] = []) {
+  const ig = fakeIg();
+  const mem = memoryStore({ tokens: Object.fromEntries(list.map((a) => [a.id, `tok-${a.id}`])) });
+  for (const s of states) mem.states.set(s.accountId, s);
+  let now = T0;
+  const log: string[] = [];
+  const cost = (ms: number) => (now += ms);
+  ig.listStories.mockImplementation(async (t: string) => (log.push(`${t}:stories`), cost(100), []));
+  ig.accountDay.mockImplementation(async (t: string) => (log.push(`${t}:day`), cost(300), DAY));
+  const deps: TickDeps = { store: mem.store, accounts: fakeAccounts(list).accounts, ig, clock: () => now, newId: (() => { let n = 0; return () => `lease-${++n}`; })() };
+  return { ig, mem, deps, log, cost, now: () => now };
+}
+
+describe('fair lanes', () => {
+  it('1 old + 2 new accounts: every account\'s Stories run first, then the new accounts split the rest fairly', async () => {
+    const { deps, log, mem } = setup([account({ id: 'old' }), account({ id: 'n1' }), account({ id: 'n2' })], [complete('old')]);
+    const s = await runTick(deps, { trigger: 'cron' });
+    const firstDay = log.findIndex((l) => l.endsWith(':day'));
+    expect(log.slice(0, firstDay).sort()).toEqual(['tok-n1:stories', 'tok-n2:stories', 'tok-old:stories']); // lane 1 for all, before any import
+    expect(log.filter((l) => l === 'tok-old:day')).toEqual([]); // the complete account imports nothing
+    const days = (id: string) => mem.daily.filter((d) => d.accountId === id).length;
+    expect(days('n1')).toBeGreaterThan(30);
+    expect(Math.abs(days('n1') - days('n2'))).toBeLessThanOrEqual(3); // equal slices
+    expect(s.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['n1', 'partial'], ['n2', 'partial'], ['old', 'ok']]);
+    expect(s.accounts.find((a) => a.accountId === 'n1')!.jobs.slice(0, 2)).toEqual(['stories', 'daily']); // lane 1 + lane 2 merged
+    expect(s).toMatchObject({ stoppedEarly: true, more: true });
+  });
+
+  it('a slice cut short in lane 1 continues in lane 2 in the same pass (nothing runs twice)', async () => {
+    const recent = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, accountId: 'old', postedAt: ago(60 * (i + 1)), lastMetricsAt: null }));
+    const env = setup([account({ id: 'old' })], [complete('old')]);
+    for (const m of recent) env.mem.media.set(m.id, { ...m, kind: 'IMAGE', gone: false });
+    env.ig.feedInsights.mockImplementation(async () => (env.cost(1_000), { reach: 1, views: 1, likes: 1, comments: 0, shares: 0, saves: 0, totalInteractions: 1, replies: null, tapsForward: null, tapsBack: null, exits: null }));
+    const s = await runTick(env.deps, { trigger: 'cron' });
+    expect(env.ig.feedInsights).toHaveBeenCalledTimes(20);
+    expect(env.ig.listStories).toHaveBeenCalledTimes(1);
+    expect(s.accounts[0]).toMatchObject({ accountId: 'old', outcome: 'ok' });
+    expect(s.more).toBe(false);
+  });
+
+  it('app-wide rate limit in lane 1: lane 2 never starts, no continuation', async () => {
+    const { deps, ig } = setup([account({ id: 'n1' }), account({ id: 'n2' })]);
+    ig.listStories.mockRejectedValue(new InstagramApiError('data', 400, 4));
+    const s = await runTick(deps, { trigger: 'cron' });
+    expect(ig.accountDay).not.toHaveBeenCalled();
+    expect(s.accounts.map((a) => a.accountId)).toEqual(['n1']);
+    expect(s).toMatchObject({ stoppedEarly: true, more: false });
+  });
+
+  it('a rate-limited account sits out lane 2; the others still import', async () => {
+    const { deps, ig, log } = setup([account({ id: 'n1' }), account({ id: 'n2' })]);
+    ig.listStories.mockImplementation(async (t: string) => {
+      if (t === 'tok-n1') throw new InstagramApiError('data', 400, 80002);
+      return [];
+    });
+    const s = await runTick(deps, { trigger: 'cron' });
+    expect(log.some((l) => l === 'tok-n1:day')).toBe(false);
+    expect(log.some((l) => l === 'tok-n2:day')).toBe(true);
+    expect(s.accounts.find((a) => a.accountId === 'n1')).toMatchObject({ outcome: 'failed', errorKey: 'rate_limited' });
+  });
+
+  it('progress table missing: the tick still syncs every account', async () => {
+    const { deps, mem } = setup([account({ id: 'n1' }), account({ id: 'old' })], [complete('old')]);
+    deps.clock = () => T0; // no time passes: everything finishes
+    mem.store.writeProgress = async () => {
+      throw new Error('sync store: writeProgress failed');
+    };
+    const s = await runTick(deps, { trigger: 'cron' });
+    expect(s.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['n1', 'ok'], ['old', 'ok']]);
+    expect(mem.daily.filter((d) => d.accountId === 'n1')).toHaveLength(90);
+  });
+
+  it('live progress only for importing accounts and manual runs; a finished import ends "done"', async () => {
+    const { deps, mem } = setup([account({ id: 'n1' }), account({ id: 'old' })], [complete('old')]);
+    deps.clock = () => T0;
+    await runTick(deps, { trigger: 'cron' });
+    expect(mem.progress.some((w) => w.accountId === 'old')).toBe(false); // a complete account's tick stays silent
+    expect(mem.progress.filter((w) => w.accountId === 'n1').at(-1)!.p).toMatchObject({ state: 'done', finishedAt: new Date(T0).toISOString() });
+    mem.progress.length = 0;
+    await runTick(deps, { trigger: 'manual', accountId: 'old' });
+    expect(mem.progress.map((w) => w.accountId)).toContain('old');
+    expect(mem.progress.at(-1)!.p.state).toBe('done');
+  });
+
+  it('a new account mid-import that hits the budget ends its pass "waiting", with both edges saved', async () => {
+    const { deps, mem } = setup([account({ id: 'n1' })]);
+    await runTick(deps, { trigger: 'cron', budgetMs: 15_000 });
+    const st = mem.states.get('n1')!;
+    expect(st.dailyDoneThrough).toBe('2026-10-13');
+    expect(st.backfilledFrom! < '2026-10-07').toBe(true);
+    expect(mem.progress.at(-1)!.p).toMatchObject({ state: 'waiting', finishedAt: null });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-lanes.test.ts`
+Expected: FAIL — e.g. the first test finds `tok-n1:day` before `tok-n2:stories` (one lane, whole account at a time), and no progress rows are written.
+
+- [ ] **Step 3: Replace `lib/sync/tick.ts`** with:
+
+```ts
+// One scheduler tick in two lanes. Lane 1: the regular jobs (Stories, recent posts, daily refresh, token) of EVERY
+// account, round-robin by oldest attempt, each with a small slice. Lane 2: whatever is left (a new account's onboarding,
+// the history import, regular jobs a slice cut short), the remaining budget split equally across those accounts. Each
+// lane run leases the account, runs within its slice, persists state; then alerts are evaluated and a summary recorded.
+// One account failing (bad token, DB hiccup) never stops the others.
+import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
+import { ALERT_BUDGET_MS, runAlerts, type AlertDeps, type AlertRunSummary } from '@/lib/alerts/run';
+import type { IgData } from '@/lib/instagram/data';
+import { progressSink } from '@/lib/sync/progress-sink';
+import { runAccount, type AccountOutcome, type SyncErrorKey } from '@/lib/sync/run-account';
+import { byOldestAttempt, dueJobs, isBackfilling, type JobKind, type Lane, type SyncState } from '@/lib/sync/schedule';
+import type { SyncStore } from '@/lib/sync/store';
+
+/** Route maxDuration is 60s. Work stops at 35s: a call started just before the deadline can take its 10s timeout (twice for
+ *  the two-call jobs) and the state write still has to fit. */
+export const TICK_BUDGET_MS = 35_000;
+/** Don't start an account with less than this left: a half-started account only wastes calls. */
+const MIN_ACCOUNT_MS = 5_000;
+/** Lane 1 slice per account: enough for Stories + recent posts; whatever does not fit continues in lane 2. */
+export const REGULAR_SLICE_MS = 8_000;
+/** Longer than any invocation can live, so a crashed tick's lease expires well before the next tick. */
+export const LEASE_MS = 120_000;
+
+export interface TickDeps {
+  store: SyncStore;
+  accounts: AccountsStore;
+  ig: IgData;
+  alerts?: AlertDeps; // omitted: no alert evaluation (tests of the sync itself)
+  clock?: () => number;
+  newId?: () => string;
+}
+
+interface TickAccount {
+  accountId: string;
+  outcome: AccountOutcome | 'locked' | 'idle';
+  jobs: JobKind[];
+  errorKey?: SyncErrorKey;
+}
+
+export interface TickSummary {
+  trigger: 'cron' | 'manual';
+  startedAt: string;
+  durationMs: number;
+  stoppedEarly: boolean; // time budget or app-wide rate limit left due work for the next tick
+  more: boolean; // due work remains because of the TIME BUDGET (not a Meta rate limit): worth an immediate follow-up pass
+  accounts: TickAccount[];
+  alerts?: AlertRunSummary; // counts only
+}
+
+type LaneResult = TickAccount & { appRateLimited?: boolean };
+
+export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'; budgetMs?: number; accountId?: string }): Promise<TickSummary> {
+  const clock = deps.clock ?? Date.now;
+  const newId = deps.newId ?? (() => crypto.randomUUID());
+  const start = clock();
+  const deadline = start + (opts.budgetMs ?? TICK_BUDGET_MS);
+  const startedAt = new Date(start).toISOString();
+  const manual = opts.trigger === 'manual';
+  const out = new Map<string, TickAccount>(); // insertion order = lane 1 order
+  let budgetStop = false; // ran out of time with work left (a continuation pass is useful)
+  let appLimited = false; // Meta throttled the whole app (a continuation would only make it worse)
+
+  const tz = await deps.store.ownerTimezone();
+  const active = (await deps.accounts.list()).filter((a) => a.status === 'active' && (!opts.accountId || a.id === opts.accountId));
+  const states = await deps.store.loadStates(active.map((a) => a.id));
+  const ordered = [...active].sort((a, b) => byOldestAttempt(states.get(a.id)!, states.get(b.id)!));
+
+  /** One lane for one account: lease, plan from the claimed row, run until sliceEnd, persist, report progress. */
+  async function runLane(account: StoredAccount, lane: Lane, sliceEnd: number, skip: readonly JobKind[]): Promise<LaneResult> {
+    const id = account.id;
+    const now = new Date(clock());
+    const state = states.get(id)!;
+    const plan = (s: SyncState) => dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state: s }, now, tz, { manual, lane }).filter((j) => !skip.includes(j));
+    if (plan(state).length === 0) return { accountId: id, outcome: state.leaseUntil && Date.parse(state.leaseUntil) > now.getTime() ? 'locked' : 'idle', jobs: [] };
+    const leaseId = newId();
+    try {
+      const claimed = await deps.store.claimLease(id, leaseId, new Date(now.getTime() + LEASE_MS).toISOString(), now.toISOString());
+      if (!claimed) return { accountId: id, outcome: 'locked', jobs: [] };
+      // The snapshot above can be stale (a double-fired tick may have just finished this account): plan from the claimed row.
+      // Its last_attempt_at is our own claim stamp and must not count for back-off; the lease is ours, not "another tick's".
+      const fresh: SyncState = { ...claimed, lastAttemptAt: state.lastAttemptAt, leaseUntil: null };
+      const keep = { lastAttemptAt: now.toISOString(), dailyDoneThrough: fresh.dailyDoneThrough, backfilledFrom: fresh.backfilledFrom, lastRun: fresh.lastRun };
+      const jobs = plan(fresh);
+      if (jobs.length === 0) {
+        await deps.store.saveState(id, leaseId, { ...keep, consecutiveFailures: fresh.consecutiveFailures, lastErrorKey: fresh.lastErrorKey });
+        states.set(id, { ...fresh, lastAttemptAt: keep.lastAttemptAt });
+        return { accountId: id, outcome: 'idle', jobs: [] };
+      }
+      const token = await deps.store.getToken(id);
+      if (!token) {
+        // connected without a stored token: nothing can be fetched until the owner reconnects
+        await deps.accounts.update(id, { status: 'needs_reconnect', lastError: 'token_missing' });
+        await deps.store.saveState(id, leaseId, { ...keep, consecutiveFailures: fresh.consecutiveFailures + 1, lastErrorKey: 'token_invalid' });
+        return { accountId: id, outcome: 'needs_reconnect', jobs: [], errorKey: 'token_invalid' };
+      }
+      // live progress only while importing or on a manual run: a complete account's 30-minute ticks stay silent
+      const progress = manual || isBackfilling(fresh) ? progressSink(deps.store, id, clock) : undefined;
+      const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline: sliceEnd, clock, progress }, jobs);
+      await deps.store.saveState(id, leaseId, patch);
+      const next: SyncState = { ...fresh, ...patch, lastSuccessAt: patch.lastSuccessAt ?? fresh.lastSuccessAt };
+      states.set(id, next);
+      if (progress) {
+        const failed = result.outcome === 'failed' || result.outcome === 'needs_reconnect';
+        await progress.finish(failed ? 'failed' : result.outcome === 'partial' || isBackfilling(next) ? 'waiting' : 'done', result.errorKey ?? null);
+      }
+      return { accountId: id, outcome: result.outcome, jobs: result.jobs, ...(result.errorKey ? { errorKey: result.errorKey } : {}), ...(result.appRateLimited ? { appRateLimited: true } : {}) };
+    } catch {
+      // store failure outside runAccount (lease, token read, state write). The lease expires by itself (LEASE_MS).
+      return { accountId: id, outcome: 'failed', jobs: [], errorKey: 'unexpected' };
+    }
+  }
+  const entry = (r: LaneResult): TickAccount => ({ accountId: r.accountId, outcome: r.outcome, jobs: r.jobs, ...(r.errorKey ? { errorKey: r.errorKey } : {}) });
+
+  // Lane 1: regular jobs for every account first, each within a small slice.
+  for (const account of ordered) {
+    if (deadline - clock() < MIN_ACCOUNT_MS) {
+      budgetStop = true;
+      break;
+    }
+    const r = await runLane(account, 'regular', Math.min(deadline, clock() + REGULAR_SLICE_MS), []);
+    out.set(account.id, entry(r));
+    if (r.appRateLimited) {
+      appLimited = true; // app-wide throttle: every further call would fail too, so lane 2 never starts
+      break;
+    }
+  }
+
+  // Lane 2: accounts with work left share the rest equally (re-split after each one, so time a fast one leaves is reused).
+  const lane2 = appLimited
+    ? []
+    : ordered.filter((a) => {
+        const e = out.get(a.id);
+        if (!e || e.outcome === 'locked' || e.outcome === 'needs_reconnect' || e.errorKey === 'rate_limited' || e.errorKey === 'unexpected') return false;
+        return e.outcome === 'partial' || isBackfilling(states.get(a.id)!);
+      });
+  for (const [i, account] of lane2.entries()) {
+    const left = deadline - clock();
+    if (left < MIN_ACCOUNT_MS) {
+      budgetStop = true;
+      break;
+    }
+    const before = out.get(account.id)!;
+    const r = await runLane(account, 'all', Math.min(deadline, clock() + Math.max(MIN_ACCOUNT_MS, left / (lane2.length - i))), before.jobs);
+    if (r.outcome !== 'idle' && r.outcome !== 'locked') out.set(account.id, { ...entry(r), jobs: [...before.jobs, ...r.jobs] });
+    if (r.outcome === 'partial') budgetStop = true;
+    if (r.appRateLimited) {
+      appLimited = true;
+      break;
+    }
+  }
+
+  // SPEC §6: rules run after the account jobs. runAlerts never throws; the catch is a second net for the tick.
+  const alerts = deps.alerts
+    ? await runAlerts(deps.alerts, { accounts: deps.accounts, sync: deps.store, now: new Date(clock()), tz, deadline: deadline + ALERT_BUDGET_MS, clock, accountId: opts.accountId }).catch(() => ({ created: 0, pushed: 0, failed: 1 }))
+    : undefined;
+  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly: budgetStop || appLimited, more: budgetStop && !appLimited, accounts: [...out.values()], ...(alerts ? { alerts } : {}) };
+  await deps.store.recordRun({ startedAt, finishedAt: new Date(clock()).toISOString(), trigger: opts.trigger, summary }).catch(() => {});
+  return summary;
+}
+```
+
+- [ ] **Step 4: Update the two tick tests whose expectations assumed one lane**
+
+In `tests/sync-tick.test.ts`, replace the test `'overlapping ticks (scheduler retry / double fire) cannot double-run an account'` with
+
+```ts
+  it('overlapping ticks (scheduler retry / double fire) cannot double-run an account', async () => {
+    const { deps, ig, mem } = setup();
+    const [x, y] = await Promise.all([runTick(deps, { trigger: 'cron' }), runTick({ ...deps, newId: () => 'other' }, { trigger: 'cron' })]);
+    expect([...x.accounts, ...y.accounts].some((a) => a.outcome === 'locked')).toBe(true);
+    expect(ig.listStories).toHaveBeenCalledTimes(2); // once per account, not twice
+    expect(ig.accountDay).toHaveBeenCalledTimes(180); // 90 days per account (the two lanes may land in different ticks), none twice
+    expect(new Set(mem.daily.map((d) => `${d.accountId}:${d.day}`)).size).toBe(180);
+  });
+```
+
+and replace the test `'stops before the time budget and leaves remaining accounts due; the next tick starts with them'` with
+
+```ts
+  it('stops on the time budget with work left (more = true); every new account got a slice; the next tick resumes', async () => {
+    const list = [account({ id: 'a1' }), account({ id: 'a2' }), account({ id: 'a3' })];
+    const { deps, ig, mem } = setup(list, { a1: 't1', a2: 't2', a3: 't3' });
+    let now = T0;
+    ig.accountDay.mockImplementation(async () => {
+      now += 300; // 90 days x 300ms = 27s per account: three accounts cannot finish in one 35s pass
+      return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
+    });
+    const first = await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
+    expect(first.stoppedEarly).toBe(true);
+    expect(first.more).toBe(true); // stopped on the time budget with work left -> continuation is useful
+    expect(first.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['a1', 'partial'], ['a2', 'partial'], ['a3', 'partial']]);
+    for (const id of ['a1', 'a2', 'a3']) expect(mem.states.get(id)).toMatchObject({ dailyDoneThrough: '2026-10-13' });
+    const before = mem.daily.length;
+    now += 30 * 60_000;
+    await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
+    expect(mem.daily.length).toBeGreaterThan(before);
+    expect(new Set(mem.daily.map((d) => `${d.accountId}:${d.day}`)).size).toBe(mem.daily.length); // resumed, nothing re-fetched
+  });
+```
+
+- [ ] **Step 5: Run the sync suite**
+
+Run: `npx vitest run tests/sync-lanes.test.ts tests/sync-tick.test.ts tests/sync-tick-alerts.test.ts tests/cron-tick-chain.test.ts tests/cron-tick-route.test.ts tests/connect-sync.test.ts tests/sync-now-action.test.ts tests/alert-run.test.ts && npx tsc --noEmit`
+Expected: PASS, no type errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/sync/tick.ts tests/sync-lanes.test.ts tests/sync-tick.test.ts
+git commit -m "feat(sync): two fair lanes per tick (regular first, equal import slices)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
