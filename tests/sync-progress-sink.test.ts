@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { progressSink, THROTTLE_MS } from '@/lib/sync/progress-sink';
+import { describe, expect, it, vi } from 'vitest';
+import { progressSink, THROTTLE_MS, WRITE_CAP_MS } from '@/lib/sync/progress-sink';
 import { runAccount, type RunContext } from '@/lib/sync/run-account';
 import { emptyState, type JobKind } from '@/lib/sync/schedule';
 import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
@@ -71,5 +71,38 @@ describe('runner progress reports', () => {
     expect(days.at(-1)).toBe('2026-07-16');
     expect(mem.progress.find(({ p }) => p.stage === 'account_days' && p.detailDay === '2026-10-06')?.p).toMatchObject({ done: 7, total: 90 });
     expect(JSON.stringify(mem.progress)).not.toContain('IGQ-secret');
+  });
+});
+
+describe('progressSink write cap', () => {
+  it('a never-resolving write returns within WRITE_CAP_MS and the sync carries on', async () => {
+    vi.useFakeTimers();
+    try {
+      const mem = memoryStore();
+      mem.store.writeProgress = () => new Promise<void>(() => {});
+      const sink = progressSink(mem.store, 'a1', () => 0);
+      let finished = false;
+      const p = sink.finish('done', null).then(() => (finished = true));
+      await vi.advanceTimersByTimeAsync(WRITE_CAP_MS - 1);
+      expect(finished).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(finished).toBe(true);
+      expect(vi.getTimerCount()).toBe(0); // the cap timer is cleared
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a fast write does not wait for the cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const mem = memoryStore();
+      await progressSink(mem.store, 'a1', () => 0).report('stories', 0, null);
+      expect(mem.progress).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

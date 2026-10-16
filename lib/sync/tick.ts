@@ -6,7 +6,7 @@
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import { ALERT_BUDGET_MS, runAlerts, type AlertDeps, type AlertRunSummary } from '@/lib/alerts/run';
 import type { IgData } from '@/lib/instagram/data';
-import { progressSink } from '@/lib/sync/progress-sink';
+import { progressSink, type ProgressSink } from '@/lib/sync/progress-sink';
 import { runAccount, type AccountOutcome, type SyncErrorKey } from '@/lib/sync/run-account';
 import { byOldestAttempt, dueJobs, isBackfilling, type JobKind, type Lane, type SyncState } from '@/lib/sync/schedule';
 import type { SyncStore } from '@/lib/sync/store';
@@ -73,6 +73,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
     const plan = (s: SyncState) => dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state: s }, now, tz, { manual, lane }).filter((j) => !skip.includes(j));
     if (plan(state).length === 0) return { accountId: id, outcome: state.leaseUntil && Date.parse(state.leaseUntil) > now.getTime() ? 'locked' : 'idle', jobs: [] };
     const leaseId = newId();
+    let progress: ProgressSink | undefined;
     try {
       const claimed = await deps.store.claimLease(id, leaseId, new Date(now.getTime() + LEASE_MS).toISOString(), now.toISOString());
       if (!claimed) return { accountId: id, outcome: 'locked', jobs: [] };
@@ -94,7 +95,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
         return { accountId: id, outcome: 'needs_reconnect', jobs: [], errorKey: 'token_invalid' };
       }
       // live progress only while importing or on a manual run: a complete account's 30-minute ticks stay silent
-      const progress = manual || isBackfilling(fresh) ? progressSink(deps.store, id, clock) : undefined;
+      progress = manual || isBackfilling(fresh) ? progressSink(deps.store, id, clock) : undefined;
       const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline: sliceEnd, clock, progress }, jobs);
       await deps.store.saveState(id, leaseId, patch);
       const next: SyncState = { ...fresh, ...patch, lastSuccessAt: patch.lastSuccessAt ?? fresh.lastSuccessAt };
@@ -106,6 +107,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
       return { accountId: id, outcome: result.outcome, jobs: result.jobs, ...(result.errorKey ? { errorKey: result.errorKey } : {}), ...(result.appRateLimited ? { appRateLimited: true } : {}) };
     } catch {
       // store failure outside runAccount (lease, token read, state write). The lease expires by itself (LEASE_MS).
+      await progress?.finish('failed', 'unexpected').catch(() => {}); // else the row stays "running" and the panel shows stalled
       return { accountId: id, outcome: 'failed', jobs: [], errorKey: 'unexpected' };
     }
   }

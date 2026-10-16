@@ -5,9 +5,9 @@ import { backoffMs, BACKFILL_DAYS, isBackfilling, type SyncState } from '@/lib/s
 
 /** Panel order. Reserved stages (later plans: cover images, comments) are valid in the table but not shown yet. */
 export const STAGES = ['profile', 'stories', 'account_days', 'posts_list', 'post_metrics', 'audience'] as const;
-export const RESERVED_STAGES = ['covers', 'comments'] as const;
+type ReservedStage = 'covers' | 'comments';
 export type ShownStage = (typeof STAGES)[number];
-export type Stage = ShownStage | (typeof RESERVED_STAGES)[number];
+export type Stage = ShownStage | ReservedStage;
 export type LiveState = 'waiting' | 'running' | 'failed' | 'done';
 
 /** One sync_progress row: the live activity of the current run. Counts and keys only, never ids of media or tokens. */
@@ -58,13 +58,13 @@ export interface AccountProgress {
   summary: { days: number; posts: number };
 }
 
-export const WEIGHTS: Record<ShownStage, number> = { profile: 2, stories: 3, account_days: 50, posts_list: 5, post_metrics: 35, audience: 5 };
+const WEIGHTS: Record<ShownStage, number> = { profile: 2, stories: 3, account_days: 50, posts_list: 5, post_metrics: 35, audience: 5 };
 /** The sync writes at least every few seconds while working: an older row is not "running now". */
-export const ACTIVE_MS = 90_000;
+const ACTIVE_MS = 90_000;
 /** A tick comes every 30 minutes; no activity for longer than this while work is left = stalled. */
-export const STALL_MS = 35 * 60_000;
+const STALL_MS = 35 * 60_000;
 /** Show a finished run's summary for this long after it ends. */
-export const RECENT_MS = 10 * 60_000;
+const RECENT_MS = 10 * 60_000;
 /** Measured live 2026-10-16 (docs/RUNBOOK_SYNC.md): ~5 calls per day = 1.5 s, one insights call per post = 0.4 s. */
 const MS_PER_DAY = 1_500;
 const MS_PER_POST = 400;
@@ -80,12 +80,15 @@ export function coveredDays(s: Pick<SyncState, 'dailyDoneThrough' | 'backfilledF
 
 /**
  * When the live session ended: its own finish stamp or, for a complete account whose run another tick did (a "Sync now"
- * that found the account leased), the last success after the session started. null = still going.
+ * that found the account leased), the last success after the session started. A row left "running" by a run that died
+ * counts too once it is stale and a success came after its last write. null = still going.
  */
-function sessionEnd({ state: s, live }: Pick<ProgressInput, 'state' | 'live'>): string | null {
+function sessionEnd({ state: s, live }: Pick<ProgressInput, 'state' | 'live'>, now: Date): string | null {
   if (!live) return null;
   if (live.finishedAt) return live.finishedAt;
-  const doneElsewhere = !isBackfilling(s) && live.state !== 'running' && !!s.lastSuccessAt && Date.parse(s.lastSuccessAt) >= Date.parse(live.startedAt);
+  const ok = s.lastSuccessAt ? Date.parse(s.lastSuccessAt) : NaN;
+  const leftRunning = live.state === 'running' && now.getTime() - Date.parse(live.updatedAt) > ACTIVE_MS && ok > Date.parse(live.updatedAt);
+  const doneElsewhere = !isBackfilling(s) && ok >= Date.parse(live.startedAt) && (live.state !== 'running' || leftRunning);
   return doneElsewhere ? s.lastSuccessAt : null;
 }
 
@@ -93,7 +96,7 @@ function sessionEnd({ state: s, live }: Pick<ProgressInput, 'state' | 'live'>): 
 export function isTracked(i: Pick<ProgressInput, 'state' | 'live'>, now: Date): boolean {
   if (isBackfilling(i.state)) return true;
   if (!i.live) return false;
-  const end = sessionEnd(i);
+  const end = sessionEnd(i, now);
   return end === null || now.getTime() - Date.parse(end) < RECENT_MS;
 }
 
@@ -107,7 +110,7 @@ export function buildProgress(i: ProgressInput, now: Date): AccountProgress {
 
   let phase: Phase;
   if (i.needsReconnect) phase = 'needs_reconnect';
-  else if (!backfilling && (!live || live.state === 'done' || sessionEnd(i) !== null)) phase = 'done';
+  else if (!backfilling && (!live || live.state === 'done' || sessionEnd(i, now) !== null)) phase = 'done';
   else if (failing && s.lastErrorKey === 'rate_limited') phase = 'rate_limited';
   else if (failing) phase = 'failed';
   else if ((s.leaseUntil && Date.parse(s.leaseUntil) > t) || (live?.state === 'running' && t - Date.parse(live.updatedAt) < ACTIVE_MS)) phase = 'running';

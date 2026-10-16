@@ -51,7 +51,7 @@ describe('Overview while an account is importing', () => {
     const m = buildOverview(
       {
         accounts: [acct('old'), acct('new')],
-        sync: { old: { ...synced, backfilling: false }, new: { ...synced, backfilledFrom: '2026-10-08', backfilling: true } },
+        sync: { old: { ...synced, backfilling: false }, new: { ...synced, backfilling: true } },
         daily: { old: days(14, { reach: 100, followers: 1000, interactions: 10 }), new: days(7, { reach: 40, followers: 300, interactions: 4 }) },
         posts: {},
       },

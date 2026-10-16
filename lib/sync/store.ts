@@ -265,7 +265,6 @@ export interface SyncStatus {
   lastErrorKey: string | null;
   consecutiveFailures: number;
   dailyDoneThrough?: string | null; // null until the first insight day is written
-  backfilledFrom?: string | null;
   backfilling?: boolean; // history still importing (isBackfilling in lib/sync/schedule.ts); missing = unknown
 }
 
@@ -276,7 +275,7 @@ export async function listSyncStatus(db: SupabaseClient): Promise<Record<string,
   return Object.fromEntries(
     (data as Row[]).map((r) => {
       const s = rowToState(r);
-      return [s.accountId, { lastSuccessAt: s.lastSuccessAt, lastErrorKey: s.lastErrorKey, consecutiveFailures: s.consecutiveFailures, dailyDoneThrough: s.dailyDoneThrough, backfilledFrom: s.backfilledFrom, backfilling: isBackfilling(s) }];
+      return [s.accountId, { lastSuccessAt: s.lastSuccessAt, lastErrorKey: s.lastErrorKey, consecutiveFailures: s.consecutiveFailures, dailyDoneThrough: s.dailyDoneThrough, backfilling: isBackfilling(s) }];
     }),
   );
 }
