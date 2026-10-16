@@ -37,6 +37,7 @@ export interface TickSummary {
   startedAt: string;
   durationMs: number;
   stoppedEarly: boolean; // time budget or app-wide rate limit left due work for the next tick
+  more: boolean; // due work remains because of the TIME BUDGET (not a Meta rate limit): worth an immediate follow-up pass
   accounts: TickAccount[];
   alerts?: AlertRunSummary; // counts only
 }
@@ -50,6 +51,8 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
   const manual = opts.trigger === 'manual';
   const out: TickAccount[] = [];
   let stoppedEarly = false;
+  let budgetStop = false; // ran out of time with work left (a continuation pass is useful)
+  let appLimited = false; // Meta throttled the whole app (a continuation would only make it worse)
 
   const tz = await deps.store.ownerTimezone();
   const active = (await deps.accounts.list()).filter((a) => a.status === 'active' && (!opts.accountId || a.id === opts.accountId));
@@ -58,6 +61,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
 
   for (const account of ordered) {
     if (deadline - clock() < MIN_ACCOUNT_MS) {
+      budgetStop = true;
       stoppedEarly = true;
       break;
     }
@@ -94,8 +98,12 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
       const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline, clock }, jobs);
       await deps.store.saveState(account.id, leaseId, patch);
       out.push({ accountId: account.id, outcome: result.outcome, jobs: result.jobs, ...(result.errorKey ? { errorKey: result.errorKey } : {}) });
-      if (result.outcome === 'partial') stoppedEarly = true;
+      if (result.outcome === 'partial') {
+        stoppedEarly = true;
+        budgetStop = true;
+      }
       if (result.appRateLimited) {
+        appLimited = true;
         stoppedEarly = true;
         break; // app-wide throttle: every further call would fail too
       }
@@ -109,7 +117,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
   const alerts = deps.alerts
     ? await runAlerts(deps.alerts, { accounts: deps.accounts, sync: deps.store, now: new Date(clock()), tz, deadline: deadline + ALERT_BUDGET_MS, clock, accountId: opts.accountId }).catch(() => ({ created: 0, pushed: 0, failed: 1 }))
     : undefined;
-  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly, accounts: out, ...(alerts ? { alerts } : {}) };
+  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly, more: budgetStop && !appLimited, accounts: out, ...(alerts ? { alerts } : {}) };
   await deps.store.recordRun({ startedAt, finishedAt: new Date(clock()).toISOString(), trigger: opts.trigger, summary }).catch(() => {});
   return summary;
 }

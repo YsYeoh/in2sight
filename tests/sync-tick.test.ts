@@ -120,6 +120,7 @@ describe('runTick', () => {
     });
     const first = await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
     expect(first.stoppedEarly).toBe(true);
+    expect(first.more).toBe(true); // stopped on the time budget with work left -> continuation is useful
     expect(first.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['a1', 'ok'], ['a2', 'partial']]);
     expect(mem.states.get('a3')).toBeUndefined();
     now += 30 * 60_000;
@@ -133,6 +134,7 @@ describe('runTick', () => {
     const s = await runTick(deps, { trigger: 'cron' });
     expect(s.accounts.map((a) => a.accountId)).toEqual(['a1']);
     expect(s.stoppedEarly).toBe(true);
+    expect(s.more).toBe(false); // Meta throttled the whole app: never chain into it
   });
 
   it('manual sync of one account touches only that account', async () => {
