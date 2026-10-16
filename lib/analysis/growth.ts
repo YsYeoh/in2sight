@@ -168,10 +168,12 @@ function kpi(value: number | null, prior: number | null, comparable: boolean, em
  * Headline numbers with their comparison. Never NaN or Infinity: a missing or zero base gives null + a reason.
  * backfilling (history still importing): a window with gaps says "Importing history…" instead of "not enough history",
  * and a metric with no day yet says the same instead of "no data". The values themselves stay the real partial sums.
+ * While importing, a comparison needs the whole prior window (a gap there is always the old side).
  */
 export function kpis(s: Summary, opts: { backfilling?: boolean } = {}): Record<KpiId, Kpi> {
   const need = Math.ceil(s.period * MIN_COVERAGE);
-  const comparable = s.current.days >= need && s.prior.days >= need;
+  // importing runs newest-first, so a gap is always in the prior window and would bias the delta up: it must be complete then
+  const comparable = s.current.days >= need && s.prior.days >= (opts.backfilling ? s.period : need);
   const short: MissingReason = opts.backfilling ? 'backfilling' : 'not_enough_history';
   const empty: MissingReason = opts.backfilling ? 'backfilling' : 'no_data';
   const fewFollowers: MissingReason = s.current.followers !== null && s.current.followers < 100 ? 'needs_100_followers' : empty;

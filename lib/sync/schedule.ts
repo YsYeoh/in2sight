@@ -69,8 +69,8 @@ export function isBackfilling(s: Pick<SyncState, 'lastRun' | 'dailyDoneThrough' 
 }
 
 /** The newest FIRST_DAYS days are not all in yet (new account, or its first pass stopped half-way). */
-export function firstWeekPending(s: Pick<SyncState, 'dailyDoneThrough' | 'backfilledFrom'>, today: string): boolean {
-  return !s.dailyDoneThrough || (s.backfilledFrom !== null && s.backfilledFrom > addDays(today, -FIRST_DAYS));
+export function firstWeekPending(s: Pick<SyncState, 'dailyDoneThrough' | 'backfilledFrom' | 'lastRun'>, today: string): boolean {
+  return !s.dailyDoneThrough || (!s.lastRun.backfill && s.backfilledFrom !== null && s.backfilledFrom > addDays(today, -FIRST_DAYS));
 }
 
 /** Rate-limit back-off: 30, 60, 120, 240, 240… minutes after the last attempt. */

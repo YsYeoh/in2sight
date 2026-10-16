@@ -24,6 +24,12 @@ describe('isBackfilling / firstWeekPending', () => {
     expect(firstWeekPending(legacy, '2026-10-14')).toBe(false);
   });
 
+  it('a row marked complete is never "first week pending", even when its backfilled_from is recent (no account_daily rows after the migration)', () => {
+    const done = st({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-13', lastRun: { backfill: minsAgo(5), stories: minsAgo(40), mediaList: minsAgo(70) } });
+    expect(firstWeekPending(done, '2026-10-14')).toBe(false);
+    expect(dueJobs(input(done), NOW, TZ, { lane: 'regular' })).toEqual(['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience']);
+  });
+
   it('the import is done once the backfill job has finished once', () => {
     expect(isBackfilling(st({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16', lastRun: { backfill: minsAgo(5) } }))).toBe(false);
   });

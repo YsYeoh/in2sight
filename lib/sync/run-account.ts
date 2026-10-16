@@ -90,7 +90,7 @@ const daily: Job = async (c, p) => {
   const today = localDay(c.now, c.tz);
   const yesterday = addDays(today, -1);
   let day: string;
-  if (firstWeekPending(p, today)) {
+  if (firstWeekPending({ ...p, lastRun: c.state.lastRun }, today)) {
     if (!(await walkBack(c, p, addDays(today, -FIRST_DAYS))).done) return { done: false };
     day = addDays(p.dailyDoneThrough!, 1); // the week was just fetched: no settle re-fetch, only a day that began meanwhile
   } else {
