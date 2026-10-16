@@ -476,6 +476,7 @@
     "netFollows": "Net follows"
   },
   "analysis": {
+    "coverage": "{pct} of this period imported so far",
     "low": "Low",
     "high": "High",
     "lowSample": "too few posts",

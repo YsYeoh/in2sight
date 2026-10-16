@@ -69,7 +69,7 @@ describe('OverviewView', () => {
     expect(within(broken).getByRole('link', { name: en.pages.overview.reconnectHint })).toHaveAttribute('href', '/accounts');
     expect(within(broken).getByText(new RegExp(en.accounts.errors.token_invalid.slice(0, 20)))).toBeInTheDocument();
     const fresh = screen.getByRole('heading', { name: '@fresh' }).closest('li')!;
-    expect(within(fresh).getByText(en.analysis.reasons.backfilling)).toBeInTheDocument();
+    expect(within(fresh).getByText(/of this period imported so far/)).toHaveTextContent(`${en.analysis.reasons.backfilling} · 0% of this period imported so far`);
     expect(within(fresh).getByText(en.pages.overview.neverSynced)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Post taking off: 9× median reach/ })).toHaveAttribute('href', hit.permalink);
   });

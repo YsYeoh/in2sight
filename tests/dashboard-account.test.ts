@@ -53,7 +53,7 @@ describe('buildAccountOverview', () => {
   it('account with no data yet: reasons everywhere, no NaN, backfilling state', () => {
     const m = buildAccountOverview(empty, opts);
     expect(m.state).toBe('backfilling');
-    expect(m.kpis.reach).toMatchObject({ value: null, reason: 'no_data' });
+    expect(m.kpis.reach).toMatchObject({ value: null, reason: 'backfilling' }); // importing, not 'no data'
     expect(m.trend.every((d) => d.reach === null && d.followers === null)).toBe(true);
     expect(m.formats).toEqual([]);
     expect(m.heat.online.account.reason).toBe('needs_100_followers');

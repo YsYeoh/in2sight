@@ -5,6 +5,7 @@ import { reachDrop, takingOff, type Flag } from '@/lib/analysis/flags';
 import { combine, kpis, summarize, type Kpi, type KpiId, type Summary } from '@/lib/analysis/growth';
 import { PERIODS, type Period } from '@/lib/analysis/types';
 import type { OverviewInput } from '@/lib/dashboard/read';
+import type { SyncStatus } from '@/lib/sync/store';
 import { addDays } from '@/lib/sync/time';
 
 export type CardState = 'ok' | 'backfilling' | 'no_data' | 'needs_reconnect';
@@ -18,6 +19,7 @@ export interface AccountCard {
   state: CardState;
   lastSyncedAt: string | null;
   syncErrorKey: string | null; // only while the account is failing (consecutive failures > 0)
+  coverage: number; // share of the current window's days with data (0–1); shown while importing
   kpis: Record<KpiId, Kpi>;
   spark: (number | null)[]; // daily reach over the current window
   flags: Flag[];
@@ -50,9 +52,10 @@ export function fromDayFor(period: Period, today: string): string {
   return addDays(today, -(2 * Math.max(period, 7) + 2));
 }
 
-export function cardState(status: AccountStatus, tokenExpiresAt: string | null, now: Date, doneThrough: string | null | undefined, s: Summary, hasRows: boolean): CardState {
+/** backfilling = history still importing (SyncStatus.backfilling); without that flag (older rows): never synced and no rows. */
+export function cardState(status: AccountStatus, tokenExpiresAt: string | null, now: Date, sync: SyncStatus | undefined, s: Summary, hasRows: boolean): CardState {
   if (status === 'needs_reconnect' || tokenStatus(tokenExpiresAt, now).state === 'expired') return 'needs_reconnect';
-  if (!doneThrough && !hasRows) return 'backfilling';
+  if (sync?.backfilling ?? (!sync?.dailyDoneThrough && !hasRows)) return 'backfilling';
   return s.current.days === 0 && s.current.followers === null ? 'no_data' : 'ok';
 }
 
@@ -65,16 +68,18 @@ export function buildOverview(input: OverviewInput, o: { period: Period; today: 
     summaries.set(a.id, s);
     const sync = input.sync[a.id];
     const drop = reachDrop(daily, o.today, o.tz);
+    const state = cardState(a.status, a.tokenExpiresAt, o.now, sync, s, daily.length > 0);
     return {
       id: a.id,
       username: a.username,
       displayName: a.displayName,
       groupName: a.groupName,
       status: a.status,
-      state: cardState(a.status, a.tokenExpiresAt, o.now, sync?.dailyDoneThrough, s, daily.length > 0),
+      state,
       lastSyncedAt: sync?.lastSuccessAt ?? null,
       syncErrorKey: sync && sync.consecutiveFailures > 0 ? sync.lastErrorKey : null,
-      kpis: kpis(s),
+      coverage: s.coverage.current,
+      kpis: kpis(s, { backfilling: state === 'backfilling' }),
       spark: s.reachByDay.map((d) => d.value),
       flags: [...takingOff(posts, o.now), ...(drop ? [drop] : [])],
     };
