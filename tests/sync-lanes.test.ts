@@ -105,3 +105,28 @@ describe('fair lanes', () => {
     expect(mem.progress.at(-1)!.p).toMatchObject({ state: 'waiting', finishedAt: null });
   });
 });
+
+describe('lane 1 failure', () => {
+  it('a persistent non-rate-limit error in lane 1 adds exactly one failure per tick, keeps its errorKey, and lane 2 does not retry it', async () => {
+    const { deps, ig, mem, cost } = setup([account({ id: 'n1' })]);
+    ig.listStories.mockImplementation(async () => {
+      cost(100);
+      throw new InstagramApiError('data', 400, 1);
+    });
+    for (const n of [1, 2]) {
+      const s = await runTick(deps, { trigger: 'cron' });
+      expect(mem.states.get('n1')!.consecutiveFailures).toBe(n);
+      expect(s.accounts).toHaveLength(1);
+      expect(s.accounts[0]).toMatchObject({ outcome: 'failed', errorKey: expect.any(String) });
+      expect((mem.runs.at(-1)!.summary as { accounts: { errorKey?: string }[] }).accounts[0].errorKey).toBe(s.accounts[0].errorKey);
+      expect(ig.listStories).toHaveBeenCalledTimes(n);
+      expect(ig.accountDay).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a lane-1 success still lets lane 2 import', async () => {
+    const { deps, ig } = setup([account({ id: 'n1' })]);
+    await runTick(deps, { trigger: 'cron' });
+    expect(ig.accountDay).toHaveBeenCalled();
+  });
+});
