@@ -59,7 +59,7 @@ describe('GET /api/instagram/connect', () => {
     const loc = new URL(res.headers.get('location')!);
     expect(loc.origin + loc.pathname).toBe('https://www.instagram.com/oauth/authorize');
     expect(loc.searchParams.get('state')).toMatch(/^[A-Za-z0-9_-]{32}$/);
-    expect(loc.searchParams.get('scope')).toBe('instagram_business_basic,instagram_business_manage_insights');
+    expect(loc.searchParams.get('scope')).toBe('instagram_business_basic,instagram_business_manage_insights,instagram_business_manage_comments');
     expect(loc.toString()).not.toContain('Brand');
     const c = res.cookies.get(STATE_COOKIE)!;
     expect(c.value).toBeTruthy();
