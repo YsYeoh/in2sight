@@ -6,7 +6,7 @@ vi.mock('@/lib/sync/deps', () => ({ createSyncDeps }));
 vi.mock('@/lib/sync/tick', async (orig) => ({ ...(await orig<object>()), runTick }));
 vi.mock('@/lib/sync/chain', async (orig) => ({ ...(await orig<object>()), continueChain }));
 
-import { syncAccountNow } from '@/lib/sync/connect-sync';
+import { continueIfMore, syncAccountNow } from '@/lib/sync/connect-sync';
 
 const SECRET = 'c'.repeat(40);
 
@@ -42,5 +42,17 @@ describe('syncAccountNow (right after connecting an account)', () => {
     vi.stubEnv('CRON_SECRET', '');
     await expect(syncAccountNow('acc-1')).resolves.toBeUndefined();
     expect(runTick).toHaveBeenCalledTimes(1); // the second call stopped at the missing secret, before any work
+  });
+});
+
+describe('continueIfMore ("Sync now" while an import is still going)', () => {
+  it('chains only when the run stopped on its time budget, and never throws', async () => {
+    await continueIfMore(false);
+    expect(continueChain).not.toHaveBeenCalled();
+    await continueIfMore(true);
+    expect(continueChain).toHaveBeenCalledWith(SECRET, 0);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubEnv('CRON_SECRET', '');
+    await expect(continueIfMore(true)).resolves.toBeUndefined();
   });
 });

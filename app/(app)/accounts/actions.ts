@@ -1,12 +1,15 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { normalizeGroup } from '@/lib/accounts/group';
 import { archiveAccount, deleteAccountPermanently, restoreAccount, setAccountGroup } from '@/lib/accounts/service';
 import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import type { AccountsStore } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
+import { continueIfMore } from '@/lib/sync/connect-sync';
 import { createSyncDeps } from '@/lib/sync/deps';
+import { resetSyncProgress } from '@/lib/sync/store';
 import { runTick, TICK_BUDGET_MS } from '@/lib/sync/tick';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
@@ -54,12 +57,16 @@ export async function setGroupAction(id: string, group: string | null): Promise<
 
 // Runs the same per-account runner as the cron tick, now, for one account. Forces Stories + media list; daily and
 // audience still follow their once-a-day rule. Bounded by the page's maxDuration (accounts/(list)/page.tsx).
+// Starts a fresh progress session (the panel shows it) and, if the run stopped on its time budget (an import still
+// going), a continuation pass after the response. Coverage is never reset.
 export async function syncNowAction(id: string): Promise<Result> {
   await requireOwner();
   if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'not_found' };
   try {
+    await resetSyncProgress(createAdminSupabase(), id, new Date().toISOString());
     const summary = await runTick(createSyncDeps(), { trigger: 'manual', budgetMs: TICK_BUDGET_MS, accountId: id });
     revalidatePath('/accounts');
+    after(() => continueIfMore(summary.more === true));
     const r = summary.accounts[0];
     if (!r) return { ok: false, error: 'not_active' };
     if (r.outcome === 'locked') return { ok: false, error: 'busy' };
