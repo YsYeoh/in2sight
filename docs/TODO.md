@@ -81,6 +81,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] Measure before/after on production and fill docs/RUNBOOK_PERF.md §5 (owner, signed in)
 
 ## 6b. Next (Plan 14/15 Settings)
+- [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
 
 ## 7. Later
