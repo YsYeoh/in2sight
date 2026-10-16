@@ -27,3 +27,14 @@ export function chainTarget(appUrl: string | undefined): string | null {
 export function shouldChain(more: boolean, depth: number): boolean {
   return more && depth < MAX_CHAIN;
 }
+
+/** Starts the next pass on our own origin (answers 202 at once). Failure is harmless: the next scheduled tick takes over. */
+export async function continueChain(secret: string, depth: number, appUrl: string | undefined = process.env.NEXT_PUBLIC_APP_URL): Promise<void> {
+  const target = chainTarget(appUrl);
+  if (!target) return;
+  await fetch(target, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${secret}`, [CHAIN_HEADER]: String(depth + 1) },
+    signal: AbortSignal.timeout(8000),
+  }).catch(() => {});
+}

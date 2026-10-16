@@ -1,6 +1,6 @@
 import { after, NextResponse, type NextRequest } from 'next/server';
 import { EnvError, getServerEnv } from '@/lib/env';
-import { CHAIN_HEADER, chainDepth, chainTarget, shouldChain } from '@/lib/sync/chain';
+import { CHAIN_HEADER, chainDepth, continueChain, shouldChain } from '@/lib/sync/chain';
 import { isCronAuthorized } from '@/lib/sync/cron-auth';
 import { createSyncDeps } from '@/lib/sync/deps';
 import { runTick, TICK_BUDGET_MS } from '@/lib/sync/tick';
@@ -28,15 +28,8 @@ async function handle(request: NextRequest) {
   after(async () => {
     try {
       const summary = await runTick(deps, { trigger: 'cron', budgetMs: TICK_BUDGET_MS });
-      const target = chainTarget(process.env.NEXT_PUBLIC_APP_URL);
-      if (target && shouldChain(summary.more === true, depth)) {
-        // fire the next pass; it answers 202 immediately. Failure is harmless: the next scheduled tick picks the work up.
-        await fetch(target, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${cronSecret}`, [CHAIN_HEADER]: String(depth + 1) },
-          signal: AbortSignal.timeout(8000),
-        }).catch(() => {});
-      }
+      // the next pass answers 202 at once; failure is harmless (the next scheduled tick picks the work up)
+      if (shouldChain(summary.more === true, depth)) await continueChain(cronSecret, depth);
     } catch {
       console.error('sync tick failed'); // fixed text: never log error objects (they could carry request details)
     }
