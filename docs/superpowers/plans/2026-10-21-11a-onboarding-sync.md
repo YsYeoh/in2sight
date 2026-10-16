@@ -506,7 +506,7 @@ git commit -m "feat(sync): backward coverage edge, backfill job and lanes in the
   - `type ProgressState`, `interface ProgressInput { accountId; needsReconnect: boolean; state: ProgressState; live: LiveProgress | null; posts: { total: number; measured: number }; followers: number | null }`
   - `type StageState = 'pending' | 'running' | 'done' | 'skipped' | 'failed'`, `interface StageView { stage: ShownStage; state: StageState; done: number | null; total: number | null; reason: string | null }`
   - `type Phase = 'running' | 'waiting' | 'rate_limited' | 'needs_reconnect' | 'failed' | 'stalled' | 'done'`
-  - `interface AccountProgress { accountId; phase; percent; stages: StageView[]; current: { stage: Stage; day: string | null; done: number; total: number | null } | null; startedAt: string | null; elapsedMs: number | null; etaMs: number | null; resumeAt: string | null; errorKey: string | null; summary: { days: number; posts: number } }`
+  - `interface AccountProgress { accountId; phase; percent; stages: StageView[]; current: { stage: Stage; day: string | null; done: number; total: number | null } | null; startedAt: string | null; elapsedMs: number | null; etaMs: number | null; resumeInMs: number | null; errorKey: string | null; summary: { days: number; posts: number } }`
   - `coveredDays(s): number`, `isTracked(i, now): boolean`, `buildProgress(i: ProgressInput, now: Date): AccountProgress`
   - constants `WEIGHTS`, `ACTIVE_MS = 90_000`, `STALL_MS = 35 min`, `RECENT_MS = 10 min`
 
@@ -582,7 +582,7 @@ describe('buildProgress', () => {
   it('rate limited: says when the back-off ends (2 failures = 60 min after the last attempt)', () => {
     const p = buildProgress(input({ live: live() }, { lastErrorKey: 'rate_limited', consecutiveFailures: 2, lastAttemptAt: ago(10 * MIN) }), NOW);
     expect(p.phase).toBe('rate_limited');
-    expect(p.resumeAt).toBe(new Date(NOW.getTime() + 50 * MIN).toISOString());
+    expect(p.resumeInMs).toBe(50 * MIN);
     expect(p.errorKey).toBe('rate_limited');
   });
 
@@ -695,7 +695,7 @@ export interface AccountProgress {
   startedAt: string | null;
   elapsedMs: number | null;
   etaMs: number | null; // null = "estimating"
-  resumeAt: string | null; // rate limited: when the back-off ends
+  resumeInMs: number | null; // rate limited: time until the back-off ends
   errorKey: string | null;
   summary: { days: number; posts: number };
 }
@@ -801,7 +801,7 @@ export function buildProgress(i: ProgressInput, now: Date): AccountProgress {
     elapsedMs: startedAt ? Math.max(0, t - Date.parse(startedAt)) : null,
     // ponytail: estimate from measured per-call costs; switch to the observed rate once runs record their start counts
     etaMs: active && backfilling && s.lastRun.mediaList ? remaining : null,
-    resumeAt: phase === 'rate_limited' && s.lastAttemptAt ? new Date(Date.parse(s.lastAttemptAt) + backoffMs(s.consecutiveFailures)).toISOString() : null,
+    resumeInMs: phase === 'rate_limited' && s.lastAttemptAt ? Math.max(0, Date.parse(s.lastAttemptAt) + backoffMs(s.consecutiveFailures) - t) : null,
     errorKey,
     summary: { days: covered, posts: i.posts.measured },
   };
@@ -2801,7 +2801,7 @@ const progress = (o: Partial<AccountProgress> = {}): AccountProgress => ({
   startedAt: '2026-10-14T02:00:00Z',
   elapsedMs: 10_000,
   etaMs: null,
-  resumeAt: null,
+  resumeInMs: null,
   errorKey: null,
   summary: { days: 9, posts: 0 },
   ...o,
@@ -2998,6 +2998,461 @@ Expected: PASS (6 tests), no lint errors.
 ```bash
 git add components/accounts/useSyncProgress.ts tests/use-sync-progress.test.tsx
 git commit -m "feat(accounts): useSyncProgress polling hook (visibility, back-off, refresh per stage)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 12: `SyncProgressPanel` + `SyncBadge` + i18n
+
+**Files:**
+- Create: `components/accounts/SyncProgressPanel.tsx`, `components/accounts/SyncBadge.tsx`
+- Modify: `messages/en.json`, `messages/zh-CN.json` (new top-level `sync` namespace)
+- Test: `tests/sync-progress-panel.test.tsx` (new)
+
+**Interfaces:**
+- Consumes: `AccountProgress`, `StageView` (Task 3); `InsightOrb` (`size="xs" decorative`), `Progress`, `Badge`, `Button`, `Card` (existing UI kit); `connectHref(group)` from `components/accounts/ConnectDialog.tsx`; `formatDay`, `formatNumber`, `formatPercent` from `lib/format.ts`; `accounts.errors.*` messages (existing).
+- Produces:
+  - `SyncProgressPanel({ progress: AccountProgress[]; accounts: StoredAccount[]; busy?: boolean; onRetry: (id: string) => void })` — renders nothing when no entry matches a known account
+  - `SyncBadge({ p: AccountProgress | undefined })` — renders nothing when `p` is missing or `phase === 'done'`
+  - message keys `sync.*` (both catalogs)
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-progress-panel.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { SyncBadge } from '@/components/accounts/SyncBadge';
+import { SyncProgressPanel } from '@/components/accounts/SyncProgressPanel';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import type { AccountProgress, StageView } from '@/lib/sync/progress';
+
+beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
+afterEach(() => vi.unstubAllGlobals());
+
+const acct: StoredAccount = { id: 'a1', igUserId: 'a1', username: 'brand.one', displayName: null, accountType: null, profilePictureUrl: null, groupName: 'Brand X', status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-01T00:00:00Z', connectedAt: '2026-10-14T00:00:00Z' };
+const st = (stage: StageView['stage'], state: StageView['state'], o: Partial<StageView> = {}): StageView => ({ stage, state, done: null, total: null, reason: null, ...o });
+const base: AccountProgress = {
+  accountId: 'a1',
+  phase: 'running',
+  percent: 21,
+  stages: [st('profile', 'done'), st('stories', 'done'), st('account_days', 'running', { done: 30, total: 90 }), st('posts_list', 'pending'), st('post_metrics', 'pending'), st('audience', 'pending')],
+  current: { stage: 'account_days', day: '2026-09-14', done: 30, total: 90 },
+  startedAt: '2026-10-14T02:00:00Z',
+  elapsedMs: 150_000,
+  etaMs: null,
+  resumeInMs: null,
+  errorKey: null,
+  summary: { days: 30, posts: 0 },
+};
+
+function view(progress: AccountProgress[], locale: 'en' | 'zh-CN' = 'en', onRetry = vi.fn()) {
+  render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        <SyncProgressPanel progress={progress} accounts={[acct]} onRetry={onRetry} />
+        <SyncBadge p={progress[0]} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return onRetry;
+}
+
+describe('SyncProgressPanel', () => {
+  it('running: title, percent bar, what it is doing now, stage checklist with counts, elapsed + estimating', () => {
+    view([base]);
+    expect(screen.getByRole('heading', { name: 'Importing @brand.one' })).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Import progress for @brand.one' })).toBeInTheDocument();
+    expect(screen.getByText(/^Pulling insights for .+…$/)).toBeInTheDocument();
+    const list = screen.getByRole('list');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(list).getByText('30 / 90 days')).toBeInTheDocument();
+    expect(within(list).getAllByText('Done')).toHaveLength(2);
+    expect(screen.getByText(/Running for 3 min · Estimating…/)).toBeInTheDocument();
+    expect(screen.getByText('Importing… 21%')).toBeInTheDocument(); // the badge
+  });
+
+  it('shows an honest estimate once known', () => {
+    view([{ ...base, etaMs: 7 * 60_000 }]);
+    expect(screen.getByText(/About 7 min left/)).toBeInTheDocument();
+  });
+
+  it('rate limited: explains the slow-down and when it resumes', () => {
+    view([{ ...base, phase: 'rate_limited', current: null, resumeInMs: 12 * 60_000 }]);
+    expect(screen.getByText('Instagram asked us to slow down; resuming in about 12 min.')).toBeInTheDocument();
+  });
+
+  it('failed and stalled offer Retry; failed names the reason in plain language', async () => {
+    const onRetry = view([{ ...base, phase: 'failed', current: null, errorKey: 'instagram_unavailable', stages: base.stages.map((s) => (s.stage === 'account_days' ? { ...s, state: 'failed', reason: 'instagram_unavailable' } : s)) }]);
+    expect(screen.getByText(`The last batch failed: ${en.accounts.errors.instagram_unavailable}`)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledWith('a1');
+  });
+
+  it('stalled is never shown as running', () => {
+    view([{ ...base, phase: 'stalled', current: null }]);
+    expect(screen.getByText(en.sync.phase.stalled)).toBeInTheDocument();
+    expect(screen.queryByText(/Pulling insights/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('needs reconnect links to the reconnect flow (keeps the group)', () => {
+    view([{ ...base, phase: 'needs_reconnect', current: null, errorKey: 'token_invalid' }]);
+    expect(screen.getByRole('link', { name: 'Reconnect' })).toHaveAttribute('href', expect.stringContaining('/api/instagram/connect'));
+    expect(screen.getByText(en.sync.phase.needs_reconnect)).toBeInTheDocument();
+  });
+
+  it('done: summary and a link to the dashboard; the badge disappears', () => {
+    view([{ ...base, phase: 'done', percent: 100, current: null, summary: { days: 90, posts: 42 }, stages: base.stages.map((s) => ({ ...s, state: 'done' as const })) }]);
+    expect(screen.getByRole('heading', { name: '@brand.one is ready' })).toBeInTheDocument();
+    expect(screen.getByText('Imported 90 days of account metrics and 42 posts.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open dashboard' })).toHaveAttribute('href', '/accounts/a1');
+    expect(screen.queryByText(/Importing…/)).not.toBeInTheDocument();
+  });
+
+  it('skipped stages say why', () => {
+    view([{ ...base, stages: [...base.stages.slice(0, 5), st('audience', 'skipped', { reason: 'needs_100_followers' })] }]);
+    expect(screen.getByText(en.sync.skip.needs_100_followers)).toBeInTheDocument();
+    expect(screen.getByText('Skipped')).toBeInTheDocument();
+  });
+
+  it('one polite live region per card, announcing the stage (not every percent tick)', () => {
+    view([base]);
+    const live = document.querySelector('[aria-live="polite"].sr-only')!;
+    expect(live.textContent).toBe('@brand.one: Account metrics');
+    expect(live.textContent).not.toMatch(/%/);
+  });
+
+  it('zh-CN: real Chinese text, no raw keys', () => {
+    view([base], 'zh-CN');
+    expect(screen.getByRole('heading', { name: '正在导入 @brand.one' })).toBeInTheDocument();
+    expect(screen.getByText('30 / 90 天')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/sync\.|stages\.|activity\./);
+  });
+
+  it('renders nothing for accounts it does not know (archived/removed)', () => {
+    const { container } = render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+          <SyncProgressPanel progress={[{ ...base, accountId: 'other' }]} accounts={[acct]} onRetry={vi.fn()} />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-progress-panel.test.tsx`
+Expected: FAIL — cannot resolve `@/components/accounts/SyncBadge`.
+
+- [ ] **Step 3: Add the messages** — insert this block as a new top-level key directly BEFORE the line `  "analysis": {` in `messages/en.json`:
+
+```json
+  "sync": {
+    "badge": "Importing… {pct}",
+    "panelTitle": "Importing @{username}",
+    "doneTitle": "@{username} is ready",
+    "progressLabel": "Import progress for @{username}",
+    "percent": "{pct} done",
+    "stages": {
+      "profile": "Profile and followers",
+      "stories": "Live Stories",
+      "account_days": "Account metrics",
+      "posts_list": "Post list",
+      "post_metrics": "Post metrics",
+      "audience": "Audience"
+    },
+    "state": {
+      "pending": "Waiting",
+      "running": "In progress",
+      "done": "Done",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "days": "{done} / {total} days",
+    "posts": "{done} / {total} posts",
+    "activity": {
+      "profile": "Reading the profile and follower count…",
+      "stories": "Capturing live Stories…",
+      "account_days": "Pulling insights for {day}…",
+      "posts_list": "Listing posts…",
+      "post_metrics": "Reading post {done} of {total}…",
+      "audience": "Reading audience data…",
+      "covers": "Saving cover images…",
+      "comments": "Reading comments…"
+    },
+    "phase": {
+      "waiting": "The next batch starts shortly.",
+      "rate_limited": "Instagram asked us to slow down; resuming in about {minutes} min.",
+      "needs_reconnect": "Instagram no longer accepts this connection. Reconnect the account to continue.",
+      "failed": "The last batch failed: {reason}",
+      "stalled": "No progress for a while. Try syncing again.",
+      "done": "Import finished."
+    },
+    "elapsed": "Running for {minutes} min",
+    "eta": "About {minutes} min left",
+    "estimating": "Estimating… usually 5–10 minutes. You can leave this page; progress is saved.",
+    "summary": "Imported {days} days of account metrics and {posts} posts.",
+    "retry": "Retry",
+    "reconnect": "Reconnect",
+    "openDashboard": "Open dashboard",
+    "skip": {
+      "no_posts": "No posts yet",
+      "needs_100_followers": "Instagram shares this from 100 followers"
+    },
+    "announce": "@{username}: {stage}"
+  },
+```
+
+and this block directly BEFORE `  "analysis": {` in `messages/zh-CN.json`:
+
+```json
+  "sync": {
+    "badge": "导入中… {pct}",
+    "panelTitle": "正在导入 @{username}",
+    "doneTitle": "@{username} 已就绪",
+    "progressLabel": "@{username} 的导入进度",
+    "percent": "已完成 {pct}",
+    "stages": {
+      "profile": "资料与粉丝数",
+      "stories": "进行中的快拍",
+      "account_days": "账号数据",
+      "posts_list": "帖子列表",
+      "post_metrics": "帖子数据",
+      "audience": "受众"
+    },
+    "state": {
+      "pending": "等待中",
+      "running": "进行中",
+      "done": "已完成",
+      "skipped": "已跳过",
+      "failed": "失败"
+    },
+    "days": "{done} / {total} 天",
+    "posts": "{done} / {total} 篇帖子",
+    "activity": {
+      "profile": "正在读取资料和粉丝数…",
+      "stories": "正在保存进行中的快拍…",
+      "account_days": "正在获取 {day} 的数据…",
+      "posts_list": "正在列出帖子…",
+      "post_metrics": "正在读取第 {done} 篇帖子（共 {total} 篇）…",
+      "audience": "正在读取受众数据…",
+      "covers": "正在保存封面图…",
+      "comments": "正在读取评论…"
+    },
+    "phase": {
+      "waiting": "下一批即将开始。",
+      "rate_limited": "Instagram 要求放慢速度，约 {minutes} 分钟后继续。",
+      "needs_reconnect": "Instagram 不再接受此连接。请重新连接账号以继续。",
+      "failed": "上一批失败：{reason}",
+      "stalled": "一段时间没有进展。请再同步一次。",
+      "done": "导入完成。"
+    },
+    "elapsed": "已运行 {minutes} 分钟",
+    "eta": "约剩 {minutes} 分钟",
+    "estimating": "正在估算…通常需要 5–10 分钟。你可以离开此页面，进度会保存。",
+    "summary": "已导入 {days} 天的账号数据和 {posts} 篇帖子。",
+    "retry": "重试",
+    "reconnect": "重新连接",
+    "openDashboard": "打开仪表板",
+    "skip": {
+      "no_posts": "还没有帖子",
+      "needs_100_followers": "Instagram 在 100 位粉丝后才提供此数据"
+    },
+    "announce": "@{username}：{stage}"
+  },
+```
+
+- [ ] **Step 4: Create `components/accounts/SyncBadge.tsx`**
+
+```tsx
+'use client';
+
+import { Clock, TriangleAlert } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { InsightOrb } from '@/components/shared/InsightOrb';
+import { Badge } from '@/components/ui/badge';
+import { formatPercent } from '@/lib/format';
+import type { AccountProgress } from '@/lib/sync/progress';
+
+const WARN = ['failed', 'needs_reconnect', 'stalled', 'rate_limited'];
+
+/** Compact "Importing… 63%" for account rows and Overview cards; nothing once the import is done. Icon + text, never colour alone. */
+export function SyncBadge({ p }: { p: AccountProgress | undefined }) {
+  const t = useTranslations('sync');
+  const { prefs } = usePrefs();
+  if (!p || p.phase === 'done') return null;
+  const warn = WARN.includes(p.phase);
+  return (
+    <Badge variant={warn ? 'outline' : 'secondary'} className="max-w-full">
+      {p.phase === 'running' ? <InsightOrb size="xs" decorative /> : warn ? <TriangleAlert aria-hidden="true" /> : <Clock aria-hidden="true" />}
+      <span className="truncate">{t('badge', { pct: formatPercent(p.percent / 100, prefs, 0) })}</span>
+    </Badge>
+  );
+}
+```
+
+- [ ] **Step 5: Create `components/accounts/SyncProgressPanel.tsx`**
+
+```tsx
+'use client';
+
+// The onboarding / sync progress panel (docs/TODO.md §6a): one card per account that is importing or just finished.
+// Server state from useSyncProgress, so it survives reloads. Stage checklist, the current activity, elapsed time and an
+// honest estimate, plain-language rate-limit / stall / error states with Retry or Reconnect, a completion summary.
+// One polite live region per card announces only stage and phase changes (never every percent tick).
+import Link from 'next/link';
+import { Circle, CircleCheck, CircleMinus, CircleX } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { connectHref } from '@/components/accounts/ConnectDialog';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { InsightOrb } from '@/components/shared/InsightOrb';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { formatDay, formatNumber, formatPercent } from '@/lib/format';
+import type { AccountProgress, StageView } from '@/lib/sync/progress';
+import { cn } from '@/lib/utils';
+
+const minutes = (ms: number) => Math.max(1, Math.ceil(ms / 60_000));
+
+function StageRow({ s }: { s: StageView }) {
+  const t = useTranslations('sync');
+  const { prefs } = usePrefs();
+  const n = (v: number | null) => formatNumber(v ?? 0, prefs);
+  const count = s.total && s.stage === 'account_days' ? t('days', { done: n(s.done), total: n(s.total) }) : s.total && s.stage === 'post_metrics' ? t('posts', { done: n(s.done), total: n(s.total) }) : null;
+  const reason = s.state === 'skipped' && s.reason && t.has(`skip.${s.reason}`) ? t(`skip.${s.reason}`) : null;
+  return (
+    <li className="flex min-w-0 items-start gap-2 text-sm">
+      <span className="mt-0.5 shrink-0">
+        {s.state === 'done' ? (
+          <CircleCheck aria-hidden="true" className="size-4 text-success" />
+        ) : s.state === 'running' ? (
+          <InsightOrb size="xs" decorative />
+        ) : s.state === 'failed' ? (
+          <CircleX aria-hidden="true" className="size-4 text-destructive" />
+        ) : s.state === 'skipped' ? (
+          <CircleMinus aria-hidden="true" className="size-4 text-muted-foreground" />
+        ) : (
+          <Circle aria-hidden="true" className="size-4 text-muted-foreground" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn('block break-words', s.state === 'pending' && 'text-muted-foreground')}>{t(`stages.${s.stage}`)}</span>
+        {reason ? <span className="block text-xs text-muted-foreground">{reason}</span> : null}
+      </span>
+      <span className="shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+        {count ? <span className="block">{count}</span> : null}
+        <span className="block">{t(`state.${s.state}`)}</span>
+      </span>
+    </li>
+  );
+}
+
+function PanelCard({ p, account, busy, onRetry }: { p: AccountProgress; account: StoredAccount; busy: boolean; onRetry: (id: string) => void }) {
+  const t = useTranslations('sync');
+  const tErr = useTranslations('accounts.errors');
+  const { prefs } = usePrefs();
+  const username = account.username;
+  const done = p.phase === 'done';
+  const pct = formatPercent(p.percent / 100, prefs, 0);
+  const activity = p.current
+    ? t(`activity.${p.current.stage}`, { day: p.current.day ? formatDay(p.current.day, prefs) : '', done: formatNumber(p.current.done + 1, prefs), total: formatNumber(p.current.total ?? 0, prefs) })
+    : null;
+  const reason = p.errorKey && tErr.has(p.errorKey) ? tErr(p.errorKey) : tErr('unexpected');
+  const status =
+    p.phase === 'running' ? activity
+    : p.phase === 'rate_limited' ? t('phase.rate_limited', { minutes: formatNumber(minutes(p.resumeInMs ?? 0), prefs) })
+    : p.phase === 'failed' ? t('phase.failed', { reason })
+    : t(`phase.${p.phase}`);
+  const currentStage = p.stages.find((s) => s.state === 'running' || s.state === 'failed') ?? p.stages.find((s) => s.state === 'pending');
+  const announce = done ? t('phase.done') : t('announce', { username, stage: currentStage ? t(`stages.${currentStage.stage}`) : t('phase.waiting') });
+
+  return (
+    <Card>
+      <CardContent className="grid min-w-0 gap-3">
+        <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h2 className="min-w-0 break-words font-semibold">{done ? t('doneTitle', { username }) : t('panelTitle', { username })}</h2>
+          <span className="text-sm text-muted-foreground tabular-nums">{t('percent', { pct })}</span>
+        </div>
+        <Progress value={p.percent} aria-label={t('progressLabel', { username })} />
+        {status ? (
+          <p className={cn('flex min-w-0 items-center gap-2 text-sm', p.phase === 'failed' || p.phase === 'needs_reconnect' || p.phase === 'stalled' ? 'text-destructive' : 'text-muted-foreground')}>
+            {p.phase === 'running' ? <InsightOrb size="xs" decorative /> : null}
+            <span className="min-w-0 break-words">{status}</span>
+          </p>
+        ) : null}
+        <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {p.stages.map((s) => (
+            <StageRow key={s.stage} s={s} />
+          ))}
+        </ol>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="min-w-0 break-words">
+            {done
+              ? t('summary', { days: formatNumber(p.summary.days, prefs), posts: formatNumber(p.summary.posts, prefs) })
+              : [p.elapsedMs !== null ? t('elapsed', { minutes: formatNumber(minutes(p.elapsedMs), prefs) }) : null, p.etaMs !== null ? t('eta', { minutes: formatNumber(minutes(p.etaMs), prefs) }) : t('estimating')].filter(Boolean).join(' · ')}
+          </span>
+          <span className="flex flex-wrap gap-2">
+            {p.phase === 'failed' || p.phase === 'stalled' ? (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => onRetry(p.accountId)}>
+                {t('retry')}
+              </Button>
+            ) : null}
+            {p.phase === 'needs_reconnect' ? (
+              <Button size="sm" asChild>
+                <a href={connectHref(account.groupName)}>{t('reconnect')}</a>
+              </Button>
+            ) : null}
+            {done ? (
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/accounts/${p.accountId}`}>{t('openDashboard')}</Link>
+              </Button>
+            ) : null}
+          </span>
+        </div>
+        <p className="sr-only" aria-live="polite">
+          {announce}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function SyncProgressPanel({ progress, accounts, busy = false, onRetry }: { progress: AccountProgress[]; accounts: StoredAccount[]; busy?: boolean; onRetry: (id: string) => void }) {
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const shown = progress.filter((p) => byId.has(p.accountId));
+  if (shown.length === 0) return null;
+  return (
+    <section className="mb-[var(--gp)] grid gap-[var(--gp)]">
+      {shown.map((p) => (
+        <PanelCard key={p.accountId} p={p} account={byId.get(p.accountId)!} busy={busy} onRetry={onRetry} />
+      ))}
+    </section>
+  );
+}
+```
+
+- [ ] **Step 6: Run the tests and lint**
+
+Run: `npx vitest run tests/sync-progress-panel.test.tsx tests/messages.test.ts tests/ui-imports.test.ts tests/admin-guard.test.ts && npx eslint components/accounts && npx tsc --noEmit`
+Expected: PASS (11 panel tests; catalogs in parity with real zh-CN), no lint or type errors.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add components/accounts/SyncProgressPanel.tsx components/accounts/SyncBadge.tsx messages/en.json messages/zh-CN.json tests/sync-progress-panel.test.tsx
+git commit -m "feat(accounts): sync progress panel and badge (stages, activity, estimate, states)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
