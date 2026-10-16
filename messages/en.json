@@ -475,6 +475,60 @@
     "posts": "Posts",
     "netFollows": "Net follows"
   },
+  "sync": {
+    "badge": "Importing… {pct}",
+    "panelTitle": "Importing @{username}",
+    "doneTitle": "@{username} is ready",
+    "progressLabel": "Import progress for @{username}",
+    "percent": "{pct} done",
+    "stages": {
+      "profile": "Profile and followers",
+      "stories": "Live Stories",
+      "account_days": "Account metrics",
+      "posts_list": "Post list",
+      "post_metrics": "Post metrics",
+      "audience": "Audience"
+    },
+    "state": {
+      "pending": "Waiting",
+      "running": "In progress",
+      "done": "Done",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "days": "{done} / {total} days",
+    "posts": "{done} / {total} posts",
+    "activity": {
+      "profile": "Reading the profile and follower count…",
+      "stories": "Capturing live Stories…",
+      "account_days": "Pulling insights for {day}…",
+      "posts_list": "Listing posts…",
+      "post_metrics": "Reading post {done} of {total}…",
+      "audience": "Reading audience data…",
+      "covers": "Saving cover images…",
+      "comments": "Reading comments…"
+    },
+    "phase": {
+      "waiting": "The next batch starts shortly.",
+      "rate_limited": "Instagram asked us to slow down; resuming in about {minutes} min.",
+      "needs_reconnect": "Instagram no longer accepts this connection. Reconnect the account to continue.",
+      "failed": "The last batch failed: {reason}",
+      "stalled": "No progress for a while. Try syncing again.",
+      "done": "Import finished."
+    },
+    "elapsed": "Running for {minutes} min",
+    "eta": "About {minutes} min left",
+    "estimating": "Estimating… usually 5–10 minutes. You can leave this page; progress is saved.",
+    "summary": "Imported {days} days of account metrics and {posts} posts.",
+    "retry": "Retry",
+    "reconnect": "Reconnect",
+    "openDashboard": "Open dashboard",
+    "skip": {
+      "no_posts": "No posts yet",
+      "needs_100_followers": "Instagram shares this from 100 followers"
+    },
+    "announce": "@{username}: {stage}"
+  },
   "analysis": {
     "coverage": "{pct} of this period imported so far",
     "low": "Low",
