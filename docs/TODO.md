@@ -80,6 +80,18 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] One owner check per request (React.cache, parallel RPC), per-request accounts/sync-status reads, `Server-Timing` from the proxy — code done
 - [ ] Measure before/after on production and fill docs/RUNBOOK_PERF.md §5 (owner, signed in)
 
+## 6a. Onboarding sync — BUG + feature (owner, 2026-10-16) — do early (Plan 11)
+- [ ] **BUG: connecting a new account does not start a sync.** Today the first data appears only at the next cron tick (up to 30 min), and the 90-day backfill then needs several ticks (35 s budget each; observed 3–5 runs) so a new account looks empty for 1–2 h with no explanation. Fix: the OAuth callback (and reconnect) must trigger an immediate sync of THAT account (mark it due + run it in `after()`), and while a backfill has work left the app keeps going without waiting 30 min (e.g. the progress page triggers the next pass via the existing owner-only sync action, or the run re-schedules itself), still inside the per-account lease and call budget.
+- [ ] **Sync progress experience (professional UX).** After adding an account, show a progress panel (and a compact badge on every account row/card and on Overview while syncing):
+  - overall % and a stage checklist with live state: Profile → Account metrics (e.g. "48 / 90 days") → Post list → Post metrics ("12 / 42 posts") → Stories → Audience → Cover images → Comments; each stage pending / running (Insight Orb) / done / skipped (with reason) / failed (with a plain-language reason and Retry);
+  - what it is doing right now ("Pulling reach for 12 Aug…"), time elapsed and an honest estimate ("usually 5–10 minutes; you can leave this page, we will notify you");
+  - survives reloads and closing the tab (progress is server state, not client state); polls every 2–3 s while visible (or Supabase Realtime), stops when done;
+  - rate-limit and error states explained ("Instagram asked us to slow down; resuming in ~12 min"), never a silent stall; needs-reconnect state links to Reconnect;
+  - completion: summary ("Imported 90 days, 42 posts, 3 Stories, audience data"), bell/push notification, "Open dashboard" button;
+  - requires per-stage progress counters written by the sync runners (new table/columns, e.g. `sync_progress`: account_id, stage, done, total, state, detail_key, updated_at; append-only run log kept), i18n en/zh-CN, a11y live region, works on desktop first and on phone;
+  - applies equally to reconnect and to "Sync now".
+- Workaround until fixed: Accounts → **Sync now** on the new account (repeat a few times until "last synced" is recent and 90 days of data show).
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)

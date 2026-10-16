@@ -23,6 +23,8 @@ Source of truth: `docs/superpowers/specs/2026-10-15-creator-toolkit-design.md` (
 Each phase: write a plan (`superpowers:writing-plans`, model it on `docs/superpowers/plans/2026-10-18-08-alerts-pwa.md`), execute with subagent-driven development, final opus review, fix wave, merge to `main`, push, update `docs/TODO.md`.
 **Live probes: mostly DONE 2026-10-16 — see `docs/META_PROBE_RESULTS.md`** (views+follow_type works; 90-day time_series range works; `reposts` is NOT supported per media; follows/profile_visits feed-only; Reels have watch time + skip rate; image URLs expire in ~1.4–4.5 days; caption/media_product_type work). Still to probe: Story media fields (needs a live Story), comments edge/scope with real comments, follower-export file names, `follower_count` semantics.
 
+> **Known bug to fix first in Plan 11:** connecting/reconnecting an account does not trigger a sync (first data waits for the next 30-min tick; backfill takes several ticks) and there is no progress UI. Requirements: docs/TODO.md §6a. Workaround: Accounts → Sync now.
+
 ## 3. Hard facts about what Instagram allows (don't re-litigate)
 No follower/following lists, no unfollower names, no Story viewers, no post likers, no profile visitors — via any official API. Scraping/unofficial apps violate Meta terms (risk: restriction). Legitimate substitutes (in the spec): daily follows/unfollows totals, reach split follower vs non-follower, commenter leaderboard (extra scope + reconnect), and an owner-uploaded "Download your information" export diff. History before connect day cannot be recovered. Posts older than the Creator conversion have no insights (error code 100 / subcode 2108006 → skipped). Stories with <5 viewers return error 10 (no data).
 
