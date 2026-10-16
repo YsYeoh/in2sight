@@ -5,6 +5,8 @@ import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import { classifyIgError, type IgData } from '@/lib/instagram/data';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
+import { coveredDays } from '@/lib/sync/progress';
+import type { ProgressSink } from '@/lib/sync/progress-sink';
 import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, type JobKind, type SyncState } from '@/lib/sync/schedule';
 import type { StatePatch, SyncStore } from '@/lib/sync/store';
 import { addDays, dayRangeSec, localDay } from '@/lib/sync/time';
@@ -32,6 +34,8 @@ export interface RunContext {
   /** ms epoch; jobs stop between API calls once clock() passes it and report "not done" */
   deadline: number;
   clock: () => number;
+  /** Live progress (only while the account is importing or on a manual run); best-effort, never throws. */
+  progress?: ProgressSink;
 }
 
 /** Coverage edges that must survive a job failing half-way (e.g. 40 history days written, then a 5xx). */
@@ -70,6 +74,7 @@ async function walkBack(c: RunContext, p: Progress, floor: string): Promise<{ do
   const yesterday = addDays(localDay(c.now, c.tz), -1);
   for (let day = p.backfilledFrom ? addDays(p.backfilledFrom, -1) : yesterday; day >= floor; day = addDays(day, -1)) {
     if (outOfTime(c)) return { done: false };
+    await c.progress?.report('account_days', coveredDays(p), BACKFILL_DAYS, day);
     await fetchDay(c, day);
     p.dailyDoneThrough ??= day;
     p.backfilledFrom = day;
@@ -95,6 +100,7 @@ const daily: Job = async (c, p) => {
   }
   for (; day <= yesterday; day = addDays(day, 1)) {
     if (outOfTime(c)) return { done: false };
+    await c.progress?.report('account_days', coveredDays(p), BACKFILL_DAYS, day);
     await fetchDay(c, day);
     if (day > p.dailyDoneThrough!) p.dailyDoneThrough = day;
   }
@@ -118,9 +124,11 @@ async function followerSnapshot(c: RunContext) {
 
 /** Live stories: upsert, then one metrics snapshot each. Under 5 viewers Instagram refuses (no_data): skip that story. */
 const stories: Job = async (c) => {
+  await c.progress?.report('profile', 0, 1);
   await followerSnapshot(c);
   const items = await c.ig.listStories(c.token);
   await c.store.upsertMedia(c.account.id, items);
+  await c.progress?.report('stories', 0, items.length);
   const at = c.now.toISOString();
   const captured: string[] = [];
   try {
@@ -143,6 +151,7 @@ const stories: Job = async (c) => {
 
 /** Feed + Reels list. First run: up to MEDIA_BACKFILL_MAX posts; afterwards: until posts older than 30 days. */
 const mediaList: Job = async (c) => {
+  await c.progress?.report('posts_list', 0, null);
   const first = !c.state.lastRun.mediaList;
   const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
   const items = await c.ig.listMedia(c.token, first ? MEDIA_BACKFILL_MAX : MEDIA_RECENT_MAX, first ? undefined : since, () => outOfTime(c));
@@ -168,11 +177,12 @@ async function captureMedia(c: RunContext, due: string[]): Promise<{ done: boole
   let firstError: unknown;
   let streak = 0;
   try {
-    for (const id of due) {
+    for (const [i, id] of due.entries()) {
       if (outOfTime(c)) {
         if (firstError) throw firstError;
         return { done: false };
       }
+      await c.progress?.report('post_metrics', i, due.length);
       let values;
       try {
         values = await c.ig.feedInsights(c.token, id);
@@ -220,6 +230,7 @@ const backfill: Job = async (c, p) => {
 
 /** Demographics + online followers. Under 100 followers Instagram returns empty data: nothing is written, not an error. */
 const audience: Job = async (c) => {
+  await c.progress?.report('audience', 0, 1);
   const today = localDay(c.now, c.tz);
   for (const kind of Object.keys(DEMOGRAPHIC_BREAKDOWNS) as AudienceKind[]) {
     if (outOfTime(c)) return { done: false };
