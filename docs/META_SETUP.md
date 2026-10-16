@@ -70,6 +70,11 @@ On the same use-case / API-setup page, under **Permissions and features**, add:
 
 Leave `instagram_business_manage_messages`, `…manage_comments` and `…content_publish` **off** — in2sight only reads, and asking for less is safer.
 
+## Part 5b — Comments permission (for fans, moderation; added 2026-10-16)
+1. Same page as Part 5 (**Use cases → Manage messaging and content on Instagram → Customize → Permissions and features**): click **Add** next to `instagram_business_manage_comments`. Status should read *Ready for testing* (Standard access for your own / tester accounts; no App Review). Keep `instagram_business_basic` and `instagram_business_manage_insights`.
+2. **Do not reconnect accounts yet.** The app only requests the permissions in `IG_SCOPES` (lib/instagram/oauth.ts). After the Plan 11 change adds `instagram_business_manage_comments` to `IG_SCOPES` and it is deployed, open **Accounts → Reconnect** on each account and approve the extra permission (same row, history kept).
+3. Verify: `GET /{media-id}/comments?fields=id,text,timestamp,username,like_count` on a post that has comments returns them without a permission error.
+
 ## Part 6 — The redirect address (must match exactly)
 
 1. On the API-setup page open **Business login settings**.
