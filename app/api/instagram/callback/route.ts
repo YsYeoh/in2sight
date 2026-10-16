@@ -4,7 +4,7 @@ import { assertOwner } from '@/lib/auth/assert-owner';
 import { EnvError, getInstagramEnv } from '@/lib/env';
 import { processCallback } from '@/lib/instagram/connect-flow';
 import { syncAccountNow } from '@/lib/sync/connect-sync';
-import { clearSyncError } from '@/lib/sync/store';
+import { clearSyncError, resetSyncProgress } from '@/lib/sync/store';
 import { STATE_COOKIE } from '@/lib/instagram/state';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
       { code: q.get('code'), state: q.get('state'), error: q.get('error'), cookie: request.cookies.get(STATE_COOKIE)?.value },
       { cfg: getInstagramEnv(), store: supabaseAccountsStore(db), onConnected: async (id) => {
           await clearSyncError(db, id);
+          await resetSyncProgress(db, id, new Date().toISOString()); // new progress session; coverage (sync_state) is kept
           after(() => syncAccountNow(id)); // start syncing this account at once; the redirect is not delayed
         },
       },

@@ -16,3 +16,12 @@ export async function syncAccountNow(accountId: string): Promise<void> {
     console.error('sync after connect failed'); // fixed text: never log error objects
   }
 }
+
+/** "Sync now": start a continuation pass (chain depth 0) when the run stopped on its time budget. Never throws. */
+export async function continueIfMore(more: boolean): Promise<void> {
+  try {
+    if (shouldChain(more, 0)) await continueChain(getServerEnv().cronSecret, 0);
+  } catch {
+    console.error('sync continuation failed'); // fixed text: never log error objects
+  }
+}

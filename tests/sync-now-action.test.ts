@@ -6,6 +6,9 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => ({}) }));
 vi.mock('@/lib/sync/deps', () => ({ createSyncDeps: () => (calls.push('deps'), { __deps: true }) }));
 vi.mock('@/lib/sync/tick', () => ({ TICK_BUDGET_MS: 35_000, runTick: (...a: unknown[]) => (calls.push('tick'), runTick(...a)) }));
 vi.mock('next/cache', () => ({ revalidatePath: (p: string) => calls.push(`revalidate:${p}`) }));
+vi.mock('next/server', () => ({ after: (fn: () => unknown) => void fn() }));
+vi.mock('@/lib/sync/store', () => ({ resetSyncProgress: async (_db: unknown, id: string) => void calls.push(`reset:${id}`) }));
+vi.mock('@/lib/sync/connect-sync', () => ({ continueIfMore: async (more: boolean) => void calls.push(`continue:${more}`) }));
 
 import { syncNowAction } from '@/app/(app)/accounts/actions';
 
@@ -21,7 +24,7 @@ beforeEach(() => {
 describe('syncNowAction', () => {
   it('checks the owner first, then runs a manual tick for that one account', async () => {
     expect(await syncNowAction(ID)).toEqual({ ok: true });
-    expect(calls.slice(0, 3)).toEqual(['requireOwner', 'deps', 'tick']);
+    expect(calls.slice(0, 4)).toEqual(['requireOwner', `reset:${ID}`, 'deps', 'tick']);
     expect(runTick).toHaveBeenCalledWith({ __deps: true }, { trigger: 'manual', budgetMs: 35_000, accountId: ID });
     expect(calls).toContain('revalidate:/accounts');
   });
@@ -47,9 +50,18 @@ describe('syncNowAction', () => {
     expect(await syncNowAction(ID)).toEqual({ ok: false, error });
   });
 
-  it('a partial run (time budget) still counts as ok', async () => {
-    runTick.mockResolvedValue(summary([{ accountId: ID, outcome: 'partial', jobs: ['stories'] }]));
+  it('a partial run (time budget) still counts as ok and starts a continuation pass after the response', async () => {
+    runTick.mockResolvedValue({ ...summary([{ accountId: ID, outcome: 'partial', jobs: ['stories'] }]), more: true });
     expect(await syncNowAction(ID)).toEqual({ ok: true });
+    expect(calls).toContain('continue:true');
+  });
+
+  it('a complete run does not chain; a non-uuid id resets nothing', async () => {
+    await syncNowAction(ID);
+    expect(calls).toContain('continue:false');
+    calls.length = 0;
+    await syncNowAction('nope');
+    expect(calls.some((c) => c.startsWith('reset:'))).toBe(false);
   });
 
   it('unexpected failures become a generic key without details', async () => {
