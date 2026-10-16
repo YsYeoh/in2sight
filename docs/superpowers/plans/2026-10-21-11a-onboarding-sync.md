@@ -2769,3 +2769,235 @@ git commit -m "feat(analysis): coverage per window and an importing reason inste
 ```
 
 ---
+
+### Task 11: `useSyncProgress` polling hook
+
+**Files:**
+- Create: `components/accounts/useSyncProgress.ts`
+- Test: `tests/use-sync-progress.test.tsx` (new)
+
+**Interfaces:**
+- Consumes: `AccountProgress` (Task 3); `GET /api/sync/progress` → `{ accounts: AccountProgress[] }` (Task 8); `useRouter().refresh` (`next/navigation`).
+- Produces: `useSyncProgress(initial: AccountProgress[]): AccountProgress[]`; constants `POLL_MS = 3_000`, `MAX_BACKOFF_MS = 60_000`. Polls only while some entry has `phase !== 'done'`; pauses while `document.visibilityState !== 'visible'`; stops on 401; adopts a new `initial` array (server re-render) via the "adjust state on prop change" pattern (the same one `NavigationProgress` uses — no `setState` inside an effect). Callers must pass a server-provided array (stable between client renders).
+
+- [ ] **Step 1: Write the failing test** — create `tests/use-sync-progress.test.tsx`:
+
+```tsx
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AccountProgress } from '@/lib/sync/progress';
+
+const refresh = vi.hoisted(() => vi.fn());
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
+
+import { MAX_BACKOFF_MS, POLL_MS, useSyncProgress } from '@/components/accounts/useSyncProgress';
+
+const progress = (o: Partial<AccountProgress> = {}): AccountProgress => ({
+  accountId: 'a1',
+  phase: 'running',
+  percent: 10,
+  stages: [{ stage: 'profile', state: 'done', done: null, total: null, reason: null }, { stage: 'account_days', state: 'running', done: 9, total: 90, reason: null }],
+  current: { stage: 'account_days', day: '2026-10-05', done: 9, total: 90 },
+  startedAt: '2026-10-14T02:00:00Z',
+  elapsedMs: 10_000,
+  etaMs: null,
+  resumeAt: null,
+  errorKey: null,
+  summary: { days: 9, posts: 0 },
+  ...o,
+});
+const BOTH_DONE: AccountProgress['stages'] = [{ stage: 'profile', state: 'done', done: null, total: null, reason: null }, { stage: 'account_days', state: 'done', done: 90, total: 90, reason: null }];
+/** the server render's value: one stable array, like a server component prop */
+const INIT = [progress()];
+const DONE = [progress({ phase: 'done', percent: 100 })];
+const ok = (accounts: AccountProgress[]) => new Response(JSON.stringify({ accounts }), { status: 200, headers: { 'content-type': 'application/json' } });
+let visibility: DocumentVisibilityState = 'visible';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  refresh.mockReset();
+  visibility = 'visible';
+  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe('useSyncProgress', () => {
+  it('does not poll when nothing is running', async () => {
+    const fetchFn = vi.fn();
+    vi.stubGlobal('fetch', fetchFn);
+    renderHook(() => useSyncProgress(DONE));
+    await act(() => vi.advanceTimersByTimeAsync(4 * POLL_MS));
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('polls every 3 s while running, adopts the answer, refreshes on each completed stage and stops when done', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(ok([progress({ percent: 30 })]))
+      .mockResolvedValueOnce(ok([progress({ percent: 60, stages: BOTH_DONE })]))
+      .mockResolvedValue(ok([progress({ phase: 'done', percent: 100, stages: BOTH_DONE })]));
+    vi.stubGlobal('fetch', fetchFn);
+    const { result } = renderHook(() => useSyncProgress(INIT));
+    await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+    expect(fetchFn).toHaveBeenCalledWith('/api/sync/progress', { cache: 'no-store' });
+    expect(result.current[0].percent).toBe(30);
+    expect(refresh).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+    expect(result.current[0].percent).toBe(60);
+    expect(refresh).toHaveBeenCalledTimes(1); // account days finished: show the new numbers
+    await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+    expect(result.current[0].phase).toBe('done');
+    expect(refresh).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(5 * POLL_MS));
+    expect(fetchFn).toHaveBeenCalledTimes(3); // stopped
+  });
+
+  it('backs off on errors: 3 s, then 6 s, then 12 s … capped at 60 s', async () => {
+    const fetchFn = vi.fn().mockRejectedValue(new TypeError('offline'));
+    vi.stubGlobal('fetch', fetchFn);
+    renderHook(() => useSyncProgress(INIT));
+    await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(2 * POLL_MS - 1));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(4 * POLL_MS));
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    await act(() => vi.advanceTimersByTimeAsync(10 * MAX_BACKOFF_MS));
+    expect(fetchFn.mock.calls.length).toBeLessThanOrEqual(3 + 2 + 10); // never faster than the cap once backed off
+  });
+
+  it('pauses while the tab is hidden and polls at once when it becomes visible again', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok([progress()]));
+    vi.stubGlobal('fetch', fetchFn);
+    visibility = 'hidden';
+    renderHook(() => useSyncProgress(INIT));
+    await act(() => vi.advanceTimersByTimeAsync(5 * POLL_MS));
+    expect(fetchFn).not.toHaveBeenCalled();
+    visibility = 'visible';
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops polling when the session is gone (401)', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response('{"error":"unauthorized"}', { status: 401 }));
+    vi.stubGlobal('fetch', fetchFn);
+    renderHook(() => useSyncProgress(INIT));
+    await act(() => vi.advanceTimersByTimeAsync(10 * POLL_MS));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('adopts fresher server data passed in after a refresh', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok([progress()])));
+    const { result, rerender } = renderHook(({ init }) => useSyncProgress(init), { initialProps: { init: [progress({ percent: 10 })] } });
+    rerender({ init: [progress({ percent: 77 })] });
+    expect(result.current[0].percent).toBe(77);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/use-sync-progress.test.tsx`
+Expected: FAIL — cannot resolve `@/components/accounts/useSyncProgress`.
+
+- [ ] **Step 3: Create `components/accounts/useSyncProgress.ts`**
+
+```ts
+'use client';
+
+// Polls the owner-only GET /api/sync/progress while an account is importing and the tab is visible. Progress is server
+// state, so a reload or a second tab shows the same thing; the server render passes the first value in. Backs off on
+// errors (3 s doubling to 60 s), stops on 401 and when nothing is running, and refreshes the page's server data
+// whenever a stage completes (Overview numbers appear as each step lands) and once at the end.
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import type { AccountProgress } from '@/lib/sync/progress';
+
+export const POLL_MS = 3_000;
+export const MAX_BACKOFF_MS = 60_000;
+
+const completed = (list: AccountProgress[]) => list.reduce((n, p) => n + (p.phase === 'done' ? 1 : 0) + p.stages.filter((s) => s.state === 'done' || s.state === 'skipped').length, 0);
+
+export function useSyncProgress(initial: AccountProgress[]): AccountProgress[] {
+  const router = useRouter();
+  const [list, setList] = useState(initial);
+  const [seen, setSeen] = useState(initial);
+  if (initial !== seen) {
+    // a new server render (router.refresh, navigation) brings fresher data: adopt it
+    setSeen(initial);
+    setList(initial);
+  }
+  const active = list.some((p) => p.phase !== 'done');
+
+  useEffect(() => {
+    if (!active) return;
+    let stopped = false;
+    let delay = POLL_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (ms: number) => {
+      clearTimeout(timer);
+      if (!stopped) timer = setTimeout(poll, ms);
+    };
+    async function poll() {
+      if (document.visibilityState !== 'visible') return; // paused; visibilitychange resumes
+      try {
+        const res = await fetch('/api/sync/progress', { cache: 'no-store' });
+        if (res.status === 401) {
+          stopped = true; // signed out: the next navigation goes to /login
+          return;
+        }
+        if (!res.ok) throw new Error('progress');
+        const body = (await res.json()) as { accounts?: AccountProgress[] };
+        if (stopped) return;
+        delay = POLL_MS;
+        setList(Array.isArray(body.accounts) ? body.accounts : []);
+      } catch {
+        delay = Math.min(delay * 2, MAX_BACKOFF_MS);
+      }
+      schedule(delay);
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') schedule(0);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    schedule(POLL_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [active]);
+
+  const done = completed(list);
+  const prev = useRef(done);
+  useEffect(() => {
+    if (done > prev.current) router.refresh();
+    prev.current = done;
+  }, [done, router]);
+
+  return list;
+}
+```
+
+- [ ] **Step 4: Run the test and lint**
+
+Run: `npx vitest run tests/use-sync-progress.test.tsx && npx eslint components/accounts/useSyncProgress.ts tests/use-sync-progress.test.tsx`
+Expected: PASS (6 tests), no lint errors.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/accounts/useSyncProgress.ts tests/use-sync-progress.test.tsx
+git commit -m "feat(accounts): useSyncProgress polling hook (visibility, back-off, refresh per stage)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
