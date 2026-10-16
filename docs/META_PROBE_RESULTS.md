@@ -38,3 +38,10 @@ Run read-only against the owner's real connected Creator account (Instagram API 
 - Plan 12 (Post Lab): drop `reposts` from per-media; `follows`/`profile_visits` for feed + carousel only; Reels get watch time + skip rate; add `shares, saved` (already), keep `profile_activity` with `action_type`; Stories navigation still to probe live.
 - Plan 13a: account-level `reach`/`views` by `follow_type` and by `media_product_type` are available daily — store them as daily breakdown rows; use `last_30_days`/`last_90_days` demographics; backfill `time_series` metrics in a single 90-day call to save calls.
 - Remember: reach for this account is Story-dominated (stories are ~99% of reach on the probed window) — the analysis should split by `media_product_type` so feed/Reels performance isn't drowned out.
+
+## Addendum 2026-10-16 — combined breakdowns (Story non-follower views)
+- `reach` and `views` accept TWO breakdowns in one call: `breakdown=follow_type,media_product_type` (either order). Account-level, daily window. Sample over 6 days on the owner's account: Story reach 350 FOLLOWER / 4 NON_FOLLOWER; Story views 965 FOLLOWER / 60 NON_FOLLOWER; Reel views 55 / 31; carousel views 31 / 54.
+- So the **non-follower share of Story (and Reel/feed) reach and views per day is available** and should be stored daily (reach and views × follow_type × media_product_type = one call each per day).
+- Still NOT available: the split per individual Story/post (follow_type is not accepted on media insights), and any list of who the non-followers are.
+- A same-day query (`since == until`) returned no data; use a window of at least one full day like the existing daily job does.
+- No Story was live during this probe, so Story-level metrics (navigation etc.) remain to be probed while one is live.
