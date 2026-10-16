@@ -4,6 +4,8 @@ import { useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { CircleUserRound, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { SyncBadge } from '@/components/accounts/SyncBadge';
+import { useSyncProgress } from '@/components/accounts/useSyncProgress';
 import { SeriesChart } from '@/components/charts/SeriesChart';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { usePrefs } from '@/components/providers/PrefsProvider';
@@ -22,6 +24,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { Kpi, KpiId } from '@/lib/analysis/growth';
 import type { Period } from '@/lib/analysis/types';
 import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';
+import type { AccountProgress } from '@/lib/sync/progress';
 import { formatCompact, formatDateTime, formatDay, formatDelta, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
@@ -39,7 +42,10 @@ function MiniStat({ id, k }: { id: KpiId; k: Kpi }) {
   );
 }
 
-function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {
+/** Stable default (see useSyncProgress): never a new [] per render. */
+const NO_PROGRESS: AccountProgress[] = [];
+
+function AccountCardView({ c, period, p }: { c: AccountCard; period: Period; p: AccountProgress | undefined }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
@@ -69,7 +75,9 @@ function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {
                 <TriangleAlert aria-hidden="true" />
                 {t('needsReconnect')}
               </Badge>
-            ) : null}
+            ) : (
+              <SyncBadge p={p} />
+            )}
           </div>
 
           <div className="flex min-w-0 items-end justify-between gap-2">
@@ -187,13 +195,15 @@ function Comparison({ model }: { model: OverviewModel }) {
   );
 }
 
-export function OverviewView({ model, exportButton }: { model: OverviewModel; exportButton?: ReactNode }) {
+export function OverviewView({ model, exportButton, progress = NO_PROGRESS }: { model: OverviewModel; exportButton?: ReactNode; progress?: AccountProgress[] }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
   const uid = useId();
+  const live = useSyncProgress(progress); // polls while an account imports; refreshes the numbers as each step lands
+  const byId = new Map(live.map((p) => [p.accountId, p]));
   const header = (
     <PageHeader
       title={t('title')}
@@ -268,7 +278,7 @@ export function OverviewView({ model, exportButton }: { model: OverviewModel; ex
             </div>
             <ul className="grid gap-[var(--gp)] sm:grid-cols-2 xl:grid-cols-3">
               {s.cards.map((c) => (
-                <AccountCardView key={c.id} c={c} period={model.period} />
+                <AccountCardView key={c.id} c={c} period={model.period} p={byId.get(c.id)} />
               ))}
             </ul>
           </section>

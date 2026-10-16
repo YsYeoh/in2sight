@@ -13,6 +13,9 @@ import type { OverviewInput } from '@/lib/dashboard/read';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { addDays } from '@/lib/sync/time';
 
+// the live progress hook refreshes the route when an import step lands
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
 afterEach(() => vi.unstubAllGlobals());
 
