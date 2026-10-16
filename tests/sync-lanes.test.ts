@@ -130,3 +130,15 @@ describe('lane 1 failure', () => {
     expect(ig.accountDay).toHaveBeenCalled();
   });
 });
+
+describe('unexpected store failure', () => {
+  it('a state-write failure ends the live row as failed/unexpected instead of leaving it "running"', async () => {
+    const { deps, mem } = setup([account({ id: 'n1' })]);
+    mem.store.saveState = async () => {
+      throw new Error('db down');
+    };
+    const s = await runTick(deps, { trigger: 'manual', accountId: 'n1' });
+    expect(s.accounts[0]).toMatchObject({ outcome: 'failed', errorKey: 'unexpected' });
+    expect(mem.progress.at(-1)!.p).toMatchObject({ state: 'failed', errorKey: 'unexpected' });
+  });
+});

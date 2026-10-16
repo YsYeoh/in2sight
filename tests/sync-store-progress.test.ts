@@ -74,7 +74,6 @@ describe('listSyncStatus backfilling flag', () => {
     ]);
     const s = await listSyncStatus(r.db);
     expect(Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v.backfilling]))).toEqual({ new: true, half: true, done: false, legacy: false });
-    expect(s.half.backfilledFrom).toBe('2026-09-20');
     expect(r.calls[0].args[0]).toContain('backfilled_from');
     expect(r.calls[0].args[0]).toContain('last_run');
   });

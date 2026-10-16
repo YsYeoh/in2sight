@@ -115,3 +115,20 @@ describe('isTracked', () => {
     expect(buildProgress(input({ live: session }, { ...doneState, lastSuccessAt: ago(30 * MIN) }), NOW).phase).toBe('waiting');
   });
 });
+
+describe('a running row left behind', () => {
+  const doneState = { ...emptyState('a1'), lastRun: { backfill: ago(MIN) }, dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16' };
+  const stale = live({ state: 'running', stage: 'stories', startedAt: ago(20 * MIN), updatedAt: ago(15 * MIN) });
+
+  it('stale running row + a later success = done, not stalled forever', () => {
+    const after = { ...doneState, lastSuccessAt: ago(10 * MIN) };
+    expect(buildProgress(input({ live: stale }, after), NOW).phase).toBe('done');
+    expect(isTracked({ state: after, live: stale }, NOW)).toBe(false); // ended 10 min ago: outside the recent window
+  });
+
+  it('a fresh running row, or a stale one with no later success, is not ended', () => {
+    const fresh = live({ state: 'running', stage: 'stories', startedAt: ago(MIN), updatedAt: ago(10_000) });
+    expect(buildProgress(input({ live: fresh }, { ...doneState, lastSuccessAt: ago(5_000) }), NOW).phase).toBe('running');
+    expect(buildProgress(input({ live: stale }, { ...doneState, lastSuccessAt: ago(18 * MIN) }), NOW).phase).not.toBe('done');
+  });
+});

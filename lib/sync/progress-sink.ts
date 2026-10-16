@@ -5,6 +5,8 @@ import type { SyncStore } from '@/lib/sync/store';
 
 /** At most one write per account this often while the stage stays the same. */
 export const THROTTLE_MS = 3_000;
+/** A hung database call must never hold up the sync: a write is given up on after this long. */
+export const WRITE_CAP_MS = 2_000;
 
 export interface ProgressSink {
   /** What the run is doing now. Written at once when the stage changes, otherwise at most every THROTTLE_MS. */
@@ -19,10 +21,14 @@ export function progressSink(store: SyncStore, accountId: string, clock: () => n
   let last = -Infinity;
   const write = async (state: LiveState, errorKey: string | null) => {
     const at = new Date(clock()).toISOString();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await store.writeProgress(accountId, { stage, state, done: snap.done, total: snap.total, detailDay: snap.day, errorKey, updatedAt: at, finishedAt: state === 'done' ? at : null });
+      const row = { stage, state, done: snap.done, total: snap.total, detailDay: snap.day, errorKey, updatedAt: at, finishedAt: state === 'done' ? at : null };
+      await Promise.race([store.writeProgress(accountId, row), new Promise<void>((resolve) => (timer = setTimeout(resolve, WRITE_CAP_MS)))]);
     } catch {
       // best-effort: the panel shows the persisted state; the sync carries on
+    } finally {
+      clearTimeout(timer);
     }
   };
   return {
