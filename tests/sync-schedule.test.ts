@@ -20,7 +20,7 @@ const input = (state: SyncState, o: Partial<ScheduleInput> = {}): ScheduleInput 
 
 describe('dueJobs', () => {
   it('a brand-new active account is due for everything except token refresh (first-connect backfill)', () => {
-    expect(dueJobs(input(emptyState('a1')), NOW, TZ)).toEqual(['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience']);
+    expect(dueJobs(input(emptyState('a1')), NOW, TZ)).toEqual(['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill']);
   });
 
   it('archived and needs_reconnect accounts get nothing', () => {

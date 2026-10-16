@@ -24,7 +24,7 @@ describe('runTick', () => {
     const { deps, mem } = setup();
     const s = await runTick(deps, { trigger: 'cron' });
     expect(s.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['a1', 'ok'], ['a2', 'ok']]);
-    expect(s.accounts[0].jobs).toEqual(['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience']);
+    expect(s.accounts[0].jobs).toEqual(['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill']);
     expect(mem.runs).toHaveLength(1);
     expect(mem.runs[0]).toMatchObject({ trigger: 'cron', startedAt: '2026-10-14T02:00:00.000Z' });
     expect(mem.states.get('a1')).toMatchObject({ leaseId: null, leaseUntil: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-13' });

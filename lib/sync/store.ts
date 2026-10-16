@@ -66,6 +66,7 @@ export function rowToState(r: Row): SyncState {
     consecutiveFailures: typeof r.consecutive_failures === 'number' ? r.consecutive_failures : 0,
     lastErrorKey: (r.last_error_key as string | null) ?? null,
     dailyDoneThrough: (r.daily_done_through as string | null) ?? null,
+    backfilledFrom: (r.backfilled_from as string | null) ?? null,
     lastRun: typeof r.last_run === 'object' && r.last_run !== null ? (r.last_run as SyncState['lastRun']) : {},
   };
 }
