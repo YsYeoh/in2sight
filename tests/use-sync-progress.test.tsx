@@ -5,7 +5,7 @@ import type { AccountProgress } from '@/lib/sync/progress';
 const refresh = vi.hoisted(() => vi.fn());
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 
-import { MAX_BACKOFF_MS, POLL_MS, useSyncProgress } from '@/components/accounts/useSyncProgress';
+import { IDLE_MS, MAX_BACKOFF_MS, POLL_MS, useSyncProgress } from '@/components/accounts/useSyncProgress';
 
 const progress = (o: Partial<AccountProgress> = {}): AccountProgress => ({
   accountId: 'a1',
@@ -25,6 +25,9 @@ const BOTH_DONE: AccountProgress['stages'] = [{ stage: 'profile', state: 'done',
 /** the server render's value: one stable array, like a server component prop */
 const INIT = [progress()];
 const DONE = [progress({ phase: 'done', percent: 100 })];
+const FAILED = [progress({ phase: 'failed' })];
+const RECONNECT = [progress({ phase: 'needs_reconnect' })];
+const WAITING = [progress({ phase: 'waiting' })];
 const ok = (accounts: AccountProgress[]) => new Response(JSON.stringify({ accounts }), { status: 200, headers: { 'content-type': 'application/json' } });
 let visibility: DocumentVisibilityState = 'visible';
 
@@ -47,6 +50,36 @@ describe('useSyncProgress', () => {
     renderHook(() => useSyncProgress(DONE));
     await act(() => vi.advanceTimersByTimeAsync(4 * POLL_MS));
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('failed / stalled / rate limited accounts are checked only once a minute; needs_reconnect is not polled at all', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok([progress({ phase: 'failed' })]));
+    vi.stubGlobal('fetch', fetchFn);
+    renderHook(() => useSyncProgress(FAILED));
+    await act(() => vi.advanceTimersByTimeAsync(IDLE_MS - 1));
+    expect(fetchFn).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    renderHook(() => useSyncProgress(RECONNECT));
+    await act(() => vi.advanceTimersByTimeAsync(3 * IDLE_MS));
+    expect(fetchFn).toHaveBeenCalledTimes(4); // only the failed one, once per minute
+  });
+
+  it('slows to the idle cadence when a running account turns failed, and speeds up for a waiting one', async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(ok([progress({ phase: 'failed' })])).mockResolvedValue(ok([progress({ phase: 'failed' })]));
+    vi.stubGlobal('fetch', fetchFn);
+    renderHook(() => useSyncProgress(INIT));
+    await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(IDLE_MS - 1));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    const waiting = vi.fn().mockResolvedValue(ok([progress({ phase: 'waiting' })]));
+    vi.stubGlobal('fetch', waiting);
+    renderHook(() => useSyncProgress(WAITING));
+    await act(() => vi.advanceTimersByTimeAsync(2 * POLL_MS));
+    expect(waiting).toHaveBeenCalledTimes(2);
   });
 
   it('polls every 3 s while running, adopts the answer, refreshes on each completed stage and stops when done', async () => {
