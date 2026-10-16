@@ -25,7 +25,8 @@ export const account = (o: Partial<StoredAccount> & { id: string }): StoredAccou
 /** Every method is a vi.fn with a happy-path default; override per test with mockImplementation / mockRejectedValue. */
 export function fakeIg() {
   return {
-    profile: vi.fn<IgData['profile']>(async () => ({ followersCount: 1520 })),
+    profile: vi.fn<IgData['profile']>(async () => ({ followersCount: 1520, followingCount: 300, mediaCount: 42 })),
+    accountDayBreakdown: vi.fn<IgData['accountDayBreakdown']>(async () => []),
     accountDay: vi.fn<IgData['accountDay']>(async () => ({ reach: 1, views: 2, accountsEngaged: 3, totalInteractions: 4, linkTaps: 5, follows: 6, unfollows: 7 })),
     listMedia: vi.fn<IgData['listMedia']>(async () => []),
     listStories: vi.fn<IgData['listStories']>(async () => []),
@@ -52,6 +53,8 @@ export function memoryStore(init: MemoryInit = {}) {
   const metrics: { mediaId: string; capturedAt: string }[] = [];
   const audience: { accountId: string; kind: string }[] = [];
   const online: { accountId: string; day: string }[] = [];
+  const snapshots: { accountId: string; capturedAt: string; followers: number | null }[] = [];
+  const breakdowns: { accountId: string; day: string; rows: number }[] = [];
   const runs: SyncRun[] = [];
   const saved: { accountId: string; patch: StatePatch }[] = [];
   const store: SyncStore = {
@@ -91,9 +94,11 @@ export function memoryStore(init: MemoryInit = {}) {
     },
     upsertAudience: async (accountId, _day, kind) => void audience.push({ accountId, kind }),
     upsertOnlineFollowers: async (accountId, day) => void online.push({ accountId, day }),
+    insertFollowerSnapshot: async (accountId, capturedAt, v) => void snapshots.push({ accountId, capturedAt, followers: v.followers }),
+    upsertDailyBreakdown: async (accountId, day, rows) => void breakdowns.push({ accountId, day, rows: rows.length }),
     recordRun: async (r) => void runs.push(r),
   };
-  return { store, states, media, daily, followers, metrics, audience, online, runs, saved };
+  return { store, states, media, daily, followers, metrics, audience, online, snapshots, breakdowns, runs, saved };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {

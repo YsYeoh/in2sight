@@ -20,8 +20,8 @@ function fakeFetch(routes: (u: URL) => Response | undefined) {
 describe('igData requests', () => {
   it('profile reads followers_count from /me', async () => {
     const f = fakeFetch((u) => (u.pathname === '/v25.0/me' ? json(fixture('me')) : undefined));
-    expect(await igData('v25.0', f.fn).profile(TOKEN)).toEqual({ followersCount: 1520 });
-    expect(f.calls[0].url.searchParams.get('fields')).toBe('followers_count,media_count');
+    expect(await igData('v25.0', f.fn).profile(TOKEN)).toMatchObject({ followersCount: 1520 });
+    expect(f.calls[0].url.searchParams.get('fields')).toBe('followers_count,follows_count,media_count');
     expect(f.calls[0].url.searchParams.get('access_token')).toBe(TOKEN);
     expect(f.calls[0].init?.signal).toBeInstanceOf(AbortSignal);
   });
