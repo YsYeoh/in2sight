@@ -17,7 +17,7 @@ export const TICK_BUDGET_MS = 35_000;
 /** Don't start an account with less than this left: a half-started account only wastes calls. */
 const MIN_ACCOUNT_MS = 5_000;
 /** Lane 1 slice per account: enough for Stories + recent posts; whatever does not fit continues in lane 2. */
-export const REGULAR_SLICE_MS = 8_000;
+const REGULAR_SLICE_MS = 8_000;
 /** Longer than any invocation can live, so a crashed tick's lease expires well before the next tick. */
 export const LEASE_MS = 120_000;
 
@@ -130,7 +130,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
     ? []
     : ordered.filter((a) => {
         const e = out.get(a.id);
-        if (!e || e.outcome === 'locked' || e.outcome === 'needs_reconnect' || e.errorKey === 'rate_limited' || e.errorKey === 'unexpected') return false;
+        if (!e || e.outcome === 'locked' || e.outcome === 'needs_reconnect' || e.outcome === 'failed') return false; // a failed job is not retried in the same pass (+1 failure per tick, errorKey stays)
         return e.outcome === 'partial' || isBackfilling(states.get(a.id)!);
       });
   for (const [i, account] of lane2.entries()) {
