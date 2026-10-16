@@ -32,15 +32,14 @@ function ctx(o: { state?: Partial<SyncState>; media?: MemoryInit['media']; budge
 const run = (c: RunContext, jobs: JobKind[]) => runAccount(c, jobs);
 
 describe('daily job', () => {
-  it('first connect backfills BACKFILL_DAYS of account insights up to yesterday, then snapshots followers on today', async () => {
+  it('first connect fetches the newest 7 days, newest first, then snapshots followers on today', async () => {
     const { c, ig, mem } = ctx();
     const { result, patch } = await run(c, ['daily']);
     expect(result).toEqual({ accountId: 'a1', outcome: 'ok', jobs: ['daily'] });
-    expect(ig.accountDay).toHaveBeenCalledTimes(90);
-    expect(mem.daily[0].day).toBe('2026-07-16');
-    expect(mem.daily.at(-1)!.day).toBe('2026-10-13');
+    expect(ig.accountDay).toHaveBeenCalledTimes(7);
+    expect(mem.daily.map((d) => d.day)).toEqual(['2026-10-13', '2026-10-12', '2026-10-11', '2026-10-10', '2026-10-09', '2026-10-08', '2026-10-07']);
     expect(mem.followers).toEqual([{ accountId: 'a1', day: '2026-10-14', followers: 1520 }]);
-    expect(patch.dailyDoneThrough).toBe('2026-10-13');
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-07' });
     expect(patch.lastRun.daily).toBe(NOW.toISOString());
   });
 
@@ -52,39 +51,38 @@ describe('daily job', () => {
     expect(ig.accountDay.mock.calls[2][2] - ig.accountDay.mock.calls[2][1]).toBe(86_400);
   });
 
-  it('stops at the time budget, keeps progress, and the job stays due (no lastRun)', async () => {
-    const { c, mem } = ctx({ budgetCalls: 11 }); // 1 check in runAccount + 10 days
+  it('stops at the time budget, keeps both edges, and the job stays due (no lastRun)', async () => {
+    const { c, mem } = ctx({ budgetCalls: 4 }); // 1 check in runAccount + 3 days
     const { result, patch } = await run(c, ['daily']);
     expect(result.outcome).toBe('partial');
-    expect(mem.daily).toHaveLength(10);
-    expect(patch.dailyDoneThrough).toBe('2026-07-25');
+    expect(mem.daily.map((d) => d.day)).toEqual(['2026-10-13', '2026-10-12', '2026-10-11']);
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-11', consecutiveFailures: 0 });
     expect(patch.lastRun.daily).toBeUndefined();
-    expect(patch.consecutiveFailures).toBe(0);
   });
 
-  it('keeps backfill progress when a transient error hits half-way', async () => {
-    const { c, ig } = ctx();
+  it('keeps history progress when a transient error hits half-way', async () => {
+    const { c, ig } = ctx({ state: { dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-07' } });
     let n = 0;
     ig.accountDay.mockImplementation(async () => {
       if (++n === 41) throw igErr(2, 500);
       return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
     });
-    const { result, patch } = await run(c, ['daily']);
+    const { result, patch } = await run(c, ['backfill']);
     expect(result).toMatchObject({ outcome: 'failed', errorKey: 'instagram_unavailable' });
-    expect(patch.dailyDoneThrough).toBe('2026-08-24'); // 40 days written
-    expect(patch.consecutiveFailures).toBe(1);
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-08-28', consecutiveFailures: 1 }); // 40 days: 6 Oct back to 28 Aug
   });
 
-  it('skips days older than 30 days that Instagram rejects (unknown retention), but not recent ones', async () => {
+  it('skips days older than 30 days that Instagram rejects (unknown retention): the edge moves on, nothing is written for them', async () => {
     const { c, ig, mem } = ctx();
     ig.accountDay.mockImplementation(async (_t: string, since: number) => {
       if (since < Date.parse('2026-08-31T16:00:00Z') / 1000) throw igErr(100); // before 1 Sep (local midnight)
       return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
     });
-    const { result, patch } = await run(c, ['daily']);
+    const { result, patch } = await run(c, ['daily', 'backfill']);
     expect(result.outcome).toBe('ok');
-    expect(mem.daily[0].day).toBe('2026-09-01');
-    expect(patch.dailyDoneThrough).toBe('2026-10-13');
+    expect(mem.daily.at(-1)!.day).toBe('2026-09-01');
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16' });
+    expect(patch.lastRun.backfill).toBe(NOW.toISOString());
   });
 });
 

@@ -49,10 +49,11 @@ describe('daily follower/non-follower x format breakdown', () => {
       { metric: 'reach', followType: 'FOLLOWER', productType: 'STORY', value: 350 },
       { metric: 'reach', followType: 'NON_FOLLOWER', productType: 'STORY', value: 4 },
     ]);
-    await run(c, ['daily']);
+    await run(c, ['daily', 'backfill']);
     expect(ig.accountDayBreakdown).toHaveBeenCalledTimes(90);
     expect(mem.breakdowns).toHaveLength(90);
-    expect(mem.breakdowns[0]).toEqual({ accountId: 'a1', day: '2026-07-16', rows: 2 });
+    expect(mem.breakdowns[0]).toEqual({ accountId: 'a1', day: '2026-10-13', rows: 2 }); // newest first
+    expect(mem.breakdowns.at(-1)).toEqual({ accountId: 'a1', day: '2026-07-16', rows: 2 });
   });
 
   it('an unsupported day does not wedge the backfill', async () => {

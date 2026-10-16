@@ -5,7 +5,7 @@ import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import { classifyIgError, type IgData } from '@/lib/instagram/data';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
-import { BACKFILL_DAYS, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, type JobKind, type SyncState } from '@/lib/sync/schedule';
+import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, type JobKind, type SyncState } from '@/lib/sync/schedule';
 import type { StatePatch, SyncStore } from '@/lib/sync/store';
 import { addDays, dayRangeSec, localDay } from '@/lib/sync/time';
 
@@ -34,9 +34,10 @@ export interface RunContext {
   clock: () => number;
 }
 
-/** Progress that must survive a job failing half-way (e.g. 40 backfill days written, then a 5xx). */
+/** Coverage edges that must survive a job failing half-way (e.g. 40 history days written, then a 5xx). */
 interface Progress {
   dailyDoneThrough: string | null;
+  backfilledFrom: string | null;
 }
 
 /** done=false: stopped for the time budget; the job stays due and continues next tick. */
@@ -44,30 +45,58 @@ type Job = (c: RunContext, p: Progress) => Promise<{ done: boolean }>;
 const DAY_MS = 86_400_000;
 const outOfTime = (c: RunContext) => c.clock() >= c.deadline;
 
-/** Account insights day by day: first-connect backfill, missed days, and a re-fetch of the last SETTLE_DAYS (data lags up to 48h). */
+/** One insight day: account totals + the follower-type x format split. Nothing Instagram did not send is written as 0. */
+async function fetchDay(c: RunContext, day: string): Promise<void> {
+  const { since, until } = dayRangeSec(day, c.tz);
+  try {
+    await c.store.upsertDaily(c.account.id, day, await c.ig.accountDay(c.token, since, until));
+  } catch (e) {
+    // ponytail: Meta does not document how far back each metric goes; an "other" error on a day older than 30 days is
+    // treated as "no data that far back" and skipped so the backfill cannot wedge. Tighten once the runbook confirms.
+    if (!(classifyIgError(e) === 'other' && day < addDays(localDay(c.now, c.tz), -30))) throw e;
+  }
+  try {
+    await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until));
+  } catch (e) {
+    if (fatal(e)) throw e; // the follower/non-follower split is an extra; an unsupported day must not wedge the backfill
+  }
+}
+
+/**
+ * Newest-first walk from the day before the backward edge (or yesterday) down to `floor`. Both edges move after every
+ * day, so a stop (time budget, error) resumes exactly where it left off and no day is fetched twice.
+ */
+async function walkBack(c: RunContext, p: Progress, floor: string): Promise<{ done: boolean }> {
+  const yesterday = addDays(localDay(c.now, c.tz), -1);
+  for (let day = p.backfilledFrom ? addDays(p.backfilledFrom, -1) : yesterday; day >= floor; day = addDays(day, -1)) {
+    if (outOfTime(c)) return { done: false };
+    await fetchDay(c, day);
+    p.dailyDoneThrough ??= day;
+    p.backfilledFrom = day;
+  }
+  return { done: true };
+}
+
+/**
+ * Account insights by day. New account: the newest FIRST_DAYS days, newest first (KPIs within the first pass). After
+ * that: missed days, and a re-fetch of the last SETTLE_DAYS (data lags up to 48h), then today's follower count.
+ */
 const daily: Job = async (c, p) => {
   const today = localDay(c.now, c.tz);
   const yesterday = addDays(today, -1);
-  const done = p.dailyDoneThrough;
-  const settleFrom = addDays(yesterday, -(SETTLE_DAYS - 1));
-  let day = done ? (addDays(done, 1) < settleFrom ? addDays(done, 1) : settleFrom) : addDays(today, -BACKFILL_DAYS);
-  const oldest = addDays(today, -30);
+  let day: string;
+  if (firstWeekPending(p, today)) {
+    if (!(await walkBack(c, p, addDays(today, -FIRST_DAYS))).done) return { done: false };
+    day = addDays(p.dailyDoneThrough!, 1); // the week was just fetched: no settle re-fetch, only a day that began meanwhile
+  } else {
+    const settleFrom = addDays(yesterday, -(SETTLE_DAYS - 1));
+    const next = addDays(p.dailyDoneThrough!, 1);
+    day = next < settleFrom ? next : settleFrom;
+  }
   for (; day <= yesterday; day = addDays(day, 1)) {
     if (outOfTime(c)) return { done: false };
-    const { since, until } = dayRangeSec(day, c.tz);
-    try {
-      await c.store.upsertDaily(c.account.id, day, await c.ig.accountDay(c.token, since, until));
-    } catch (e) {
-      // ponytail: Meta does not document how far back each metric goes; an "other" error on a day older than 30 days is
-      // treated as "no data that far back" and skipped so the backfill cannot wedge. Tighten once the runbook confirms.
-      if (!(classifyIgError(e) === 'other' && day < oldest)) throw e;
-    }
-    try {
-      await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until));
-    } catch (e) {
-      if (fatal(e)) throw e; // the follower/non-follower split is an extra; an unsupported day must not wedge the backfill
-    }
-    if (!p.dailyDoneThrough || day > p.dailyDoneThrough) p.dailyDoneThrough = day;
+    await fetchDay(c, day);
+    if (day > p.dailyDoneThrough!) p.dailyDoneThrough = day;
   }
   const { followersCount } = await c.ig.profile(c.token);
   if (followersCount !== null) await c.store.upsertFollowers(c.account.id, today, followersCount);
@@ -125,7 +154,7 @@ const mediaList: Job = async (c) => {
 const MEDIA_FAIL_STREAK = 3;
 
 /**
- * Snapshots for media that are due (pickDueMedia, newest first). Per-post outcomes of the insights call:
+ * Snapshots for the given media (newest first). Per-post outcomes of the insights call:
  *  - gone: marked gone. no_data (under-5 viewers, pre-Creator post 2108006): marked captured, retried at the next interval.
  *  - other (unclassified IG error): marked attempted (last_metrics_at) so ONE post can never sit at the head of the queue and
  *    starve older ones; its error key is still reported. Posts older than 30 days then drop out of pickDueMedia for good.
@@ -133,9 +162,7 @@ const MEDIA_FAIL_STREAK = 3;
  *  - auth / rate limits: abort the job like before. MEDIA_FAIL_STREAK failures in a row also abort.
  * The first per-post error is rethrown at the end so the account shows it; the loop itself never stops for one bad post.
  */
-const mediaMetrics: Job = async (c) => {
-  const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
-  const due = pickDueMedia(await c.store.mediaForMetrics(c.account.id, since), c.now);
+async function captureMedia(c: RunContext, due: string[]): Promise<{ done: boolean }> {
   const at = c.now.toISOString();
   const captured: string[] = [];
   let firstError: unknown;
@@ -172,6 +199,23 @@ const mediaMetrics: Job = async (c) => {
     await c.store.markCaptured(captured, at);
   }
   return { done: true };
+}
+
+/** Recent posts on their cadence plus the newest NEWEST_POSTS never-measured older posts (onboarding step 3). */
+const mediaMetrics: Job = async (c) => {
+  const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
+  return captureMedia(c, pickDueMedia(await c.store.mediaForMetrics(c.account.id, since), c.now));
+};
+
+/**
+ * History import (lane 2), newest first: insight days down to BACKFILL_DAYS back, then every never-measured older post.
+ * Done once both are through. Extension point: later plans append cover capture and comments here.
+ */
+const backfill: Job = async (c, p) => {
+  if (p.dailyDoneThrough !== null && p.backfilledFrom === null) return { done: true }; // synced before Plan 11a: complete
+  if (!(await walkBack(c, p, addDays(localDay(c.now, c.tz), -BACKFILL_DAYS))).done) return { done: false };
+  const refs = await c.store.mediaForMetrics(c.account.id, c.now.toISOString()); // since = now: only never-measured media
+  return captureMedia(c, pickDueMedia(refs, c.now, Infinity));
 };
 
 /** Demographics + online followers. Under 100 followers Instagram returns empty data: nothing is written, not an error. */
@@ -196,7 +240,7 @@ const tokenRefresh: Job = async (c) => {
   return { done: true };
 };
 
-const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill: async () => ({ done: true }), tokenRefresh };
+const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill, tokenRefresh };
 
 function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): SyncErrorKey {
   if (kind === 'rate_limit' || kind === 'app_rate_limit') return 'rate_limited';
@@ -212,7 +256,7 @@ function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): Sync
 export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ result: AccountResult; patch: StatePatch }> {
   const nowIso = c.now.toISOString();
   const lastRun = { ...c.state.lastRun };
-  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough };
+  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough, backfilledFrom: c.state.backfilledFrom };
   const completed: JobKind[] = [];
   let partial = false;
   let errorKey: SyncErrorKey | undefined;
@@ -257,7 +301,7 @@ export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ resu
     consecutiveFailures: ok ? 0 : c.state.consecutiveFailures + 1,
     lastErrorKey: ok ? null : (errorKey ?? 'unexpected'),
     dailyDoneThrough: progress.dailyDoneThrough,
-    backfilledFrom: c.state.backfilledFrom,
+    backfilledFrom: progress.backfilledFrom,
     lastRun,
   };
   return { result: { accountId: c.account.id, outcome, jobs: completed, ...(errorKey ? { errorKey } : {}), ...(appRateLimited ? { appRateLimited } : {}) }, patch };
