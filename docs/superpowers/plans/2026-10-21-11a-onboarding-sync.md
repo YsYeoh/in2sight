@@ -3863,3 +3863,11 @@ git commit -m "docs: onboarding sync runbook, honest TODO ticks, handover and SP
 ```
 
 ---
+
+## Dry-run result (2026-10-17)
+
+All 14 tasks' code above was applied in order in a throwaway clone (fresh `npm ci`, `main` 0db8b09, no new packages) and `npm run check` passed: lint 0 errors, `tsc --noEmit` clean, **156 test files / 1455 tests** passed, `next build` compiled (route `/api/sync/progress` built as a dynamic route). Not exercised: Supabase (migration SQL is checked by tests only), a signed-in browser render, real Instagram calls — see `docs/RUNBOOK_SYNC.md` §8.
+
+## Execution handoff
+
+Recommended: **Native** (one implementer, then one whole-branch review on the most capable model). Tasks 2→7 build on each other's exact names and the plan's code was dry-run end to end, so per-task reviewers add little; the risky surfaces for the final review are `lib/sync/tick.ts` (lanes, `more`), `lib/sync/run-account.ts` (edges never skip or repeat a day) and the migration's UPDATE on live rows.
