@@ -9,6 +9,9 @@ import { AccountsView } from '@/components/accounts/AccountsView';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 
+// the live progress hook refreshes the route when an import step lands
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
 const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);

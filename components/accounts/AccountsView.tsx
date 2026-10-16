@@ -8,7 +8,10 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { connectHref, ConnectDialog } from '@/components/accounts/ConnectDialog';
 import { GroupDialog } from '@/components/accounts/GroupDialog';
 import { StatusBadge } from '@/components/accounts/StatusBadge';
+import { SyncBadge } from '@/components/accounts/SyncBadge';
+import { SyncProgressPanel } from '@/components/accounts/SyncProgressPanel';
 import { TokenMeter } from '@/components/accounts/TokenMeter';
+import { useSyncProgress } from '@/components/accounts/useSyncProgress';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { InsightOrb } from '@/components/shared/InsightOrb';
@@ -24,6 +27,7 @@ import { normalizeGroup } from '@/lib/accounts/group';
 import { tokenStatus } from '@/lib/accounts/token-status';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { formatDate, formatDateTime, formatNumber } from '@/lib/format';
+import type { AccountProgress } from '@/lib/sync/progress';
 import type { SyncStatus } from '@/lib/sync/store';
 
 type Result = { ok: boolean; error?: string };
@@ -35,6 +39,9 @@ export interface AccountsActions {
   syncNow(id: string): Promise<Result>;
 }
 
+/** Stable default: useSyncProgress adopts a NEW array as fresh server data, so the default must not be a new [] per render. */
+const NO_PROGRESS: AccountProgress[] = [];
+
 // error keys the OAuth callback redirects with; anything else in the URL is ignored
 const NOTICE_ERRORS = ['access_denied', 'state_mismatch', 'missing_code', 'exchange_failed', 'profile_failed', 'not_professional', 'save_failed', 'not_configured'];
 
@@ -42,6 +49,7 @@ interface RowProps {
   accounts: StoredAccount[];
   now: Date;
   sync: Record<string, SyncStatus>;
+  progress: Map<string, AccountProgress>;
   busy: boolean;
   onEditGroup: (a: StoredAccount) => void;
   onArchive: (a: StoredAccount) => void;
@@ -115,7 +123,7 @@ function RowMenu({ a, busy, onEditGroup, onArchive, onSyncNow }: { a: StoredAcco
   );
 }
 
-function AccountTable({ accounts, now, sync, ...menu }: RowProps) {
+function AccountTable({ accounts, now, sync, progress, ...menu }: RowProps) {
   const t = useTranslations('accounts');
   const { prefs } = usePrefs();
   return (
@@ -147,7 +155,10 @@ function AccountTable({ accounts, now, sync, ...menu }: RowProps) {
                 <TokenMeter expiresAt={a.tokenExpiresAt} now={now} />
               </TableCell>
               <TableCell>
-                <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
+                <div className="flex flex-wrap items-center gap-1">
+                  <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
+                  <SyncBadge p={progress.get(a.id)} />
+                </div>
               </TableCell>
               <TableCell>
                 <SyncInfo s={sync[a.id]} />
@@ -164,7 +175,7 @@ function AccountTable({ accounts, now, sync, ...menu }: RowProps) {
   );
 }
 
-function AccountCards({ accounts, now, sync, ...menu }: RowProps) {
+function AccountCards({ accounts, now, sync, progress, ...menu }: RowProps) {
   const t = useTranslations('accounts');
   const { prefs } = usePrefs();
   return (
@@ -179,6 +190,7 @@ function AccountCards({ accounts, now, sync, ...menu }: RowProps) {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
+                <SyncBadge p={progress.get(a.id)} />
                 <GroupBadge name={a.groupName} />
               </div>
               <TokenMeter expiresAt={a.tokenExpiresAt} now={now} />
@@ -218,10 +230,12 @@ export function AccountsView({
   notice,
   now,
   sync = {},
+  progress = NO_PROGRESS,
 }: {
   accounts: StoredAccount[];
   actions: AccountsActions;
   sync?: Record<string, SyncStatus>;
+  progress?: AccountProgress[]; // server-rendered first value; useSyncProgress keeps it live
   notice?: { connected?: string; error?: string };
   now: string; // ISO, computed on the server so first paint matches the client
 }) {
@@ -236,6 +250,7 @@ export function AccountsView({
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
   const tl = useTranslations('loading');
+  const live = useSyncProgress(progress);
 
   const { named, isolated, archived, allGroups } = groupAccounts(accounts, prefs.locale);
 
@@ -275,7 +290,11 @@ export function AccountsView({
     setSyncing(a.username);
     void run(() => actions.syncNow(a.id), () => {}).finally(() => setSyncing(null));
   };
-  const menu = { now: nowDate, sync, busy, onEditGroup: setEditGroup, onArchive: setPendingArchive, onSyncNow: syncNow };
+  const menu = { now: nowDate, sync, progress: new Map(live.map((p) => [p.accountId, p])), busy, onEditGroup: setEditGroup, onArchive: setPendingArchive, onSyncNow: syncNow };
+  const retry = (id: string) => {
+    const a = accounts.find((x) => x.id === id);
+    if (a) syncNow(a);
+  };
   const sections = [...named.map(([name, list]) => ({ key: `g:${name}`, name, list })), ...(isolated.length ? [{ key: 'isolated', name: t('isolated'), list: isolated }] : [])];
   const noticeError = notice?.error && NOTICE_ERRORS.includes(notice.error) ? notice.error : null;
   const addButton = (
@@ -304,6 +323,7 @@ export function AccountsView({
           {error}
         </Alert>
       ) : null}
+      <SyncProgressPanel progress={live} accounts={accounts} busy={busy} onRetry={retry} />
       {syncing ? (
         <p role="status" className="mb-[var(--gp)] flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
           <InsightOrb size="xs" decorative />
