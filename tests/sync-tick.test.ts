@@ -68,11 +68,12 @@ describe('runTick', () => {
   });
 
   it('overlapping ticks (scheduler retry / double fire) cannot double-run an account', async () => {
-    const { deps, ig } = setup();
+    const { deps, ig, mem } = setup();
     const [x, y] = await Promise.all([runTick(deps, { trigger: 'cron' }), runTick({ ...deps, newId: () => 'other' }, { trigger: 'cron' })]);
-    const outcomes = [...x.accounts, ...y.accounts].map((a) => `${a.accountId}:${a.outcome}`).sort();
-    expect(outcomes).toEqual(['a1:locked', 'a1:ok', 'a2:locked', 'a2:ok']);
+    expect([...x.accounts, ...y.accounts].some((a) => a.outcome === 'locked')).toBe(true);
     expect(ig.listStories).toHaveBeenCalledTimes(2); // once per account, not twice
+    expect(ig.accountDay).toHaveBeenCalledTimes(180); // 90 days per account (the two lanes may land in different ticks), none twice
+    expect(new Set(mem.daily.map((d) => `${d.accountId}:${d.day}`)).size).toBe(180);
   });
 
   it('a lease left by a crashed tick blocks until it expires', async () => {
@@ -110,22 +111,24 @@ describe('runTick', () => {
     expect(mem.states.get('a1')).toMatchObject({ leaseId: null, lastRun: { stories: iso, mediaMetrics: iso } }); // other tick's progress kept
   });
 
-  it('stops before the time budget and leaves remaining accounts due; the next tick starts with them', async () => {
+  it('stops on the time budget with work left (more = true); every new account got a slice; the next tick resumes', async () => {
     const list = [account({ id: 'a1' }), account({ id: 'a2' }), account({ id: 'a3' })];
     const { deps, ig, mem } = setup(list, { a1: 't1', a2: 't2', a3: 't3' });
     let now = T0;
     ig.accountDay.mockImplementation(async () => {
-      now += 300; // 90 backfill days x 300ms = 27s per account
+      now += 300; // 90 days x 300ms = 27s per account: three accounts cannot finish in one 35s pass
       return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
     });
     const first = await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
     expect(first.stoppedEarly).toBe(true);
     expect(first.more).toBe(true); // stopped on the time budget with work left -> continuation is useful
-    expect(first.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['a1', 'ok'], ['a2', 'partial']]);
-    expect(mem.states.get('a3')).toBeUndefined();
+    expect(first.accounts.map((a) => [a.accountId, a.outcome])).toEqual([['a1', 'partial'], ['a2', 'partial'], ['a3', 'partial']]);
+    for (const id of ['a1', 'a2', 'a3']) expect(mem.states.get(id)).toMatchObject({ dailyDoneThrough: '2026-10-13' });
+    const before = mem.daily.length;
     now += 30 * 60_000;
-    const second = await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
-    expect(second.accounts[0].accountId).toBe('a3'); // never attempted -> first in line
+    await runTick({ ...deps, clock: () => now }, { trigger: 'cron' });
+    expect(mem.daily.length).toBeGreaterThan(before);
+    expect(new Set(mem.daily.map((d) => `${d.accountId}:${d.day}`)).size).toBe(mem.daily.length); // resumed, nothing re-fetched
   });
 
   it('an app-wide rate limit (code 4) stops the tick', async () => {
