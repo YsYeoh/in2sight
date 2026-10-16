@@ -83,7 +83,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
       const fresh = { ...claimed, lastAttemptAt: state.lastAttemptAt, leaseUntil: null };
       const jobs = dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state: fresh }, now, tz, { manual });
       if (jobs.length === 0) {
-        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: fresh.consecutiveFailures, lastErrorKey: fresh.lastErrorKey, dailyDoneThrough: fresh.dailyDoneThrough, lastRun: fresh.lastRun });
+        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: fresh.consecutiveFailures, lastErrorKey: fresh.lastErrorKey, dailyDoneThrough: fresh.dailyDoneThrough, backfilledFrom: fresh.backfilledFrom, lastRun: fresh.lastRun });
         out.push({ accountId: account.id, outcome: 'idle', jobs: [] });
         continue;
       }
@@ -91,7 +91,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
       if (!token) {
         // connected without a stored token: nothing can be fetched until the owner reconnects
         await deps.accounts.update(account.id, { status: 'needs_reconnect', lastError: 'token_missing' });
-        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: fresh.consecutiveFailures + 1, lastErrorKey: 'token_invalid', dailyDoneThrough: fresh.dailyDoneThrough, lastRun: fresh.lastRun });
+        await deps.store.saveState(account.id, leaseId, { lastAttemptAt: now.toISOString(), consecutiveFailures: fresh.consecutiveFailures + 1, lastErrorKey: 'token_invalid', dailyDoneThrough: fresh.dailyDoneThrough, backfilledFrom: fresh.backfilledFrom, lastRun: fresh.lastRun });
         out.push({ accountId: account.id, outcome: 'needs_reconnect', jobs: [], errorKey: 'token_invalid' });
         continue;
       }

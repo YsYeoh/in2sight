@@ -257,6 +257,7 @@ export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ resu
     consecutiveFailures: ok ? 0 : c.state.consecutiveFailures + 1,
     lastErrorKey: ok ? null : (errorKey ?? 'unexpected'),
     dailyDoneThrough: progress.dailyDoneThrough,
+    backfilledFrom: c.state.backfilledFrom,
     lastRun,
   };
   return { result: { accountId: c.account.id, outcome, jobs: completed, ...(errorKey ? { errorKey } : {}), ...(appRateLimited ? { appRateLimited } : {}) }, patch };

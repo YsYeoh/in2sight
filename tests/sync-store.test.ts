@@ -63,11 +63,11 @@ describe('supabaseSyncStore', () => {
 
   it('saveState releases the lease only if this tick still holds it', async () => {
     const r = recorder();
-    await supabaseSyncStore(r.db).saveState('a1', 'L1', { lastAttemptAt: NOW, lastSuccessAt: NOW, consecutiveFailures: 0, lastErrorKey: null, dailyDoneThrough: '2026-10-13', lastRun: { stories: NOW } });
+    await supabaseSyncStore(r.db).saveState('a1', 'L1', { lastAttemptAt: NOW, lastSuccessAt: NOW, consecutiveFailures: 0, lastErrorKey: null, dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16', lastRun: { stories: NOW } });
     expect(r.calls[0].args[0]).toMatchObject({ lease_id: null, lease_until: null, last_success_at: NOW, last_run: { stories: NOW } });
     expect(r.calls[0].filters).toEqual([['eq', 'account_id', 'a1'], ['eq', 'lease_id', 'L1']]);
     const failed = recorder();
-    await supabaseSyncStore(failed.db).saveState('a1', 'L1', { lastAttemptAt: NOW, consecutiveFailures: 1, lastErrorKey: 'rate_limited', dailyDoneThrough: null, lastRun: {} });
+    await supabaseSyncStore(failed.db).saveState('a1', 'L1', { lastAttemptAt: NOW, consecutiveFailures: 1, lastErrorKey: 'rate_limited', dailyDoneThrough: null, backfilledFrom: null, lastRun: {} });
     expect(failed.calls[0].args[0]).not.toHaveProperty('last_success_at');
   });
 
@@ -143,7 +143,7 @@ describe('clearSyncError', () => {
 describe('listSyncStatus', () => {
   it('maps rows by account id and is empty on error', async () => {
     const r = recorder([{ data: [{ account_id: 'a1', last_success_at: NOW, last_error_key: null, consecutive_failures: 0 }] }]);
-    expect(await listSyncStatus(r.db)).toEqual({ a1: { lastSuccessAt: NOW, lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: null } });
+    expect(await listSyncStatus(r.db)).toEqual({ a1: { lastSuccessAt: NOW, lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: null, backfilledFrom: null, backfilling: true } });
     expect(await listSyncStatus(recorder([{ error: { message: 'x' } }]).db)).toEqual({});
   });
 });

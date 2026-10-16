@@ -5,7 +5,8 @@ import type { AccountDayValues, BreakdownRow, MediaMetricValues } from '@/lib/in
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { IgMediaItem } from '@/lib/instagram/parse';
 import { DEFAULT_PREFS, isValidTimeZone } from '@/lib/prefs';
-import { emptyState, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
+import type { LiveState, Stage } from '@/lib/sync/progress';
+import { emptyState, isBackfilling, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
 
 export interface StatePatch {
   lastAttemptAt: string;
@@ -13,7 +14,20 @@ export interface StatePatch {
   consecutiveFailures: number;
   lastErrorKey: string | null;
   dailyDoneThrough: string | null;
+  backfilledFrom: string | null;
   lastRun: Partial<Record<JobKind, string>>;
+}
+
+/** One live progress write (sync_progress row). started_at comes from resetSyncProgress or the insert default. */
+export interface ProgressWrite {
+  stage: Stage | null;
+  state: LiveState;
+  done: number;
+  total: number | null;
+  detailDay: string | null;
+  errorKey: string | null;
+  updatedAt: string;
+  finishedAt?: string | null; // omitted = keep the stored value
 }
 
 export interface SyncRun {
@@ -49,6 +63,8 @@ export interface SyncStore {
   upsertAudience(accountId: string, day: string, kind: AudienceKind, data: Record<string, number>): Promise<void>;
   upsertOnlineFollowers(accountId: string, day: string, hourly: number[]): Promise<void>;
   recordRun(run: SyncRun): Promise<void>;
+  /** Upserts the account's live progress row. Callers treat it as best-effort (lib/sync/progress-sink.ts). */
+  writeProgress(accountId: string, p: ProgressWrite): Promise<void>;
 }
 
 type Row = Record<string, unknown>;
@@ -123,6 +139,7 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
         consecutive_failures: p.consecutiveFailures,
         last_error_key: p.lastErrorKey,
         daily_done_through: p.dailyDoneThrough,
+        backfilled_from: p.backfilledFrom,
         last_run: p.lastRun,
       };
       if (p.lastSuccessAt) row.last_success_at = p.lastSuccessAt;
@@ -213,6 +230,11 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
     async recordRun(run) {
       check('recordRun')(await db.from('sync_runs').insert({ started_at: run.startedAt, finished_at: run.finishedAt, trigger: run.trigger, summary: run.summary }));
     },
+    async writeProgress(accountId, p) {
+      const row: Row = { account_id: accountId, stage: p.stage, state: p.state, done: p.done, total: p.total, detail_day: p.detailDay, error_key: p.errorKey, updated_at: p.updatedAt };
+      if (p.finishedAt !== undefined) row.finished_at = p.finishedAt;
+      check('writeProgress')(await db.from('sync_progress').upsert(row, { onConflict: 'account_id' }));
+    },
   };
 }
 
@@ -225,18 +247,36 @@ export async function clearSyncError(db: SupabaseClient, accountId: string): Pro
   }
 }
 
+/**
+ * Reconnect / "Sync now": a fresh live progress row (new start time, waiting, nothing finished). Never touches sync_state
+ * coverage, so an import resumes where it stopped. Admin client; best-effort, never throws.
+ */
+export async function resetSyncProgress(db: SupabaseClient, accountId: string, nowIso: string): Promise<void> {
+  try {
+    const row = { account_id: accountId, stage: null, state: 'waiting', done: 0, total: null, detail_day: null, error_key: null, started_at: nowIso, updated_at: nowIso, finished_at: null };
+    await db.from('sync_progress').upsert(row, { onConflict: 'account_id' });
+  } catch {
+    // the sync writes the row itself on its first progress report
+  }
+}
+
 export interface SyncStatus {
   lastSuccessAt: string | null;
   lastErrorKey: string | null;
   consecutiveFailures: number;
-  dailyDoneThrough?: string | null; // null until the first-connect backfill has written a day (Overview: "backfilling")
+  dailyDoneThrough?: string | null; // null until the first insight day is written
+  backfilledFrom?: string | null;
+  backfilling?: boolean; // history still importing (isBackfilling in lib/sync/schedule.ts); missing = unknown
 }
 
 /** Owner-session read for the Accounts page (RLS: owner select). Never throws: the page still renders without it. */
 export async function listSyncStatus(db: SupabaseClient): Promise<Record<string, SyncStatus>> {
-  const { data, error } = await db.from('sync_state').select('account_id,last_success_at,last_error_key,consecutive_failures,daily_done_through');
+  const { data, error } = await db.from('sync_state').select('account_id,last_success_at,last_error_key,consecutive_failures,daily_done_through,backfilled_from,last_run');
   if (error || !data) return {};
   return Object.fromEntries(
-    (data as Row[]).map((r) => [r.account_id as string, { lastSuccessAt: (r.last_success_at as string | null) ?? null, lastErrorKey: (r.last_error_key as string | null) ?? null, consecutiveFailures: typeof r.consecutive_failures === 'number' ? r.consecutive_failures : 0, dailyDoneThrough: (r.daily_done_through as string | null) ?? null }]),
+    (data as Row[]).map((r) => {
+      const s = rowToState(r);
+      return [s.accountId, { lastSuccessAt: s.lastSuccessAt, lastErrorKey: s.lastErrorKey, consecutiveFailures: s.consecutiveFailures, dailyDoneThrough: s.dailyDoneThrough, backfilledFrom: s.backfilledFrom, backfilling: isBackfilling(s) }];
+    }),
   );
 }

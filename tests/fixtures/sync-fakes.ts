@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import type { IgData, MediaMetricValues } from '@/lib/instagram/data';
 import { emptyState, type SyncState } from '@/lib/sync/schedule';
-import type { StatePatch, SyncRun, SyncStore } from '@/lib/sync/store';
+import type { ProgressWrite, StatePatch, SyncRun, SyncStore } from '@/lib/sync/store';
 
 export const METRICS: MediaMetricValues = { reach: 10, views: 20, likes: 1, comments: 0, shares: 0, saves: 0, totalInteractions: 1, replies: null, tapsForward: null, tapsBack: null, exits: null };
 
@@ -57,6 +57,7 @@ export function memoryStore(init: MemoryInit = {}) {
   const breakdowns: { accountId: string; day: string; rows: number }[] = [];
   const runs: SyncRun[] = [];
   const saved: { accountId: string; patch: StatePatch }[] = [];
+  const progress: { accountId: string; p: ProgressWrite }[] = [];
   const store: SyncStore = {
     ownerTimezone: async () => init.tz ?? 'Asia/Kuala_Lumpur',
     loadStates: async (ids) => new Map(ids.map((id) => [id, states.get(id) ?? emptyState(id)])),
@@ -97,8 +98,9 @@ export function memoryStore(init: MemoryInit = {}) {
     insertFollowerSnapshot: async (accountId, capturedAt, v) => void snapshots.push({ accountId, capturedAt, followers: v.followers }),
     upsertDailyBreakdown: async (accountId, day, rows) => void breakdowns.push({ accountId, day, rows: rows.length }),
     recordRun: async (r) => void runs.push(r),
+    writeProgress: async (accountId, p) => void progress.push({ accountId, p }),
   };
-  return { store, states, media, daily, followers, metrics, audience, online, snapshots, breakdowns, runs, saved };
+  return { store, states, media, daily, followers, metrics, audience, online, snapshots, breakdowns, runs, saved, progress };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {
