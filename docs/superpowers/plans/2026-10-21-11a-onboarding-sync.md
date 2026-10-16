@@ -621,6 +621,14 @@ describe('isTracked', () => {
     expect(isTracked({ state: doneState, live: live({ state: 'done', finishedAt: ago(11 * MIN) }) }, NOW)).toBe(false);
     expect(isTracked({ state: { ...emptyState('a1'), dailyDoneThrough: '2026-10-13' }, live: null }, NOW)).toBe(false);
   });
+
+  it('a "Sync now" that found the account leased ends when that other tick succeeds (not "waiting" forever)', () => {
+    const session = live({ state: 'waiting', startedAt: ago(20 * MIN), updatedAt: ago(20 * MIN) });
+    const after = { ...doneState, lastSuccessAt: ago(15 * MIN) };
+    expect(buildProgress(input({ live: session }, after), NOW).phase).toBe('done');
+    expect(isTracked({ state: after, live: session }, NOW)).toBe(false); // ended 15 min ago
+    expect(buildProgress(input({ live: session }, { ...doneState, lastSuccessAt: ago(30 * MIN) }), NOW).phase).toBe('waiting');
+  });
 });
 ```
 
@@ -657,7 +665,7 @@ export interface LiveProgress {
   finishedAt: string | null;
 }
 
-export type ProgressState = Pick<SyncState, 'lastRun' | 'dailyDoneThrough' | 'backfilledFrom' | 'leaseUntil' | 'lastAttemptAt' | 'lastErrorKey' | 'consecutiveFailures'>;
+export type ProgressState = Pick<SyncState, 'lastRun' | 'dailyDoneThrough' | 'backfilledFrom' | 'leaseUntil' | 'lastAttemptAt' | 'lastSuccessAt' | 'lastErrorKey' | 'consecutiveFailures'>;
 
 export interface ProgressInput {
   accountId: string;
@@ -712,11 +720,23 @@ export function coveredDays(s: Pick<SyncState, 'dailyDoneThrough' | 'backfilledF
   return Math.max(0, Math.min(BACKFILL_DAYS, daysBetween(s.backfilledFrom, s.dailyDoneThrough) + 1));
 }
 
+/**
+ * When the live session ended: its own finish stamp or, for a complete account whose run another tick did (a "Sync now"
+ * that found the account leased), the last success after the session started. null = still going.
+ */
+function sessionEnd({ state: s, live }: Pick<ProgressInput, 'state' | 'live'>): string | null {
+  if (!live) return null;
+  if (live.finishedAt) return live.finishedAt;
+  const doneElsewhere = !isBackfilling(s) && live.state !== 'running' && !!s.lastSuccessAt && Date.parse(s.lastSuccessAt) >= Date.parse(live.startedAt);
+  return doneElsewhere ? s.lastSuccessAt : null;
+}
+
 /** Worth showing: history still importing, a run not finished, or a run that finished a few minutes ago. */
 export function isTracked(i: Pick<ProgressInput, 'state' | 'live'>, now: Date): boolean {
   if (isBackfilling(i.state)) return true;
   if (!i.live) return false;
-  return i.live.finishedAt === null || now.getTime() - Date.parse(i.live.finishedAt) < RECENT_MS;
+  const end = sessionEnd(i);
+  return end === null || now.getTime() - Date.parse(end) < RECENT_MS;
 }
 
 export function buildProgress(i: ProgressInput, now: Date): AccountProgress {
@@ -729,7 +749,7 @@ export function buildProgress(i: ProgressInput, now: Date): AccountProgress {
 
   let phase: Phase;
   if (i.needsReconnect) phase = 'needs_reconnect';
-  else if (!backfilling && (!live || live.state === 'done' || live.finishedAt !== null)) phase = 'done';
+  else if (!backfilling && (!live || live.state === 'done' || sessionEnd(i) !== null)) phase = 'done';
   else if (failing && s.lastErrorKey === 'rate_limited') phase = 'rate_limited';
   else if (failing) phase = 'failed';
   else if ((s.leaseUntil && Date.parse(s.leaseUntil) > t) || (live?.state === 'running' && t - Date.parse(live.updatedAt) < ACTIVE_MS)) phase = 'running';
@@ -791,7 +811,7 @@ export function buildProgress(i: ProgressInput, now: Date): AccountProgress {
 - [ ] **Step 4: Run the test**
 
 Run: `npx vitest run tests/sync-progress.test.ts`
-Expected: PASS (11 tests).
+Expected: PASS (13 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2009,6 +2029,453 @@ Expected: PASS, no type errors.
 ```bash
 git add lib/sync/tick.ts tests/sync-lanes.test.ts tests/sync-tick.test.ts
 git commit -m "feat(sync): two fair lanes per tick (regular first, equal import slices)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: Progress read + `GET /api/sync/progress`
+
+**Files:**
+- Create: `lib/sync/progress-read.ts`, `app/api/sync/progress/route.ts`
+- Test: `tests/sync-progress-route.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `buildProgress`, `isTracked`, `LiveProgress`, `AccountProgress`, `Stage` (Task 3); `rowToState` (Task 4); `emptyState` (Task 2); `assertOwner(h)`, `createServerSupabase({ responseHeaders })`, `supabaseAccountsStore(db).list()` (existing).
+- Produces:
+  - `rowToLive(r: Record<string, unknown>): LiveProgress`
+  - `loadSyncProgress(db: SupabaseClient, accounts: StoredAccount[], now: Date): Promise<AccountProgress[]>` — owner session, never throws, archived accounts skipped, only tracked accounts returned, 3 count queries per tracked account (posts total, posts measured, latest follower snapshot)
+  - `GET /api/sync/progress` → `200 { accounts: AccountProgress[] }` | `401 { error: 'unauthorized' }` | `500 { error: 'unexpected' }`, always `cache-control: private, no-store` plus the headers Supabase handed to `assertOwner`/`createServerSupabase`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-progress-route.test.ts`:
+
+```ts
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { decideRoute } from '@/lib/auth/route-policy';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { loadSyncProgress, rowToLive } from '@/lib/sync/progress-read';
+
+const state = vi.hoisted(() => ({ owner: true, reads: 0, fail: false }));
+vi.mock('@/lib/auth/assert-owner', () => ({
+  assertOwner: async (h?: Headers) => {
+    h?.set('x-from-supabase', 'kept');
+    return state.owner;
+  },
+}));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => ({ __db: true }) }));
+vi.mock('@/lib/accounts/supabase-store', () => ({
+  supabaseAccountsStore: () => ({
+    list: async () => {
+      state.reads++;
+      if (state.fail) throw new Error('dashboard read: accounts failed secret-value');
+      return [];
+    },
+  }),
+}));
+
+import { GET } from '@/app/api/sync/progress/route';
+
+beforeEach(() => {
+  state.owner = true;
+  state.reads = 0;
+  state.fail = false;
+});
+
+describe('GET /api/sync/progress', () => {
+  it('401 for anyone but the owner, uncached, nothing read; the auth headers are kept', async () => {
+    state.owner = false;
+    const res = await GET();
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'unauthorized' });
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('x-from-supabase')).toBe('kept');
+    expect(state.reads).toBe(0);
+  });
+
+  it('200 with the progress list for the owner, uncached', async () => {
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ accounts: [] });
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('x-from-supabase')).toBe('kept');
+  });
+
+  it('a read failure is a fixed 500 that never echoes the error', async () => {
+    state.fail = true;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET();
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(await res.json())).not.toContain('secret');
+  });
+
+  it('stays session-protected: no public exemption in the route policy', () => {
+    expect(decideRoute({ pathname: '/api/sync/progress', configured: true, signedIn: false, aal: null, mfaRequired: false })).toEqual({ type: 'redirect', to: '/login' });
+  });
+});
+
+/** Minimal PostgREST stand-in: each table returns its rows; count queries return `counts[table]`. */
+function fakeDb(rows: Record<string, unknown[]>, o: { counts?: number[]; errors?: string[] } = {}) {
+  const counts = [...(o.counts ?? [])];
+  const queried: string[] = [];
+  return {
+    queried,
+    db: {
+      from(table: string) {
+        queried.push(table);
+        let head = false;
+        const q: Record<string, unknown> = {};
+        const result = () => (o.errors?.includes(table) ? { data: null, error: { message: 'x' }, count: null } : head ? { data: null, error: null, count: counts.shift() ?? 0 } : { data: rows[table] ?? [], error: null });
+        q.select = (_c: string, opts?: { head?: boolean }) => ((head = !!opts?.head), q);
+        for (const f of ['in', 'eq', 'neq', 'is', 'not', 'order', 'limit']) q[f] = () => q;
+        q.maybeSingle = async () => ({ data: (rows[table] ?? [])[0] ?? null, error: null });
+        q.then = (res: (v: unknown) => unknown) => Promise.resolve(result()).then(res);
+        return q;
+      },
+    } as never,
+  };
+}
+
+const NOW = new Date('2026-10-14T02:00:00Z');
+const acct = (id: string, o: Partial<StoredAccount> = {}) => ({ id, status: 'active', ...o }) as StoredAccount;
+
+describe('loadSyncProgress', () => {
+  it('only importing / unfinished accounts are returned, with counts and keys only', async () => {
+    const { db, queried } = fakeDb(
+      {
+        sync_state: [
+          { account_id: 'new', daily_done_through: '2026-10-13', backfilled_from: '2026-10-07', last_run: { daily: NOW.toISOString() }, consecutive_failures: 0, lease_id: 'secret-lease' },
+          { account_id: 'done', daily_done_through: '2026-10-13', backfilled_from: '2026-07-16', last_run: { backfill: NOW.toISOString() }, consecutive_failures: 0 },
+        ],
+        sync_progress: [{ account_id: 'new', stage: 'account_days', state: 'running', done: 7, total: 90, detail_day: '2026-10-06', started_at: '2026-10-14T01:59:00Z', updated_at: '2026-10-14T01:59:58Z' }],
+        follower_snapshots: [{ followers: 1520 }],
+      },
+      { counts: [12, 3] },
+    );
+    const out = await loadSyncProgress(db, [acct('new'), acct('done'), acct('gone', { status: 'archived' })], NOW);
+    expect(out.map((p) => p.accountId)).toEqual(['new']);
+    expect(out[0]).toMatchObject({ phase: 'running', current: { stage: 'account_days', day: '2026-10-06', done: 7, total: 90 } });
+    expect(out[0].stages.find((s) => s.stage === 'post_metrics')).toMatchObject({ done: 3, total: 12 });
+    expect(JSON.stringify(out)).not.toContain('secret');
+    expect(queried.filter((t) => t === 'media')).toHaveLength(2); // counts only for the tracked account
+  });
+
+  it('works before the migration is applied (sync_progress missing): the state alone drives the panel', async () => {
+    const { db } = fakeDb({ sync_state: [] }, { errors: ['sync_progress'] });
+    const out = await loadSyncProgress(db, [acct('brand-new')], NOW);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ accountId: 'brand-new', phase: 'waiting', percent: 0 });
+  });
+
+  it('never throws: a failing state read gives an empty list', async () => {
+    expect(await loadSyncProgress(fakeDb({}, { errors: ['sync_state'] }).db, [acct('a')], NOW)).toEqual([]);
+    expect(await loadSyncProgress({} as never, [acct('a')], NOW)).toEqual([]);
+  });
+
+  it('rowToLive defaults unknown states to waiting and missing numbers safely', () => {
+    expect(rowToLive({ state: 'weird', done: 'x' })).toMatchObject({ state: 'waiting', done: 0, total: null, stage: null });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-progress-route.test.ts`
+Expected: FAIL — cannot resolve `@/app/api/sync/progress/route` / `@/lib/sync/progress-read`.
+
+- [ ] **Step 3: Create `lib/sync/progress-read.ts`**
+
+```ts
+// Owner-session read for the progress panel and badges (RLS: owner select; never the admin client). Only accounts
+// worth showing (isTracked) get the extra count queries. Output is counts, keys and days: no tokens, no media ids.
+// Never throws: on any read error the panel simply shows nothing new.
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { buildProgress, isTracked, type AccountProgress, type LiveProgress, type Stage } from '@/lib/sync/progress';
+import { emptyState } from '@/lib/sync/schedule';
+import { rowToState } from '@/lib/sync/store';
+
+type Row = Record<string, unknown>;
+const STATE_COLUMNS = 'account_id,lease_until,last_attempt_at,last_success_at,last_error_key,consecutive_failures,daily_done_through,backfilled_from,last_run';
+const PROGRESS_COLUMNS = 'account_id,stage,state,done,total,detail_day,error_key,started_at,updated_at,finished_at';
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const str = (v: unknown) => (typeof v === 'string' ? v : null);
+
+export function rowToLive(r: Row): LiveProgress {
+  const state = r.state === 'running' || r.state === 'failed' || r.state === 'done' ? r.state : 'waiting';
+  return {
+    stage: (str(r.stage) as Stage | null) ?? null,
+    state,
+    done: num(r.done) ?? 0,
+    total: num(r.total),
+    detailDay: str(r.detail_day),
+    errorKey: str(r.error_key),
+    startedAt: str(r.started_at) ?? new Date(0).toISOString(),
+    updatedAt: str(r.updated_at) ?? new Date(0).toISOString(),
+    finishedAt: str(r.finished_at),
+  };
+}
+
+async function counts(db: SupabaseClient, accountId: string) {
+  const posts = () => db.from('media').select('id', { count: 'exact', head: true }).eq('account_id', accountId).neq('media_type', 'STORY').is('gone_at', null);
+  const [total, measured, snap] = await Promise.all([
+    posts(),
+    posts().not('last_metrics_at', 'is', null),
+    db.from('follower_snapshots').select('followers').eq('account_id', accountId).order('captured_at', { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  return {
+    posts: { total: total.error ? 0 : (total.count ?? 0), measured: measured.error ? 0 : (measured.count ?? 0) },
+    followers: snap.error ? null : num((snap.data as Row | null)?.followers),
+  };
+}
+
+export async function loadSyncProgress(db: SupabaseClient, accounts: StoredAccount[], now: Date): Promise<AccountProgress[]> {
+  const shown = accounts.filter((a) => a.status !== 'archived');
+  if (shown.length === 0) return [];
+  try {
+    const ids = shown.map((a) => a.id);
+    const [st, pr] = await Promise.all([db.from('sync_state').select(STATE_COLUMNS).in('account_id', ids), db.from('sync_progress').select(PROGRESS_COLUMNS).in('account_id', ids)]);
+    if (st.error) return [];
+    const states = new Map(((st.data ?? []) as Row[]).map((r) => [r.account_id as string, rowToState(r)]));
+    const live = new Map((pr.error ? [] : ((pr.data ?? []) as Row[])).map((r) => [r.account_id as string, rowToLive(r)])); // table missing: no live rows
+    const tracked = shown.map((a) => ({ a, state: states.get(a.id) ?? emptyState(a.id), live: live.get(a.id) ?? null })).filter((x) => isTracked(x, now));
+    return await Promise.all(tracked.map(async ({ a, state, live: l }) => buildProgress({ accountId: a.id, needsReconnect: a.status === 'needs_reconnect', state, live: l, ...(await counts(db, a.id)) }, now)));
+  } catch {
+    return [];
+  }
+}
+```
+
+- [ ] **Step 4: Create `app/api/sync/progress/route.ts`**
+
+```ts
+import { NextResponse } from 'next/server';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import { assertOwner } from '@/lib/auth/assert-owner';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { loadSyncProgress } from '@/lib/sync/progress-read';
+
+/**
+ * GET /api/sync/progress — owner session only (proxy + assertOwner; NOT a public exemption in lib/auth/route-policy.ts).
+ * Progress of the accounts that are importing or just finished: counts, i18n keys and days only. Polled by the
+ * progress panel every few seconds, so it is uncached and cheap (count queries only for tracked accounts).
+ */
+export async function GET() {
+  const h = new Headers({ 'cache-control': 'private, no-store' });
+  if (!(await assertOwner(h))) return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: h });
+  try {
+    const db = await createServerSupabase({ responseHeaders: h }); // owner session: RLS applies
+    const accounts = await supabaseAccountsStore(db).list();
+    return NextResponse.json({ accounts: await loadSyncProgress(db, accounts, new Date()) }, { headers: h });
+  } catch {
+    console.error('sync progress read failed'); // fixed text: never log error objects
+    return NextResponse.json({ error: 'unexpected' }, { status: 500, headers: h });
+  }
+}
+```
+
+`lib/auth/route-policy.ts` is NOT touched: the proxy keeps requiring a session (and aal2 when enrolled) for this path, and the handler checks ownership itself.
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/sync-progress-route.test.ts tests/route-policy.test.ts tests/admin-guard.test.ts && npx tsc --noEmit`
+Expected: PASS, no type errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/sync/progress-read.ts app/api/sync/progress/route.ts tests/sync-progress-route.test.ts
+git commit -m "feat(sync): owner-only GET /api/sync/progress (counts and keys only)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 9: Reconnect and "Sync now" reuse the progress mechanics
+
+**Files:**
+- Modify: `app/api/instagram/callback/route.ts`, `app/(app)/accounts/actions.ts`, `lib/sync/connect-sync.ts`
+- Modify: `tests/sync-now-action.test.ts`, `tests/connect-sync.test.ts`
+- Test: `tests/instagram-callback-progress.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `resetSyncProgress` (Task 4); `shouldChain`, `continueChain` (existing `lib/sync/chain.ts`).
+- Produces: `continueIfMore(more: boolean): Promise<void>` in `lib/sync/connect-sync.ts` (never throws). Callback: `clearSyncError` → `resetSyncProgress` → `after(syncAccountNow)`; redirect `?connected=<username>` unchanged. `syncNowAction`: `requireOwner` → id check → `resetSyncProgress` → `runTick` → `after(continueIfMore(more))`; results/error keys unchanged.
+
+- [ ] **Step 1: Write the failing test** — create `tests/instagram-callback-progress.test.ts`:
+
+```ts
+// @vitest-environment node
+import { NextRequest } from 'next/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const log = vi.hoisted(() => [] as string[]);
+const afterFns = vi.hoisted(() => [] as (() => unknown)[]);
+vi.mock('next/server', async (orig) => ({ ...(await orig<object>()), after: (fn: () => unknown) => void afterFns.push(fn) }));
+vi.mock('@/lib/auth/assert-owner', () => ({ assertOwner: async () => true }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => ({ __admin: true }) }));
+vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({}) }));
+vi.mock('@/lib/env', async (orig) => ({ ...(await orig<object>()), getInstagramEnv: () => ({}) }));
+// stands in for a successful OAuth exchange of an account that already exists (a reconnect)
+vi.mock('@/lib/instagram/connect-flow', () => ({
+  processCallback: async (_i: unknown, deps: { onConnected?: (id: string) => Promise<void> }) => {
+    await deps.onConnected?.('acc-1');
+    return { redirect: '/accounts?connected=brand' };
+  },
+}));
+vi.mock('@/lib/sync/store', () => ({
+  clearSyncError: async (_db: unknown, id: string) => void log.push(`clear:${id}`),
+  resetSyncProgress: async (_db: unknown, id: string, iso: string) => void log.push(`reset:${id}:${typeof iso}`),
+}));
+vi.mock('@/lib/sync/connect-sync', () => ({ syncAccountNow: async (id: string) => void log.push(`sync:${id}`) }));
+
+import { GET as callback } from '@/app/api/instagram/callback/route';
+
+beforeEach(() => {
+  log.length = 0;
+  afterFns.length = 0;
+});
+
+describe('OAuth callback → progress (reconnect during an active import)', () => {
+  it('reconnect resets only the live row, never sync_state coverage, then syncs after the redirect', async () => {
+    const res = await callback(new NextRequest(new URL('/api/instagram/callback?code=c&state=s', 'https://app.test')));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://app.test/accounts?connected=brand'); // ?connected= kept for the panel
+    expect(log).toEqual(['clear:acc-1', 'reset:acc-1:string']); // no coverage write of any kind
+    expect(afterFns).toHaveLength(1);
+    await afterFns[0]();
+    expect(log.at(-1)).toBe('sync:acc-1');
+  });
+});
+```
+
+and update the existing tests:
+
+`tests/sync-now-action.test.ts` — after the line `vi.mock('next/cache', () => ({ revalidatePath: (p: string) => calls.push(`revalidate:${p}`) }));` add
+
+```ts
+vi.mock('next/server', () => ({ after: (fn: () => unknown) => void fn() }));
+vi.mock('@/lib/sync/store', () => ({ resetSyncProgress: async (_db: unknown, id: string) => void calls.push(`reset:${id}`) }));
+vi.mock('@/lib/sync/connect-sync', () => ({ continueIfMore: async (more: boolean) => void calls.push(`continue:${more}`) }));
+```
+
+replace `    expect(calls.slice(0, 3)).toEqual(['requireOwner', 'deps', 'tick']);` with
+
+```ts
+    expect(calls.slice(0, 4)).toEqual(['requireOwner', `reset:${ID}`, 'deps', 'tick']);
+```
+
+and replace the test `'a partial run (time budget) still counts as ok'` with
+
+```ts
+  it('a partial run (time budget) still counts as ok and starts a continuation pass after the response', async () => {
+    runTick.mockResolvedValue({ ...summary([{ accountId: ID, outcome: 'partial', jobs: ['stories'] }]), more: true });
+    expect(await syncNowAction(ID)).toEqual({ ok: true });
+    expect(calls).toContain('continue:true');
+  });
+
+  it('a complete run does not chain; a non-uuid id resets nothing', async () => {
+    await syncNowAction(ID);
+    expect(calls).toContain('continue:false');
+    calls.length = 0;
+    await syncNowAction('nope');
+    expect(calls.some((c) => c.startsWith('reset:'))).toBe(false);
+  });
+```
+
+`tests/connect-sync.test.ts` — change the import to `import { continueIfMore, syncAccountNow } from '@/lib/sync/connect-sync';` and append at the end of the file:
+
+```ts
+describe('continueIfMore ("Sync now" while an import is still going)', () => {
+  it('chains only when the run stopped on its time budget, and never throws', async () => {
+    await continueIfMore(false);
+    expect(continueChain).not.toHaveBeenCalled();
+    await continueIfMore(true);
+    expect(continueChain).toHaveBeenCalledWith(SECRET, 0);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubEnv('CRON_SECRET', '');
+    await expect(continueIfMore(true)).resolves.toBeUndefined();
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/instagram-callback-progress.test.ts tests/sync-now-action.test.ts tests/connect-sync.test.ts`
+Expected: FAIL — no `reset:` call is logged; `continueIfMore` is not exported.
+
+- [ ] **Step 3: Implement**
+
+`lib/sync/connect-sync.ts` — append:
+
+```ts
+
+/** "Sync now": start a continuation pass (chain depth 0) when the run stopped on its time budget. Never throws. */
+export async function continueIfMore(more: boolean): Promise<void> {
+  try {
+    if (shouldChain(more, 0)) await continueChain(getServerEnv().cronSecret, 0);
+  } catch {
+    console.error('sync continuation failed'); // fixed text: never log error objects
+  }
+}
+```
+
+`app/api/instagram/callback/route.ts` — change the store import to `import { clearSyncError, resetSyncProgress } from '@/lib/sync/store';` and replace
+
+```ts
+          await clearSyncError(db, id);
+          after(() => syncAccountNow(id)); // start syncing this account at once; the redirect is not delayed
+```
+
+with
+
+```ts
+          await clearSyncError(db, id);
+          await resetSyncProgress(db, id, new Date().toISOString()); // new progress session; coverage (sync_state) is kept
+          after(() => syncAccountNow(id)); // start syncing this account at once; the redirect is not delayed
+```
+
+`app/(app)/accounts/actions.ts`:
+- after `import { revalidatePath } from 'next/cache';` add `import { after } from 'next/server';`
+- replace `import { createSyncDeps } from '@/lib/sync/deps';` with
+
+```ts
+import { continueIfMore } from '@/lib/sync/connect-sync';
+import { createSyncDeps } from '@/lib/sync/deps';
+import { resetSyncProgress } from '@/lib/sync/store';
+```
+
+- extend the comment above `syncNowAction` with two lines:
+
+```ts
+// Starts a fresh progress session (the panel shows it) and, if the run stopped on its time budget (an import still
+// going), a continuation pass after the response. Coverage is never reset.
+```
+
+- inside `syncNowAction`'s `try`, replace
+
+```ts
+    const summary = await runTick(createSyncDeps(), { trigger: 'manual', budgetMs: TICK_BUDGET_MS, accountId: id });
+    revalidatePath('/accounts');
+```
+
+with
+
+```ts
+    await resetSyncProgress(createAdminSupabase(), id, new Date().toISOString());
+    const summary = await runTick(createSyncDeps(), { trigger: 'manual', budgetMs: TICK_BUDGET_MS, accountId: id });
+    revalidatePath('/accounts');
+    after(() => continueIfMore(summary.more === true));
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/instagram-callback-progress.test.ts tests/sync-now-action.test.ts tests/connect-sync.test.ts tests/instagram-routes.test.ts tests/account-actions.test.ts && npx tsc --noEmit`
+Expected: PASS, no type errors.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/api/instagram/callback/route.ts "app/(app)/accounts/actions.ts" lib/sync/connect-sync.ts tests/instagram-callback-progress.test.ts tests/sync-now-action.test.ts tests/connect-sync.test.ts
+git commit -m "feat(sync): reconnect and Sync now start a progress session; Sync now chains" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
