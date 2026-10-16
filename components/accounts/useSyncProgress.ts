@@ -38,8 +38,8 @@ export function useSyncProgress(initial: AccountProgress[]): AccountProgress[] {
       if (document.visibilityState !== 'visible') return; // paused; visibilitychange resumes
       try {
         const res = await fetch('/api/sync/progress', { cache: 'no-store', signal: ctrl.signal });
-        if (res.status === 401) {
-          stopped = true; // signed out: the next navigation goes to /login
+        if (res.status === 401 || res.redirected) {
+          stopped = true; // signed out (the proxy redirects to /login, assertOwner answers 401): stop; the next navigation handles it
           return;
         }
         if (!res.ok) throw new Error('progress');

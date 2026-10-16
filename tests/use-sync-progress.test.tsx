@@ -110,6 +110,16 @@ describe('useSyncProgress', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it('stops polling when the proxy redirected the request to the login page', async () => {
+    const redirected = new Response('<html></html>', { status: 200 });
+    Object.defineProperty(redirected, 'redirected', { value: true });
+    const fetchFn = vi.fn().mockResolvedValue(redirected);
+    vi.stubGlobal('fetch', fetchFn);
+    renderHook(() => useSyncProgress(INIT));
+    await act(() => vi.advanceTimersByTimeAsync(10 * POLL_MS));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it('aborts the in-flight request and stops scheduling when unmounted', async () => {
     let signal: AbortSignal | undefined;
     const fetchFn = vi.fn((_url: string, init?: RequestInit) => {
