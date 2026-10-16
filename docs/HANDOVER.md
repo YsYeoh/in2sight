@@ -10,6 +10,8 @@ Written so a fresh environment (e.g. Claude Code in the cloud) can continue with
 - **Nothing in Plans 6–10 has been looked at in a browser** (jsdom/tests only, plus a few screenshots of the orb). See §5 for the owner's verification checklist.
 
 ## 2. What to do next (approved design, not yet built)
+
+> **REVISED ORDER (owner, 2026-10-16): data collection and analysis first, planning last.** Next = **Plan 11 Data Capture v2 (sync/DB only, no new screens)** → 12 Covers + Post Lab → 13 Followers & Growth Center (+ comments/fans/moderation incl. reply/hide, follower-export diff) → 14 Settings → 15 Weekly planning tools. Why: Instagram history cannot be backfilled, so every day without capture is lost. Scope of Plan 11 is in the spec §0b. The table below shows the earlier numbering; follow this note where they differ. Owner decisions: access = only the owner; planner board only (no publishing); engagement rate = both (reach default, followers toggle); comments = read + reply/hide/delete from the app.
 Source of truth: `docs/superpowers/specs/2026-10-15-creator-toolkit-design.md` (owner approved it; answers: official data only + follower-export diff, include commenters/`instagram_business_manage_comments`, order A→E).
 | Plan | Content | Status |
 |---|---|---|
