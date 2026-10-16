@@ -801,3 +801,657 @@ git commit -m "feat(sync): pure progress model (stages, percent, phase, estimate
 ```
 
 ---
+
+### Task 4: Store — persist the backward edge, live progress writes, `SyncStatus.backfilling`
+
+**Files:**
+- Modify: `lib/sync/store.ts`
+- Modify: `lib/sync/tick.ts` (two `saveState` calls), `lib/sync/run-account.ts` (one line in the patch)
+- Modify: `tests/fixtures/sync-fakes.ts`, `tests/sync-store.test.ts` (three fixtures)
+- Test: `tests/sync-store-progress.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `isBackfilling`, `SyncState.backfilledFrom` (Task 2); `Stage`, `LiveState` (Task 3); table/columns from Task 1.
+- Produces (in `lib/sync/store.ts`):
+  - `StatePatch.backfilledFrom: string | null` (required)
+  - `interface ProgressWrite { stage: Stage | null; state: LiveState; done: number; total: number | null; detailDay: string | null; errorKey: string | null; updatedAt: string; finishedAt?: string | null }`
+  - `SyncStore.writeProgress(accountId: string, p: ProgressWrite): Promise<void>` (throws `sync store: writeProgress failed` on error)
+  - `resetSyncProgress(db: SupabaseClient, accountId: string, nowIso: string): Promise<void>` (never throws)
+  - `SyncStatus.backfilledFrom?: string | null`, `SyncStatus.backfilling?: boolean`
+  - memory fake: `memoryStore(...).progress: { accountId: string; p: ProgressWrite }[]`
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-store-progress.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { listSyncStatus, resetSyncProgress, rowToState, supabaseSyncStore } from '@/lib/sync/store';
+
+type Call = { table: string; op: string; args: unknown[]; filters: [string, ...unknown[]][] };
+
+/** Records every query-builder call; each awaited query resolves to the next queued result (default: ok, no data). */
+function recorder(results: { data?: unknown; error?: unknown }[] = []) {
+  const calls: Call[] = [];
+  const db = {
+    from(table: string) {
+      const call: Call = { table, op: '', args: [], filters: [] };
+      calls.push(call);
+      const next = () => Promise.resolve(results.shift() ?? { data: null, error: null });
+      const chain: Record<string, unknown> = {};
+      for (const op of ['insert', 'update', 'upsert', 'delete']) chain[op] = (...a: unknown[]) => ((call.op = op), call.args.push(...a), chain);
+      chain.select = (...a: unknown[]) => ((call.op ||= 'select'), call.args.push(...a), chain);
+      for (const f of ['eq', 'neq', 'in', 'is', 'or', 'limit']) chain[f] = (...a: unknown[]) => (call.filters.push([f, ...a]), chain);
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => next().then(res, rej);
+      return chain;
+    },
+  };
+  return { db: db as never, calls };
+}
+
+const NOW = '2026-10-14T02:00:00.000Z';
+
+describe('backward edge (backfilled_from)', () => {
+  it('is read from the row and written back with the state', async () => {
+    expect(rowToState({ account_id: 'a1', backfilled_from: '2026-09-01' }).backfilledFrom).toBe('2026-09-01');
+    expect(rowToState({ account_id: 'a1' }).backfilledFrom).toBeNull();
+    const r = recorder();
+    await supabaseSyncStore(r.db).saveState('a1', 'L1', { lastAttemptAt: NOW, consecutiveFailures: 0, lastErrorKey: null, dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-09-01', lastRun: {} });
+    expect(r.calls[0].args[0]).toMatchObject({ daily_done_through: '2026-10-13', backfilled_from: '2026-09-01' });
+  });
+});
+
+describe('live progress writes', () => {
+  it('upserts one row per account with counts and keys only; finished_at only when given', async () => {
+    const r = recorder();
+    const s = supabaseSyncStore(r.db);
+    await s.writeProgress('a1', { stage: 'account_days', state: 'running', done: 12, total: 90, detailDay: '2026-09-02', errorKey: null, updatedAt: NOW });
+    expect(r.calls[0]).toMatchObject({ table: 'sync_progress', op: 'upsert', args: [{ account_id: 'a1', stage: 'account_days', state: 'running', done: 12, total: 90, detail_day: '2026-09-02', error_key: null, updated_at: NOW }, { onConflict: 'account_id' }] });
+    expect(r.calls[0].args[0]).not.toHaveProperty('finished_at');
+    expect(r.calls[0].args[0]).not.toHaveProperty('started_at'); // a run never moves the session start
+    await s.writeProgress('a1', { stage: 'audience', state: 'done', done: 1, total: 1, detailDay: null, errorKey: null, updatedAt: NOW, finishedAt: NOW });
+    expect(r.calls[1].args[0]).toMatchObject({ finished_at: NOW });
+  });
+
+  it('a failed write throws a fixed message (the sink swallows it)', async () => {
+    const r = recorder([{ error: { message: 'relation "sync_progress" does not exist' } }]);
+    await expect(supabaseSyncStore(r.db).writeProgress('a1', { stage: null, state: 'waiting', done: 0, total: null, detailDay: null, errorKey: null, updatedAt: NOW })).rejects.toThrow('sync store: writeProgress failed');
+  });
+
+  it('resetSyncProgress starts a new session (start time, waiting, unfinished) and never throws', async () => {
+    const r = recorder();
+    await resetSyncProgress(r.db, 'a1', NOW);
+    expect(r.calls[0]).toMatchObject({ table: 'sync_progress', op: 'upsert', args: [{ account_id: 'a1', stage: null, state: 'waiting', done: 0, started_at: NOW, finished_at: null, error_key: null }, { onConflict: 'account_id' }] });
+    expect(r.calls.some((c) => c.table === 'sync_state')).toBe(false); // coverage is never reset
+    await expect(resetSyncProgress({} as never, 'a1', NOW)).resolves.toBeUndefined();
+  });
+});
+
+describe('listSyncStatus backfilling flag', () => {
+  it('new accounts are importing, finished and pre-Plan-11a accounts are not', async () => {
+    const r = recorder([
+      {
+        data: [
+          { account_id: 'new', consecutive_failures: 0, daily_done_through: null, backfilled_from: null, last_run: {} },
+          { account_id: 'half', consecutive_failures: 0, daily_done_through: '2026-10-13', backfilled_from: '2026-09-20', last_run: { daily: NOW } },
+          { account_id: 'done', consecutive_failures: 0, daily_done_through: '2026-10-13', backfilled_from: '2026-07-16', last_run: { backfill: NOW } },
+          { account_id: 'legacy', consecutive_failures: 0, daily_done_through: '2026-10-13', backfilled_from: null, last_run: { daily: NOW } },
+        ],
+      },
+    ]);
+    const s = await listSyncStatus(r.db);
+    expect(Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v.backfilling]))).toEqual({ new: true, half: true, done: false, legacy: false });
+    expect(s.half.backfilledFrom).toBe('2026-09-20');
+    expect(r.calls[0].args[0]).toContain('backfilled_from');
+    expect(r.calls[0].args[0]).toContain('last_run');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-store-progress.test.ts`
+Expected: FAIL — `resetSyncProgress` is not exported / `writeProgress` is not a function.
+
+- [ ] **Step 3: Implement in `lib/sync/store.ts`** (seven edits)
+
+(a) Imports — replace
+
+```ts
+import { emptyState, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
+```
+
+with
+
+```ts
+import type { LiveState, Stage } from '@/lib/sync/progress';
+import { emptyState, isBackfilling, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
+```
+
+(b) `StatePatch` + new `ProgressWrite` — replace
+
+```ts
+  dailyDoneThrough: string | null;
+  lastRun: Partial<Record<JobKind, string>>;
+}
+```
+
+(the end of `interface StatePatch`) with
+
+```ts
+  dailyDoneThrough: string | null;
+  backfilledFrom: string | null;
+  lastRun: Partial<Record<JobKind, string>>;
+}
+
+/** One live progress write (sync_progress row). started_at comes from resetSyncProgress or the insert default. */
+export interface ProgressWrite {
+  stage: Stage | null;
+  state: LiveState;
+  done: number;
+  total: number | null;
+  detailDay: string | null;
+  errorKey: string | null;
+  updatedAt: string;
+  finishedAt?: string | null; // omitted = keep the stored value
+}
+```
+
+(c) `SyncStore` interface — replace
+
+```ts
+  recordRun(run: SyncRun): Promise<void>;
+}
+```
+
+with
+
+```ts
+  recordRun(run: SyncRun): Promise<void>;
+  /** Upserts the account's live progress row. Callers treat it as best-effort (lib/sync/progress-sink.ts). */
+  writeProgress(accountId: string, p: ProgressWrite): Promise<void>;
+}
+```
+
+(d) `rowToState` — after the line `    dailyDoneThrough: (r.daily_done_through as string | null) ?? null,` add
+
+```ts
+    backfilledFrom: (r.backfilled_from as string | null) ?? null,
+```
+
+(e) `saveState` — after the line `        daily_done_through: p.dailyDoneThrough,` add
+
+```ts
+        backfilled_from: p.backfilledFrom,
+```
+
+(f) `supabaseSyncStore` — after the `recordRun` method (before the closing `};` of the returned object) add
+
+```ts
+    async writeProgress(accountId, p) {
+      const row: Row = { account_id: accountId, stage: p.stage, state: p.state, done: p.done, total: p.total, detail_day: p.detailDay, error_key: p.errorKey, updated_at: p.updatedAt };
+      if (p.finishedAt !== undefined) row.finished_at = p.finishedAt;
+      check('writeProgress')(await db.from('sync_progress').upsert(row, { onConflict: 'account_id' }));
+    },
+```
+
+(g) Replace everything from `export interface SyncStatus {` to the end of the file with
+
+```ts
+/**
+ * Reconnect / "Sync now": a fresh live progress row (new start time, waiting, nothing finished). Never touches sync_state
+ * coverage, so an import resumes where it stopped. Admin client; best-effort, never throws.
+ */
+export async function resetSyncProgress(db: SupabaseClient, accountId: string, nowIso: string): Promise<void> {
+  try {
+    const row = { account_id: accountId, stage: null, state: 'waiting', done: 0, total: null, detail_day: null, error_key: null, started_at: nowIso, updated_at: nowIso, finished_at: null };
+    await db.from('sync_progress').upsert(row, { onConflict: 'account_id' });
+  } catch {
+    // the sync writes the row itself on its first progress report
+  }
+}
+
+export interface SyncStatus {
+  lastSuccessAt: string | null;
+  lastErrorKey: string | null;
+  consecutiveFailures: number;
+  dailyDoneThrough?: string | null; // null until the first insight day is written
+  backfilledFrom?: string | null;
+  backfilling?: boolean; // history still importing (isBackfilling in lib/sync/schedule.ts); missing = unknown
+}
+
+/** Owner-session read for the Accounts page (RLS: owner select). Never throws: the page still renders without it. */
+export async function listSyncStatus(db: SupabaseClient): Promise<Record<string, SyncStatus>> {
+  const { data, error } = await db.from('sync_state').select('account_id,last_success_at,last_error_key,consecutive_failures,daily_done_through,backfilled_from,last_run');
+  if (error || !data) return {};
+  return Object.fromEntries(
+    (data as Row[]).map((r) => {
+      const s = rowToState(r);
+      return [s.accountId, { lastSuccessAt: s.lastSuccessAt, lastErrorKey: s.lastErrorKey, consecutiveFailures: s.consecutiveFailures, dailyDoneThrough: s.dailyDoneThrough, backfilledFrom: s.backfilledFrom, backfilling: isBackfilling(s) }];
+    }),
+  );
+}
+```
+
+- [ ] **Step 4: Keep the callers compiling**
+
+`lib/sync/tick.ts`: in BOTH `saveState(...)` calls, replace `dailyDoneThrough: fresh.dailyDoneThrough, lastRun: fresh.lastRun` with `dailyDoneThrough: fresh.dailyDoneThrough, backfilledFrom: fresh.backfilledFrom, lastRun: fresh.lastRun`.
+
+`lib/sync/run-account.ts`: in the `patch` object at the end of `runAccount`, after `    dailyDoneThrough: progress.dailyDoneThrough,` add
+
+```ts
+    backfilledFrom: c.state.backfilledFrom,
+```
+
+(Task 5 changes this to the runner's moving edge.)
+
+`tests/fixtures/sync-fakes.ts` (memory store gets `writeProgress`):
+- replace `import type { StatePatch, SyncRun, SyncStore } from '@/lib/sync/store';` with `import type { ProgressWrite, StatePatch, SyncRun, SyncStore } from '@/lib/sync/store';`
+- after `  const saved: { accountId: string; patch: StatePatch }[] = [];` add `  const progress: { accountId: string; p: ProgressWrite }[] = [];`
+- after `    recordRun: async (r) => void runs.push(r),` add `    writeProgress: async (accountId, p) => void progress.push({ accountId, p }),`
+- in the final `return { store, … saved };` add `progress` to the returned object: `return { store, states, media, daily, followers, metrics, audience, online, snapshots, breakdowns, runs, saved, progress };`
+
+`tests/sync-store.test.ts` (patch objects now need the new field; the status row has two new fields):
+- replace `dailyDoneThrough: '2026-10-13', lastRun: { stories: NOW } });` with `dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16', lastRun: { stories: NOW } });`
+- replace `dailyDoneThrough: null, lastRun: {} });` with `dailyDoneThrough: null, backfilledFrom: null, lastRun: {} });`
+- replace `toEqual({ a1: { lastSuccessAt: NOW, lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: null } });` with `toEqual({ a1: { lastSuccessAt: NOW, lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: null, backfilledFrom: null, backfilling: true } });`
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/sync-store-progress.test.ts tests/sync-store.test.ts tests/sync-tick.test.ts tests/sync-run-account.test.ts tests/dashboard-read.test.ts && npx tsc --noEmit`
+Expected: PASS, no type errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/sync/store.ts lib/sync/tick.ts lib/sync/run-account.ts tests/fixtures/sync-fakes.ts tests/sync-store.test.ts tests/sync-store-progress.test.ts
+git commit -m "feat(sync): persist backfilled_from, live progress writes, SyncStatus.backfilling" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: Runner — newest-first walk, `backfill` job, shared media capture
+
+**Files:**
+- Modify: `lib/sync/run-account.ts`
+- Modify: `tests/sync-run-account.test.ts` (three `daily job` tests rewritten), `tests/sync-capture-v2.test.ts` (one test)
+- Test: `tests/sync-backfill.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `FIRST_DAYS`, `firstWeekPending`, `pickDueMedia(refs, now, oldMax)`, `BACKFILL_DAYS` (Task 2); `StatePatch.backfilledFrom` (Task 4).
+- Produces: the real `backfill` job in `JOB_RUNNERS`; `runAccount` patches carry the moved `backfilledFrom`/`dailyDoneThrough`. Internal helpers (not exported, Task 6 adds progress reports inside them): `fetchDay(c, day)`, `walkBack(c, p, floor)`, `captureMedia(c, ids)`. Behaviour:
+  - `daily` on a new account (or a first week stopped half-way): days yesterday → today−7, newest first; then only days that began meanwhile; then today's follower count.
+  - `daily` on an account whose first week is in: unchanged (missed days + last 3 days re-fetch).
+  - `backfill`: days from the backward edge − 1 down to today − 90 (newest first), then every never-measured post (newest first); a pre-Plan-11a row returns done at once.
+  - `mediaMetrics`: recent posts on their cadence + the newest 10 never-measured older posts.
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-backfill.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+import { runAccount, type RunContext } from '@/lib/sync/run-account';
+import { emptyState, type JobKind, type SyncState } from '@/lib/sync/schedule';
+import { account, fakeAccounts, fakeIg, memoryStore, type MemoryInit } from './fixtures/sync-fakes';
+
+const KL = 'Asia/Kuala_Lumpur';
+const NOW = new Date('2026-10-14T02:00:00Z'); // 10:00 local, local day 2026-10-14
+const DAY = { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
+
+function ctx(o: { state?: Partial<SyncState>; media?: MemoryInit['media']; budgetCalls?: number; tz?: string; now?: Date } = {}) {
+  const ig = fakeIg();
+  const mem = memoryStore({ media: o.media });
+  const acc = account({ id: 'a1' });
+  let calls = 0;
+  const c: RunContext = {
+    ig,
+    store: mem.store,
+    accounts: fakeAccounts([acc]).accounts,
+    account: acc,
+    token: 'IGQ-secret',
+    state: { ...emptyState('a1'), ...o.state },
+    tz: o.tz ?? KL,
+    now: o.now ?? NOW,
+    deadline: 1_000,
+    clock: () => (o.budgetCalls === undefined ? 0 : calls++ < o.budgetCalls ? 0 : 1_000),
+  };
+  return { c, ig, mem };
+}
+const run = (c: RunContext, jobs: JobKind[]) => runAccount(c, jobs);
+const ONBOARDING: JobKind[] = ['daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill'];
+
+describe('newest-first progressive backfill', () => {
+  it('a new account gets its 90 days newest first: the newest week, then 6 Oct back to 16 Jul', async () => {
+    const { c, mem } = ctx();
+    const { result, patch } = await run(c, ONBOARDING);
+    expect(result.outcome).toBe('ok');
+    const days = mem.daily.map((d) => d.day);
+    expect(days).toHaveLength(90);
+    expect(days.slice(0, 8)).toEqual(['2026-10-13', '2026-10-12', '2026-10-11', '2026-10-10', '2026-10-09', '2026-10-08', '2026-10-07', '2026-10-06']);
+    expect(days.at(-1)).toBe('2026-07-16');
+    expect([...days].sort().reverse()).toEqual(days); // strictly newest -> oldest
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16' });
+    expect(patch.lastRun.backfill).toBe(NOW.toISOString());
+  });
+
+  it('resumes after a budget stop from the backward edge, never re-fetching a day', async () => {
+    const first = ctx({ budgetCalls: 25 });
+    const a = await run(first.c, ONBOARDING);
+    expect(a.result.outcome).toBe('partial');
+    const second = ctx({ state: { ...emptyState('a1'), ...a.patch } });
+    const b = await run(second.c, ['backfill']); // daily finished in the first pass (lastRun.daily), so only the history job is due
+    expect(b.result.outcome).toBe('ok');
+    const all = [...first.mem.daily, ...second.mem.daily].map((d) => d.day);
+    expect(new Set(all).size).toBe(all.length);
+    expect(all).toHaveLength(90);
+    expect(second.ig.accountDay.mock.calls.length).toBe(90 - first.mem.daily.length);
+  });
+
+  it('an account synced before this plan (done-through set, no backward edge) is complete: nothing is re-fetched', async () => {
+    const { c, ig } = ctx({ state: { dailyDoneThrough: '2026-10-13', backfilledFrom: null } });
+    const { result, patch } = await run(c, ['backfill']);
+    expect(result).toMatchObject({ outcome: 'ok', jobs: ['backfill'] });
+    expect(ig.accountDay).not.toHaveBeenCalled();
+    expect(patch.backfilledFrom).toBeNull();
+    expect(patch.lastRun.backfill).toBe(NOW.toISOString());
+  });
+
+  it('empty follows/breakdown (under 100 followers) writes nulls, never zeros', async () => {
+    const { c, ig, mem } = ctx();
+    const written: unknown[] = [];
+    const upsert = mem.store.upsertDaily;
+    mem.store.upsertDaily = async (id, day, v) => (written.push(v), upsert(id, day, v));
+    ig.accountDay.mockResolvedValue({ ...DAY, follows: null, unfollows: null, linkTaps: null });
+    ig.accountDayBreakdown.mockResolvedValue([]);
+    await run(c, ['daily']);
+    expect(written).toHaveLength(7);
+    expect(written.every((v) => (v as typeof DAY).follows === null && (v as typeof DAY).linkTaps === null)).toBe(true);
+    expect(mem.breakdowns.every((b) => b.rows === 0)).toBe(true); // the real store skips an empty list
+  });
+
+  it('walks across a DST change with correct local-midnight boundaries (New York, clocks back on 1 Nov 2026)', async () => {
+    const { c, ig } = ctx({ tz: 'America/New_York', now: new Date('2026-11-03T15:00:00Z'), state: {} });
+    await run(c, ['daily']);
+    const ranges = ig.accountDay.mock.calls.slice(0, 3).map(([, since, until]) => [new Date(since * 1000).toISOString(), (until - since) / 3600]);
+    expect(ranges).toEqual([
+      ['2026-11-02T05:00:00.000Z', 24], // 2 Nov, EST
+      ['2026-11-01T04:00:00.000Z', 25], // 1 Nov: 25-hour day
+      ['2026-10-31T04:00:00.000Z', 24], // 31 Oct, EDT
+    ]);
+  });
+
+  it('posts: the regular media job takes recent + the newest 10 old posts; the history job takes the rest, newest first', async () => {
+    const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
+    const media = [{ id: 'recent', accountId: 'a1', postedAt: daysAgo(2), lastMetricsAt: null }, ...Array.from({ length: 15 }, (_, i) => ({ id: `old${String(i).padStart(2, '0')}`, accountId: 'a1', postedAt: daysAgo(40 + i), lastMetricsAt: null }))];
+    const { c, ig } = ctx({ media, state: { dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16' } });
+    await run(c, ['mediaMetrics']);
+    expect(ig.feedInsights.mock.calls.map((a) => a[1])).toEqual(['recent', ...Array.from({ length: 10 }, (_, i) => `old${String(i).padStart(2, '0')}`)]);
+    ig.feedInsights.mockClear();
+    const { patch } = await run(c, ['backfill']);
+    expect(ig.feedInsights.mock.calls.map((a) => a[1])).toEqual(['old10', 'old11', 'old12', 'old13', 'old14']);
+    expect(patch.lastRun.backfill).toBe(NOW.toISOString());
+  });
+
+  it('a rate limit during the history walk stops it with the edge kept, and it is not marked done', async () => {
+    const { c, ig } = ctx({ state: { dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-07' } });
+    let n = 0;
+    ig.accountDay.mockImplementation(async () => {
+      if (++n === 4) throw new InstagramApiError('data', 400, 80002);
+      return DAY;
+    });
+    const { result, patch } = await run(c, ['backfill']);
+    expect(result).toMatchObject({ outcome: 'failed', errorKey: 'rate_limited' });
+    expect(patch.backfilledFrom).toBe('2026-10-04');
+    expect(patch.lastRun.backfill).toBeUndefined();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-backfill.test.ts`
+Expected: FAIL — the first test sees 90 days written oldest first (or the stub `backfill` does nothing), the DST test sees 90 calls.
+
+- [ ] **Step 3: Implement in `lib/sync/run-account.ts`** (six edits)
+
+(a) Import — replace
+
+```ts
+import { BACKFILL_DAYS, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, type JobKind, type SyncState } from '@/lib/sync/schedule';
+```
+
+with
+
+```ts
+import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, type JobKind, type SyncState } from '@/lib/sync/schedule';
+```
+
+(b) `Progress` — replace
+
+```ts
+/** Progress that must survive a job failing half-way (e.g. 40 backfill days written, then a 5xx). */
+interface Progress {
+  dailyDoneThrough: string | null;
+}
+```
+
+with
+
+```ts
+/** Coverage edges that must survive a job failing half-way (e.g. 40 history days written, then a 5xx). */
+interface Progress {
+  dailyDoneThrough: string | null;
+  backfilledFrom: string | null;
+}
+```
+
+(c) Replace the whole `daily` job (from `/** Account insights day by day: …` through its closing `};`) with:
+
+```ts
+/** One insight day: account totals + the follower-type x format split. Nothing Instagram did not send is written as 0. */
+async function fetchDay(c: RunContext, day: string): Promise<void> {
+  const { since, until } = dayRangeSec(day, c.tz);
+  try {
+    await c.store.upsertDaily(c.account.id, day, await c.ig.accountDay(c.token, since, until));
+  } catch (e) {
+    // ponytail: Meta does not document how far back each metric goes; an "other" error on a day older than 30 days is
+    // treated as "no data that far back" and skipped so the backfill cannot wedge. Tighten once the runbook confirms.
+    if (!(classifyIgError(e) === 'other' && day < addDays(localDay(c.now, c.tz), -30))) throw e;
+  }
+  try {
+    await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until));
+  } catch (e) {
+    if (fatal(e)) throw e; // the follower/non-follower split is an extra; an unsupported day must not wedge the backfill
+  }
+}
+
+/**
+ * Newest-first walk from the day before the backward edge (or yesterday) down to `floor`. Both edges move after every
+ * day, so a stop (time budget, error) resumes exactly where it left off and no day is fetched twice.
+ */
+async function walkBack(c: RunContext, p: Progress, floor: string): Promise<{ done: boolean }> {
+  const yesterday = addDays(localDay(c.now, c.tz), -1);
+  for (let day = p.backfilledFrom ? addDays(p.backfilledFrom, -1) : yesterday; day >= floor; day = addDays(day, -1)) {
+    if (outOfTime(c)) return { done: false };
+    await fetchDay(c, day);
+    p.dailyDoneThrough ??= day;
+    p.backfilledFrom = day;
+  }
+  return { done: true };
+}
+
+/**
+ * Account insights by day. New account: the newest FIRST_DAYS days, newest first (KPIs within the first pass). After
+ * that: missed days, and a re-fetch of the last SETTLE_DAYS (data lags up to 48h), then today's follower count.
+ */
+const daily: Job = async (c, p) => {
+  const today = localDay(c.now, c.tz);
+  const yesterday = addDays(today, -1);
+  let day: string;
+  if (firstWeekPending(p, today)) {
+    if (!(await walkBack(c, p, addDays(today, -FIRST_DAYS))).done) return { done: false };
+    day = addDays(p.dailyDoneThrough!, 1); // the week was just fetched: no settle re-fetch, only a day that began meanwhile
+  } else {
+    const settleFrom = addDays(yesterday, -(SETTLE_DAYS - 1));
+    const next = addDays(p.dailyDoneThrough!, 1);
+    day = next < settleFrom ? next : settleFrom;
+  }
+  for (; day <= yesterday; day = addDays(day, 1)) {
+    if (outOfTime(c)) return { done: false };
+    await fetchDay(c, day);
+    if (day > p.dailyDoneThrough!) p.dailyDoneThrough = day;
+  }
+  const { followersCount } = await c.ig.profile(c.token);
+  if (followersCount !== null) await c.store.upsertFollowers(c.account.id, today, followersCount);
+  return { done: true };
+};
+```
+
+(d) Media metrics — replace the head of the old job
+
+```ts
+const mediaMetrics: Job = async (c) => {
+  const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
+  const due = pickDueMedia(await c.store.mediaForMetrics(c.account.id, since), c.now);
+  const at = c.now.toISOString();
+```
+
+with
+
+```ts
+async function captureMedia(c: RunContext, due: string[]): Promise<{ done: boolean }> {
+  const at = c.now.toISOString();
+```
+
+and change the first line of its doc comment from ` * Snapshots for media that are due (pickDueMedia, newest first). Per-post outcomes of the insights call:` to ` * Snapshots for the given media (newest first). Per-post outcomes of the insights call:`. Then replace the end of that function
+
+```ts
+  } finally {
+    await c.store.markCaptured(captured, at);
+  }
+  return { done: true };
+};
+
+/** Demographics
+```
+
+with
+
+```ts
+  } finally {
+    await c.store.markCaptured(captured, at);
+  }
+  return { done: true };
+}
+
+/** Recent posts on their cadence plus the newest NEWEST_POSTS never-measured older posts (onboarding step 3). */
+const mediaMetrics: Job = async (c) => {
+  const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
+  return captureMedia(c, pickDueMedia(await c.store.mediaForMetrics(c.account.id, since), c.now));
+};
+
+/**
+ * History import (lane 2), newest first: insight days down to BACKFILL_DAYS back, then every never-measured older post.
+ * Done once both are through. Extension point: later plans append cover capture and comments here.
+ */
+const backfill: Job = async (c, p) => {
+  if (p.dailyDoneThrough !== null && p.backfilledFrom === null) return { done: true }; // synced before Plan 11a: complete
+  if (!(await walkBack(c, p, addDays(localDay(c.now, c.tz), -BACKFILL_DAYS))).done) return { done: false };
+  const refs = await c.store.mediaForMetrics(c.account.id, c.now.toISOString()); // since = now: only never-measured media
+  return captureMedia(c, pickDueMedia(refs, c.now, Infinity));
+};
+
+/** Demographics
+```
+
+(e) Runners — replace `backfill: async () => ({ done: true }), tokenRefresh };` with `backfill, tokenRefresh };`.
+
+(f) `runAccount` — replace `  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough };` with `  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough, backfilledFrom: c.state.backfilledFrom };` and, in the patch, `    backfilledFrom: c.state.backfilledFrom,` with `    backfilledFrom: progress.backfilledFrom,`.
+
+- [ ] **Step 4: Rewrite the existing tests that assumed the oldest-first backfill**
+
+In `tests/sync-run-account.test.ts`, `describe('daily job')`: replace the test `'first connect backfills BACKFILL_DAYS of account insights up to yesterday, then snapshots followers on today'` with
+
+```ts
+  it('first connect fetches the newest 7 days, newest first, then snapshots followers on today', async () => {
+    const { c, ig, mem } = ctx();
+    const { result, patch } = await run(c, ['daily']);
+    expect(result).toEqual({ accountId: 'a1', outcome: 'ok', jobs: ['daily'] });
+    expect(ig.accountDay).toHaveBeenCalledTimes(7);
+    expect(mem.daily.map((d) => d.day)).toEqual(['2026-10-13', '2026-10-12', '2026-10-11', '2026-10-10', '2026-10-09', '2026-10-08', '2026-10-07']);
+    expect(mem.followers).toEqual([{ accountId: 'a1', day: '2026-10-14', followers: 1520 }]);
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-07' });
+    expect(patch.lastRun.daily).toBe(NOW.toISOString());
+  });
+```
+
+and replace the three tests `'stops at the time budget, keeps progress, and the job stays due (no lastRun)'`, `'keeps backfill progress when a transient error hits half-way'` and `'skips days older than 30 days that Instagram rejects (unknown retention), but not recent ones'` with
+
+```ts
+  it('stops at the time budget, keeps both edges, and the job stays due (no lastRun)', async () => {
+    const { c, mem } = ctx({ budgetCalls: 4 }); // 1 check in runAccount + 3 days
+    const { result, patch } = await run(c, ['daily']);
+    expect(result.outcome).toBe('partial');
+    expect(mem.daily.map((d) => d.day)).toEqual(['2026-10-13', '2026-10-12', '2026-10-11']);
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-11', consecutiveFailures: 0 });
+    expect(patch.lastRun.daily).toBeUndefined();
+  });
+
+  it('keeps history progress when a transient error hits half-way', async () => {
+    const { c, ig } = ctx({ state: { dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-10-07' } });
+    let n = 0;
+    ig.accountDay.mockImplementation(async () => {
+      if (++n === 41) throw igErr(2, 500);
+      return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
+    });
+    const { result, patch } = await run(c, ['backfill']);
+    expect(result).toMatchObject({ outcome: 'failed', errorKey: 'instagram_unavailable' });
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-08-28', consecutiveFailures: 1 }); // 40 days: 6 Oct back to 28 Aug
+  });
+
+  it('skips days older than 30 days that Instagram rejects (unknown retention): the edge moves on, nothing is written for them', async () => {
+    const { c, ig, mem } = ctx();
+    ig.accountDay.mockImplementation(async (_t: string, since: number) => {
+      if (since < Date.parse('2026-08-31T16:00:00Z') / 1000) throw igErr(100); // before 1 Sep (local midnight)
+      return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
+    });
+    const { result, patch } = await run(c, ['daily', 'backfill']);
+    expect(result.outcome).toBe('ok');
+    expect(mem.daily.at(-1)!.day).toBe('2026-09-01');
+    expect(patch).toMatchObject({ dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16' });
+    expect(patch.lastRun.backfill).toBe(NOW.toISOString());
+  });
+```
+
+(The test `'passes owner-timezone day boundaries as unix seconds'` stays as it is: its state has `dailyDoneThrough` and no backward edge, i.e. a pre-Plan-11a row on the regular path.)
+
+In `tests/sync-capture-v2.test.ts`, test `'stores the split for every backfilled day'`, replace
+
+```ts
+    await run(c, ['daily']);
+    expect(ig.accountDayBreakdown).toHaveBeenCalledTimes(90);
+    expect(mem.breakdowns).toHaveLength(90);
+    expect(mem.breakdowns[0]).toEqual({ accountId: 'a1', day: '2026-07-16', rows: 2 });
+```
+
+with
+
+```ts
+    await run(c, ['daily', 'backfill']);
+    expect(ig.accountDayBreakdown).toHaveBeenCalledTimes(90);
+    expect(mem.breakdowns).toHaveLength(90);
+    expect(mem.breakdowns[0]).toEqual({ accountId: 'a1', day: '2026-10-13', rows: 2 }); // newest first
+    expect(mem.breakdowns.at(-1)).toEqual({ accountId: 'a1', day: '2026-07-16', rows: 2 });
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/sync-backfill.test.ts tests/sync-run-account.test.ts tests/sync-capture-v2.test.ts tests/sync-tick.test.ts tests/sync-tick-alerts.test.ts tests/cron-tick-chain.test.ts && npx tsc --noEmit`
+Expected: PASS, no type errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/sync/run-account.ts tests/sync-backfill.test.ts tests/sync-run-account.test.ts tests/sync-capture-v2.test.ts
+git commit -m "feat(sync): newest-first progressive backfill with a resumable backward edge" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
