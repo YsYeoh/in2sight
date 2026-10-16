@@ -49,13 +49,18 @@ Browser ── Next.js (Vercel) ── Supabase Postgres (RLS, owner only)
 | `media_tags` | media_id, tag_id — pk(media_id, tag_id). Manual tagging in the UI; hashtag-to-tag auto-suggest is later |
 | `audience_snapshots` | account_id, day, kind (`age_gender`/`country`/`city`), data jsonb |
 | `online_followers` | account_id, day, hourly jsonb (24 values) |
-| `sync_state` | account_id (pk), lease_id, lease_until, last_attempt_at, last_success_at, consecutive_failures, last_error_key, daily_done_through, last_run jsonb (per-job last success) |
+| `sync_state` | account_id (pk), lease_id, lease_until, last_attempt_at, last_success_at, consecutive_failures, last_error_key, daily_done_through (forward edge), backfilled_from (backward edge of the newest-first import; every day between the two is handled), last_run jsonb (per-job last success; `backfill` = history import finished) |
+| `sync_progress` | account_id (pk), stage, state (`waiting`/`running`/`failed`/`done`), done, total, detail_day, error_key, started_at, updated_at, finished_at — live activity of the latest run for the progress panel; counts and keys only |
 | `sync_runs` | id, started_at, finished_at, trigger (`cron`/`manual`), summary jsonb (counts and error keys, never tokens) |
 
 Upsert only; rows are deleted solely by the explicit "Delete all data permanently" action (§7c). Feed-post metrics are re-captured daily for posts <30 days old, so we see growth curves. Story metrics are captured every tick (30 min) while live; the last snapshot before `expires_at` is the final value. Flags are computed on read, not stored.
 
 ## 6. Sync jobs
 **Scheduling:** one tick every 30 minutes (see §2/§4); a pure function decides per account which jobs are due from `sync_state`. Work that does not fit the tick's time budget stays due for the next tick.
+
+**Lanes (Plan 11a):** each tick first runs the regular jobs (Stories, recent post metrics, daily refresh, token refresh) for every account with a small slice (8 s), then splits the remaining budget equally across accounts that still have work (a new account's onboarding, the history import, regular work a slice cut short). An app-wide rate limit stops the tick before lane 2; a pass that stops on its time budget starts a continuation pass.
+
+**Onboarding / history import (Plan 11a):** a new (or reconnected) account is imported newest first so Overview fills within minutes: profile + follower snapshot and live Stories → the newest 7 days of account insights (newest first) → post list → metrics for recent posts and the newest 10 older posts → audience → days 8–90, newest first → metrics for the remaining older posts (later plans add cover images and comments here). Progress is written to `sync_progress` (best-effort, throttled) and shown on Accounts and Overview; analysis marks windows that are still importing instead of comparing them.
 
 **Stories job (every tick):** for each `active` account, list live Stories, upsert into `media`, insert a `media_metrics` snapshot per story. Stories exist for 24h only, so a missed window is lost data; a 30-minute tick gives ~48 snapshots per story.
 
@@ -90,7 +95,7 @@ Upsert only; rows are deleted solely by the explicit "Delete all data permanentl
 
 **Remove account = archive.** Status → `archived`, syncing stops, account hidden from all views, **history kept**. Reconnecting the same `ig_user_id` restores it and continues the history with no gap. A separate, confirmed "Delete all data permanently" action hard-deletes an archived account's rows (cascade).
 
-**Backfill on first connect** (defaults): account insights for as far back as the API allows (up to 90 days per Meta's docs; 30 if a metric is shorter — decided per metric in Plan 5); all media up to 500 posts with their current lifetime metrics (so tags and best-time analysis work immediately); no Story history (not retrievable).
+**Backfill on first connect** (defaults, Plan 11a order): account insights for the last 90 days, imported newest first (the newest week before everything else); all media up to 500 posts with their current lifetime metrics, newest first; no Story history (not retrievable). Reconnect and "Sync now" resume an unfinished import; they never restart it.
 
 ## 7d. Exports & reports (approved: Excel + PDF)
 - **Excel:** server route `/api/export/xlsx` (auth required) using `write-excel-file` (not `xlsx`: known vulnerabilities in the npm build). Sheets: Summary, Daily, Posts (+tags), Stories, Audience, Tags. Real date cells formatted per the user's date-format setting; headers localized (en / zh-CN).

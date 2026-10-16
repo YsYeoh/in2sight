@@ -16,6 +16,11 @@ Written so a fresh environment (e.g. Claude Code in the cloud) can continue with
 - Then Plan 11 remainder: newest-first backfill + progress panel (docs/TODO.md §6a), cover capture, comments ingestion, raw archive.
 - Mistake to avoid: when chaining shell commands, `cmd | tail && git commit` ignores test failures (pipeline exit status). Check test output explicitly before committing.
 
+## 1c. Plan 11a — onboarding sync (2026-10-21)
+- New accounts import newest first (profile/Stories → newest 7 days → posts → audience → days 8–90 → older posts), every tick runs two lanes (regular jobs of all accounts first, then equal import slices), and `/accounts` + Overview show live progress (`sync_progress`, `GET /api/sync/progress`, polling hook). Plan: `docs/superpowers/plans/2026-10-21-11a-onboarding-sync.md`.
+- **Apply migration `20261021000001_sync_progress.sql` BEFORE deploying the code** (it adds `sync_state.backfilled_from`, which the new code writes). Existing accounts are marked complete by the migration; nothing is re-fetched.
+- Live verification pending: docs/RUNBOOK_SYNC.md §8 (connect a fresh account, reload mid-import, Overview badge, screen reader, 360/768/1280).
+
 ## 2. What to do next (approved design, not yet built)
 
 > **REVISED ORDER (owner, 2026-10-16): data collection and analysis first, planning last.** Next = **Plan 11 Data Capture v2 (sync/DB only, no new screens; includes raw-response archive + intraday followers)** → 12 **Time Scope (1y/6m/custom range/week/month pickers, compare) + rollups + Explorer + drill-down** → 13 Covers + Post Lab → 14 Followers & Growth Center (+ comments/fans/moderation incl. reply/hide, follower-export diff) → 15 Settings → 16 Weekly planning tools. See spec §0b for the drill-down / time-scope design. Why: Instagram history cannot be backfilled, so every day without capture is lost. Scope of Plan 11 is in the spec §0b. The table below shows the earlier numbering; follow this note where they differ. Owner decisions: access = only the owner; planner board only (no publishing); engagement rate = both (reach default, followers toggle); comments = read + reply/hide/delete from the app.
