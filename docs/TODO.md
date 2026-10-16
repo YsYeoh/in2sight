@@ -105,6 +105,8 @@ See `docs/META_SETUP.md` for click-by-click notes.
 ## 6c. Data Capture v2 progress
 - [x] **Follower / following / media counts every tick** (`follower_snapshots`, written by the Stories job; migration 20261019000001 applied 2026-10-16) — intraday follower curve accumulates from now; UI comes later (Plan 14).
 - [x] **Daily reach + views by follower type × format** (`account_daily_breakdown`; written by the daily job incl. backfill; combined breakdown verified live) — non-follower share of Stories/Reels/feed accumulates from now; UI later.
+- [x] One-off backfill of `account_daily_breakdown` for the last 89 days done 2026-10-16 for both accounts (1,221 rows, 0 errors); from here the daily job keeps it current (it re-fetches the last 3 days once a day after 06:00 local).
+- [ ] **URGENT next capture: Story extras** (Stories vanish after 24 h): keep SWIPE_FORWARD from the `navigation` breakdown (currently dropped in `lib/instagram/metrics.ts`/`data.ts`), add `follows`, `profile_visits`, `profile_activity`. **CAUTION (learned from `reposts`): one unsupported metric in a batched insights request fails the WHOLE request** — Story support for these metrics is unverified (no live Story during probing), so fetch the extras in a SEPARATE non-fatal call (like `followerSnapshot` in `lib/sync/run-account.ts`) so the existing Story capture can never break; probe first while a Story is live.
 - [ ] Per-media extras (Reels watch time/skip rate; feed follows/profile_visits), raw API response archive, comments ingestion, cover capture, newest-first backfill, immediate sync on connect (see §6a).
 
 ## 6b. Next (Plan 14/15 Settings)
