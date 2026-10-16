@@ -16,9 +16,9 @@ describe('buildAuthorizeUrl', () => {
     expect(u.searchParams.get('force_reauth')).toBe('true');
     expect(u.searchParams.get('scope')).toBe('instagram_business_basic,instagram_business_manage_insights,instagram_business_manage_comments');
   });
-  it('asks for read-only scopes only', () => {
+  it('asks only for the approved scopes (insights read + comment moderation; never messaging or publishing)', () => {
     expect([...IG_SCOPES]).toEqual(['instagram_business_basic', 'instagram_business_manage_insights', 'instagram_business_manage_comments']);
-    expect(buildAuthorizeUrl(cfg, 's')).not.toMatch(/manage_messages|manage_comments|content_publish/);
+    expect(buildAuthorizeUrl(cfg, 's')).not.toMatch(/manage_messages|content_publish/);
   });
   it('never contains the app secret', () => {
     expect(buildAuthorizeUrl(cfg, 's')).not.toContain('sekrit');
