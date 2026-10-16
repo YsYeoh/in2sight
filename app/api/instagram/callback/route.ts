@@ -1,11 +1,15 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { after, NextResponse, type NextRequest } from 'next/server';
 import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
 import { assertOwner } from '@/lib/auth/assert-owner';
 import { EnvError, getInstagramEnv } from '@/lib/env';
 import { processCallback } from '@/lib/instagram/connect-flow';
+import { syncAccountNow } from '@/lib/sync/connect-sync';
 import { clearSyncError } from '@/lib/sync/store';
 import { STATE_COOKIE } from '@/lib/instagram/state';
 import { createAdminSupabase } from '@/lib/supabase/admin';
+
+// the first sync of the new account runs in after() (below), which needs the function to stay alive past the redirect
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
   // the no-store headers Supabase hands over land in h and must reach whatever we return (see createServerSupabase)
@@ -22,7 +26,11 @@ export async function GET(request: NextRequest) {
     const db = createAdminSupabase();
     const result = await processCallback(
       { code: q.get('code'), state: q.get('state'), error: q.get('error'), cookie: request.cookies.get(STATE_COOKIE)?.value },
-      { cfg: getInstagramEnv(), store: supabaseAccountsStore(db), onConnected: (id) => clearSyncError(db, id) },
+      { cfg: getInstagramEnv(), store: supabaseAccountsStore(db), onConnected: async (id) => {
+          await clearSyncError(db, id);
+          after(() => syncAccountNow(id)); // start syncing this account at once; the redirect is not delayed
+        },
+      },
     );
     redirect = result.redirect;
   } catch (e) {
