@@ -3725,3 +3725,141 @@ git commit -m "feat(ui): live import progress on Accounts (panel + badges) and O
 ```
 
 ---
+
+### Task 14: Docs — runbook, TODO, handover, SPEC
+
+**Files:**
+- Modify: `docs/RUNBOOK_SYNC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/SPEC.md`
+
+**Interfaces:**
+- Consumes: everything above (names must match: `backfilled_from`, `sync_progress`, `REGULAR_SLICE_MS`, `GET /api/sync/progress`).
+- Produces: documentation only (docs are lint-ignored; no tests).
+
+- [ ] **Step 1: `docs/RUNBOOK_SYNC.md`** — insert this new section directly BEFORE the line `## Known limits`:
+
+~~~~markdown
+## 8. Onboarding sync and the progress panel (Plan 11a)
+
+**Apply the migration first:** `supabase/migrations/20261021000001_sync_progress.sql` (adds `sync_state.backfilled_from`, marks already-synced accounts complete, creates `sync_progress`). `npx supabase db push`, then the Supabase security advisor (no new warnings). The code tolerates a missing `sync_progress` table (progress writes are best-effort and the panel falls back to `sync_state`), but `backfilled_from` must exist before the new code saves state, so apply it **before** deploying.
+
+### What happens after "Connect" (or Reconnect / Sync now)
+1. The OAuth callback clears the old error, starts a new progress session (`sync_progress.started_at`, state `waiting`; coverage in `sync_state` is never reset) and syncs the account right after the redirect; passes that stop on the 35 s budget start the next pass themselves (chain, depth ≤ 10).
+2. Order of work for a new account: profile + follower snapshot and live Stories (lane 1) → the newest 7 days, newest first → post list → metrics of recent posts and the newest 10 older ones → audience → days 8–90, newest first → metrics of the remaining older posts. Overview shows numbers as each step lands ("Importing history… · N% of this period" on the card until the import is done).
+3. Lanes per tick: lane 1 runs the regular jobs (Stories, recent posts, daily refresh after 06:00, token refresh) for **every** account first, 8 s per account; lane 2 splits the rest of the 35 s equally between accounts that still have work (onboarding, history import, regular jobs a slice cut short). An app-wide Meta rate limit (code 4) stops the tick before lane 2; a per-account limit only removes that account.
+
+### Reading the state
+```sql
+select a.username, s.daily_done_through, s.backfilled_from, s.last_run ? 'backfill' as history_done, s.last_error_key, s.consecutive_failures, s.lease_until
+from public.sync_state s join public.accounts a on a.id = s.account_id;
+select a.username, p.stage, p.state, p.done, p.total, p.detail_day, p.error_key, p.started_at, p.updated_at, p.finished_at
+from public.sync_progress p join public.accounts a on a.id = p.account_id;
+```
+- Every insight day from `backfilled_from` to `daily_done_through` is handled; the import is complete when `last_run` has `backfill` (or, for rows from before Plan 11a, when `backfilled_from` is empty but `daily_done_through` is set).
+- `sync_progress` is the live activity of the latest run: `stage` + `done/total` + `detail_day` (the day being fetched). `state`: `running` (writing every few seconds), `waiting` (more to do; the next pass is coming), `failed` (`error_key`), `done` (`finished_at` set).
+
+### Live verification (owner, signed in; desktop first, then phone)
+1. Connect a fresh account (or Reconnect one): `/accounts?connected=…` shows the notice and right under it **Importing @… N%** with the stage checklist; the activity line names the day being pulled ("Pulling insights for 12 Aug…"); elapsed time and "Estimating…" / "About N min left".
+2. Reload the page mid-import: the panel comes back with the same state (server state). Switch to another tab for a minute: no requests to `/api/sync/progress` in DevTools while hidden; polling resumes at once on return.
+3. Open Overview during the import: the new account's card shows the **Importing… N%** badge and real 7-day numbers within the first minute; group/all totals leave the importing account out.
+4. When it finishes: "@… is ready", "Imported 90 days of account metrics and N posts.", **Open dashboard**; the badge disappears; the panel disappears after 10 minutes.
+5. Screen reader (NVDA/VoiceOver): the panel announces stage changes ("@…: Account metrics"), not every percent.
+6. 360 / 768 / 1280 px × light/dark: the checklist wraps to 1/2/3 columns, nothing overflows.
+7. `GET /api/sync/progress` signed out → redirected to `/login` by the proxy; its JSON contains counts, keys and days only.
+
+### Debugging a stalled sync ("No progress for a while")
+- `sync_progress.updated_at` older than ~35 min while the import is not done = stalled. Check `sync_runs` for the latest passes (`summary.more`, per-account `outcome`/`errorKey`) and cron-job.org's history (is the tick still called?).
+- `lease_until` in the future = a pass is running (or crashed; the lease expires after 120 s by itself).
+- `last_error_key = 'rate_limited'` with `consecutive_failures` > 0 = back-off (30, 60, 120, 240 min); the panel shows "resuming in about N min".
+- `needs_reconnect` on the account = token rejected: Reconnect (coverage is kept, the import resumes where it stopped).
+- Otherwise press **Retry** (= Sync now) on the panel: one manual pass + a continuation chain if work is left.
+~~~~
+
+and in §2, extend the second query to show the backward edge: replace `s.daily_done_through, s.last_run` with `s.daily_done_through, s.backfilled_from, s.last_run`, and replace this fragment of the "Expected:" paragraph
+
+~~~~markdown
+After 1-3 ticks: `daily_done_through` = yesterday (your timezone), `account_daily` spans about 90 days,
+~~~~
+
+with
+
+~~~~markdown
+After the first pass: `daily_done_through` = yesterday (your timezone) and `backfilled_from` moves back from there; after the import (minutes, chained passes): `backfilled_from` is about 90 days back, `account_daily` spans about 90 days,
+~~~~
+
+- [ ] **Step 2: `docs/TODO.md` §6a — honest ticks**
+
+Replace `- [ ] **Sync progress experience (professional UX).**` with
+
+```markdown
+- [x] **Sync progress experience (professional UX).** _(Plan 11a: code done; live verification pending — docs/RUNBOOK_SYNC.md §8. Not built yet: bell/push notification on completion; "Cover images" and "Comments" are reserved stage names for later plans.)_
+```
+
+Replace `- [ ] **Progressive backfill: newest first, fastest value first (owner, 2026-10-16).**` with
+
+```markdown
+- [x] **Progressive backfill: newest first, fastest value first (owner, 2026-10-16).** _(Plan 11a: code done; live verification pending. Backward edge `sync_state.backfilled_from`; Overview shows "Importing history… · N%" with real partial numbers. Deliberately skipped: the 90-day `time_series` reach call — one path, resumable per day; revisit only if Meta's rate limit bites. Covers/comments steps arrive with their plans.)_
+```
+
+Replace `- [ ] **Chain continuation + fair lanes (remaining parts b–d) (found by debugging account 2, 2026-10-16).**` with
+
+```markdown
+- [x] **Chain continuation + fair lanes (remaining parts b–d) (found by debugging account 2, 2026-10-16).** _(Plan 11a: (b) lanes and (c) equal slices done in `lib/sync/tick.ts`; (d) per-stage progress lives in `sync_progress` (live) + `sync_state` (coverage) instead of `sync_runs.summary`. Code done; live verification pending.)_
+```
+
+Replace the line `- Workaround until fixed: Accounts → **Sync now** on the new account (repeat a few times until "last synced" is recent and 90 days of data show).` with
+
+```markdown
+- Since Plan 11a no workaround is needed: the import chains by itself and the panel shows it; **Retry** on the panel (= Sync now) restarts a stalled import.
+```
+
+In §6c, replace `- [ ] Per-media extras (Reels watch time/skip rate; feed follows/profile_visits), raw API response archive, comments ingestion, cover capture, newest-first backfill, immediate sync on connect (see §6a).` with
+
+```markdown
+- [ ] Per-media extras (Reels watch time/skip rate; feed follows/profile_visits), raw API response archive, comments ingestion, cover capture. (Newest-first backfill and immediate sync on connect: done, see §6a.)
+```
+
+- [ ] **Step 3: `docs/HANDOVER.md`** — insert after the `## 1b. …` section (before `## 2. What to do next`):
+
+```markdown
+## 1c. Plan 11a — onboarding sync (2026-10-21)
+- New accounts import newest first (profile/Stories → newest 7 days → posts → audience → days 8–90 → older posts), every tick runs two lanes (regular jobs of all accounts first, then equal import slices), and `/accounts` + Overview show live progress (`sync_progress`, `GET /api/sync/progress`, polling hook). Plan: `docs/superpowers/plans/2026-10-21-11a-onboarding-sync.md`.
+- **Apply migration `20261021000001_sync_progress.sql` BEFORE deploying the code** (it adds `sync_state.backfilled_from`, which the new code writes). Existing accounts are marked complete by the migration; nothing is re-fetched.
+- Live verification pending: docs/RUNBOOK_SYNC.md §8 (connect a fresh account, reload mid-import, Overview badge, screen reader, 360/768/1280).
+```
+
+- [ ] **Step 4: `docs/SPEC.md`** (the sync order changed — flagged for the owner in the plan's decisions)
+
+§5 table: replace the `sync_state` row with
+
+```markdown
+| `sync_state` | account_id (pk), lease_id, lease_until, last_attempt_at, last_success_at, consecutive_failures, last_error_key, daily_done_through (forward edge), backfilled_from (backward edge of the newest-first import; every day between the two is handled), last_run jsonb (per-job last success; `backfill` = history import finished) |
+| `sync_progress` | account_id (pk), stage, state (`waiting`/`running`/`failed`/`done`), done, total, detail_day, error_key, started_at, updated_at, finished_at — live activity of the latest run for the progress panel; counts and keys only |
+```
+
+§6: after the **Scheduling** paragraph add
+
+```markdown
+**Lanes (Plan 11a):** each tick first runs the regular jobs (Stories, recent post metrics, daily refresh, token refresh) for every account with a small slice (8 s), then splits the remaining budget equally across accounts that still have work (a new account's onboarding, the history import, regular work a slice cut short). An app-wide rate limit stops the tick before lane 2; a pass that stops on its time budget starts a continuation pass.
+
+**Onboarding / history import (Plan 11a):** a new (or reconnected) account is imported newest first so Overview fills within minutes: profile + follower snapshot and live Stories → the newest 7 days of account insights (newest first) → post list → metrics for recent posts and the newest 10 older posts → audience → days 8–90, newest first → metrics for the remaining older posts (later plans add cover images and comments here). Progress is written to `sync_progress` (best-effort, throttled) and shown on Accounts and Overview; analysis marks windows that are still importing instead of comparing them.
+```
+
+§7c: replace the sentence that starts `**Backfill on first connect** (defaults):` up to `no Story history (not retrievable).` with
+
+```markdown
+**Backfill on first connect** (defaults, Plan 11a order): account insights for the last 90 days, imported newest first (the newest week before everything else); all media up to 500 posts with their current lifetime metrics, newest first; no Story history (not retrievable). Reconnect and "Sync now" resume an unfinished import; they never restart it.
+```
+
+- [ ] **Step 5: Final check**
+
+Run: `npm run check`
+Expected: lint, typecheck, all tests and `next build` pass.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docs/RUNBOOK_SYNC.md docs/TODO.md docs/HANDOVER.md docs/SPEC.md
+git commit -m "docs: onboarding sync runbook, honest TODO ticks, handover and SPEC §5/§6/§7c" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
