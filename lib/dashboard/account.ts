@@ -50,10 +50,11 @@ export function buildAccountOverview(input: AccountOverviewInput, o: { period: P
   const s = summarize(daily, posts, o.period, o.today, o.tz);
   const byDay = new Map(daily.map((r) => [r.day, r]));
   const drop = reachDrop(daily, o.today, o.tz);
+  const state = cardState(account.status, account.tokenExpiresAt, o.now, sync, s, daily.length > 0);
   return {
     period: o.period,
-    state: cardState(account.status, account.tokenExpiresAt, o.now, sync?.dailyDoneThrough, s, daily.length > 0),
-    kpis: kpis(s),
+    state,
+    kpis: kpis(s, { backfilling: state === 'backfilling' }),
     trend: s.reachByDay.map(({ day }) => ({ day, reach: byDay.get(day)?.reach ?? null, views: byDay.get(day)?.views ?? null, followers: byDay.get(day)?.followers ?? null })),
     formats: formatComparison(posts),
     heat: {

@@ -476,6 +476,7 @@
     "netFollows": "净增粉丝"
   },
   "analysis": {
+    "coverage": "本期已导入 {pct}",
     "low": "低",
     "high": "高",
     "lowSample": "帖子太少",

@@ -22,7 +22,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { Kpi, KpiId } from '@/lib/analysis/growth';
 import type { Period } from '@/lib/analysis/types';
 import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';
-import { formatCompact, formatDateTime, formatDay, formatDelta, formatNumber } from '@/lib/format';
+import { formatCompact, formatDateTime, formatDay, formatDelta, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +43,7 @@ function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
+  const tA = useTranslations('analysis');
   const tErr = useTranslations('accounts.errors');
   const { prefs } = usePrefs();
   const delta = useKpiDelta()('followers', c.kpis.followers);
@@ -88,7 +89,13 @@ function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {
             <MiniStat id="posts" k={c.kpis.posts} />
           </div>
 
-          {c.state === 'backfilling' || c.state === 'no_data' ? <p className="text-xs text-muted-foreground">{tR(c.state)}</p> : null}
+          {c.state === 'backfilling' ? (
+            <p className="text-xs text-muted-foreground">
+              {tR('backfilling')} · {tA('coverage', { pct: formatPercent(c.coverage, prefs, 0) })}
+            </p>
+          ) : c.state === 'no_data' ? (
+            <p className="text-xs text-muted-foreground">{tR('no_data')}</p>
+          ) : null}
           {c.state === 'needs_reconnect' ? (
             <Link href="/accounts" className="text-xs font-medium text-primary underline-offset-4 hover:underline">
               {t('reconnectHint')}

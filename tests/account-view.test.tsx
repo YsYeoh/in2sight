@@ -113,7 +113,7 @@ describe('AccountOverview', () => {
 
   it('account with no data renders every reason and no NaN (zh-CN)', () => {
     const { container } = wrap(<AccountOverview model={buildAccountOverview(empty, opts)} />, 'zh-CN');
-    expect(screen.getByText(zh.analysis.reasons.backfilling)).toBeInTheDocument();
+    expect(screen.getAllByText(zh.analysis.reasons.backfilling).length).toBeGreaterThan(0); // the state note and the KPI reasons
     expect(screen.getByText(zh.pages.account.noFlags)).toBeInTheDocument();
     expect(screen.getByText(zh.pages.overview.neverSynced)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/NaN|Infinity|undefined/);

@@ -19,6 +19,7 @@ export interface Summary {
   endDay: string; // last day of the current window
   current: Totals;
   prior: Totals;
+  coverage: { current: number; prior: number }; // share of each window's days that have reach data (0–1)
   reachByDay: { day: string; value: number | null }[]; // current window, oldest first
 }
 
@@ -91,11 +92,14 @@ export function summarize(rows: DailyRow[], posts: Post[], period: number, today
   const curF = followersAt(sorted, today);
   const priorF = curF ? followersAt(sorted, addDays(curF.day, -period)) : null;
   const byDay = new Map(sorted.map((r) => [r.day, r.reach]));
+  const current: Totals = { followers: curF?.value ?? null, ...totals(sorted, posts, curFrom, endDay, tz) };
+  const prior: Totals = { followers: priorF?.value ?? null, ...totals(sorted, posts, priorFrom, priorTo, tz) };
   return {
     period,
     endDay,
-    current: { followers: curF?.value ?? null, ...totals(sorted, posts, curFrom, endDay, tz) },
-    prior: { followers: priorF?.value ?? null, ...totals(sorted, posts, priorFrom, priorTo, tz) },
+    current,
+    prior,
+    coverage: { current: current.days / period, prior: prior.days / period },
     reachByDay: Array.from({ length: period }, (_, i) => {
       const day = addDays(curFrom, i);
       return { day, value: byDay.get(day) ?? null };
@@ -143,6 +147,7 @@ export function combine(list: Summary[]): Summary | null {
     endDay: list.reduce((d, s) => (s.endDay > d ? s.endDay : d), list[0].endDay),
     current,
     prior,
+    coverage: { current: current.days / list[0].period, prior: prior.days / list[0].period },
     reachByDay: list[0].reachByDay.map((d0, i) => ({
       day: list.reduce((d, s) => (s.reachByDay[i] && s.reachByDay[i].day > d ? s.reachByDay[i].day : d), d0.day),
       value: list.reduce<number | null>((v, s) => add(v, s.reachByDay[i]?.value ?? null), null),
@@ -152,25 +157,31 @@ export function combine(list: Summary[]): Summary | null {
 
 const er = (t: Totals) => (t.rate && t.rate.reach > 0 ? t.rate.interactions / t.rate.reach : null);
 
-function kpi(value: number | null, prior: number | null, comparable: boolean, emptyReason: MissingReason): Kpi {
+function kpi(value: number | null, prior: number | null, comparable: boolean, emptyReason: MissingReason, shortReason: MissingReason = 'not_enough_history'): Kpi {
   if (value === null) return { value: null, prior, diff: null, change: null, reason: emptyReason };
-  if (!comparable || prior === null) return { value, prior: null, diff: null, change: null, reason: 'not_enough_history' };
+  if (!comparable || prior === null) return { value, prior: null, diff: null, change: null, reason: shortReason };
   const diff = value - prior;
   return { value, prior, diff, change: prior === 0 ? (diff === 0 ? 0 : null) : diff / Math.abs(prior), reason: null };
 }
 
-/** Headline numbers with their comparison. Never NaN or Infinity: a missing or zero base gives null + a reason. */
-export function kpis(s: Summary): Record<KpiId, Kpi> {
+/**
+ * Headline numbers with their comparison. Never NaN or Infinity: a missing or zero base gives null + a reason.
+ * backfilling (history still importing): a window with gaps says "Importing history…" instead of "not enough history",
+ * and a metric with no day yet says the same instead of "no data". The values themselves stay the real partial sums.
+ */
+export function kpis(s: Summary, opts: { backfilling?: boolean } = {}): Record<KpiId, Kpi> {
   const need = Math.ceil(s.period * MIN_COVERAGE);
   const comparable = s.current.days >= need && s.prior.days >= need;
-  const fewFollowers: MissingReason = s.current.followers !== null && s.current.followers < 100 ? 'needs_100_followers' : 'no_data';
+  const short: MissingReason = opts.backfilling ? 'backfilling' : 'not_enough_history';
+  const empty: MissingReason = opts.backfilling ? 'backfilling' : 'no_data';
+  const fewFollowers: MissingReason = s.current.followers !== null && s.current.followers < 100 ? 'needs_100_followers' : empty;
   return {
-    followers: kpi(s.current.followers, s.prior.followers, true, 'no_data'),
-    reach: kpi(s.current.reach, s.prior.reach, comparable, 'no_data'),
-    views: kpi(s.current.views, s.prior.views, comparable, 'no_data'),
-    engagementRate: kpi(er(s.current), er(s.prior), comparable, 'no_data'),
+    followers: kpi(s.current.followers, s.prior.followers, true, empty, short),
+    reach: kpi(s.current.reach, s.prior.reach, comparable, empty, short),
+    views: kpi(s.current.views, s.prior.views, comparable, empty, short),
+    engagementRate: kpi(er(s.current), er(s.prior), comparable, empty, short),
     // media history comes from the 500-post backfill, not from daily snapshots, so post counts always compare
     posts: kpi(s.current.posts, s.prior.posts, true, 'no_data'),
-    netFollows: kpi(s.current.netFollows, s.prior.netFollows, comparable, fewFollowers),
+    netFollows: kpi(s.current.netFollows, s.prior.netFollows, comparable, fewFollowers, short),
   };
 }
