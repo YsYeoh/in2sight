@@ -90,6 +90,14 @@ See `docs/META_SETUP.md` for click-by-click notes.
   - completion: summary ("Imported 90 days, 42 posts, 3 Stories, audience data"), bell/push notification, "Open dashboard" button;
   - requires per-stage progress counters written by the sync runners (new table/columns, e.g. `sync_progress`: account_id, stage, done, total, state, detail_key, updated_at; append-only run log kept), i18n en/zh-CN, a11y live region, works on desktop first and on phone;
   - applies equally to reconnect and to "Sync now".
+- [ ] **Progressive backfill: newest first, fastest value first (owner, 2026-10-16).** Today the 90-day backfill walks oldest → newest (`daily_done_through` is a forward cursor), so Overview stays blank until the last ticks. New order of work per new account, each step visible in Overview as soon as it lands:
+  1. profile + current follower count (1 call) → the account card appears with followers;
+  2. last 7 days of account metrics (newest day first) → KPIs + 7-day sparkline;
+  3. post list + metrics for the newest ~10 posts → top posts / formats start to fill;
+  4. live Stories now, audience snapshot;
+  5. days 8–30, then 31–90 in newest → oldest chunks; then older post metrics (newest first), cover images, comments;
+  6. use `time_series` multi-day calls where Meta allows (reach: one 90-day call verified) to cut the call count; per-day `total_value` calls only for the rest.
+  Needs: a backward-moving coverage cursor (e.g. `backfilled_from` + coverage ranges) instead of `daily_done_through`; analysis and UI must handle partial coverage (growth windows with gaps show "importing older history", cards show coverage %, never fake zeros or drops); the sync progress panel reflects this order; tests that a half-finished backfill renders sensible Overview numbers.
 - Workaround until fixed: Accounts → **Sync now** on the new account (repeat a few times until "last synced" is recent and 90 days of data show).
 
 ## 6b. Next (Plan 14/15 Settings)
