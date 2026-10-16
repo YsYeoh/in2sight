@@ -8,6 +8,13 @@ Status: **draft for owner review** (2026-10-15). Nothing here is built. When app
 - Delivery order: **A loading → B covers → C Post Lab → D toolkit → E settings**.
 - Out of scope (unchanged): AI summaries, competitor tracking, scheduling/publishing posts to Instagram.
 
+### 0b. Product alignment (owner, 2026-10-16)
+- Main jobs: daily check · after-I-post check · weekly planning · reporting to others · followers trend. Detail on demand: who followed/unfollowed, who engages.
+- Access: **only the owner** (single-owner model stays; reports are exported and shared manually).
+- Publishing: **planner board only** — no publishing or scheduling to Instagram.
+- Engagement rate: **show both** (per reach is the default; per followers) with a toggle; reports can use either.
+- Reality check restated to the owner: viewer / visitor / "stalker" lists and by-name unfollowers are NOT available from Instagram's API. Substitutes: non-follower share of reach (by format and day, with spike detection), profile visits per post, commenters cross-checked against the latest follower-export snapshot ("commenters who don't follow you"), and the follower-export diff for new and lost followers by name.
+
 ## 1. What the owner asked for (restated)
 1. Page transitions feel slow: add proper loading feedback and a custom, innovative spinner (inspired by `thinking-orbs` from libraries.dev and the 21st.dev spinner catalogue — ideas only, own design and code).
 2. Make sure we keep our own long-term copy of Instagram insights.
