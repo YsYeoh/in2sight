@@ -196,7 +196,7 @@ const tokenRefresh: Job = async (c) => {
   return { done: true };
 };
 
-const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, tokenRefresh };
+const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill: async () => ({ done: true }), tokenRefresh };
 
 function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): SyncErrorKey {
   if (kind === 'rate_limit' || kind === 'app_rate_limit') return 'rate_limited';

@@ -8,6 +8,8 @@ export const MEDIA_LIST_EVERY_MIN = 60;
 export const SLACK_MIN = 5; // a scheduler firing a few minutes early (or a slow previous tick) still counts as on time
 export const DAILY_HOUR = 6; // owner-local hour after which the daily account + audience jobs run
 export const BACKFILL_DAYS = 90; // first connect: account insights this far back (Meta keeps ~90 days)
+export const FIRST_DAYS = 7; // onboarding: the newest week first (KPIs + sparkline), before posts and older history
+export const NEWEST_POSTS = 10; // never-measured posts older than 30 days the regular media job takes per run (newest first)
 export const SETTLE_DAYS = 3; // Instagram data can lag up to 48h: re-fetch the last 3 days every day
 export const TOKEN_REFRESH_WITHIN_DAYS = 14;
 export const TOKEN_RETRY_HOURS = 24;
@@ -21,9 +23,16 @@ const BACKOFF_MAX_MIN = 240;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
-/** Run order inside one account: time-critical first, token refresh last (the current token stays valid). */
-export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'tokenRefresh'] as const;
+/**
+ * Run order inside one account: time-critical first, token refresh last (the current token stays valid). It is also the
+ * onboarding order of a new account: newest week (daily) -> post list -> newest posts' metrics -> audience -> older
+ * history (backfill: days 8–90 newest first, then older posts' metrics; later plans append covers and comments there).
+ */
+export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'tokenRefresh'] as const;
 export type JobKind = (typeof JOBS)[number];
+
+/** regular = lane 1 (every account, small slice, never the history import); all = lane 2 / single-lane callers. */
+export type Lane = 'regular' | 'all';
 
 export interface SyncState {
   accountId: string;
@@ -32,7 +41,10 @@ export interface SyncState {
   lastSuccessAt: string | null;
   consecutiveFailures: number;
   lastErrorKey: string | null;
+  /** Newest insight day handled (forward edge). Every day from backfilledFrom to here is handled. */
   dailyDoneThrough: string | null;
+  /** Oldest insight day handled by the newest-first import (backward edge); null = not started. */
+  backfilledFrom: string | null;
   lastRun: Partial<Record<JobKind, string>>; // ISO time of each job's last success
 }
 
@@ -44,8 +56,22 @@ export const emptyState = (accountId: string): SyncState => ({
   consecutiveFailures: 0,
   lastErrorKey: null,
   dailyDoneThrough: null,
+  backfilledFrom: null,
   lastRun: {},
 });
+
+/**
+ * The history import (days 8–90, older posts) still has work. A row synced before Plan 11a (daily_done_through set,
+ * backfilled_from never written) finished the old oldest-first backfill: it counts as complete and is never re-fetched.
+ */
+export function isBackfilling(s: Pick<SyncState, 'lastRun' | 'dailyDoneThrough' | 'backfilledFrom'>): boolean {
+  return !s.lastRun.backfill && !(s.dailyDoneThrough !== null && s.backfilledFrom === null);
+}
+
+/** The newest FIRST_DAYS days are not all in yet (new account, or its first pass stopped half-way). */
+export function firstWeekPending(s: Pick<SyncState, 'dailyDoneThrough' | 'backfilledFrom'>, today: string): boolean {
+  return !s.dailyDoneThrough || (s.backfilledFrom !== null && s.backfilledFrom > addDays(today, -FIRST_DAYS));
+}
 
 /** Rate-limit back-off: 30, 60, 120, 240, 240… minutes after the last attempt. */
 export function backoffMs(failures: number): number {
@@ -58,7 +84,7 @@ export interface ScheduleInput {
   state: SyncState;
 }
 
-export function dueJobs({ status, tokenExpiresAt, state: s }: ScheduleInput, now: Date, tz: string, opts: { manual?: boolean } = {}): JobKind[] {
+export function dueJobs({ status, tokenExpiresAt, state: s }: ScheduleInput, now: Date, tz: string, opts: { manual?: boolean; lane?: Lane } = {}): JobKind[] {
   if (status !== 'active') return []; // archived and needs_reconnect accounts are never synced
   const t = now.getTime();
   if (s.leaseUntil && Date.parse(s.leaseUntil) > t) return []; // another tick holds this account
@@ -72,16 +98,21 @@ export function dueJobs({ status, tokenExpiresAt, state: s }: ScheduleInput, now
   const due = new Set<JobKind>();
 
   if (opts.manual || atLeast(s.lastRun.stories, STORIES_EVERY_MIN * MIN)) due.add('stories');
-  // behind = never ran (first-connect backfill) or a day was missed: catch up now, whatever the hour
-  const behind = !s.dailyDoneThrough || s.dailyDoneThrough < addDays(today, -2);
+  // behind = newest week not in yet (new account) or a day was missed: catch up now, whatever the hour
+  const firstWeek = firstWeekPending(s, today);
+  const behind = firstWeek || s.dailyDoneThrough! < addDays(today, -2);
   if (behind || (afterDailyHour && !ranToday(s.lastRun.daily))) due.add('daily');
   if (opts.manual || atLeast(s.lastRun.mediaList, MEDIA_LIST_EVERY_MIN * MIN)) due.add('mediaList');
   due.add('mediaMetrics'); // cheap when nothing is due: pickDueMedia decides per post
   if (!s.lastRun.audience || (afterDailyHour && !ranToday(s.lastRun.audience))) due.add('audience');
+  if (isBackfilling(s)) due.add('backfill');
   const expires = tokenExpiresAt ? Date.parse(tokenExpiresAt) : NaN;
   if (!Number.isNaN(expires) && expires - t <= TOKEN_REFRESH_WITHIN_DAYS * 24 * HOUR && atLeast(s.lastRun.tokenRefresh, TOKEN_RETRY_HOURS * HOUR)) due.add('tokenRefresh');
 
-  return JOBS.filter((j) => due.has(j));
+  const jobs = JOBS.filter((j) => due.has(j));
+  if (opts.lane !== 'regular') return jobs;
+  // lane 1 never imports history; a new account gets only its time-critical jobs there, its onboarding runs in lane 2
+  return jobs.filter((j) => j !== 'backfill' && (!firstWeek || j === 'stories' || j === 'tokenRefresh'));
 }
 
 /** Round-robin: accounts that waited longest go first (never-attempted first of all). */
@@ -98,10 +129,14 @@ export interface MediaRef {
   lastMetricsAt: string | null;
 }
 
-/** Feed/Reels media needing a snapshot now, newest first: never captured (backfill), hourly under 48h, daily under 30d. */
-export function pickDueMedia(refs: MediaRef[], now: Date): string[] {
+/**
+ * Feed/Reels media needing a snapshot now, newest first: never captured, hourly under 48h, daily under 30d. Of the
+ * never-captured posts older than 30 days only the newest `oldMax` are taken (the rest is the history import's job).
+ */
+export function pickDueMedia(refs: MediaRef[], now: Date, oldMax = NEWEST_POSTS): string[] {
   const t = now.getTime();
   const slack = SLACK_MIN * MIN;
+  let old = 0;
   return refs
     .filter((r) => {
       if (!r.lastMetricsAt) return true;
@@ -112,5 +147,6 @@ export function pickDueMedia(refs: MediaRef[], now: Date): string[] {
       return false;
     })
     .sort((a, b) => (a.postedAt < b.postedAt ? 1 : a.postedAt > b.postedAt ? -1 : 0))
+    .filter((r) => r.lastMetricsAt !== null || t - Date.parse(r.postedAt) < MEDIA_DAILY_UNDER_DAYS * 24 * HOUR || old++ < oldMax)
     .map((r) => r.id);
 }
