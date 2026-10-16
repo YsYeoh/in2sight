@@ -1,4 +1,4 @@
-export const IG_SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights'] as const;
+export const IG_SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights', 'instagram_business_manage_comments'] as const;
 
 /** Per request. Keeps one hung call from eating the tick's time budget. */
 const IG_TIMEOUT_MS = 10_000;
