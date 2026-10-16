@@ -80,6 +80,9 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] One owner check per request (React.cache, parallel RPC), per-request accounts/sync-status reads, `Server-Timing` from the proxy — code done
 - [ ] Measure before/after on production and fill docs/RUNBOOK_PERF.md §5 (owner, signed in)
 
+## 6b. Next (Plan 14/15 Settings)
+- [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
+
 ## 7. Later
 - [ ] (C) Weekly AI summary per account via Claude API
 - [x] Alerts when a token needs reconnect (Plan 8 `needs_reconnect` + `token_expiring` rules)
