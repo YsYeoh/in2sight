@@ -19,10 +19,12 @@ describe('coverage per window', () => {
     expect(s.coverage).toEqual({ current: 1, prior: 3 / 7 });
   });
 
-  it('coverage boundary: 6 of 7 days compares, 5 of 7 says importing (while backfilling) or not enough history', () => {
+  it('coverage boundary: 6 of 7 days compares, 5 of 7 says not enough history; while importing the prior window must be complete (the gap is always the old side)', () => {
     const gap = (n: number) => [...days(14, { reach: 10 })].filter((_, i) => i >= 7 - n); // prior window keeps n days, current all 7
     const six = summarize(gap(6), [], 7, TODAY, KL);
-    expect(kpis(six, { backfilling: true }).reach).toMatchObject({ reason: null, diff: 10 }); // 70 vs 60
+    expect(kpis(six).reach).toMatchObject({ reason: null, diff: 10 }); // 70 vs 60
+    expect(kpis(six, { backfilling: true }).reach).toMatchObject({ value: 70, diff: null, change: null, reason: 'backfilling' }); // 60 is a partial base
+    expect(kpis(summarize(gap(7), [], 7, TODAY, KL), { backfilling: true }).reach).toMatchObject({ reason: null, diff: 0 });
     const five = summarize(gap(5), [], 7, TODAY, KL);
     expect(kpis(five, { backfilling: true }).reach).toMatchObject({ value: 70, change: null, reason: 'backfilling' });
     expect(kpis(five).reach.reason).toBe('not_enough_history');
