@@ -3456,3 +3456,272 @@ git commit -m "feat(accounts): sync progress panel and badge (stages, activity, 
 ```
 
 ---
+
+### Task 13: Wire panel and badges into Accounts and Overview
+
+**Files:**
+- Modify: `components/accounts/AccountsView.tsx`, `app/(app)/accounts/(list)/page.tsx`, `components/overview/OverviewView.tsx`, `app/(app)/overview/page.tsx`
+- Modify: `tests/accounts-view.test.tsx`, `tests/overview-view.test.tsx` (one `vi.mock` line each)
+- Test: `tests/sync-progress-wiring.test.tsx` (new)
+
+**Interfaces:**
+- Consumes: `useSyncProgress` (Task 11); `SyncProgressPanel`, `SyncBadge` (Task 12); `loadSyncProgress` (Task 8).
+- Produces: `AccountsView` prop `progress?: AccountProgress[]`; `OverviewView` prop `progress?: AccountProgress[]`. Both default to a module-level constant `NO_PROGRESS` (never a fresh `[]` — the hook treats a new array as fresh server data). Pages load progress with the owner-session client after the accounts list (`loadSyncProgress` never throws). The callback's `?connected=` notice stays; the panel renders right under it.
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-progress-wiring.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { AccountsView } from '@/components/accounts/AccountsView';
+import { OverviewView } from '@/components/overview/OverviewView';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { buildOverview } from '@/lib/dashboard/overview';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import type { AccountProgress } from '@/lib/sync/progress';
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ accounts: [] }), { status: 200 })));
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const acct = (id: string, username: string): StoredAccount => ({ id, igUserId: id, username, displayName: null, accountType: 'MEDIA_CREATOR', profilePictureUrl: null, groupName: null, status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-01T00:00:00Z', connectedAt: '2026-10-14T00:00:00Z' });
+const accounts = [acct('a1', 'fresh.one'), acct('a2', 'settled')];
+const importing: AccountProgress = {
+  accountId: 'a1',
+  phase: 'failed',
+  percent: 40,
+  stages: [{ stage: 'profile', state: 'done', done: null, total: null, reason: null }, { stage: 'account_days', state: 'failed', done: 36, total: 90, reason: 'instagram_unavailable' }],
+  current: null,
+  startedAt: '2026-10-14T02:00:00Z',
+  elapsedMs: 120_000,
+  etaMs: null,
+  resumeInMs: null,
+  errorKey: 'instagram_unavailable',
+  summary: { days: 36, posts: 0 },
+};
+const PROGRESS = [importing];
+
+function wrap(ui: React.ReactNode) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        {ui}
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('progress on the Accounts page', () => {
+  it('shows the panel after connect next to the connected notice, a badge on the importing account only, and Retry runs Sync now', async () => {
+    const ok = async () => ({ ok: true });
+    const actions = { archive: vi.fn(ok), restore: vi.fn(ok), remove: vi.fn(ok), setGroup: vi.fn(ok), syncNow: vi.fn(ok) };
+    wrap(<AccountsView accounts={accounts} actions={actions} now="2026-10-14T02:00:00Z" notice={{ connected: 'fresh.one' }} progress={PROGRESS} />);
+    expect(screen.getByText('Connected @fresh.one')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Importing @fresh.one' })).toBeInTheDocument();
+    const rows = screen.getAllByRole('row');
+    const freshRow = rows.find((r) => within(r).queryByText('@fresh.one'))!;
+    const settledRow = rows.find((r) => within(r).queryByText('@settled'))!;
+    expect(within(freshRow).getByText('Importing… 40%')).toBeInTheDocument();
+    expect(within(settledRow).queryByText(/Importing…/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(actions.syncNow).toHaveBeenCalledWith('a1');
+  });
+
+  it('nothing importing: no panel, no badge', () => {
+    const ok = async () => ({ ok: true });
+    wrap(<AccountsView accounts={accounts} actions={{ archive: ok, restore: ok, remove: ok, setGroup: ok, syncNow: ok }} now="2026-10-14T02:00:00Z" />);
+    expect(screen.queryByRole('heading', { name: /^Importing @/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Importing…/)).not.toBeInTheDocument();
+  });
+});
+
+describe('progress on Overview cards', () => {
+  it('the importing account card carries the badge; the settled one does not', () => {
+    const model = buildOverview({ accounts, sync: {}, daily: { a1: [], a2: [] }, posts: {} }, { period: 7, today: '2026-10-14', now: new Date('2026-10-14T02:00:00Z'), tz: 'Asia/Kuala_Lumpur', locale: 'en' });
+    wrap(<OverviewView model={model} progress={PROGRESS} />);
+    const fresh = screen.getByRole('heading', { name: '@fresh.one' }).closest('li')!;
+    const settled = screen.getByRole('heading', { name: '@settled' }).closest('li')!;
+    expect(within(fresh).getByText('Importing… 40%')).toBeInTheDocument();
+    expect(within(settled).queryByText(/Importing…/)).not.toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-progress-wiring.test.tsx`
+Expected: FAIL — no "Importing @fresh.one" heading / badge (the views ignore `progress`).
+
+- [ ] **Step 3: Wire `components/accounts/AccountsView.tsx`**
+
+- imports: after `import { StatusBadge } from '@/components/accounts/StatusBadge';` add
+
+```tsx
+import { SyncBadge } from '@/components/accounts/SyncBadge';
+import { SyncProgressPanel } from '@/components/accounts/SyncProgressPanel';
+```
+
+after `import { TokenMeter } from '@/components/accounts/TokenMeter';` add `import { useSyncProgress } from '@/components/accounts/useSyncProgress';`, and before `import type { SyncStatus } from '@/lib/sync/store';` add `import type { AccountProgress } from '@/lib/sync/progress';`
+- above the line `// error keys the OAuth callback redirects with; anything else in the URL is ignored` add
+
+```tsx
+/** Stable default: useSyncProgress adopts a NEW array as fresh server data, so the default must not be a new [] per render. */
+const NO_PROGRESS: AccountProgress[] = [];
+
+```
+
+- `interface RowProps`: after `  sync: Record<string, SyncStatus>;` add `  progress: Map<string, AccountProgress>;`
+- `function AccountTable({ accounts, now, sync, ...menu }: RowProps)` → `function AccountTable({ accounts, now, sync, progress, ...menu }: RowProps)`, and replace its status cell
+
+```tsx
+              <TableCell>
+                <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
+              </TableCell>
+```
+
+with
+
+```tsx
+              <TableCell>
+                <div className="flex flex-wrap items-center gap-1">
+                  <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
+                  <SyncBadge p={progress.get(a.id)} />
+                </div>
+              </TableCell>
+```
+
+- `function AccountCards({ accounts, now, sync, ...menu }: RowProps)` → `function AccountCards({ accounts, now, sync, progress, ...menu }: RowProps)`, and between its `<StatusBadge … />` and `<GroupBadge name={a.groupName} />` add `                <SyncBadge p={progress.get(a.id)} />`
+- `AccountsView` props: after `  sync = {},` add `  progress = NO_PROGRESS,` and in the props type after `  sync?: Record<string, SyncStatus>;` add `  progress?: AccountProgress[]; // server-rendered first value; useSyncProgress keeps it live`
+- after `  const tl = useTranslations('loading');` add `  const live = useSyncProgress(progress);`
+- replace the `const menu = { … };` line with
+
+```tsx
+  const menu = { now: nowDate, sync, progress: new Map(live.map((p) => [p.accountId, p])), busy, onEditGroup: setEditGroup, onArchive: setPendingArchive, onSyncNow: syncNow };
+  const retry = (id: string) => {
+    const a = accounts.find((x) => x.id === id);
+    if (a) syncNow(a);
+  };
+```
+
+- directly before `      {syncing ? (` add
+
+```tsx
+      <SyncProgressPanel progress={live} accounts={accounts} busy={busy} onRetry={retry} />
+```
+
+- [ ] **Step 4: Load progress on the Accounts page** — `app/(app)/accounts/(list)/page.tsx`:
+- after `import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';` add
+
+```tsx
+import { createServerSupabase } from '@/lib/supabase/server';
+import { loadSyncProgress } from '@/lib/sync/progress-read';
+```
+
+- after the `const [accounts, sync] = await Promise.all(…);` line add
+
+```tsx
+  const progress = await loadSyncProgress(await createServerSupabase(), accounts, new Date()); // never throws; [] when nothing imports
+```
+
+- pass it: after `      sync={sync}` add `      progress={progress}`
+
+- [ ] **Step 5: Wire `components/overview/OverviewView.tsx` and its page**
+
+- imports: before `import { SeriesChart } from '@/components/charts/SeriesChart';` add
+
+```tsx
+import { SyncBadge } from '@/components/accounts/SyncBadge';
+import { useSyncProgress } from '@/components/accounts/useSyncProgress';
+```
+
+and after `import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';` add `import type { AccountProgress } from '@/lib/sync/progress';`
+- replace `function AccountCardView({ c, period }: { c: AccountCard; period: Period }) {` with
+
+```tsx
+/** Stable default (see useSyncProgress): never a new [] per render. */
+const NO_PROGRESS: AccountProgress[] = [];
+
+function AccountCardView({ c, period, p }: { c: AccountCard; period: Period; p: AccountProgress | undefined }) {
+```
+
+- in `AccountCardView`, replace the `{c.state === 'needs_reconnect' ? ( <Badge variant="destructive">…</Badge> ) : null}` block in the header with
+
+```tsx
+            {c.state === 'needs_reconnect' ? (
+              <Badge variant="destructive">
+                <TriangleAlert aria-hidden="true" />
+                {t('needsReconnect')}
+              </Badge>
+            ) : (
+              <SyncBadge p={p} />
+            )}
+```
+
+- replace `export function OverviewView({ model, exportButton }: { model: OverviewModel; exportButton?: ReactNode }) {` with
+
+```tsx
+export function OverviewView({ model, exportButton, progress = NO_PROGRESS }: { model: OverviewModel; exportButton?: ReactNode; progress?: AccountProgress[] }) {
+```
+
+- after `  const uid = useId();` (in `OverviewView`, before the early return) add
+
+```tsx
+  const live = useSyncProgress(progress); // polls while an account imports; refreshes the numbers as each step lands
+  const byId = new Map(live.map((p) => [p.accountId, p]));
+```
+
+- replace `<AccountCardView key={c.id} c={c} period={model.period} />` with `<AccountCardView key={c.id} c={c} period={model.period} p={byId.get(c.id)} />`
+
+`app/(app)/overview/page.tsx`: before `import { localDay } from '@/lib/sync/time';` add `import { loadSyncProgress } from '@/lib/sync/progress-read';`, and replace the last two lines of the page
+
+```tsx
+  const model = buildOverview(input, { period, today, now, tz: prefs.timezone, locale: prefs.locale });
+  return <OverviewView model={model} exportButton={<ExportDialog scopes={exportScopes(input.accounts)} defaultScope="all" period={period} />} />;
+```
+
+with
+
+```tsx
+  const model = buildOverview(input, { period, today, now, tz: prefs.timezone, locale: prefs.locale });
+  const progress = await loadSyncProgress(db, input.accounts, now); // never throws; [] when nothing imports
+  return <OverviewView model={model} progress={progress} exportButton={<ExportDialog scopes={exportScopes(input.accounts)} defaultScope="all" period={period} />} />;
+```
+
+- [ ] **Step 6: Existing view tests need the router mock** (the hook calls `useRouter`). In `tests/accounts-view.test.tsx` directly after `import { DEFAULT_PREFS } from '@/lib/prefs';`, and in `tests/overview-view.test.tsx` directly after `import { addDays } from '@/lib/sync/time';`, add
+
+```tsx
+
+// the live progress hook refreshes the route when an import step lands
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+```
+
+- [ ] **Step 7: Run the tests**
+
+Run: `npx vitest run tests/sync-progress-wiring.test.tsx tests/accounts-view.test.tsx tests/overview-view.test.tsx tests/route-loading.test.tsx && npx eslint components app && npx tsc --noEmit`
+Expected: PASS, no lint or type errors.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add components/accounts/AccountsView.tsx "app/(app)/accounts/(list)/page.tsx" components/overview/OverviewView.tsx "app/(app)/overview/page.tsx" tests/sync-progress-wiring.test.tsx tests/accounts-view.test.tsx tests/overview-view.test.tsx
+git commit -m "feat(ui): live import progress on Accounts (panel + badges) and Overview cards" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
