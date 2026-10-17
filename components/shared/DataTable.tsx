@@ -1,6 +1,7 @@
 'use client';
 
-// Sortable table on md+, card list on phones (CSS breakpoints only, both rendered; never matchMedia).
+// Sortable table on md+, card list on phones (CSS breakpoints only, both rendered; never matchMedia). With `tile`, a
+// grid of tiles replaces the phone cards ('auto') or the whole table ('grid'), sharing the sort and "Show more".
 // ponytail: client-side sort of already-loaded rows (≤ 500) + an optional "Show more" page; TanStack Table (SPEC §2)
 // comes in when server-side paging or column visibility is needed.
 import { useState, type ReactNode } from 'react';
@@ -36,7 +37,8 @@ export function sortRows<T>(rows: T[], columns: Column<T>[], sort: Sort): T[] {
     .map((x) => x.row);
 }
 
-export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null, pageSize }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort; pageSize?: number }) {
+/** `view` (with `tile` only): 'table' = table + phone cards (default), 'grid' = tiles at every width, 'auto' = tiles below md, the table from md. */
+export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null, pageSize, tile, view = 'table' }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort; pageSize?: number; tile?: (row: T) => ReactNode; view?: 'table' | 'grid' | 'auto' }) {
   const t = useTranslations('table');
   const [sort, setSort] = useState<Sort>(initialSort);
   const [shown, setShown] = useState(pageSize ?? Number.POSITIVE_INFINITY);
@@ -45,57 +47,61 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = 
   const [first, ...rest] = columns;
   const toggle = (key: string) => setSort((s) => (s?.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }));
   const sortable = columns.filter((c) => c.sortValue);
+  const tiles = tile && view !== 'table' ? tile : null;
+  const gridOnly = tiles !== null && view === 'grid';
 
   if (!loading && rows.length === 0) return <div className="py-6 text-center text-sm text-muted-foreground">{empty ?? t('empty')}</div>;
 
   return (
     <div data-slot="data-table" className="min-w-0">
-      <div className="hidden md:block">
-        <Table>
-          <caption className="sr-only">{caption}</caption>
-          <TableHeader>
-            <TableRow>
-              {columns.map((c) => {
-                const active = sort?.key === c.key;
-                const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
-                return (
-                  <TableHead key={c.key} aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn(c.align === 'right' && 'text-right')}>
-                    {c.sortValue ? (
-                      <button type="button" onClick={() => toggle(c.key)} className={cn('inline-flex items-center gap-1 rounded-sm text-xs font-medium outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active ? 'text-foreground' : 'text-muted-foreground')}>
-                        {c.header}
-                        <Icon aria-hidden="true" className={cn('size-3', !active && 'opacity-50')} />
-                      </button>
-                    ) : (
-                      <span className="text-xs font-medium text-muted-foreground">{c.header}</span>
-                    )}
-                  </TableHead>
-                );
-              })}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading
-              ? [0, 1, 2].map((i) => (
-                  <TableRow key={i}>
-                    <TableCell colSpan={columns.length}>
-                      <Skeleton className="h-3.5 w-3/4" />
-                    </TableCell>
-                  </TableRow>
-                ))
-              : sorted.map((r) => (
-                  <TableRow key={rowKey(r)}>
-                    {columns.map((c) => (
-                      <TableCell key={c.key} className={cn('max-w-64 truncate', c.align === 'right' && 'text-right tabular-nums')}>
-                        {c.cell(r)}
+      {gridOnly ? null : (
+        <div className="hidden md:block">
+          <Table>
+            <caption className="sr-only">{caption}</caption>
+            <TableHeader>
+              <TableRow>
+                {columns.map((c) => {
+                  const active = sort?.key === c.key;
+                  const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+                  return (
+                    <TableHead key={c.key} aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn(c.align === 'right' && 'text-right')}>
+                      {c.sortValue ? (
+                        <button type="button" onClick={() => toggle(c.key)} className={cn('inline-flex items-center gap-1 rounded-sm text-xs font-medium outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active ? 'text-foreground' : 'text-muted-foreground')}>
+                          {c.header}
+                          <Icon aria-hidden="true" className={cn('size-3', !active && 'opacity-50')} />
+                        </button>
+                      ) : (
+                        <span className="text-xs font-medium text-muted-foreground">{c.header}</span>
+                      )}
+                    </TableHead>
+                  );
+                })}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading
+                ? [0, 1, 2].map((i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={columns.length}>
+                        <Skeleton className="h-3.5 w-3/4" />
                       </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-          </TableBody>
-        </Table>
-      </div>
+                    </TableRow>
+                  ))
+                : sorted.map((r) => (
+                    <TableRow key={rowKey(r)}>
+                      {columns.map((c) => (
+                        <TableCell key={c.key} className={cn('max-w-64 truncate', c.align === 'right' && 'text-right tabular-nums')}>
+                          {c.cell(r)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-      <div className="grid gap-[var(--gp)] md:hidden">
+      <div className={cn('grid gap-[var(--gp)]', !gridOnly && 'md:hidden')}>
         {sortable.length > 0 ? (
           <div className="flex items-center justify-end gap-2">
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -119,27 +125,43 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = 
             </Button>
           </div>
         ) : null}
-        <ul className="grid gap-[var(--gp)]" aria-label={caption}>
-          {loading
-            ? [0, 1, 2].map((i) => (
-                <li key={i} className="rounded-lg border bg-card p-[var(--pc)]">
-                  <Skeleton className="h-3.5 w-2/3" />
-                </li>
-              ))
-            : sorted.map((r) => (
-                <li key={rowKey(r)} className="min-w-0 rounded-lg border bg-card p-[var(--pc)]">
-                  <div className="min-w-0 truncate font-medium">{first.cell(r)}</div>
-                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                    {rest.map((c) => (
-                      <div key={c.key} className="min-w-0">
-                        <dt className="truncate text-muted-foreground">{c.header}</dt>
-                        <dd className="truncate font-medium tabular-nums">{c.cell(r)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </li>
-              ))}
-        </ul>
+        {tiles ? (
+          <ul className="grid grid-cols-2 gap-[var(--gp)] sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6" aria-label={caption}>
+            {loading
+              ? [0, 1, 2].map((i) => (
+                  <li key={i}>
+                    <Skeleton className="aspect-[4/5]" />
+                  </li>
+                ))
+              : sorted.map((r) => (
+                  <li key={rowKey(r)} className="min-w-0">
+                    {tiles(r)}
+                  </li>
+                ))}
+          </ul>
+        ) : (
+          <ul className="grid gap-[var(--gp)]" aria-label={caption}>
+            {loading
+              ? [0, 1, 2].map((i) => (
+                  <li key={i} className="rounded-lg border bg-card p-[var(--pc)]">
+                    <Skeleton className="h-3.5 w-2/3" />
+                  </li>
+                ))
+              : sorted.map((r) => (
+                  <li key={rowKey(r)} className="min-w-0 rounded-lg border bg-card p-[var(--pc)]">
+                    <div className="min-w-0 truncate font-medium">{first.cell(r)}</div>
+                    <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                      {rest.map((c) => (
+                        <div key={c.key} className="min-w-0">
+                          <dt className="truncate text-muted-foreground">{c.header}</dt>
+                          <dd className="truncate font-medium tabular-nums">{c.cell(r)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </li>
+                ))}
+          </ul>
+        )}
       </div>
 
       {!loading && all.length > sorted.length ? (
