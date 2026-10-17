@@ -55,7 +55,7 @@ export function AppShell({ children, userEmail, signOutAction, bell }: { childre
       </div>
 
       {/* phones: bottom tab bar */}
-      <nav aria-label={t('tabs')} className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
+      <nav aria-label={t('tabs')} className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
         {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
           <NavLink
             key={href}

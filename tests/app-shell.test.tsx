@@ -33,7 +33,7 @@ describe('AppShell', () => {
     setup();
     for (const name of ['Main navigation', 'Main tabs']) {
       const nav = screen.getByRole('navigation', { name });
-      for (const label of ['Overview', 'Accounts', 'Tags', 'Settings']) {
+      for (const label of ['Overview', 'Accounts', 'Tags', 'Explorer', 'Settings']) {
         expect(within(nav).getByRole('link', { name: label })).toBeInTheDocument();
       }
     }
@@ -91,6 +91,7 @@ describe('AppShell', () => {
     expect(side.className).toContain('md:flex');
     expect(side.className).toContain('lg:w-56');
     expect(screen.getByRole('navigation', { name: 'Main tabs' }).className).toContain('md:hidden');
+    expect(screen.getByRole('navigation', { name: 'Main tabs' }).className).toContain('grid-cols-6'); // one column per item
   });
 
   it('the mode toggle flips light/dark through the preferences provider', async () => {
