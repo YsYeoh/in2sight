@@ -146,6 +146,7 @@ export interface ExplorerInput {
 }
 
 const EMPTY: Parts = { daily: null, posts: null };
+const NO_POSTS: PostParts = { posts: 0, measured: 0, reachSum: null, viewsSum: null, viewsN: 0, likes: null, comments: null, saves: null, shares: null, erInteractions: null, erReach: null };
 
 export function buildExplorer(i: ExplorerInput): ExplorerModel {
   const { state: s } = i;
@@ -180,10 +181,13 @@ export function buildExplorer(i: ExplorerInput): ExplorerModel {
       : [...new Set([...cur.keys(), ...(pri?.keys() ?? [])])]; // tags (ids and 'untagged')
     priorKeys = keys.map((k) => (pri ? k : null));
   }
+  // GROUP BY returns no row for a key without posts: with a post metric selected that is 0 posts (the other post metrics stay empty)
+  const hasPosts = s.metrics.some((m) => METRICS[m].source === 'posts');
+  const fill = (p: Parts): Parts => (hasPosts && !p.posts ? { ...p, posts: NO_POSTS } : p);
   const rows = keys.map((key, n) => {
-    const now = cur.get(key) ?? EMPTY;
+    const now = fill(cur.get(key) ?? EMPTY);
     const pk = priorKeys[n];
-    const before = pk !== null && pri ? (pri.get(pk) ?? EMPTY) : null;
+    const before = pk !== null && pri ? fill(pri.get(pk) ?? EMPTY) : null;
     return { key, priorKey: pk, values: Object.fromEntries(s.metrics.map((m) => [m, toKpi(METRICS[m].value(now), before ? METRICS[m].value(before) : null)])) };
   });
   // people, groups and tags rank by the chart metric (stable: ties keep username / A→Z order; "untagged" always last);
