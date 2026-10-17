@@ -105,10 +105,18 @@ still means "the last 30 days" next week; a view saved with fixed dates keeps th
   weekday or hour; post metrics can. The audience slice of a post is the account's reach of that format on that day
   (`account_daily_breakdown`: a 90-day backfill on 16 Oct 2026, daily since), not the single post's.
 - Stories count in post metrics only when you choose the Stories format or break down by format.
-- Single posts: the newest 500 in the range (the page says when the list is cut).
+- Single posts: the newest 500 in the range (the page says when the list is cut). Under the preset **All**, and in the
+  best-time heatmap drill-down ("Your post performance" cell), the list covers all stored posts (up to 5 years), still the
+  newest 500.
 - A timezone that the browser knows but Postgres does not (very rare, deprecated names) makes the Explorer show the
   error screen: pick a zone from the Settings list.
-- Days follow the KPI cards: a rolling range ends on the latest settled insight day (Instagram lags up to 48 h).
+- Days follow the KPI cards: a rolling range ends on the OLDEST settled insight day among the accounts in scope whose
+  sync is within the 3-day lag window (Instagram lags up to 48 h), so one lagging account never shows as a dip at the end
+  of the chart. An account whose sync is older than that window, or that never synced, is ignored for this, so it cannot
+  pull every window back.
+- Daily grouping over a range longer than 900 days is shown weekly (PostgREST returns at most 1,000 rows per call).
+- The comparison "over time" is drawn only for buckets that are complete in both periods: a partial first or last week
+  or month shows no change.
 
 ## 8. Rollback
 
