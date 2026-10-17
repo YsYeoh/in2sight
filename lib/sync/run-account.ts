@@ -6,9 +6,10 @@ import { classifyIgError, isFatalIgError as fatal, type IgData } from '@/lib/ins
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
 import type { Capabilities } from '@/lib/sync/capabilities';
+import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
 import { coveredDays } from '@/lib/sync/progress';
 import type { ProgressSink } from '@/lib/sync/progress-sink';
-import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, type JobKind, type SyncState } from '@/lib/sync/schedule';
+import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, storyExtrasDue, type JobKind, type SyncState } from '@/lib/sync/schedule';
 import type { StatePatch, SyncStore } from '@/lib/sync/store';
 import { addDays, dayRangeSec, localDay } from '@/lib/sync/time';
 
@@ -47,6 +48,7 @@ interface Progress {
   dailyDoneThrough: string | null;
   backfilledFrom: string | null;
   capabilities: Capabilities;
+  extraCalls: number; // budget for optional extra calls left in this run (not persisted)
 }
 
 /** done=false: stopped for the time budget; the job stays due and continues next tick. */
@@ -124,8 +126,27 @@ async function followerSnapshot(c: RunContext) {
   }
 }
 
-/** Live stories: upsert, then one metrics snapshot each. Under 5 viewers Instagram refuses (no_data): skip that story. */
-const stories: Job = async (c) => {
+/**
+ * Optional extras for media whose core snapshot (taken at `at`) is already stored. Best-effort: stops on the time
+ * budget or the per-run call budget; only auth / rate-limit errors propagate (a DB hiccup here costs only the extras).
+ */
+async function captureExtras(c: RunContext, p: Progress, items: { id: string; kind: string }[], at: string): Promise<void> {
+  for (const { id, kind } of items) {
+    if (outOfTime(c) || p.extraCalls <= 0) return;
+    try {
+      const e = await fetchExtras(c.ig, c.token, id, scopeOf(kind), p, () => outOfTime(c));
+      if (Object.keys(e).length > 0) await c.store.updateMetricExtras(id, at, e);
+    } catch (e) {
+      if (fatal(e)) throw e;
+    }
+  }
+}
+
+/**
+ * Live stories: upsert, then one metrics snapshot each. Under 5 viewers Instagram refuses (no_data): skip that story.
+ * Then, only once every live Story's core snapshot is stored, the Story extras on their own cadence (storyExtrasDue).
+ */
+const stories: Job = async (c, p) => {
   await c.progress?.report('profile', 0, 1);
   await followerSnapshot(c);
   const items = await c.ig.listStories(c.token);
@@ -148,6 +169,8 @@ const stories: Job = async (c) => {
   } finally {
     await c.store.markCaptured(captured, at);
   }
+  const extrasDue = items.filter((s) => captured.includes(s.id) && storyExtrasDue(s.postedAt, c.now));
+  await captureExtras(c, p, extrasDue.map((s) => ({ id: s.id, kind: 'STORY' })), at);
   return { done: true };
 };
 
@@ -269,7 +292,7 @@ function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): Sync
 export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ result: AccountResult; patch: StatePatch }> {
   const nowIso = c.now.toISOString();
   const lastRun = { ...c.state.lastRun };
-  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough, backfilledFrom: c.state.backfilledFrom, capabilities: { ...(c.state.capabilities ?? {}) } };
+  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough, backfilledFrom: c.state.backfilledFrom, capabilities: { ...(c.state.capabilities ?? {}) }, extraCalls: EXTRA_CALLS_PER_RUN };
   const completed: JobKind[] = [];
   let partial = false;
   let errorKey: SyncErrorKey | undefined;
