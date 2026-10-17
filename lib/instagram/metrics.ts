@@ -62,11 +62,41 @@ export const FEED_METRICS = ['reach', 'views', 'likes', 'comments', 'shares', 's
 /** Stories: available only while live (24h). Values under 5 return error code 10 "Not enough viewers". */
 export const STORY_METRICS = ['reach', 'views', 'replies', 'shares', 'total_interactions'] as const;
 /**
- * Separate call (breakdown). Values TAP_FORWARD / TAP_BACK / TAP_EXIT map to taps_forward / taps_back / exits; they
- * come back upper- or lower-case (compare upper-cased). SWIPE_FORWARD (next story) has no column.
+ * Separate call (breakdown). Values TAP_FORWARD / TAP_BACK / TAP_EXIT / SWIPE_FORWARD map to taps_forward / taps_back /
+ * exits / swipe_forward; they come back upper- or lower-case (compare upper-cased).
  */
 export const STORY_NAVIGATION_METRIC = 'navigation';
 export const STORY_NAVIGATION_BREAKDOWN = 'story_navigation_action_type';
+
+export type ExtraScope = 'story' | 'feed' | 'reels';
+/** MediaMetricValues fields an extra metric lands in (lib/instagram/data.ts). */
+export type ExtraField = 'follows' | 'profileVisits' | 'profileActivity' | 'avgWatchMs' | 'totalWatchMs' | 'skipRate';
+export interface ExtraGroup {
+  key: string; // capability-memory key: "<scope>:<key>"
+  metrics: Readonly<Record<string, ExtraField>>; // Meta metric name -> field
+  breakdown?: string; // a breakdown group has exactly one metric; its value is the { dimension: n } map
+}
+
+/**
+ * Optional per-media metrics, fetched AFTER the core snapshot, ONE separate call per group: a single unsupported metric
+ * fails a whole batched request (learned from `reposts`). Verified live 2026-10-16 (docs/META_PROBE_RESULTS.md): feed +
+ * carousel `follows`, `profile_visits`, `profile_activity` (breakdown action_type); Reels `ig_reels_avg_watch_time` (ms),
+ * `ig_reels_video_view_total_time` (ms), `reels_skip_rate` (percent) — Reels do NOT support follows/profile_visits.
+ * Stories: documented but UNVERIFIED live, so one metric per call and support is learned at runtime (capability memory).
+ * NEVER `reposts` per media (error 100 for every media type).
+ */
+export const EXTRA_GROUPS: Record<ExtraScope, readonly ExtraGroup[]> = {
+  story: [
+    { key: 'follows', metrics: { follows: 'follows' } },
+    { key: 'profile_visits', metrics: { profile_visits: 'profileVisits' } },
+    { key: 'profile_activity', metrics: { profile_activity: 'profileActivity' }, breakdown: 'action_type' },
+  ],
+  feed: [
+    { key: 'follows_visits', metrics: { follows: 'follows', profile_visits: 'profileVisits' } },
+    { key: 'profile_activity', metrics: { profile_activity: 'profileActivity' }, breakdown: 'action_type' },
+  ],
+  reels: [{ key: 'watch', metrics: { ig_reels_avg_watch_time: 'avgWatchMs', ig_reels_video_view_total_time: 'totalWatchMs', reels_skip_rate: 'skipRate' } }],
+};
 
 /**
  * Error codes (https://developers.facebook.com/docs/graph-api/guides/error-handling/ and
