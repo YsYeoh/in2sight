@@ -1,9 +1,9 @@
-import { CalendarDays, CircleUserRound, LayoutDashboard, Settings, Tag, type LucideIcon } from 'lucide-react';
+import { CalendarDays, ChartNoAxesCombined, CircleUserRound, LayoutDashboard, Settings, Tag, type LucideIcon } from 'lucide-react';
 import { scopeQueryOf } from '@/lib/time-scope/scope';
 
 export interface NavItem {
-  href: '/overview' | '/accounts' | '/tags' | '/calendar' | '/settings';
-  key: 'overview' | 'accounts' | 'tags' | 'calendar' | 'settings';
+  href: '/overview' | '/accounts' | '/tags' | '/calendar' | '/explorer' | '/settings';
+  key: 'overview' | 'accounts' | 'tags' | 'calendar' | 'explorer' | 'settings';
   icon: LucideIcon;
 }
 
@@ -12,11 +12,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/accounts', key: 'accounts', icon: CircleUserRound },
   { href: '/tags', key: 'tags', icon: Tag },
   { href: '/calendar', key: 'calendar', icon: CalendarDays },
+  { href: '/explorer', key: 'explorer', icon: ChartNoAxesCombined },
   { href: '/settings', key: 'settings', icon: Settings },
 ];
 
 /** Main pages that show the Time Scope: their nav links carry the scope of the current URL (the account pages are reached from Overview). */
-const SCOPED: readonly string[] = ['/overview', '/calendar'];
+const SCOPED: readonly string[] = ['/overview', '/calendar', '/explorer'];
 
 /** A nav item's href, plus the current URL's Time Scope parameters when it leads to a scoped page. */
 export function navHref(href: string, search: URLSearchParams | null): string {
