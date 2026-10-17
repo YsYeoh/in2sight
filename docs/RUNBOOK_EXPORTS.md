@@ -22,6 +22,8 @@ Never paste tokens, cookies or `SUPABASE_SECRET_KEY` into chats, screenshots or 
    - A caption or tag starting with `=`, `+`, `-` or `@` shows with a leading `'` and is **not** evaluated. Click into such a cell and press Enter: it must stay text.
 3. Export one account from its Account detail page (**Export** is next to Calendar; the account is preselected). File name `in2sight-@<username>-<first day>_<last day>.xlsx` (browsers that cannot save `@`/emoji use the ASCII fallback name).
 4. An account with a slash, emoji or Chinese in its group name: export the group; the file name keeps the characters (slashes become `-`).
+5. Range rules (Plan 12a review): the export takes the page's Time Scope. With preset **All**, the Posts sheet lists every stored post up to 5 years back (the Daily sheet and the KPIs still start at the first captured day). The export route rejects a reversed range, one longer than 1,830 days, or one starting in the future with `{"error":"bad_params"}` (400) instead of repairing it, e.g. `<app-url>/api/export/xlsx?scope=all&from=2026-09-30&to=2026-09-01`.
+6. Stories are capped at 200 per account per range. When a range holds more, the Excel Stories sheet shows a note saying it is capped and the PDF's Stories count reads "200+" (pick a shorter range for the rest).
 
 ## 2. PDF report preview (any machine, no Chromium)
 

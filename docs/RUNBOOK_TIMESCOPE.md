@@ -70,7 +70,7 @@ If your timezone has DST (e.g. Europe/London: last Sunday of October; America/Ne
 
 1. On Overview pick **90 days**, then click an account's @username: the account page shows 90 days.
 2. Switch tabs (Posts, Stories, Overview): still 90 days (the tab URL keeps `from=90d`). Audience has no bar (it shows the latest snapshot).
-3. Posts tab: change Format → the scope stays; **Reset** keeps the scope too. The count line says how many posts of how many stored.
+3. Posts tab: change Format → the scope stays; **Reset** keeps the scope too. The count line reads "Showing X of Y posts": X is the posts in the table (the scope's days, then the Format and Tag filters); Y is the posts loaded for this page, not every post stored for the account. The page loads the newest 500 posts of the account, or every post back to the start of the range when that reaches further, so Y can include posts older than the range and posts the filters hide.
 4. Stories tab: Stories of the range; with more than 200 in the range it says "Showing the newest 200 Stories of this range…".
 5. "Overview" back link and the **Calendar** button keep 90 days; the sidebar/tab-bar **Overview** and **Calendar** items keep it; **Accounts**, **Tags**, **Settings** do not carry it.
 6. Browser back/forward walk through the scopes you chose (the URL is the state).
@@ -90,6 +90,12 @@ If your timezone has DST (e.g. Europe/London: last Sunday of October; America/Ne
 ## 10. Language
 
 Switch to 简体中文: presets read 7天 … 1年, 今年, 全部; the summary line, dialog, compare and group-by options are Chinese; dates follow Settings → date format.
+
+## Known limits
+
+- **All on the Posts tab and in the export's Posts sheet** lists every stored post up to 5 years back, even posts older than the first captured day. The KPIs and charts for All still start at the first captured day, and the Calendar for All starts at the first captured day too; older posts are in the Posts tab.
+- **Exports reject a bad range** with `{"error":"bad_params"}` (400) instead of repairing it: a start after the end, more than 1,830 days, or a start in the future. (The pages still repair a hostile URL to the default or to about 5 years, section 6.)
+- **Stories are capped at 200 per account per range** in the Stories tab and in exports. In the export, the xlsx Stories sheet carries a note saying it is capped, and the PDF shows the Stories count as "200+".
 
 ## Report back
 
