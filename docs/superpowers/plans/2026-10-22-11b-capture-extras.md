@@ -5568,3 +5568,13 @@ git commit -m "docs: Plan 11b runbook (live capture checks, Story probe, comment
 ```
 
 ---
+
+## Dry-run result (2026-10-17)
+
+All 15 tasks were executed in order in a throwaway clone under the system temp directory (fresh `npm ci`, branch from `main` 97625c6, no new packages, no Supabase/Meta access). `npm run check` passed: lint clean, `tsc --noEmit` clean, **171 test files / 1577 tests passed**, `next build` compiled (new route `ƒ /api/media/[id]/cover`). The replace-blocks of Tasks 5–15 were re-applied programmatically from scratch onto the Tasks 1–4 state and produced a tree identical to the dry-run result; every code block of Tasks 2–4 was checked to appear verbatim in the old or new source. Existing tests that changed (all intentional, listed in their tasks): `instagram-oauth` + `supabase-store` (exchange result / account shape gain `grantedScopes`), `instagram-data` (SWIPE_FORWARD kept; listing fields), `sync-schedule` (one fixture re-aged for the 7-day checkpoint; `covers` in the "fresh" state), `sync-onboarding-schedule` + `sync-tick` (`covers` in "everything ran" states; `listStories(token, true)`).
+
+Windows notes from the dry run: the first Vitest run after `npm ci` can time out starting workers ("Timeout waiting for worker to respond") — rerun; it passes.
+
+## Execution handoff
+
+Plan complete and saved to `docs/superpowers/plans/2026-10-22-11b-capture-extras.md`. Recommended: **Native** (one implementer, tasks in order, then one opus whole-branch review) — the tasks share `run-account.ts`/`store.ts`/the fakes and build on each other's interfaces, and every block was dry-run, so per-task reviewers add little; give Tasks 9–12 (SSRF + the cover route) a security-focused look in the final review. Before deploying: apply `20261022000001_capture_v2b.sql`, then follow `docs/RUNBOOK_CAPTURE.md`.
