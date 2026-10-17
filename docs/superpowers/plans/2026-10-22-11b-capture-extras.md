@@ -3390,3 +3390,407 @@ git commit -m "feat(sync): copy Story covers into private Storage on first sight
 ```
 
 ---
+
+### Task 11: `covers` job in lane 2 (schedule, runner, tick lane-2 selection)
+
+**Files:**
+- Modify: `lib/sync/schedule.ts` (`COVERS_EVERY_MIN`, job `covers`, `LANE2_ONLY`, lane-1 filter)
+- Modify: `lib/sync/run-account.ts` (`COVERS_PER_RUN`, `covers` job, `optional` wrapper)
+- Modify: `lib/sync/tick.ts` (`TickDeps.cdnFetch`, schedule input helper, lane 2 also runs accounts with optional work due)
+- Modify: `tests/sync-schedule.test.ts`, `tests/sync-onboarding-schedule.test.ts`, `tests/sync-tick.test.ts` (their "everything fresh" states gain `covers` in `lastRun`, otherwise the new hourly job is correctly due)
+- Test: `tests/sync-covers-job.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `pickCoverDue`, `captureCover`, `coverUrl`, `afterFailure` (Tasks 9–10); `IgData.mediaCover`, `SyncStore.coverRefs/markCover/markGone` (Task 10).
+- Produces: `JOBS` = `[…, 'backfill', 'covers', 'tokenRefresh']`; `LANE2_ONLY: readonly JobKind[] = ['covers']` (Task 13 appends `'comments'`); `COVERS_EVERY_MIN = 60`; `COVERS_PER_RUN = 25` (exported from `run-account.ts`); private `optional(job)` wrapper in `run-account.ts` (Task 13 reuses it); `TickDeps.cdnFetch?: typeof fetch`; inside `runTick` a helper `input(account, state): ScheduleInput` (Task 13 extends it).
+
+Rules: `covers` is due hourly only once the history import is finished (`!isBackfilling`, so a new account's Overview numbers come first — spec order "…older posts, covers, comments"), never in lane 1; lane 2 now also visits accounts whose only due work is optional (covers, later comments). The job reports the reserved progress stage `covers` (its activity label `sync.activity.covers` already exists in en/zh-CN; the stage is not part of the import checklist/percentage because import completion does not wait for covers). Any non-fatal failure inside the job ends it quietly (`optional`): covers never mark an account as failing.
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-covers-job.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import type { MediaDetails } from '@/lib/instagram/parse';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+import { COVERS_PER_RUN, runAccount, type RunContext } from '@/lib/sync/run-account';
+import { dueJobs, emptyState, type SyncState } from '@/lib/sync/schedule';
+import { runTick } from '@/lib/sync/tick';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const NOW = new Date('2026-10-14T02:00:00Z');
+const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60_000).toISOString();
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+const url = (id: string) => `https://scontent.cdninstagram.com/v/${id}.jpg?_nc_sig=SECRET`;
+const det = (o: Partial<MediaDetails>): MediaDetails => ({ mediaType: 'IMAGE', productType: 'FEED', likeCount: null, commentsCount: null, isSharedToFeed: null, mediaUrl: null, thumbnailUrl: null, childrenCount: null, children: null, ...o });
+/** Import finished, every regular job fresh: only covers can be due. */
+const COMPLETE: Partial<SyncState> = { dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16', lastRun: { backfill: minsAgo(600), stories: minsAgo(5), daily: minsAgo(60), mediaList: minsAgo(5), mediaMetrics: minsAgo(5), audience: minsAgo(60) } };
+
+function ctx(n: number, o: { deadline?: number; state?: Partial<SyncState> } = {}) {
+  const ig = fakeIg();
+  const mem = memoryStore({ media: Array.from({ length: n }, (_, i) => ({ id: `p${String(i).padStart(2, '0')}`, accountId: 'a1', postedAt: minsAgo(60 * (i + 1)), lastMetricsAt: minsAgo(5) })) });
+  ig.mediaCover.mockImplementation(async (_t: string, id: string) => det({ mediaUrl: url(id) }));
+  const seen: string[] = [];
+  const cdnFetch = (async (input: string | URL) => (seen.push(String(input)), new Response(JPEG, { headers: { 'content-type': 'image/jpeg' } }))) as typeof fetch;
+  let now = 0;
+  const acc = account({ id: 'a1' });
+  const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: { ...emptyState('a1'), ...COMPLETE, ...o.state }, tz: 'UTC', now: NOW, deadline: o.deadline ?? 1e9, clock: () => (now += 10), cdnFetch };
+  return { c, ig, mem, seen };
+}
+
+describe('covers job scheduling', () => {
+  const input = (s: Partial<SyncState>) => ({ status: 'active' as const, tokenExpiresAt: null, state: { ...emptyState('a1'), ...s } });
+  it('due hourly once the history import is through; never while importing; never in lane 1', () => {
+    expect(dueJobs(input(COMPLETE), NOW, 'UTC')).toContain('covers');
+    expect(dueJobs(input({ ...COMPLETE, lastRun: { ...COMPLETE.lastRun, covers: minsAgo(20) } }), NOW, 'UTC')).not.toContain('covers');
+    expect(dueJobs(input({}), NOW, 'UTC')).not.toContain('covers'); // new account: Overview numbers first
+    expect(dueJobs(input(COMPLETE), NOW, 'UTC', { lane: 'regular' })).not.toContain('covers');
+  });
+});
+
+describe('covers job', () => {
+  it('newest first, a fresh URL per post, at most COVERS_PER_RUN per run', async () => {
+    const { c, ig, mem } = ctx(30);
+    const { result } = await runAccount(c, ['covers']);
+    expect(result).toMatchObject({ outcome: 'ok', jobs: ['covers'] });
+    expect(ig.mediaCover).toHaveBeenCalledTimes(COVERS_PER_RUN);
+    expect(ig.mediaCover.mock.calls[0][1]).toBe('p00');
+    expect(mem.uploads).toHaveLength(COVERS_PER_RUN);
+    expect(mem.uploads[0].path).toBe('a1/p00.jpg');
+  });
+
+  it('gone on Instagram -> marked gone; no image offered -> unavailable; a transient error -> back-off', async () => {
+    const { c, ig, mem } = ctx(3);
+    ig.mediaCover.mockImplementation(async (_t: string, id: string) => {
+      if (id === 'p00') throw new InstagramApiError('data', 400, 100, 33);
+      if (id === 'p01') return det({ mediaUrl: null }); // copyrighted media
+      throw new InstagramApiError('data', 500, 2);
+    });
+    const { result } = await runAccount(c, ['covers']);
+    expect(result.outcome).toBe('ok');
+    expect(mem.media.get('p00')!.gone).toBe(true);
+    expect(mem.covers.get('p01')).toMatchObject({ status: 'unavailable', attempts: 1 });
+    expect(mem.covers.get('p02')).toMatchObject({ status: 'failed', attempts: 1 });
+  });
+
+  it('a rate limit still stops it (back-off); a database failure never marks the account as failing', async () => {
+    const limited = ctx(2);
+    limited.ig.mediaCover.mockRejectedValue(new InstagramApiError('data', 400, 80002));
+    expect((await runAccount(limited.c, ['covers'])).result).toMatchObject({ outcome: 'failed', errorKey: 'rate_limited' });
+    const db = ctx(2);
+    db.mem.store.coverRefs = async () => {
+      throw new Error('sync store: coverRefs failed');
+    };
+    expect((await runAccount(db.c, ['covers'])).result).toMatchObject({ outcome: 'ok' });
+  });
+
+  it('out of time: stops between posts and stays due (resumes next pass)', async () => {
+    const { c, mem } = ctx(10, { deadline: 45 });
+    const { result } = await runAccount(c, ['covers']);
+    expect(result.outcome).toBe('partial');
+    expect(mem.uploads.length).toBeGreaterThan(0);
+    expect(mem.uploads.length).toBeLessThan(10);
+  });
+});
+
+describe('covers in the tick', () => {
+  it('a complete account gets its covers in lane 2 (never lane 1), with the tick-supplied CDN fetch', async () => {
+    const ig = fakeIg();
+    ig.mediaCover.mockImplementation(async (_t: string, id: string) => det({ mediaUrl: url(id) }));
+    const mem = memoryStore({ tokens: { a1: 'tok' }, media: [{ id: 'p1', accountId: 'a1', postedAt: minsAgo(90), lastMetricsAt: minsAgo(5) }] });
+    mem.states.set('a1', { ...emptyState('a1'), ...COMPLETE, leaseId: null } as SyncState & { leaseId: null });
+    const seen: string[] = [];
+    const cdnFetch = (async (input: string | URL) => (seen.push(String(input)), new Response(JPEG, { headers: { 'content-type': 'image/jpeg' } }))) as typeof fetch;
+    const s = await runTick({ store: mem.store, accounts: fakeAccounts([account({ id: 'a1' })]).accounts, ig, clock: () => NOW.getTime(), cdnFetch }, { trigger: 'cron' });
+    expect(s.accounts[0].jobs.at(-1)).toBe('covers');
+    expect(s.accounts[0].jobs.filter((j) => j === 'covers')).toHaveLength(1);
+    expect(seen).toEqual([url('p1')]);
+    expect(mem.covers.get('p1')).toMatchObject({ status: 'ok' });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-covers-job.test.ts`
+Expected: FAIL — `COVERS_PER_RUN` is not exported / `covers` is not a job.
+
+- [ ] **Step 3: Implement**
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+export const MEDIA_LIST_EVERY_MIN = 60;
+```
+
+with:
+
+```ts
+export const MEDIA_LIST_EVERY_MIN = 60;
+export const COVERS_EVERY_MIN = 60; // new posts appear with the hourly media list; their CDN links live ~1.4–4.5 days
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+ * history (backfill: days 8–90 newest first, then older posts' metrics; later plans append covers and comments there).
+ */
+export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'tokenRefresh'] as const;
+export type JobKind = (typeof JOBS)[number];
+```
+
+with:
+
+```ts
+ * history (backfill: days 8–90 newest first, then older posts' metrics) -> post covers (lane 2 only, once the history
+ * import is through).
+ */
+export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'covers', 'tokenRefresh'] as const;
+export type JobKind = (typeof JOBS)[number];
+
+/** Optional catch-up work that only lane 2 runs (never inside lane 1's small per-account slice). */
+export const LANE2_ONLY: readonly JobKind[] = ['covers'];
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+  if (isBackfilling(s)) due.add('backfill');
+```
+
+with:
+
+```ts
+  if (isBackfilling(s)) due.add('backfill');
+  else if (atLeast(s.lastRun.covers, COVERS_EVERY_MIN * MIN)) due.add('covers'); // after the import: Overview numbers first
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+  // lane 1 never imports history; a new account gets only its time-critical jobs there, its onboarding runs in lane 2
+  return jobs.filter((j) => j !== 'backfill' && (!firstWeek || j === 'stories' || j === 'tokenRefresh'));
+```
+
+with:
+
+```ts
+  // lane 1 never imports history or runs optional catch-up; a new account gets only its time-critical jobs there
+  return jobs.filter((j) => j !== 'backfill' && !LANE2_ONLY.includes(j) && (!firstWeek || j === 'stories' || j === 'tokenRefresh'));
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import { captureCover, coverUrl } from '@/lib/sync/covers';
+```
+
+with:
+
+```ts
+import { afterFailure, captureCover, coverUrl, pickCoverDue } from '@/lib/sync/covers';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+/** Demographics + online followers.
+```
+
+with:
+
+```ts
+/** Post covers copied per run (one Instagram call + one CDN download each, ~0.5 s). */
+export const COVERS_PER_RUN = 25;
+/** Unfinished covers looked at per run (newest first); the back-off filter then picks COVERS_PER_RUN of them. */
+const COVER_SCAN = 200; // ponytail: a block of >200 newer covers all waiting on back-off hides older pending ones until it clears
+
+/**
+ * Feed/Reels covers (lane 2, after the history import), newest first. Fresh URLs per item (they expire within days):
+ * gone on Instagram -> marked gone; no image offered (copyrighted media) -> unavailable; fetch/upload problems ->
+ * back-off, then unavailable. Out of time -> resumes next pass. Reports the reserved progress stage "covers".
+ */
+const covers: Job = async (c) => {
+  const nowIso = c.now.toISOString();
+  const due = pickCoverDue(await c.store.coverRefs(c.account.id, { limit: COVER_SCAN }), c.now, COVERS_PER_RUN);
+  for (const [i, ref] of due.entries()) {
+    if (outOfTime(c)) return { done: false };
+    await c.progress?.report('covers', i, due.length);
+    let details;
+    try {
+      details = await c.ig.mediaCover(c.token, ref.id);
+    } catch (e) {
+      if (fatal(e)) throw e;
+      if (classifyIgError(e) === 'gone') await c.store.markGone(ref.id, nowIso);
+      else await c.store.markCover(ref.id, { ...afterFailure(ref.attempts), triedAt: nowIso });
+      continue;
+    }
+    const url = coverUrl(details);
+    if (url) await captureCover(c.store, c.account.id, ref, url, nowIso, c.cdnFetch);
+    else await c.store.markCover(ref.id, { status: 'unavailable', attempts: ref.attempts + 1, triedAt: nowIso });
+  }
+  return { done: true };
+};
+
+/**
+ * Optional lane-2 work (covers, comments): only auth / rate-limit errors surface (needs_reconnect / back-off); any
+ * other failure ends the job quietly — it is due again next time and must never mark the account as failing.
+ */
+const optional =
+  (job: Job): Job =>
+  async (c, p) => {
+    try {
+      return await job(c, p);
+    } catch (e) {
+      if (fatal(e)) throw e;
+      return { done: true };
+    }
+  };
+
+/** Demographics + online followers.
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill, tokenRefresh };
+```
+
+with:
+
+```ts
+const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill, covers: optional(covers), tokenRefresh };
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+import { byOldestAttempt, dueJobs, isBackfilling, type JobKind, type Lane, type SyncState } from '@/lib/sync/schedule';
+```
+
+with:
+
+```ts
+import { byOldestAttempt, dueJobs, isBackfilling, LANE2_ONLY, type JobKind, type Lane, type ScheduleInput, type SyncState } from '@/lib/sync/schedule';
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+  clock?: () => number;
+  newId?: () => string;
+}
+```
+
+with:
+
+```ts
+  clock?: () => number;
+  newId?: () => string;
+  cdnFetch?: typeof fetch; // cover downloads; default global fetch
+}
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+  const ordered = [...active].sort((a, b) => byOldestAttempt(states.get(a.id)!, states.get(b.id)!));
+
+```
+
+with:
+
+```ts
+  const ordered = [...active].sort((a, b) => byOldestAttempt(states.get(a.id)!, states.get(b.id)!));
+  const input = (a: StoredAccount, state: SyncState): ScheduleInput => ({ status: a.status, tokenExpiresAt: a.tokenExpiresAt, state });
+
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+    const plan = (s: SyncState) => dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state: s }, now, tz, { manual, lane }).filter((j) => !skip.includes(j));
+```
+
+with:
+
+```ts
+    const plan = (s: SyncState) => dueJobs(input(account, s), now, tz, { manual, lane }).filter((j) => !skip.includes(j));
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+{ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline: sliceEnd, clock, progress }
+```
+
+with:
+
+```ts
+{ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline: sliceEnd, clock, progress, cdnFetch: deps.cdnFetch }
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+        return e.outcome === 'partial' || isBackfilling(states.get(a.id)!);
+```
+
+with:
+
+```ts
+        const s = states.get(a.id)!;
+        const optionalDue = dueJobs(input(a, s), new Date(clock()), tz, { manual }).some((j) => LANE2_ONLY.includes(j)); // covers (+ comments)
+        return e.outcome === 'partial' || isBackfilling(s) || optionalDue;
+```
+
+Test fixture updates (states that mean "every job ran recently"):
+
+In `tests/sync-schedule.test.ts` replace:
+
+```ts
+  lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), mediaMetrics: minsAgo(10), audience: minsAgo(60) },
+```
+
+with:
+
+```ts
+  lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), mediaMetrics: minsAgo(10), audience: minsAgo(60), covers: minsAgo(10) },
+```
+
+In `tests/sync-onboarding-schedule.test.ts` replace:
+
+```ts
+    const legacy = st({ dailyDoneThrough: '2026-10-13', lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), audience: minsAgo(60) } });
+```
+
+with:
+
+```ts
+    const legacy = st({ dailyDoneThrough: '2026-10-13', lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), audience: minsAgo(60), covers: minsAgo(10) } });
+```
+
+In `tests/sync-tick.test.ts` replace:
+
+```ts
+    mem.states.set('a1', { ...emptyState('a1'), leaseId: null, dailyDoneThrough: '2026-10-13', lastRun: { stories: iso, daily: iso, mediaList: iso, audience: iso } });
+```
+
+with:
+
+```ts
+    mem.states.set('a1', { ...emptyState('a1'), leaseId: null, dailyDoneThrough: '2026-10-13', lastRun: { stories: iso, daily: iso, mediaList: iso, audience: iso, covers: iso } });
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/sync-covers-job.test.ts tests/sync-schedule.test.ts tests/sync-onboarding-schedule.test.ts tests/sync-tick.test.ts tests/sync-lanes.test.ts tests/sync-backfill.test.ts tests/cron-tick-chain.test.ts tests/connect-sync.test.ts && npx tsc --noEmit`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/sync/schedule.ts lib/sync/run-account.ts lib/sync/tick.ts tests/sync-schedule.test.ts tests/sync-onboarding-schedule.test.ts tests/sync-tick.test.ts tests/sync-covers-job.test.ts
+git commit -m "feat(sync): post/Reel cover backfill as a lane-2 job after the import (newest first, back-off, never fails the account)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
