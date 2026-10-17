@@ -20,7 +20,7 @@ import { exportScopes } from '@/lib/export/params';
 import { loadDaily, loadPosts } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { addDays, dayStart, localDay } from '@/lib/sync/time';
+import { addDays, daysToIso, localDay } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -41,8 +41,8 @@ async function TabContent({ tab, account, sp }: { tab: Tab; account: StoredAccou
       return <PostsTab posts={buildPosts(rows, tags, filters, prefs.timezone)} total={rows.length} tags={tags} filters={filters} setPostTags={setPostTagsAction} />;
     }
     case 'stories': {
-      const since = dayStart(addDays(today, -13), prefs.timezone).toISOString(); // today + the 13 days before it
-      return <StoriesTab stories={buildStories(await loadStories(db, account.id, since), now)} />;
+      const { fromIso, toIso } = daysToIso(addDays(today, -13), today, prefs.timezone); // today + the 13 days before it
+      return <StoriesTab stories={buildStories((await loadStories(db, account.id, fromIso, toIso)).stories, now)} />;
     }
     case 'audience':
       return <AudienceTab model={buildAudience(await loadAudience(db, account.id))} />;

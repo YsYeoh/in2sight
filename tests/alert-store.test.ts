@@ -17,7 +17,7 @@ function recorder(results: { data?: unknown; error?: unknown }[] = []) {
       const chain: Record<string, unknown> = {};
       for (const op of ['insert', 'update', 'upsert', 'delete']) chain[op] = (...a: unknown[]) => ((call.op = op), call.args.push(...a), chain);
       chain.select = (...a: unknown[]) => ((call.op ||= 'select'), call.args.push(...a), chain);
-      for (const f of ['eq', 'neq', 'in', 'is', 'or', 'gte', 'order', 'limit']) chain[f] = (...a: unknown[]) => (call.filters.push([f, ...a]), chain);
+      for (const f of ['eq', 'neq', 'in', 'is', 'or', 'gte', 'order', 'limit', 'range']) chain[f] = (...a: unknown[]) => (call.filters.push([f, ...a]), chain);
       chain.maybeSingle = next;
       chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => next().then(res, rej);
       return chain;
@@ -80,6 +80,6 @@ describe('supabaseAlertStore', () => {
     await s.daily('a1', '2026-09-30');
     await s.posts('a1');
     expect(r.calls.map((c) => c.table)).toEqual(['account_daily', 'media']);
-    expect(r.calls[1].filters).toContainEqual(['limit', 60]);
+    expect(r.calls[1].filters).toContainEqual(['range', 0, 59]); // ALERT_POSTS newest, one page
   });
 });

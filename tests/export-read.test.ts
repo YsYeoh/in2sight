@@ -17,7 +17,7 @@ const { calls, fail, rec } = vi.hoisted(() => {
 vi.mock('@/lib/dashboard/read', () => ({ loadDaily: rec('daily', [{ day: '2026-10-14' }]) }));
 vi.mock('@/lib/dashboard/detail-read', () => ({
   loadPostRows: rec('posts', [{ id: 'p' }]),
-  loadStories: rec('stories', [{ id: 's' }]),
+  loadStories: rec('stories', { stories: [{ id: 's' }], truncated: false }),
   loadAudience: rec('audience', { age_gender: null, country: null, city: null }),
   loadOnline: rec('online', { x: [] }),
   loadTags: rec('tags', [{ id: 't', name: 'T', color: 'chart-1' }]),
@@ -50,7 +50,8 @@ describe('loadExportData', () => {
     expect(d.posts[B]).toEqual([{ id: 'p' }]);
     expect(d.tags).toHaveLength(1);
     expect(calls).toContainEqual(['daily', A, '2026-09-29']); // fromDayFor(7): two windows + 2 days lag
-    expect(calls).toContainEqual(['stories', B, '2026-10-08T16:00:00.000Z']); // 2026-10-09 00:00 in Kuala Lumpur
+    expect(calls).toContainEqual(['stories', B, '2026-10-08T16:00:00.000Z', '2026-10-15T16:00:00.000Z']); // [2026-10-09, 2026-10-16) 00:00 in Kuala Lumpur
+    expect(d.stories[A]).toEqual([{ id: 's' }]);
     expect(calls).toContainEqual(['online', [A, B], '2026-09-15']);
     expect(calls.filter((c) => c[0] === 'audience')).toHaveLength(2);
   });

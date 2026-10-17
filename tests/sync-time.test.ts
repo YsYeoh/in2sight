@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, dayRangeSec, dayStart, localDay, localHour } from '@/lib/sync/time';
+import { addDays, dayRangeSec, dayStart, daysToIso, localDay, localHour } from '@/lib/sync/time';
 
 const KL = 'Asia/Kuala_Lumpur'; // UTC+8, no DST
 const NY = 'America/New_York'; // DST: 2026-03-08 starts, 2026-11-01 ends
@@ -39,6 +39,15 @@ describe('dayStart', () => {
     expect(dayStart('2026-11-02', NY).toISOString()).toBe('2026-11-02T05:00:00.000Z');
     const r = dayRangeSec('2026-11-01', NY);
     expect(r.until - r.since).toBe(25 * 3600);
+  });
+  it('daysToIso: posted_at bounds of a range across the DST changes cover whole owner days (47 h and 49 h)', () => {
+    const spring = daysToIso('2026-03-07', '2026-03-08', NY);
+    expect(spring).toEqual({ fromIso: '2026-03-07T05:00:00.000Z', toIso: '2026-03-09T04:00:00.000Z' });
+    expect(Date.parse(spring.toIso) - Date.parse(spring.fromIso)).toBe(47 * 3600_000);
+    const fall = daysToIso('2026-10-31', '2026-11-01', NY);
+    expect(fall).toEqual({ fromIso: '2026-10-31T04:00:00.000Z', toIso: '2026-11-02T05:00:00.000Z' });
+    expect(Date.parse(fall.toIso) - Date.parse(fall.fromIso)).toBe(49 * 3600_000);
+    expect(daysToIso('2026-10-14', '2026-10-14', KL)).toEqual({ fromIso: '2026-10-13T16:00:00.000Z', toIso: '2026-10-14T16:00:00.000Z' });
   });
   it('round-trips with localDay', () => {
     for (const tz of [KL, NY, 'Europe/London', 'Australia/Sydney', 'Asia/Kolkata']) {

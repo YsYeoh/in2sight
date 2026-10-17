@@ -8,7 +8,7 @@ import { fromDayFor } from '@/lib/dashboard/overview';
 import { loadDaily } from '@/lib/dashboard/read';
 import { listSyncStatus, type SyncStatus } from '@/lib/sync/store';
 import { exportWindow } from '@/lib/export/params';
-import { addDays, dayStart } from '@/lib/sync/time';
+import { addDays, daysToIso } from '@/lib/sync/time';
 
 export interface ExportData {
   accounts: StoredAccount[]; // the scope, sorted by username (resolveScope)
@@ -26,12 +26,12 @@ const byId = <T>(accounts: StoredAccount[], values: T[]): Record<string, T> => O
 /** 5 queries per account + 3 shared, all in parallel. Any failed read throws (the route answers with an error key). */
 export async function loadExportData(db: SupabaseClient, accounts: StoredAccount[], o: { period: Period; today: string; tz: string }): Promise<ExportData> {
   const ids = accounts.map((a) => a.id);
-  const since = dayStart(exportWindow(o.period, o.today).from, o.tz).toISOString();
+  const { fromIso, toIso } = daysToIso(exportWindow(o.period, o.today).from, o.today, o.tz);
   const [sync, tags, online, per] = await Promise.all([
     listSyncStatus(db),
     loadTags(db),
     loadOnline(db, ids, addDays(o.today, -30)),
-    Promise.all(accounts.map((a) => Promise.all([loadDaily(db, a.id, fromDayFor(o.period, o.today)), loadPostRows(db, a.id), loadStories(db, a.id, since), loadAudience(db, a.id)]))),
+    Promise.all(accounts.map((a) => Promise.all([loadDaily(db, a.id, fromDayFor(o.period, o.today)), loadPostRows(db, a.id), loadStories(db, a.id, fromIso, toIso).then((r) => r.stories), loadAudience(db, a.id)]))),
   ]);
   return {
     accounts,
