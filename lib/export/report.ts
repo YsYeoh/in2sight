@@ -58,7 +58,7 @@ const avg = (vals: (number | null | undefined)[]): number | null => {
 const add = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : a + b);
 
 export function buildReport(data: ExportData, p: ReportParams, o: { today: string; now: Date; tz: string; weekStart: WeekStart }): ReportModel {
-  const { from: rawFrom, to: rawTo } = data.scope.range;
+  const { from: rawFrom, to: rawTo } = data.scope.listRange; // the days posts are listed for ("all" = every stored post)
   const { window, gran } = data.scope;
   const cmp = data.scope.scope.cmp;
   const user = new Map(data.accounts.map((a) => [a.id, a.username]));

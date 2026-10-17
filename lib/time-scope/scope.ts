@@ -116,7 +116,8 @@ export interface ResolvedScope {
   query: string; // scopeQuery(scope), '' for the default; appended to internal links
   preset: Preset | null;
   window: Window; // what the KPIs measure (summarize)
-  range: DayRange; // the covered days up to today: posts, Stories, calendar, labels
+  range: DayRange; // the covered days up to today: Stories, calendar, labels
+  listRange: DayRange; // the days post lists show: = range, but "all" lists every stored post (back to MAX_DAYS), not only those since the first captured day
   compare: DayRange | null; // comparison days for labels (each account's KPIs cut their own, see compareRange)
   gran: Granularity; // chart buckets (auto resolved)
   earliest: string | null; // first captured day among the loaded rows; null when nothing was captured
@@ -124,12 +125,14 @@ export interface ResolvedScope {
   comparePartial: boolean; // part of the comparison is before the first captured day
 }
 
+const floorDay = (today: string): string => addDays(today, -(MAX_DAYS - 1)); // the oldest day anything reads
+
 function windowOf(r: Preset | DayRange, today: string, earliest: string | null): Window {
   if (typeof r === 'object') return r;
   const days = ROLLING[r];
   if (days) return { last: days };
   if (r === 'ytd') return { from: `${today.slice(0, 4)}-01-01`, to: today };
-  const floor = addDays(today, -(MAX_DAYS - 1)); // 'all': from the first captured day, at most MAX_DAYS back
+  const floor = floorDay(today); // 'all': from the first captured day, at most MAX_DAYS back
   return { from: earliest === null ? today : earliest < floor ? floor : minDay(earliest, today), to: today };
 }
 
@@ -147,6 +150,7 @@ export function resolveScope(s: TimeScope, today: string, earliest: string | nul
     preset: typeof r === 'string' ? r : null,
     window,
     range,
+    listRange: r === 'all' ? { from: floorDay(today), to: range.to } : range,
     compare,
     gran: scope.gran === 'auto' ? autoGranularity(daysIn(range)) : scope.gran,
     earliest,
@@ -157,7 +161,7 @@ export function resolveScope(s: TimeScope, today: string, earliest: string | nul
 
 /** First day the loaders read: both windows plus Instagram's lag, and at least the 2 × 7 days the reach-drop flag needs. */
 export function readFrom(s: TimeScope, today: string): string {
-  if (s.range === 'all') return addDays(today, -(MAX_DAYS - 1));
+  if (s.range === 'all') return floorDay(today);
   const r = resolveScope(s, today);
   const first = minDay(r.range.from, r.compare?.from ?? r.range.from);
   return minDay(addDays(first, -(1 + MAX_LAG_DAYS)), addDays(today, -(2 * 7 + 1 + MAX_LAG_DAYS)));
