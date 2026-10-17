@@ -14,7 +14,20 @@
 
 ## Decisions taken in this plan (owner: please confirm the ones marked ⚠)
 
-_(filled in below as tasks land)_
+- ⚠ **Comments are incremental by COUNT, not by a `commented_at` cursor** (the brief said "incremental by commented_at"). A post is re-read when the `comments_count` from the hourly listing differs from the count at its last ingest (`media.comments_synced_count`). Meta does not document the order of the comments edge, so a "stop at the newest stored timestamp" cursor could silently miss new comments on long threads; the count rule is order-agnostic and costs zero calls for quiet posts. Limit: an edited comment (same count) is refreshed only at the next count change. Rows are upserted by comment id (`first_seen_at` kept, `last_seen_at` refreshed).
+- ⚠ **Story extras every 2 hours of a Story's life + every pass in its last hour**, not every tick (3 calls per Story when all are supported; ~13 extras snapshots per Story instead of 48). The core Story snapshot stays every tick.
+- ⚠ **Carousel CHILD covers are not captured.** `media_children` is created with `cover_path`/`cover_status` (as briefed) but only the parent cover (first child's image) is copied; child capture belongs with Post Lab. Children rows (position, type) ARE written from the listing.
+- ⚠ **Reserved progress stages `covers`/`comments` are reported live but not added to the import checklist or percentage** (the brief said "extend the stage list + i18n labels"). The panel's activity line already has `sync.activity.covers`/`sync.activity.comments` in en + zh-CN, so the running stage is shown; but import completion must not wait for covers (hours of backlog) or comments (need a Reconnect), so `STAGES`/weights stay unchanged and no new i18n keys are needed.
+- ⚠ **Covers and comments start only after the history import is complete** (spec order "…older posts, cover images, comments"), as hourly lane-2 jobs. Story covers are the exception: captured on first sight inside the Stories job.
+- **Granted scopes:** Meta's code exchange returns `permissions` as one comma-separated string (verified in Meta's Business Login docs, 2026-10-17); stored on every connect/reconnect, overwritten each time (null when Meta does not report it = treated as not granted; the hint then shows). Existing accounts are backfilled with the two original scopes, so they show "Reconnect to enable comments" until reconnected.
+- **"Unsupported" detection:** Meta answers code 100 with wording like "does not support the metric", "must be one of the following values", "nonexisting field". `call()` keeps only a boolean `unsupported` (the message text is discarded); `isUnsupported()` excludes the pre-conversion (2108006) and deleted-object (33) subcodes and network errors. `classifyIgError` is unchanged, so core capture behaves exactly as before.
+- **Capability memory keys:** `story:follows`, `story:profile_visits`, `story:profile_activity`, `feed:follows_visits`, `feed:profile_activity`, `reels:watch`, `stories:url_fields`. Verified feed/Reels metrics are grouped in one call per group; unverified Story metrics are one per call.
+- **Per-media extras:** same cadence as core media metrics (hourly < 48 h, daily < 30 d, older never-measured posts via the import) + a 7-day checkpoint (one snapshot right after day 7 when the last one predates it); extras run after the whole core loop within 20 extra calls per account run.
+- **Cover URLs:** posts/Reels get a FRESH URL per attempt (`GET /{media-id}?fields=media_type,media_url,thumbnail_url,children{…}`, 1 call per cover, 25 per run) — CDN links expire in days, so none are stored. Stories use the URLs from the Stories listing; if Meta rejects those fields on Stories the listing falls back to the base fields (remembered as `stories:url_fields=false`) so the Story capture itself can never break.
+- **Cover safety:** `redirect: 'manual'`, every hop re-checked against the allowlist (max 3); only JPEG/PNG/WebP (SVG/GIF/HEIC refused); object key `{account_id}/{media_id}.jpg` even for PNG/WebP (the real type is stored as the object's content type and served from there, re-allowlisted); `upsert: false` with "already exists" treated as stored.
+- **Raw archive scope:** account day totals, follows/unfollows, reach/views breakdowns, demographics, online followers. Not media lists, media insights (re-fetchable ~2 years), captions or comments.
+- **SPEC edit (flagged):** `docs/SPEC.md` §5 gains the new columns/tables and §6 a "Capture extras" paragraph (Task 15). No other SPEC behaviour changes.
+- **New dependencies: none.**
 
 ## Out of scope
 
@@ -36,7 +49,11 @@ _(filled in below as tasks land)_
 
 ## Review Focus
 
-_(filled in below)_
+1. **An unsupported metric inside a batched request** (Meta fails the WHOLE call, e.g. `follows` on a carousel product type, or a Story metric Meta stops serving) — only that group is dropped and remembered, the core snapshot and the other groups are kept: → Task 7 "an unsupported metric in a batch drops only that group, is remembered, and the core snapshot is untouched"; Task 6 "an unsupported metric only drops that metric, is remembered, and is not asked on the next run".
+2. **A Story deleted/expired between the core capture and its extras** (code 100 / subcode 33) — the core snapshot stays, nothing is learned, the run is ok: → Task 6 "a Story gone mid-capture: the core snapshot stays, nothing is learned, the run is ok".
+3. **A cover URL that expired (403/404/410) or redirects to a non-CDN host** (incl. the cloud metadata address) — refused before any request to the foreign host, counted as a failed attempt with back-off, never breaking the Story capture: → Task 9 "follows a redirect only to another CDN host…" and "expired link (403/404/410), SVG, HTML, empty body"; Task 10 "expired link or a redirect to a foreign host: a failed attempt, the Story snapshot is unaffected".
+4. **Comments scope missing → Meta returns an empty list with no error** — it must never be recorded as "no comments": no call is made without the scope, nothing is written or marked; after a Reconnect that grants it the first run reads every recent post; and a post that HAS comments but returns none stays unsynced: → Task 13 "scope missing: no Instagram call, nothing recorded…", "a tick without the scope never schedules it; after a Reconnect…", "an empty answer for a post that has comments writes nothing and is asked again next run".
+5. **Capability memory poisoned by a transient error** (5xx, network timeout, an unclassified code 100, under-5-viewers) — only an explicit "unsupported" answer may switch a metric off: → Task 4 "learns false only from an 'unsupported' answer; transient errors never poison the memory"; Task 6 "transient errors (5xx, network, unclassified 100) never poison the capability memory".
 
 ## File Structure
 
