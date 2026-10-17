@@ -36,8 +36,8 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
   const tz = prefs.timezone;
   switch (tab) {
     case 'posts': {
-      const [rows, tags] = await Promise.all([loadPostRows(db, account.id, dayStart(scope.range.from, tz).toISOString()), loadTags(db)]);
-      const filters = { ...parsePostFilters(sp), from: scope.range.from, to: scope.range.to }; // the dates come from the scope
+      const [rows, tags] = await Promise.all([loadPostRows(db, account.id, dayStart(scope.listRange.from, tz).toISOString()), loadTags(db)]);
+      const filters = { ...parsePostFilters(sp), from: scope.listRange.from, to: scope.listRange.to }; // the dates come from the scope ("all" lists every stored post)
       // the imported server action is passed straight to the client component (never wrapped in a closure here)
       return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} setPostTags={setPostTagsAction} />;
     }

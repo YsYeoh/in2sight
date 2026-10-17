@@ -56,6 +56,14 @@ describe('buildReport', () => {
     expect(build().topPosts.map((x) => x.id)).toEqual(['p1']); // p2 has no reach
   });
 
+  it('"all": top posts and formats cover every stored post, including those older than the first captured day', () => {
+    const d = sampleData('from=all');
+    d.posts[A].push(post('old', A, { postedAt: '2025-01-05T02:00:00Z', reach: 900 }));
+    const m = build(params(), d);
+    expect(m.topPosts.map((x) => x.id)).toEqual(['old', 'p1']);
+    expect(m.formats.find((f) => f.mediaType === 'IMAGE')?.posts).toBe(2); // p2 + the old one
+  });
+
   it('formats, tags (+ untagged) and best time come from the dashboard analysis', () => {
     const m = build();
     expect(m.formats.map((f) => f.mediaType)).toEqual(['REELS', 'IMAGE']);

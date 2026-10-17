@@ -1,7 +1,7 @@
 import { Suspense, isValidElement, type ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { calls, accounts, fail } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false } }));
+const { calls, accounts, fail, since } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[] }));
 
 vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push('requireOwner') }));
 vi.mock('next/navigation', () => ({
@@ -23,8 +23,9 @@ vi.mock('@/lib/dashboard/read', () => ({
 }));
 vi.mock('@/lib/dashboard/detail-read', () => ({
   loadOnline: async () => (calls.push('online'), {}),
-  loadPostRows: async () => {
+  loadPostRows: async (_db: unknown, _id: string, from: string | null) => {
     if (fail.postRows) throw new Error('db down');
+    since.push(from);
     return calls.push('postRows'), [];
   },
   loadTags: async () => (calls.push('tags'), []),
@@ -33,6 +34,8 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
 }));
 
 import AccountPage from '@/app/(app)/accounts/[id]/page';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { dayStart } from '@/lib/sync/time';
 
 const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
 const acct = (id: string, status = 'active', o: Record<string, unknown> = {}) => ({ id, igUserId: id, username: `u${id.slice(0, 4)}`, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status, archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-09-01T00:00:00Z', ...o });
@@ -47,6 +50,7 @@ const streamTab = async (el: Page) => {
 
 beforeEach(() => {
   calls.length = 0;
+  since.length = 0;
   accounts.length = 0;
   fail.postRows = false;
 });
@@ -118,6 +122,26 @@ describe('account detail page', () => {
     expect(el.props.tab).toBe('posts');
     expect(calls).toEqual(expect.arrayContaining(['postRows', 'tags']));
     expect(calls).not.toContain('daily');
+  });
+
+  it('posts tab: "all" lists every stored post (back to the MAX_DAYS floor), not only those since the first captured day; other scopes keep their range', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
+    try {
+      accounts.push(acct(ID));
+      const posts = async (sp: Record<string, string>) => {
+        const el = (await streamTab(await run(ID, { tab: 'posts', ...sp }))) as ReactElement<{ filters: { from: string; to: string } }>;
+        return { filters: el.props.filters, since: since.at(-1) };
+      };
+      const all = await posts({ from: 'all' }); // the first captured day (mock) is 2026-07-01
+      expect(all.filters).toMatchObject({ from: '2021-10-14', to: '2026-10-17' });
+      expect(all.since).toBe(dayStart('2021-10-14', DEFAULT_PREFS.timezone).toISOString());
+      const month = await posts({ from: '2026-09-01', to: '2026-09-30' });
+      expect(month.filters).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+      expect(month.since).toBe(dayStart('2026-09-01', DEFAULT_PREFS.timezone).toISOString());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([

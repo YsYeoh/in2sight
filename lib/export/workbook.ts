@@ -82,9 +82,10 @@ export function buildWorkbook(data: ExportData, t: Translate, o: WorkbookOptions
   const { from, to } = data.scope.range; // the days the scope covers, up to today
   const tz = o.prefs.timezone;
   const user = new Map(data.accounts.map((a) => [a.id, a.username]));
+  const { from: postFrom, to: postTo } = data.scope.listRange; // "all" lists every stored post, not only those since the first captured day
   const inWindow = (iso: string) => {
     const d = localDay(new Date(iso), tz);
-    return d >= from && d <= to;
+    return d >= postFrom && d <= postTo;
   };
   const tagName = new Map(data.tags.map((x) => [x.id, x.name]));
   const posts: PostRow[] = data.accounts.flatMap((a) => (data.posts[a.id] ?? []).filter((p) => p.mediaType !== 'STORY' && inWindow(p.postedAt)));

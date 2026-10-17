@@ -72,6 +72,14 @@ describe('buildWorkbook', () => {
     expect(col(summary.data, 'Reach change')[0]).toBeNull();
   });
 
+  it('"all": Posts lists every stored post (older than the first captured day too); Daily keeps the captured days', () => {
+    const data = sampleData('from=all');
+    data.posts[A].push(post('old', A, { postedAt: '2025-01-05T02:00:00Z', caption: 'from 2025' }));
+    const [, daily, posts] = buildWorkbook(data, en, opts());
+    expect(col(posts.data, 'Caption').map((c) => c?.value ?? null)).toEqual(["'=1+1 cmd", null, 'from 2025']);
+    expect((col(daily.data, 'Date')[0]?.value as Date).toISOString().slice(0, 10)).toBe('2026-09-25'); // the first captured day
+  });
+
   it('Posts: formula-like captions and tag names are neutralised; missing metrics stay empty; type is localized', () => {
     const posts = buildWorkbook(sampleData(), en, opts())[2];
     expect(col(posts.data, 'Caption').map((c) => c?.value ?? null)).toEqual(["'=1+1 cmd", null]);

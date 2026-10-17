@@ -123,6 +123,18 @@ describe('resolveScope', () => {
     expect(resolveScope(p('from=7d'), TODAY, null)).toMatchObject({ partial: true, earliest: null });
   });
 
+  it('listRange (post lists): the covered days, except "all" which lists every stored post back to the MAX_DAYS floor', () => {
+    for (const q of ['', 'from=7d', 'from=ytd', 'from=1y', 'month=2026-09', 'from=2026-03-01&to=2026-03-31']) {
+      const r = resolveScope(p(q), TODAY, '2026-01-01');
+      expect(r.listRange, q).toEqual(r.range);
+    }
+    const all = resolveScope(p('from=all'), TODAY, '2026-03-01');
+    expect(all.range.from).toBe('2026-03-01'); // KPIs, charts, Stories and the calendar still start at the first captured day
+    expect(all.listRange).toEqual({ from: '2021-10-14', to: all.range.to }); // TODAY minus (MAX_DAYS - 1)
+    expect(daysIn(all.listRange)).toBe(MAX_DAYS);
+    expect(resolveScope(p('from=all'), TODAY, null).listRange).toEqual({ from: '2021-10-14', to: TODAY }); // nothing captured yet: posts can still exist
+  });
+
   it('a range that starts after today falls back to the default; a manual granularity is kept', () => {
     const r = resolveScope(p('from=2026-11-01&to=2026-11-30&gran=month'), TODAY);
     expect(r.scope.range).toBe('30d');
