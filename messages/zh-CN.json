@@ -709,5 +709,38 @@
       "avgExitRate": "平均退出率",
       "loading": "正在准备报告…"
     }
+  },
+  "timeScope": {
+    "label": "时间范围",
+    "presets": "快速范围",
+    "preset": { "7d": "7天", "14d": "14天", "30d": "30天", "90d": "90天", "6m": "6个月", "1y": "1年", "ytd": "今年", "all": "全部" },
+    "presetLong": { "7d": "最近 7 天", "14d": "最近 14 天", "30d": "最近 30 天", "90d": "最近 90 天", "6m": "最近 6 个月", "1y": "最近 12 个月", "ytd": "今年至今", "all": "全部数据" },
+    "custom": "自定义",
+    "customTitle": "选择时间范围",
+    "customHint": "每天从你所在时区（{tz}）的零点开始。",
+    "range": "日期范围",
+    "from": "开始",
+    "to": "结束",
+    "week": "周",
+    "weekDay": "选择该周的任意一天",
+    "month": "月份",
+    "quarter": "季度",
+    "quarterOption": "{year}年第{q}季度",
+    "apply": "应用",
+    "compare": "对比",
+    "cmp": { "prev": "上一周期", "yoy": "去年同期", "none": "不对比", "custom": "自定义日期" },
+    "compareRange": "与其他日期对比",
+    "gran": "分组",
+    "granOption": { "auto": "自动（{gran}）", "day": "按天", "week": "按周", "month": "按月" },
+    "rangeText": "{from} 至 {to}",
+    "vsPrevious": "对比前 {days} 天",
+    "vsLastYear": "对比去年同期",
+    "vsRange": "对比 {range}",
+    "partial": "数据从 {date} 开始：此范围内更早的日期没有数据。",
+    "comparePartial": "数据从 {date} 开始：对比周期不完整，部分变化无法显示。",
+    "noData": "尚未采集到数据。",
+    "partialNote": "* 仅部分在所选范围内",
+    "previous": "上一周期",
+    "next": "下一周期"
   }
 }
