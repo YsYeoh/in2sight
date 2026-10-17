@@ -439,7 +439,482 @@ git commit -m "feat(db): explorer rollup functions, RLS InitPlan rewrite, saved 
 
 ### Task 2: Metric + dimension registry and all Explorer i18n keys
 
-_(pending — registry code is dry-run; the complete i18n block is written after the UI tasks so that every key used by Tasks 8–13 is added here once)_
+**Files:**
+- Modify: `lib/metrics.ts` (whole file below), `components/shared/useKpiDelta.ts` (whole file below), `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/explorer-registry.test.ts` (new). `tests/metrics.test.ts` (labels for every registry entry, `formatMetric`, `deltaView`), `tests/messages.test.ts` and every existing test must keep passing unchanged.
+
+**Interfaces:**
+- Consumes: `Kpi`, `KpiId` (`lib/analysis/growth.ts`), `lib/format.ts`.
+- Produces:
+  - `type MetricSource = 'daily' | 'posts'`; `interface DailyParts { reach; views; interactions; erInteractions; erReach; netFollows; followers: number | null }`; `interface PostParts { posts: number; measured: number; reachSum; viewsSum: number | null; viewsN: number; likes; comments; saves; shares; erInteractions; erReach: number | null }`; `interface Parts { daily: DailyParts | null; posts: PostParts | null }`.
+  - `type MetricId = KpiId | 'interactions' | 'avgReach' | 'avgViews' | 'likes' | 'comments' | 'saves' | 'shares' | 'postEngagementRate'`; `MetricDef` gains `source` and `value(parts)`; `METRICS: Record<MetricId, MetricDef>` (the six KPI ids keep their order first), `METRIC_IDS`, `isMetricId(v)` (own keys only: `__proto__`, `toString` are rejected).
+  - `DIMENSIONS = ['group','account','format','tag','weekday','hour','time','post'] as const`, `type DimensionId`, `isDimensionId(v)`, `supports(metric, by)` (daily metrics: group, account, time only).
+  - `formatMetric(id: MetricId, …)`, `deltaView(id: MetricId, …)`, `useKpiDelta()(id: MetricId, k)` — widened from `KpiId`; behaviour for the six KPI ids is unchanged.
+  - i18n: `nav.explorer`, `metrics.{interactions,avgReach,avgViews,likes,comments,saves,shares,postEngagementRate}`, and the whole `explorer` namespace used by Tasks 8–12 (no later task edits `messages/*.json`).
+
+- [ ] **Step 1: Write the failing test** — create `tests/explorer-registry.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { DIMENSIONS, formatMetric, isDimensionId, isMetricId, METRIC_IDS, METRICS, supports, type Parts } from '@/lib/metrics';
+import type { FormatPrefs } from '@/lib/format';
+
+const P: FormatPrefs = { locale: 'en', dateFormat: 'D MMM YYYY', timeFormat: '24h', numberFormat: '1,234.5', timezone: 'UTC' };
+const parts: Parts = {
+  daily: { reach: 1000, views: 3000, interactions: 70, erInteractions: 60, erReach: 900, netFollows: -4, followers: 2500 },
+  posts: { posts: 4, measured: 3, reachSum: 600, viewsSum: 900, viewsN: 2, likes: 30, comments: 5, saves: 2, shares: 1, erInteractions: 38, erReach: 600 },
+};
+
+describe('metric registry (Explorer)', () => {
+  it('every metric is keyed by its own id, has a source, and a label in both languages', () => {
+    for (const id of METRIC_IDS) {
+      expect(METRICS[id].id).toBe(id);
+      expect(['daily', 'posts']).toContain(METRICS[id].source);
+      expect((en.metrics as Record<string, string>)[id], id).toBeTruthy();
+      expect((zh.metrics as Record<string, string>)[id], id).toBeTruthy();
+    }
+  });
+
+  it('computes each value from the additive parts (ratios guard a zero or missing base)', () => {
+    const v = Object.fromEntries(METRIC_IDS.map((id) => [id, METRICS[id].value(parts)]));
+    expect(v).toEqual({
+      followers: 2500, reach: 1000, views: 3000, engagementRate: 60 / 900, posts: 4, netFollows: -4, interactions: 70,
+      avgReach: 200, avgViews: 450, likes: 30, comments: 5, saves: 2, shares: 1, postEngagementRate: 38 / 600,
+    });
+    const empty: Parts = { daily: null, posts: { ...parts.posts!, measured: 0, viewsN: 0, erReach: null } };
+    expect(METRICS.reach.value(empty)).toBeNull();
+    expect(METRICS.avgReach.value(empty)).toBeNull();
+    expect(METRICS.avgViews.value(empty)).toBeNull();
+    expect(METRICS.postEngagementRate.value(empty)).toBeNull();
+    expect(METRICS.engagementRate.value({ daily: { ...parts.daily!, erReach: 0 }, posts: null })).toBeNull();
+  });
+
+  it('account-day metrics only group by group, account and time; post metrics by everything', () => {
+    for (const d of DIMENSIONS) {
+      expect(supports('posts', d)).toBe(true);
+      expect(supports('reach', d)).toBe(['group', 'account', 'time'].includes(d));
+    }
+  });
+
+  it('id guards accept only registry entries (no prototype keys, no junk)', () => {
+    expect(isMetricId('reach')).toBe(true);
+    for (const v of ['toString', '__proto__', 'constructor', 'REACH', '', null, 1]) expect(isMetricId(v)).toBe(false);
+    expect(isDimensionId('hour')).toBe(true);
+    for (const v of ['day', 'hours', '', undefined]) expect(isDimensionId(v)).toBe(false);
+  });
+
+  it('every dimension has a label in both languages', () => {
+    for (const d of DIMENSIONS) {
+      expect((en.explorer.by as Record<string, string>)[d], d).toBeTruthy();
+      expect((zh.explorer.by as Record<string, string>)[d], d).toBeTruthy();
+    }
+  });
+
+  it('formats new metrics like the old ones', () => {
+    expect(formatMetric('avgReach', 1234.5, P)).toBe('1.2K');
+    expect(formatMetric('postEngagementRate', 0.0633, P)).toBe('6.3%');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/explorer-registry.test.ts`
+Expected: FAIL — 6 failed (`TypeError: METRIC_IDS is not iterable`, … the new exports do not exist yet).
+
+- [ ] **Step 3: Replace `lib/metrics.ts`** with:
+
+```ts
+// The metrics registry (SPEC §8b.2): one entry per metric drives cards, charts, tables, pickers and the Explorer.
+// KPI cards aggregate in lib/analysis/growth.ts (kpis); the Explorer computes `value` from the additive parts that the
+// SQL rollups return (supabase/migrations/20261024000001_explorer.sql). A new metric = one entry (+ its `metrics.<id>`
+// label); it needs SQL only when no existing part can express it.
+import type { Kpi, KpiId } from '@/lib/analysis/growth';
+import { formatCompact, formatNumber, formatPercent, formatSigned, formatDelta, type FormatPrefs } from '@/lib/format';
+
+export type MetricKind = 'count' | 'percent';
+/** 'daily' = account insight days (account_daily); 'posts' = published media with their latest snapshot. */
+export type MetricSource = 'daily' | 'posts';
+
+/** Sums over account days (explorer_daily). null = no day in the bucket had a value (never 0). */
+export interface DailyParts {
+  reach: number | null;
+  views: number | null;
+  interactions: number | null;
+  erInteractions: number | null; // interactions on days that also have reach
+  erReach: number | null; // reach on days that also have interactions
+  netFollows: number | null;
+  followers: number | null; // a level: each account's last value in the bucket, summed
+}
+
+/** Sums over published media (explorer_posts). measured = items with reach > 0 (the base of the averages). */
+export interface PostParts {
+  posts: number;
+  measured: number;
+  reachSum: number | null;
+  viewsSum: number | null;
+  viewsN: number;
+  likes: number | null;
+  comments: number | null;
+  saves: number | null;
+  shares: number | null;
+  erInteractions: number | null; // never includes Stories
+  erReach: number | null;
+}
+
+export interface Parts {
+  daily: DailyParts | null;
+  posts: PostParts | null;
+}
+
+export type MetricId = KpiId | 'interactions' | 'avgReach' | 'avgViews' | 'likes' | 'comments' | 'saves' | 'shares' | 'postEngagementRate';
+
+export interface MetricDef {
+  id: MetricId;
+  kind: MetricKind;
+  higherIsBetter: boolean; // decides the colour of a change: up is good for reach, would be bad for e.g. unfollows
+  source: MetricSource;
+  value: (p: Parts) => number | null; // the Explorer value of one row (bucket, account, format, …)
+}
+
+const ratio = (a: number | null | undefined, b: number | null | undefined) => (typeof a === 'number' && typeof b === 'number' && b > 0 ? a / b : null);
+
+/** i18n label: `metrics.<id>` in messages/*.json. Order = display order (KPI cards use the first six). */
+export const METRICS: Record<MetricId, MetricDef> = {
+  followers: { id: 'followers', kind: 'count', higherIsBetter: true, source: 'daily', value: (p) => p.daily?.followers ?? null },
+  reach: { id: 'reach', kind: 'count', higherIsBetter: true, source: 'daily', value: (p) => p.daily?.reach ?? null },
+  views: { id: 'views', kind: 'count', higherIsBetter: true, source: 'daily', value: (p) => p.daily?.views ?? null },
+  engagementRate: { id: 'engagementRate', kind: 'percent', higherIsBetter: true, source: 'daily', value: (p) => ratio(p.daily?.erInteractions, p.daily?.erReach) },
+  posts: { id: 'posts', kind: 'count', higherIsBetter: true, source: 'posts', value: (p) => p.posts?.posts ?? null },
+  netFollows: { id: 'netFollows', kind: 'count', higherIsBetter: true, source: 'daily', value: (p) => p.daily?.netFollows ?? null },
+  interactions: { id: 'interactions', kind: 'count', higherIsBetter: true, source: 'daily', value: (p) => p.daily?.interactions ?? null },
+  avgReach: { id: 'avgReach', kind: 'count', higherIsBetter: true, source: 'posts', value: (p) => ratio(p.posts?.reachSum, p.posts?.measured) },
+  avgViews: { id: 'avgViews', kind: 'count', higherIsBetter: true, source: 'posts', value: (p) => ratio(p.posts?.viewsSum, p.posts?.viewsN) },
+  likes: { id: 'likes', kind: 'count', higherIsBetter: true, source: 'posts', value: (p) => p.posts?.likes ?? null },
+  comments: { id: 'comments', kind: 'count', higherIsBetter: true, source: 'posts', value: (p) => p.posts?.comments ?? null },
+  saves: { id: 'saves', kind: 'count', higherIsBetter: true, source: 'posts', value: (p) => p.posts?.saves ?? null },
+  shares: { id: 'shares', kind: 'count', higherIsBetter: true, source: 'posts', value: (p) => p.posts?.shares ?? null },
+  postEngagementRate: { id: 'postEngagementRate', kind: 'percent', higherIsBetter: true, source: 'posts', value: (p) => ratio(p.posts?.erInteractions, p.posts?.erReach) },
+};
+
+export const METRIC_IDS = Object.keys(METRICS) as MetricId[];
+export const isMetricId = (v: unknown): v is MetricId => typeof v === 'string' && Object.hasOwn(METRICS, v);
+
+/**
+ * Explorer group-by dimensions. i18n label: `explorer.by.<id>`. 'time' buckets by the Time Scope granularity
+ * (day / week / month); 'post' lists single items.
+ */
+export const DIMENSIONS = ['group', 'account', 'format', 'tag', 'weekday', 'hour', 'time', 'post'] as const;
+export type DimensionId = (typeof DIMENSIONS)[number];
+export const isDimensionId = (v: unknown): v is DimensionId => typeof v === 'string' && (DIMENSIONS as readonly string[]).includes(v);
+
+/** Account insights are daily totals per account: they have no format, tag, publishing weekday/hour or single post. */
+const DAILY_DIMENSIONS: readonly DimensionId[] = ['group', 'account', 'time'];
+export const supports = (id: MetricId, by: DimensionId): boolean => METRICS[id].source === 'posts' || DAILY_DIMENSIONS.includes(by);
+
+/** The headline value. Counts are compact (12.3K) unless `full`; percents keep one decimal. */
+export function formatMetric(id: MetricId, value: number | null, p: FormatPrefs, opts: { full?: boolean } = {}): string {
+  if (METRICS[id].kind === 'percent') return formatPercent(value, p);
+  return opts.full ? formatNumber(value, p, { maximumFractionDigits: 0 }) : formatCompact(value, p);
+}
+
+export interface DeltaView {
+  text: string; // "+12.5%", "+40" or "+0.4" (points; the UI adds the translated "pp" unit)
+  unit: 'relative' | 'absolute' | 'points';
+  direction: 'up' | 'down' | 'flat';
+  tone: 'good' | 'bad' | 'neutral';
+}
+
+/**
+ * How a KPI's comparison is shown. Percent metrics change in percentage points; counts change relatively, or
+ * absolutely when the previous value was 0 (no meaningful %). Null when there is nothing to compare.
+ */
+export function deltaView(id: MetricId, k: Kpi, p: FormatPrefs): DeltaView | null {
+  if (k.diff === null) return null;
+  const def = METRICS[id];
+  const points = def.kind === 'percent';
+  const shown = points ? Number((k.diff * 100).toFixed(1)) : k.change !== null ? Number((k.change * 100).toFixed(1)) : Math.round(k.diff);
+  const direction = shown > 0 ? 'up' : shown < 0 ? 'down' : 'flat';
+  const tone = direction === 'flat' ? 'neutral' : (direction === 'up') === def.higherIsBetter ? 'good' : 'bad';
+  if (points) return { text: formatSigned(k.diff * 100, p, 1), unit: 'points', direction, tone };
+  if (k.change !== null) return { text: formatDelta(k.change, p), unit: 'relative', direction, tone };
+  return { text: formatSigned(k.diff, p), unit: 'absolute', direction, tone };
+}
+```
+
+- [ ] **Step 4: Replace `components/shared/useKpiDelta.ts`** with:
+
+```ts
+'use client';
+
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import type { StatDelta } from '@/components/shared/StatCard';
+import type { Kpi } from '@/lib/analysis/growth';
+import { deltaView, type MetricId } from '@/lib/metrics';
+
+/** KPI → what StatCard/DeltaPill show; percentage points get their translated unit. Any registry metric (Explorer too). */
+export function useKpiDelta() {
+  const t = useTranslations('pages.overview');
+  const { prefs } = usePrefs();
+  return (id: MetricId, k: Kpi | undefined): StatDelta | null => {
+    const d = k ? deltaView(id, k, prefs) : null;
+    return d && { ...d, text: d.unit === 'points' ? t('points', { value: d.text }) : d.text };
+  };
+}
+```
+
+- [ ] **Step 5: Add the i18n keys** — merge into `messages/en.json` (keys `nav` and `metrics` exist: add to them; `explorer` is a new top-level key after `export`; 12a's `timeScope` stays as it is):
+
+```json
+{
+  "nav": {
+    "explorer": "Explorer"
+  },
+  "metrics": {
+    "interactions": "Interactions",
+    "avgReach": "Avg reach per post",
+    "avgViews": "Avg views per post",
+    "likes": "Likes",
+    "comments": "Comments",
+    "saves": "Saves",
+    "shares": "Shares",
+    "postEngagementRate": "Post engagement"
+  },
+  "explorer": {
+    "by": {
+      "group": "Group",
+      "account": "Account",
+      "format": "Format",
+      "tag": "Tag",
+      "weekday": "Weekday",
+      "hour": "Hour posted",
+      "time": "Over time",
+      "post": "Single posts"
+    },
+    "item": {
+      "notFound": "This post is not in your connected accounts.",
+      "posted": "Published {time}",
+      "measured": "last measured {time}",
+      "notMeasured": "not measured yet",
+      "openInstagram": "Open on Instagram",
+      "openTab": "Open in {tab}",
+      "numbers": "Latest numbers",
+      "followersTitle": "Followers around this post",
+      "followersHint": "Follower count from every sync (about every 30 minutes), last value per hour. Instagram reports reach and views only per day, so there is no hourly reach.",
+      "followersSummary": "Follower count per hour from {from} to {to}.",
+      "followersEmpty": "No follower snapshots for these days yet.",
+      "audienceTitle": "Who saw {format} that day",
+      "audienceHint": "All {format} reach of @{username} on {day}, split by followers. Instagram does not split a single post's reach.",
+      "follower": "Followers",
+      "nonFollower": "Non-followers",
+      "audienceEmpty": "No follower breakdown for that day yet."
+    },
+    "views": {
+      "title": "Saved views",
+      "empty": "No saved views yet. Save the current settings to come back to them in one click.",
+      "save": "Save view",
+      "saveTitle": "Save this view",
+      "saveHint": "Saves the metrics, grouping, filters and time range. A preset such as “Last 30 days” keeps moving with today; fixed dates stay fixed.",
+      "name": "Name",
+      "cancel": "Cancel",
+      "confirm": "Save",
+      "renameTitle": "Rename view",
+      "renameNamed": "Rename {name}",
+      "delete": "Delete",
+      "deleteNamed": "Delete {name}",
+      "deleteTitle": "Delete “{name}”?",
+      "deleteBody": "Only the saved view is removed. Your data stays as it is.",
+      "errors": {
+        "invalid_name": "Use 1–60 characters.",
+        "invalid_state": "This view cannot be saved. Reload the page and try again.",
+        "duplicate": "A view with this name already exists.",
+        "not_found": "This view no longer exists.",
+        "too_many": "You can keep up to 50 views. Delete one first.",
+        "unexpected": "Something went wrong. Try again."
+      }
+    },
+    "untagged": "Untagged",
+    "deletedTag": "Deleted tag",
+    "weekOf": "Week of {day}",
+    "title": "Explorer",
+    "previous": "{metric} (previous)",
+    "subtitle": "Pick metrics, group them, and click any bar or row to go one level deeper",
+    "controls": "Explorer settings",
+    "groupBy": "Break down by",
+    "metrics": "Metrics",
+    "metricsHint": "up to {max}",
+    "accountTotalsHint": "Followers, reach, views, interactions, net follows and engagement are daily account totals: they group by group, account or time only and cannot be narrowed to a format, tag, weekday or hour.",
+    "chartMetric": "Chart",
+    "accounts": "Accounts",
+    "accountsPicked": "{count, plural, one {# account picked} other {# accounts picked}}",
+    "allAccounts": "All accounts",
+    "group": "Group",
+    "anyGroup": "All groups",
+    "format": "Format",
+    "anyFormat": "Posts and Reels",
+    "tag": "Tag",
+    "anyTag": "Any tag",
+    "weekday": "Weekday posted",
+    "hour": "Hour posted",
+    "any": "Any",
+    "apply": "Apply",
+    "reset": "Reset",
+    "breadcrumb": "Drill-down path",
+    "crumbs": {
+      "all": "All accounts",
+      "item": "Post"
+    },
+    "drill": "Show {name} in detail",
+    "removeFilter": "Remove filter {name}",
+    "publishedHint": "Weekday and hour are when each post was published, in your timezone. Instagram reports reach and views only per day, so there is no hourly reach.",
+    "chartTitle": "{metric} by {by}",
+    "drillHint": "Click a bar or a row to go one level deeper.",
+    "chartSummary": "{metric} for {count} rows. The table below lists the same rows.",
+    "truncated": "Showing the newest {count} posts in this range. Narrow the range to see older ones.",
+    "tableCaption": "Explorer results",
+    "empty": "No data for this selection. Widen the range or remove a filter.",
+    "partial": "* The range cuts this period, so it holds fewer days.",
+    "export": "Export view",
+    "window": "Data from {from} to {to}",
+    "windowCompare": "compared with {from} to {to}"
+  }
+}
+```
+
+and into `messages/zh-CN.json`:
+
+```json
+{
+  "nav": {
+    "explorer": "探索"
+  },
+  "metrics": {
+    "interactions": "互动次数",
+    "avgReach": "每帖平均触达",
+    "avgViews": "每帖平均浏览量",
+    "likes": "点赞",
+    "comments": "评论",
+    "saves": "收藏",
+    "shares": "分享",
+    "postEngagementRate": "帖子互动率"
+  },
+  "explorer": {
+    "by": {
+      "group": "分组",
+      "account": "账号",
+      "format": "形式",
+      "tag": "标签",
+      "weekday": "星期",
+      "hour": "发布时段",
+      "time": "按时间",
+      "post": "单篇帖子"
+    },
+    "item": {
+      "notFound": "这篇帖子不属于你已连接的账号。",
+      "posted": "发布于 {time}",
+      "measured": "最后统计于 {time}",
+      "notMeasured": "尚未统计",
+      "openInstagram": "在 Instagram 中打开",
+      "openTab": "在{tab}中打开",
+      "numbers": "最新数据",
+      "followersTitle": "这篇帖子前后的粉丝数",
+      "followersHint": "每次同步（约每 30 分钟）记录的粉丝数，每小时取最后一个值。Instagram 的触达和浏览量只按天提供，因此没有每小时触达。",
+      "followersSummary": "{from} 至 {to} 每小时的粉丝数。",
+      "followersEmpty": "这几天还没有粉丝数快照。",
+      "audienceTitle": "当天谁看到了{format}",
+      "audienceHint": "@{username} 在 {day} 的全部{format}触达，按是否为粉丝拆分。Instagram 不提供单篇帖子的触达拆分。",
+      "follower": "粉丝",
+      "nonFollower": "非粉丝",
+      "audienceEmpty": "当天还没有粉丝拆分数据。"
+    },
+    "views": {
+      "title": "已保存的视图",
+      "empty": "还没有保存的视图。保存当前设置，以后一键回到这里。",
+      "save": "保存视图",
+      "saveTitle": "保存此视图",
+      "saveHint": "会保存指标、分组、筛选条件和时间范围。“最近 30 天”这类预设会随今天移动；固定日期保持不变。",
+      "name": "名称",
+      "cancel": "取消",
+      "confirm": "保存",
+      "renameTitle": "重命名视图",
+      "renameNamed": "重命名 {name}",
+      "delete": "删除",
+      "deleteNamed": "删除 {name}",
+      "deleteTitle": "删除“{name}”？",
+      "deleteBody": "只会删除这个已保存的视图，你的数据不受影响。",
+      "errors": {
+        "invalid_name": "请使用 1–60 个字符。",
+        "invalid_state": "无法保存此视图。请刷新页面后重试。",
+        "duplicate": "已有同名视图。",
+        "not_found": "此视图已不存在。",
+        "too_many": "最多可保存 50 个视图。请先删除一个。",
+        "unexpected": "出了点问题，请重试。"
+      }
+    },
+    "untagged": "未加标签",
+    "deletedTag": "已删除的标签",
+    "weekOf": "{day} 起的一周",
+    "title": "探索",
+    "previous": "{metric}（之前）",
+    "subtitle": "选择指标并分组，点击任意柱形或行即可深入下一层",
+    "controls": "探索设置",
+    "groupBy": "拆分依据",
+    "metrics": "指标",
+    "metricsHint": "最多 {max} 个",
+    "accountTotalsHint": "粉丝、触达、浏览量、互动次数、净增粉丝和互动率是账号的每日总数：只能按分组、账号或时间分组，不能按形式、标签、星期或时段筛选。",
+    "chartMetric": "图表",
+    "accounts": "账号",
+    "accountsPicked": "{count, plural, other {已选 # 个账号}}",
+    "allAccounts": "全部账号",
+    "group": "分组",
+    "anyGroup": "全部分组",
+    "format": "形式",
+    "anyFormat": "帖子和 Reels",
+    "tag": "标签",
+    "anyTag": "任意标签",
+    "weekday": "发布星期",
+    "hour": "发布时段",
+    "any": "不限",
+    "apply": "应用",
+    "reset": "重置",
+    "breadcrumb": "深入路径",
+    "crumbs": {
+      "all": "全部账号",
+      "item": "帖子"
+    },
+    "drill": "查看 {name} 的详情",
+    "removeFilter": "移除筛选条件 {name}",
+    "publishedHint": "星期和时段指每篇帖子的发布时间（你的时区）。Instagram 的触达和浏览量只按天提供，因此没有每小时触达。",
+    "chartTitle": "按{by}查看{metric}",
+    "drillHint": "点击柱形或行即可深入下一层。",
+    "chartSummary": "{count} 行的{metric}。下表列出相同的行。",
+    "truncated": "显示此范围内最新的 {count} 篇帖子。缩小范围可查看更早的帖子。",
+    "tableCaption": "探索结果",
+    "empty": "此选择没有数据。请扩大范围或移除筛选条件。",
+    "partial": "* 范围截断了这个时段，因此它包含的天数较少。",
+    "export": "导出视图",
+    "window": "数据范围：{from} 至 {to}",
+    "windowCompare": "对比 {from} 至 {to}"
+  }
+}
+```
+
+`explorer.groupBy` is "Break down by" on purpose: 12a's granularity select is labelled "Group by" and both sit on the Explorer page.
+
+- [ ] **Step 6: Run the tests**
+
+Run: `npx vitest run tests/explorer-registry.test.ts tests/metrics.test.ts tests/messages.test.ts` and `npx tsc --noEmit`
+Expected: PASS (3 files); typecheck clean (every existing `KpiId` caller still compiles: `KpiId` ⊂ `MetricId`).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/metrics.ts components/shared/useKpiDelta.ts messages/en.json messages/zh-CN.json tests/explorer-registry.test.ts
+git commit -m "feat(metrics): explorer metric + dimension registry, explorer i18n" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
 
 ---
 
@@ -2964,4 +3439,725 @@ git commit -m "feat(export): Excel export of the current Explorer view with Serv
 
 ---
 
-_(Tasks 12–15 pending)_
+### Task 12: Explorer page + nav item
+
+**Files:**
+- Create: `app/(app)/explorer/page.tsx`, `app/(app)/explorer/loading.tsx`, `components/explorer/ExplorerView.tsx`
+- Modify: `lib/nav.ts`, `components/shared/AppShell.tsx`, `tests/nav.test.ts`, `tests/app-shell.test.tsx`
+- Test: `tests/explorer-view.test.tsx` (new). `tests/route-loading.test.tsx` (every page has a page-shaped `loading.tsx` with one status orb) must pass with the new route.
+
+**Interfaces:**
+- Consumes: `loadExplorer`, `ExplorerData` (Task 10), `rowLabel` (Task 10), `breadcrumbs`, `drillHref`, `ExplorerRow` (Task 5), `explorerHref`, `explorerParams`, `FORMATS`, `MAX_METRICS`, `usable`, `withState` (Task 3), `DIMENSIONS`, `METRIC_IDS`, `formatMetric` (Task 2), `SeriesChart` `onPointClick`/`muted` (Task 7), `ItemPanel` (Task 8), `SavedViews` (Task 9), `loadViews` (Task 6), `saveViewAction`/`renameViewAction`/`deleteViewAction` (Task 6), `downloadExport` (`lib/export/download.ts`), 12a `TimeScopeBar({ scope, today, keep })`, `loadAccounts`/`loadSyncStatus` (`lib/dashboard/cached.ts`), `requireOwner`, `getPrefs`, `createServerSupabase`.
+- Produces: route `/explorer` (owner only), `ExplorerView({ data, today, views, save, rename, remove })` (client), nav item `{ href: '/explorer', key: 'explorer', icon: ChartNoAxesCombined }` between Calendar and Settings, a 6-column phone tab bar.
+
+Layout (desktop-first): from `lg` a 17rem settings column (sticky, scrolls on its own) + the results; below `lg` the settings stack above the results. Settings are ONE GET form (`next/form` + `startProgress(formHref(form))`, like the Posts filters): metrics and picked accounts are kept in React state and submitted as ONE comma-joined hidden field each (a repeated key would count as missing); the scope parameters ride along as hidden fields. Metrics the chosen breakdown cannot show are disabled live; the chart select follows the chosen metrics. Results: removable filter chips (tag/weekday/hour), the "no hourly reach" hint for weekday/hour, a ChartCard (bars for categories, a line over time, the comparison as a muted series; clicking a point drills like the row link), the DataTable (first column = the drill link, change pills from `useKpiDelta`, "Show more" for single posts), partial-bucket and 500-post notes. The export button sends the canonical query of the view (state + `scope.params`) to `/api/export/explorer`.
+
+- [ ] **Step 1: Write the failing tests** — create `tests/explorer-view.test.tsx`:
+
+```tsx
+import { existsSync, readFileSync } from 'node:fs';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { ExplorerView } from '@/components/explorer/ExplorerView';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { buildExplorer, toKpi, type ScopeAccount } from '@/lib/analysis/explorer';
+import type { ExplorerData } from '@/lib/explorer/load';
+import { parseExplorerState } from '@/lib/explorer/state';
+import type { Parts } from '@/lib/metrics';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
+
+const push = vi.fn();
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) }));
+const download = vi.fn(async () => ({ ok: true as const }));
+vi.mock('@/lib/export/download', () => ({ downloadExport: (...a: unknown[]) => download(...(a as [])) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  push.mockReset();
+  download.mockClear();
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const TODAY = '2026-10-17';
+const A = 'aaaaaaaa-0000-4000-8000-000000000001';
+const B = 'aaaaaaaa-0000-4000-8000-000000000002';
+const LIVE: ScopeAccount[] = [{ id: A, username: 'alpha', groupName: 'Food' }, { id: B, username: 'beta', groupName: null }];
+const daily = (reach: number): Parts => ({ daily: { reach, views: null, interactions: null, erInteractions: null, erReach: null, netFollows: null, followers: null }, posts: null });
+
+function data(q: Record<string, string>, o: Partial<ExplorerData> = {}): ExplorerData {
+  const state = parseExplorerState(q);
+  const scope = resolveScope(parseTimeScope(q), TODAY, '2026-01-01');
+  const window = { current: { from: '2026-09-16', to: '2026-10-15' }, compare: scope.scope.cmp === 'none' ? null : { from: '2026-08-17', to: '2026-09-15' } };
+  const model = buildExplorer({ state, window, current: new Map([[A, daily(300)], [B, daily(100)]]), prior: window.compare ? new Map([[A, daily(200)]]) : null, accounts: LIVE, items: [], gran: scope.gran, weekStart: 'mon' });
+  return { state, scope, window, live: LIVE, accounts: LIVE, groups: ['Food'], tags: [], model, items: [], truncated: false, item: null, ...o };
+}
+
+function view(d: ExplorerData) {
+  const actions = { save: vi.fn(async () => ({ ok: true as const })), rename: vi.fn(async () => ({ ok: true as const })), remove: vi.fn(async () => ({ ok: true as const })) };
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <ExplorerView data={d} today={TODAY} views={[]} {...actions} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return actions;
+}
+
+describe('ExplorerView: results', () => {
+  it('rows link one level deeper and keep the scope; values show their change; the chart is titled by metric and dimension', () => {
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    const table = screen.getByRole('table', { name: 'Explorer results' });
+    expect(within(table).getByRole('link', { name: 'Show @alpha in detail' })).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=format&acc=${A}&from=90d`); // reach has no format split: post metrics take over
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('+50.0%'); // 300 vs 200
+    expect(screen.getByRole('heading', { name: 'Reach by Account' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Drill-down path' })).toHaveTextContent('All accounts');
+    expect(screen.getByText('Data from 16 Sep 2026 to 15 Oct 2026 · compared with 17 Aug 2026 to 15 Sep 2026')).toBeInTheDocument();
+  });
+
+  it('the Time Scope bar keeps the Explorer parameters in every preset link', () => {
+    view(data({ m: 'reach', by: 'account' }));
+    expect(screen.getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?m=reach&by=account&from=7d');
+  });
+
+  it('export sends the canonical view query; the item level has no export button', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    await user.click(screen.getByRole('button', { name: 'Export view' }));
+    expect(download).toHaveBeenCalledWith('/api/export/explorer?m=reach&by=account&from=90d', 'xlsx');
+  });
+
+  it('filter chips remove one filter and keep the rest; weekday/hour views say there is no hourly reach', () => {
+    view(data({ m: 'posts', by: 'hour', wd: '3', from: '90d' }));
+    expect(screen.getByRole('link', { name: 'Remove filter Wed' })).toHaveAttribute('href', '/explorer?m=posts&by=hour&from=90d');
+    expect(screen.getByText(/no hourly reach/)).toBeInTheDocument();
+  });
+
+  it('single posts: no chart, the cut is explained', () => {
+    view(data({ by: 'post' }, { truncated: true, items: [], model: { rows: [], partial: [] } }));
+    expect(screen.queryByRole('heading', { name: /by Single posts/ })).toBeNull();
+    expect(screen.getByText(/Showing the newest 0 posts/)).toBeInTheDocument();
+  });
+
+  it('no accounts yet: an empty state that links to Accounts', () => {
+    view(data({}, { live: [], accounts: [] }));
+    expect(screen.getByRole('link', { name: en.pages.overview.addAccount })).toHaveAttribute('href', '/accounts');
+  });
+});
+
+describe('ExplorerView: settings form', () => {
+  const hidden = () => Object.fromEntries([...document.querySelectorAll<HTMLInputElement>('form[aria-label="Explorer settings"] input[type=hidden]')].map((i) => [i.name, i.value]));
+
+  it('metrics and accounts are joined into one parameter each; the scope rides along', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    expect(hidden()).toMatchObject({ m: 'reach', from: '90d' });
+    await user.click(screen.getByRole('checkbox', { name: 'Likes' }));
+    await user.click(screen.getByRole('checkbox', { name: '@beta' }));
+    expect(hidden()).toMatchObject({ m: 'reach,likes', acc: B });
+  });
+
+  it('grouping by something account totals cannot show disables them and drops them from the query', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach,likes', by: 'account' }));
+    await user.selectOptions(screen.getByLabelText('Break down by'), 'format');
+    expect(screen.getByRole('checkbox', { name: 'Reach' })).toBeDisabled();
+    expect(hidden().m).toBe('likes');
+  });
+});
+
+describe('ExplorerView: item level', () => {
+  it('shows the post with breadcrumbs down to its day and links to the account tab with the scope', () => {
+    const item = { item: { id: '42', accountId: A, mediaType: 'REELS' as const, postedAt: '2026-10-05T01:00:00Z', permalink: null, caption: null, reach: 10, views: null, likes: 1, comments: 0, saves: 0, shares: 0 }, measuredAt: null, day: '2026-10-05', followers: [], audience: null };
+    view(data({ m: 'likes', by: 'post', acc: A, fmt: 'REELS', item: '42', from: '90d' }, { item }));
+    const crumbs = screen.getByRole('navigation', { name: 'Drill-down path' });
+    expect(within(crumbs).getByRole('link', { name: '@alpha' })).toHaveAttribute('href', `/explorer?m=likes&by=format&acc=${A}&from=90d`);
+    expect(within(crumbs).getByText('5 Oct 2026')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Open in Posts' })).toHaveAttribute('href', `/accounts/${A}?tab=posts&from=90d`);
+    expect(screen.queryByRole('button', { name: 'Export view' })).toBeNull();
+  });
+});
+
+// The view is a client component: its runtime imports must never reach the server readers, stores or Excel writer.
+const RUNTIME_IMPORT = /^import\s+(?!type\b)(?:[^'"]*?\sfrom\s+)?['"](@\/[^'"]+)['"]/gm;
+function graph(entry: string, seen = new Set<string>()): Set<string> {
+  if (seen.has(entry)) return seen;
+  seen.add(entry);
+  const file = ['.ts', '.tsx'].map((e) => `${entry.replace('@/', '')}${e}`).find(existsSync);
+  if (!file) return seen;
+  for (const m of readFileSync(file, 'utf8').matchAll(RUNTIME_IMPORT)) graph(m[1], seen);
+  return seen;
+}
+
+describe('client module graph', () => {
+  it('ExplorerView never pulls the Explorer readers, the stores, the actions or the workbook writer', () => {
+    const mods = [...graph('@/components/explorer/ExplorerView')];
+    expect(mods).toContain('@/lib/analysis/explorer');
+    expect(mods.filter((m) => /explorer\/(read|item|load|views)|explorer\/actions|sync\/store|supabase|dashboard\/(read|detail-read|cached)|export\/workbook/.test(m))).toEqual([]);
+  });
+});
+```
+
+In `tests/nav.test.ts` and `tests/app-shell.test.tsx` make exactly these edits:
+
+```diff
+diff --git a/tests/nav.test.ts b/tests/nav.test.ts
+index 736ada3..28784ab 100644
+--- a/tests/nav.test.ts
++++ b/tests/nav.test.ts
+@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
+ import { NAV_ITEMS, isActive } from '@/lib/nav';
+ 
+ describe('navigation model', () => {
+-  it('lists the five main destinations in order', () => {
+-    expect(NAV_ITEMS.map((i) => i.href)).toEqual(['/overview', '/accounts', '/tags', '/calendar', '/settings']);
+-    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['overview', 'accounts', 'tags', 'calendar', 'settings']);
++  it('lists the six main destinations in order', () => {
++    expect(NAV_ITEMS.map((i) => i.href)).toEqual(['/overview', '/accounts', '/tags', '/calendar', '/explorer', '/settings']);
++    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['overview', 'accounts', 'tags', 'calendar', 'explorer', 'settings']);
+   });
+ 
+   it('isActive matches the route and its children, not look-alike prefixes', () => {
+diff --git a/tests/app-shell.test.tsx b/tests/app-shell.test.tsx
+index 7acdeae..9099bf6 100644
+--- a/tests/app-shell.test.tsx
++++ b/tests/app-shell.test.tsx
+@@ -32,7 +32,7 @@ describe('AppShell', () => {
+     setup();
+     for (const name of ['Main navigation', 'Main tabs']) {
+       const nav = screen.getByRole('navigation', { name });
+-      for (const label of ['Overview', 'Accounts', 'Tags', 'Settings']) {
++      for (const label of ['Overview', 'Accounts', 'Tags', 'Explorer', 'Settings']) {
+         expect(within(nav).getByRole('link', { name: label })).toBeInTheDocument();
+       }
+     }
+@@ -76,6 +76,7 @@ describe('AppShell', () => {
+     expect(side.className).toContain('md:flex');
+     expect(side.className).toContain('lg:w-56');
+     expect(screen.getByRole('navigation', { name: 'Main tabs' }).className).toContain('md:hidden');
++    expect(screen.getByRole('navigation', { name: 'Main tabs' }).className).toContain('grid-cols-6'); // one column per item
+   });
+ 
+   it('the mode toggle flips light/dark through the preferences provider', async () => {
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/explorer-view.test.tsx tests/nav.test.ts tests/app-shell.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/explorer/ExplorerView"`, the nav list has no `/explorer`, and the tab bar is `grid-cols-5`.
+
+- [ ] **Step 3: Write `components/explorer/ExplorerView.tsx`**
+
+```tsx
+'use client';
+
+// The Explorer (creator-toolkit spec §0b): desktop-first. Left: the settings (a GET form: the URL is the only state) and
+// saved views. Right: breadcrumb trail, Time Scope bar, linked chart + table (every row links one level deeper; chart
+// bars/points do the same on click), or the single-item level. Logic lives in lib/analysis/explorer.ts.
+import { useState, type ReactNode } from 'react';
+import Form from 'next/form';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ChevronRight, CircleUserRound, Download, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { SeriesChart } from '@/components/charts/SeriesChart';
+import { ItemPanel } from '@/components/explorer/ItemPanel';
+import { SavedViews, type SavedViewsProps } from '@/components/explorer/SavedViews';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ChartCard } from '@/components/shared/ChartCard';
+import { DataTable, type Column } from '@/components/shared/DataTable';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import { formHref, startProgress } from '@/components/shared/NavigationProgress';
+import { NavLink } from '@/components/shared/NavLink';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { TimeScopeBar } from '@/components/shared/TimeScopeBar';
+import { useKpiDelta } from '@/components/shared/useKpiDelta';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { breadcrumbs, drillHref, type ExplorerRow } from '@/lib/analysis/explorer';
+import { downloadExport } from '@/lib/export/download';
+import type { ExplorerData } from '@/lib/explorer/load';
+import { rowLabel } from '@/lib/explorer/labels';
+import { explorerHref, explorerParams, FORMATS, MAX_METRICS, usable, withState, type ExplorerState } from '@/lib/explorer/state';
+import { formatDay, formatHour } from '@/lib/format';
+import { DIMENSIONS, formatMetric, METRIC_IDS, type MetricId } from '@/lib/metrics';
+import { cn } from '@/lib/utils';
+
+const SELECT = 'h-[var(--ctl)] w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground';
+
+function Hidden({ params }: { params: Record<string, string> }) {
+  return Object.entries(params).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />);
+}
+
+/** The settings form. Multi-choices (metrics, accounts) are joined into ONE value: a repeated key would count as missing. */
+function Controls({ data }: { data: ExplorerData }) {
+  const t = useTranslations('explorer');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+  const s = data.state;
+  const [by, setBy] = useState(s.by);
+  const [metrics, setMetrics] = useState<MetricId[]>(s.metrics);
+  const [accounts, setAccounts] = useState<string[]>(s.accounts);
+  const filters = { by, format: s.format, tag: s.tag, weekday: s.weekday, hour: s.hour };
+  const kept = metrics.filter((id) => usable(id, filters));
+  const toggle = (list: string[], v: string, on: boolean) => (on ? [...list, v] : list.filter((x) => x !== v));
+  return (
+    <Form action="" onSubmit={(e) => startProgress(formHref(e.currentTarget))} aria-label={t('controls')} className="grid min-w-0 gap-[var(--gp)]">
+      <Hidden params={data.scope.params} />
+      <input type="hidden" name="m" value={kept.join(',')} />
+      {accounts.length ? <input type="hidden" name="acc" value={accounts.join(',')} /> : null}
+      <FormField id="x-by" label={t('groupBy')}>
+        {(p) => (
+          <select {...p} name="by" value={by} onChange={(e) => setBy(e.target.value as ExplorerState['by'])} className={SELECT}>
+            {DIMENSIONS.map((d) => (
+              <option key={d} value={d}>
+                {t(`by.${d}`)}
+              </option>
+            ))}
+          </select>
+        )}
+      </FormField>
+      <fieldset className="grid min-w-0 gap-1">
+        <legend className="mb-1 text-sm font-medium">
+          {t('metrics')} <span className="text-xs font-normal text-muted-foreground">{t('metricsHint', { max: MAX_METRICS })}</span>
+        </legend>
+        {METRIC_IDS.map((id) => {
+          const ok = usable(id, filters);
+          const on = kept.includes(id);
+          return (
+            <label key={id} className={cn('flex min-w-0 items-center gap-2 text-sm', !ok && 'text-muted-foreground')}>
+              <input type="checkbox" checked={on} disabled={!ok || (!on && kept.length >= MAX_METRICS)} onChange={(e) => setMetrics((l) => toggle(l, id, e.target.checked) as MetricId[])} className="size-4 accent-[var(--primary)]" />
+              <span className="truncate">{tm(id)}</span>
+            </label>
+          );
+        })}
+        <p className="text-xs text-muted-foreground">{t('accountTotalsHint')}</p>
+      </fieldset>
+      <FormField id="x-chart" label={t('chartMetric')}>
+        {(p) => (
+          <select {...p} name="chart" defaultValue={s.chart} key={kept.join()} className={SELECT}>
+            {kept.map((id) => (
+              <option key={id} value={id}>
+                {tm(id)}
+              </option>
+            ))}
+          </select>
+        )}
+      </FormField>
+      <fieldset className="grid min-w-0 gap-1">
+        <legend className="mb-1 text-sm font-medium">{t('accounts')}</legend>
+        <div className="grid max-h-48 gap-1 overflow-y-auto pr-1">
+          {data.live.map((a) => (
+            <label key={a.id} className="flex min-w-0 items-center gap-2 text-sm">
+              <input type="checkbox" checked={accounts.includes(a.id)} onChange={(e) => setAccounts((l) => toggle(l, a.id, e.target.checked))} className="size-4 accent-[var(--primary)]" />
+              <span className="truncate">@{a.username}</span>
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">{accounts.length ? t('accountsPicked', { count: accounts.length }) : t('allAccounts')}</p>
+      </fieldset>
+      {data.groups.length ? (
+        <FormField id="x-grp" label={t('group')}>
+          {(p) => (
+            <select {...p} name="grp" defaultValue={s.group ?? ''} className={SELECT}>
+              <option value="">{t('anyGroup')}</option>
+              {data.groups.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          )}
+        </FormField>
+      ) : null}
+      <FormField id="x-fmt" label={t('format')}>
+        {(p) => (
+          <select {...p} name="fmt" defaultValue={s.format ?? ''} className={SELECT}>
+            <option value="">{t('anyFormat')}</option>
+            {FORMATS.map((f) => (
+              <option key={f} value={f}>
+                {ta(`format.${f}`)}
+              </option>
+            ))}
+          </select>
+        )}
+      </FormField>
+      <FormField id="x-tag" label={t('tag')}>
+        {(p) => (
+          <select {...p} name="tag" defaultValue={s.tag ?? ''} className={SELECT}>
+            <option value="">{t('anyTag')}</option>
+            <option value="untagged">{t('untagged')}</option>
+            {data.tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </FormField>
+      <div className="grid grid-cols-2 gap-2">
+        <FormField id="x-wd" label={t('weekday')}>
+          {(p) => (
+            <select {...p} name="wd" defaultValue={s.weekday ?? ''} className={SELECT}>
+              <option value="">{t('any')}</option>
+              {[0, 1, 2, 3, 4, 5, 6].map((d) => (
+                <option key={d} value={d}>
+                  {ta(`weekday.${d}`)}
+                </option>
+              ))}
+            </select>
+          )}
+        </FormField>
+        <FormField id="x-hr" label={t('hour')}>
+          {(p) => (
+            <select {...p} name="hr" defaultValue={s.hour ?? ''} className={SELECT}>
+              <option value="">{t('any')}</option>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {formatHour(h, prefs)}
+                </option>
+              ))}
+            </select>
+          )}
+        </FormField>
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit">{t('apply')}</Button>
+        <Button asChild variant="ghost">
+          <Link href={explorerHref(withState(s, { metrics: [], accounts: [], group: null, format: null, tag: null, weekday: null, hour: null, item: null, by: 'account' }), data.scope.query)}>{t('reset')}</Link>
+        </Button>
+      </div>
+    </Form>
+  );
+}
+
+function Crumbs({ data }: { data: ExplorerData }) {
+  const t = useTranslations('explorer');
+  const ta = useTranslations('analysis');
+  const { prefs } = usePrefs();
+  const crumbs = breadcrumbs(data.state, { query: data.scope.query, hasGroups: data.groups.length > 0 });
+  const label = (k: (typeof crumbs)[number]) =>
+    k.kind === 'all' ? t('crumbs.all') : k.kind === 'group' ? k.key : k.kind === 'account' ? `@${data.live.find((a) => a.id === k.key)?.username ?? '?'}` : k.kind === 'format' ? ta(`format.${k.key}`) : data.item ? formatDay(data.item.day, prefs) : t('crumbs.item');
+  return (
+    <nav aria-label={t('breadcrumb')} className="mb-2 min-w-0">
+      <ol className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
+        {crumbs.map((c, i) => (
+          <li key={c.kind} className="flex min-w-0 items-center gap-1">
+            {i > 0 ? <ChevronRight aria-hidden="true" className="size-3 shrink-0" /> : null}
+            {i === crumbs.length - 1 ? (
+              <span aria-current="page" className="truncate font-medium text-foreground">
+                {label(c)}
+              </span>
+            ) : (
+              <NavLink href={c.href} className="truncate underline-offset-4 hover:text-foreground hover:underline">
+                {label(c)}
+              </NavLink>
+            )}
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+function Results({ data }: { data: ExplorerData }) {
+  const t = useTranslations('explorer');
+  const tm = useTranslations('metrics');
+  const tAll = useTranslations();
+  const { prefs } = usePrefs();
+  const delta = useKpiDelta();
+  const router = useRouter();
+  const s = data.state;
+  const ctx = { accounts: data.live, tags: data.tags, items: data.items, gran: data.scope.gran };
+  const partial = new Set(data.model.partial);
+  const label = (r: ExplorerRow) => `${rowLabel(s.by, r.key, ctx, (k, v) => tAll(k as never, v as never), prefs)}${partial.has(r.key) ? ' *' : ''}`;
+  const href = (r: ExplorerRow) => drillHref(s, r.key, data.scope);
+  const compare = data.window.compare !== null && s.by !== 'post';
+  const chartLabel = tm(s.chart);
+  const rows = data.model.rows.map((r) => ({ label: label(r), now: r.values[s.chart]?.value ?? null, before: r.values[s.chart]?.prior ?? null }));
+  const go = (i: number) => {
+    const h = href(data.model.rows[i]);
+    if (!h) return;
+    startProgress(h);
+    router.push(h);
+  };
+  const metricCol = (id: MetricId): Column<ExplorerRow> => ({
+    key: id,
+    header: tm(id),
+    align: 'right',
+    sortValue: (r) => r.values[id]?.value ?? null,
+    cell: (r) => {
+      const k = r.values[id];
+      const d = compare && k ? delta(id, k) : null;
+      return (
+        <>
+          {formatMetric(id, k?.value ?? null, prefs)}
+          {d ? <span className={cn('ml-1.5 text-xs', d.tone === 'good' ? 'text-success' : d.tone === 'bad' ? 'text-destructive' : 'text-muted-foreground')}>{d.text}</span> : null}
+        </>
+      );
+    },
+  });
+  const columns: Column<ExplorerRow>[] = [
+    {
+      key: 'row',
+      header: t(`by.${s.by}`),
+      cell: (r) => {
+        const h = href(r);
+        return h ? (
+          <NavLink href={h} aria-label={t('drill', { name: label(r) })} className="underline-offset-4 hover:underline" dir="auto">
+            {label(r)}
+          </NavLink>
+        ) : (
+          label(r)
+        );
+      },
+    },
+    ...s.metrics.map(metricCol),
+  ];
+  const chips: { key: string; name: string; patch: Partial<ExplorerState> }[] = [
+    ...(s.tag !== null ? [{ key: 'tag', name: rowLabel('tag', s.tag, ctx, (k, v) => tAll(k as never, v as never), prefs), patch: { tag: null } }] : []),
+    ...(s.weekday !== null ? [{ key: 'wd', name: rowLabel('weekday', String(s.weekday), ctx, (k, v) => tAll(k as never, v as never), prefs), patch: { weekday: null } }] : []),
+    ...(s.hour !== null ? [{ key: 'hr', name: formatHour(s.hour, prefs), patch: { hour: null } }] : []),
+  ];
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      {chips.length ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <li key={c.key}>
+              <Link href={explorerHref(withState(s, c.patch), data.scope.query)} aria-label={t('removeFilter', { name: c.name })} className="inline-flex items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-xs hover:bg-hover">
+                {c.name}
+                <X aria-hidden="true" className="size-3" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {s.by === 'weekday' || s.by === 'hour' ? <p className="text-xs text-muted-foreground">{t('publishedHint')}</p> : null}
+      {s.by !== 'post' ? (
+        <ChartCard title={t('chartTitle', { metric: chartLabel, by: t(`by.${s.by}`) })} subtitle={t('drillHint')} summary={t('chartSummary', { metric: chartLabel, count: rows.length })}>
+          <SeriesChart
+            kind={s.by === 'time' ? 'line' : 'bar'}
+            data={rows}
+            xKey="label"
+            series={[{ key: 'now', label: chartLabel }, ...(compare ? [{ key: 'before', label: t('previous', { metric: chartLabel }), muted: true }] : [])]}
+            title={t('chartTitle', { metric: chartLabel, by: t(`by.${s.by}`) })}
+            formatY={(n) => formatMetric(s.chart, n, prefs)}
+            height={260}
+            onPointClick={go}
+          />
+        </ChartCard>
+      ) : null}
+      {data.truncated ? <p className="text-xs text-muted-foreground">{t('truncated', { count: data.items.length })}</p> : null}
+      <DataTable rows={data.model.rows} columns={columns} rowKey={(r) => r.key} caption={t('tableCaption')} empty={t('empty')} pageSize={s.by === 'post' ? 50 : undefined} />
+      {partial.size ? <p className="text-xs text-muted-foreground">{t('partial')}</p> : null}
+    </div>
+  );
+}
+
+export function ExplorerView({ data, today, views, save, rename, remove }: { data: ExplorerData; today: string } & Omit<SavedViewsProps, 'query'>) {
+  const t = useTranslations('explorer');
+  const te = useTranslations('export.errors');
+  const tp = useTranslations('pages.overview');
+  const { prefs } = usePrefs();
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const s = data.state;
+  const query = new URLSearchParams({ ...Object.fromEntries(explorerParams(s)), ...data.scope.params }).toString();
+  const exportButton: ReactNode =
+    s.item === null && data.live.length ? (
+      <LoadingButton
+        type="button"
+        variant="outline"
+        size="sm"
+        pending={exporting}
+        onClick={async () => {
+          setExporting(true);
+          const r = await downloadExport(`/api/export/explorer?${query}`, 'xlsx');
+          setExporting(false);
+          setExportError(r.ok ? null : te(r.error));
+        }}
+      >
+        <Download aria-hidden="true" />
+        {t('export')}
+      </LoadingButton>
+    ) : null;
+  const item = data.item ? data.live.find((a) => a.id === data.item!.item.accountId) : undefined;
+
+  return (
+    <>
+      <PageHeader title={t('title')} subtitle={t('subtitle')} actions={exportButton} />
+      {exportError ? (
+        <p role="alert" className="mb-2 text-xs text-destructive">
+          {exportError}
+        </p>
+      ) : null}
+      <Crumbs data={data} />
+      <TimeScopeBar scope={data.scope} today={today} keep={Object.fromEntries(explorerParams(s))} />
+      {data.live.length === 0 ? (
+        <EmptyState
+          icon={<CircleUserRound className="size-5" aria-hidden />}
+          title={tp('empty')}
+          description={tp('emptyHint')}
+          action={
+            <Button asChild>
+              <Link href="/accounts">{tp('addAccount')}</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-[17rem_minmax(0,1fr)]">
+          <aside className="grid min-w-0 content-start gap-[var(--gp)] lg:sticky lg:top-[calc(50px+var(--pg))] lg:max-h-[calc(100dvh-50px-2*var(--pg))] lg:overflow-y-auto">
+            <Card className="min-w-0">
+              <CardContent>
+                <Controls key={query} data={data} />
+              </CardContent>
+            </Card>
+            <Card className="min-w-0">
+              <CardContent>
+                <SavedViews views={views} query={query} save={save} rename={rename} remove={remove} />
+              </CardContent>
+            </Card>
+          </aside>
+          <div className="min-w-0">
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t('window', { from: formatDay(data.window.current.from, prefs), to: formatDay(data.window.current.to, prefs) })}
+              {data.window.compare && s.by !== 'post' ? ` · ${t('windowCompare', { from: formatDay(data.window.compare.from, prefs), to: formatDay(data.window.compare.to, prefs) })}` : null}
+            </p>
+            {s.item !== null ? (
+              <ItemPanel detail={data.item} username={item?.username ?? '?'} tabHref={`/accounts/${data.item?.item.accountId ?? ''}?${new URLSearchParams({ tab: data.item?.item.mediaType === 'STORY' ? 'stories' : 'posts', ...data.scope.params })}`} />
+            ) : (
+              <Results data={data} />
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+- [ ] **Step 4: Write `app/(app)/explorer/page.tsx`**
+
+```tsx
+import { ExplorerView } from '@/components/explorer/ExplorerView';
+import { deleteViewAction, renameViewAction, saveViewAction } from '@/app/(app)/explorer/actions';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
+import { loadExplorer } from '@/lib/explorer/load';
+import { loadViews } from '@/lib/explorer/views';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { localDay } from '@/lib/sync/time';
+
+export default async function ExplorerPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
+  const sp = await searchParams;
+  // owner session: RLS applies (inside the security-invoker rollups too), never the admin client
+  const [prefs, db, accounts, sync] = await Promise.all([getPrefs(), createServerSupabase(), loadAccounts(), loadSyncStatus()]);
+  const today = localDay(new Date(), prefs.timezone);
+  const [data, views] = await Promise.all([loadExplorer(db, sp, { today, tz: prefs.timezone, weekStart: prefs.weekStart, accounts, sync }), loadViews(db, prefs.weekStart)]);
+  // imported server actions are passed straight through to the client view (never wrapped in a closure here)
+  return <ExplorerView data={data} today={today} views={views} save={saveViewAction} rename={renameViewAction} remove={deleteViewAction} />;
+}
+```
+
+- [ ] **Step 5: Write `app/(app)/explorer/loading.tsx`** (page-shaped: header, scope bar, settings column, chart, table)
+
+```tsx
+import { RouteLoading, SkeletonHeader, SkeletonTable } from '@/components/shared/Skeletons';
+import { Skeleton } from '@/components/ui/skeleton';
+
+export default function ExplorerLoading() {
+  return (
+    <RouteLoading>
+      <SkeletonHeader actions={1} />
+      <Skeleton className="mb-[var(--gp)] h-[var(--ctl)] w-full max-w-xl" />
+      <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-[17rem_minmax(0,1fr)]">
+        <Skeleton className="h-96 rounded-[var(--rm)]" />
+        <div className="grid min-w-0 content-start gap-[var(--gp)]">
+          <Skeleton className="h-72 rounded-[var(--rm)]" />
+          <SkeletonTable rows={6} />
+        </div>
+      </div>
+    </RouteLoading>
+  );
+}
+```
+
+- [ ] **Step 6: Add the nav item** — in `lib/nav.ts` and `components/shared/AppShell.tsx` exactly this diff (the `nav.explorer` label was added in Task 2):
+
+```diff
+diff --git a/lib/nav.ts b/lib/nav.ts
+index 36e7fc3..0cc9443 100644
+--- a/lib/nav.ts
++++ b/lib/nav.ts
+@@ -1,8 +1,8 @@
+-import { CalendarDays, CircleUserRound, LayoutDashboard, Settings, Tag, type LucideIcon } from 'lucide-react';
++import { CalendarDays, ChartNoAxesCombined, CircleUserRound, LayoutDashboard, Settings, Tag, type LucideIcon } from 'lucide-react';
+ 
+ export interface NavItem {
+-  href: '/overview' | '/accounts' | '/tags' | '/calendar' | '/settings';
+-  key: 'overview' | 'accounts' | 'tags' | 'calendar' | 'settings';
++  href: '/overview' | '/accounts' | '/tags' | '/calendar' | '/explorer' | '/settings';
++  key: 'overview' | 'accounts' | 'tags' | 'calendar' | 'explorer' | 'settings';
+   icon: LucideIcon;
+ }
+ 
+@@ -11,6 +11,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
+   { href: '/accounts', key: 'accounts', icon: CircleUserRound },
+   { href: '/tags', key: 'tags', icon: Tag },
+   { href: '/calendar', key: 'calendar', icon: CalendarDays },
++  { href: '/explorer', key: 'explorer', icon: ChartNoAxesCombined },
+   { href: '/settings', key: 'settings', icon: Settings },
+ ];
+ 
+diff --git a/components/shared/AppShell.tsx b/components/shared/AppShell.tsx
+index 814bd52..277af1c 100644
+--- a/components/shared/AppShell.tsx
++++ b/components/shared/AppShell.tsx
+@@ -54,7 +54,7 @@ export function AppShell({ children, userEmail, signOutAction, bell }: { childre
+       </div>
+ 
+       {/* phones: bottom tab bar */}
+-      <nav aria-label={t('tabs')} className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
++      <nav aria-label={t('tabs')} className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
+         {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
+           <NavLink
+             key={href}
+```
+
+If 12a (its Task 12 "Navigation carries the scope") made the nav links carry the Time Scope through a list of scoped destinations, add `'/explorer'` to that list too: the Explorer is a scoped page.
+
+- [ ] **Step 7: Run the tests**
+
+Run: `npx vitest run tests/explorer-view.test.tsx tests/nav.test.ts tests/app-shell.test.tsx tests/route-loading.test.tsx`, then `npx tsc --noEmit` and `npx eslint components/explorer "app/(app)/explorer"`
+Expected: PASS (4 files: 10 + nav + shell + loading tests); typecheck and lint clean.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add "app/(app)/explorer/page.tsx" "app/(app)/explorer/loading.tsx" components/explorer/ExplorerView.tsx lib/nav.ts components/shared/AppShell.tsx tests/explorer-view.test.tsx tests/nav.test.ts tests/app-shell.test.tsx
+git commit -m "feat(explorer): /explorer page (settings, linked chart + table, drill, breadcrumbs, export) and nav item" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+_(Tasks 13–15 pending)_
