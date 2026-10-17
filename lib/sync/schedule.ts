@@ -16,6 +16,7 @@ export const TOKEN_REFRESH_WITHIN_DAYS = 14;
 export const TOKEN_RETRY_HOURS = 24;
 export const MEDIA_HOURLY_UNDER_HOURS = 48;
 export const MEDIA_DAILY_UNDER_DAYS = 30;
+export const CHECKPOINT_DAYS = 7; // Post Lab velocity curve: one snapshot as close to day 7 as the ticks allow
 export const MEDIA_BACKFILL_MAX = 500;
 export const MEDIA_RECENT_MAX = 100;
 const BACKOFF_BASE_MIN = 30;
@@ -143,11 +144,13 @@ export interface MediaRef {
   id: string;
   postedAt: string;
   lastMetricsAt: string | null;
+  kind?: string; // IMAGE | CAROUSEL_ALBUM | REELS: picks the extra metric group (feed vs Reels)
 }
 
 /**
- * Feed/Reels media needing a snapshot now, newest first: never captured, hourly under 48h, daily under 30d. Of the
- * never-captured posts older than 30 days only the newest `oldMax` are taken (the rest is the history import's job).
+ * Feed/Reels media needing a snapshot now, newest first: never captured, hourly under 48h, daily under 30d, plus the
+ * 7-day checkpoint (first tick after day 7 when the last snapshot is from before day 7). Of the never-captured posts
+ * older than 30 days only the newest `oldMax` are taken (the rest is the history import's job).
  */
 export function pickDueMedia(refs: MediaRef[], now: Date, oldMax = NEWEST_POSTS): string[] {
   const t = now.getTime();
@@ -159,6 +162,8 @@ export function pickDueMedia(refs: MediaRef[], now: Date, oldMax = NEWEST_POSTS)
       const age = t - Date.parse(r.postedAt);
       const since = t - Date.parse(r.lastMetricsAt);
       if (age < MEDIA_HOURLY_UNDER_HOURS * HOUR) return since >= HOUR - slack;
+      const mark = Date.parse(r.postedAt) + CHECKPOINT_DAYS * 24 * HOUR;
+      if (t >= mark && Date.parse(r.lastMetricsAt) < mark && age < (CHECKPOINT_DAYS + 1) * 24 * HOUR) return true;
       if (age < MEDIA_DAILY_UNDER_DAYS * 24 * HOUR) return since >= 24 * HOUR - slack;
       return false;
     })

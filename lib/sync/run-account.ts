@@ -9,7 +9,7 @@ import type { Capabilities } from '@/lib/sync/capabilities';
 import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
 import { coveredDays } from '@/lib/sync/progress';
 import type { ProgressSink } from '@/lib/sync/progress-sink';
-import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, storyExtrasDue, type JobKind, type SyncState } from '@/lib/sync/schedule';
+import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, storyExtrasDue, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
 import type { StatePatch, SyncStore } from '@/lib/sync/store';
 import { addDays, dayRangeSec, localDay } from '@/lib/sync/time';
 
@@ -195,10 +195,13 @@ const MEDIA_FAIL_STREAK = 3;
  *  - transient: not marked (a 5xx may pass), loop carries on; it stays due.
  *  - auth / rate limits: abort the job like before. MEDIA_FAIL_STREAK failures in a row also abort.
  * The first per-post error is rethrown at the end so the account shows it; the loop itself never stops for one bad post.
+ * Extras (feed: follows/profile visits/activity; Reels: watch time/skip rate) come after the whole core loop, for the
+ * posts that got a snapshot, within the per-run extras budget: they can never starve the core capture.
  */
-async function captureMedia(c: RunContext, due: string[]): Promise<{ done: boolean }> {
+async function captureMedia(c: RunContext, p: Progress, refs: MediaRef[], due: string[]): Promise<{ done: boolean }> {
   const at = c.now.toISOString();
   const captured: string[] = [];
+  const measured: string[] = [];
   let firstError: unknown;
   let streak = 0;
   try {
@@ -227,19 +230,23 @@ async function captureMedia(c: RunContext, due: string[]): Promise<{ done: boole
       }
       await c.store.insertMetrics(id, at, values);
       captured.push(id);
+      measured.push(id);
       streak = 0;
     }
     if (firstError) throw firstError;
   } finally {
     await c.store.markCaptured(captured, at);
   }
+  const kinds = new Map(refs.map((r) => [r.id, r.kind ?? 'IMAGE']));
+  await captureExtras(c, p, measured.map((id) => ({ id, kind: kinds.get(id)! })), at);
   return { done: true };
 }
 
 /** Recent posts on their cadence plus the newest NEWEST_POSTS never-measured older posts (onboarding step 3). */
-const mediaMetrics: Job = async (c) => {
+const mediaMetrics: Job = async (c, p) => {
   const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
-  return captureMedia(c, pickDueMedia(await c.store.mediaForMetrics(c.account.id, since), c.now));
+  const refs = await c.store.mediaForMetrics(c.account.id, since);
+  return captureMedia(c, p, refs, pickDueMedia(refs, c.now));
 };
 
 /**
@@ -250,7 +257,7 @@ const backfill: Job = async (c, p) => {
   if (p.dailyDoneThrough !== null && p.backfilledFrom === null) return { done: true }; // synced before Plan 11a: complete
   if (!(await walkBack(c, p, addDays(localDay(c.now, c.tz), -BACKFILL_DAYS))).done) return { done: false };
   const refs = await c.store.mediaForMetrics(c.account.id, c.now.toISOString()); // since = now: only never-measured media
-  return captureMedia(c, pickDueMedia(refs, c.now, Infinity));
+  return captureMedia(c, p, refs, pickDueMedia(refs, c.now, Infinity));
 };
 
 /** Demographics + online followers. Under 100 followers Instagram returns empty data: nothing is written, not an error. */

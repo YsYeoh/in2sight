@@ -196,13 +196,13 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
     async mediaForMetrics(accountId, sinceIso) {
       const { data, error } = await db
         .from('media')
-        .select('id,posted_at,last_metrics_at')
+        .select('id,posted_at,last_metrics_at,media_type')
         .eq('account_id', accountId)
         .neq('media_type', 'STORY')
         .is('gone_at', null)
         .or(`posted_at.gte."${sinceIso}",last_metrics_at.is.null`);
       if (error) fail('mediaForMetrics');
-      return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, postedAt: r.posted_at as string, lastMetricsAt: (r.last_metrics_at as string | null) ?? null }));
+      return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, postedAt: r.posted_at as string, lastMetricsAt: (r.last_metrics_at as string | null) ?? null, kind: r.media_type as string | undefined }));
     },
     async insertMetrics(mediaId, capturedAt, v) {
       const row = {
