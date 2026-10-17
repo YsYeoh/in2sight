@@ -7,7 +7,7 @@ import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
 import type { IgMediaItem } from '@/lib/instagram/parse';
 import { learn, shouldAsk, type Capabilities } from '@/lib/sync/capabilities';
-import { captureCover, coverUrl } from '@/lib/sync/covers';
+import { afterFailure, captureCover, coverUrl, pickCoverDue } from '@/lib/sync/covers';
 import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
 import { coveredDays } from '@/lib/sync/progress';
 import type { ProgressSink } from '@/lib/sync/progress-sink';
@@ -306,6 +306,53 @@ const backfill: Job = async (c, p) => {
   return captureMedia(c, p, refs, pickDueMedia(refs, c.now, Infinity));
 };
 
+/** Post covers copied per run (one Instagram call + one CDN download each, ~0.5 s). */
+export const COVERS_PER_RUN = 25;
+/** Unfinished covers looked at per run (newest first); the back-off filter then picks COVERS_PER_RUN of them. */
+const COVER_SCAN = 200; // ponytail: a block of >200 newer covers all waiting on back-off hides older pending ones until it clears
+
+/**
+ * Feed/Reels covers (lane 2, after the history import), newest first. Fresh URLs per item (they expire within days):
+ * gone on Instagram -> marked gone; no image offered (copyrighted media) -> unavailable; fetch/upload problems ->
+ * back-off, then unavailable. Out of time -> resumes next pass. Reports the reserved progress stage "covers".
+ */
+const covers: Job = async (c) => {
+  const nowIso = c.now.toISOString();
+  const due = pickCoverDue(await c.store.coverRefs(c.account.id, { limit: COVER_SCAN }), c.now, COVERS_PER_RUN);
+  for (const [i, ref] of due.entries()) {
+    if (outOfTime(c)) return { done: false };
+    await c.progress?.report('covers', i, due.length);
+    let details;
+    try {
+      details = await c.ig.mediaCover(c.token, ref.id);
+    } catch (e) {
+      if (fatal(e)) throw e;
+      if (classifyIgError(e) === 'gone') await c.store.markGone(ref.id, nowIso);
+      else await c.store.markCover(ref.id, { ...afterFailure(ref.attempts), triedAt: nowIso });
+      continue;
+    }
+    const url = coverUrl(details);
+    if (url) await captureCover(c.store, c.account.id, ref, url, nowIso, c.cdnFetch);
+    else await c.store.markCover(ref.id, { status: 'unavailable', attempts: ref.attempts + 1, triedAt: nowIso });
+  }
+  return { done: true };
+};
+
+/**
+ * Optional lane-2 work (covers, comments): only auth / rate-limit errors surface (needs_reconnect / back-off); any
+ * other failure ends the job quietly — it is due again next time and must never mark the account as failing.
+ */
+const optional =
+  (job: Job): Job =>
+  async (c, p) => {
+    try {
+      return await job(c, p);
+    } catch (e) {
+      if (fatal(e)) throw e;
+      return { done: true };
+    }
+  };
+
 /** Demographics + online followers. Under 100 followers Instagram returns empty data: nothing is written, not an error. */
 const audience: Job = async (c) => {
   await c.progress?.report('audience', 0, 1);
@@ -329,7 +376,7 @@ const tokenRefresh: Job = async (c) => {
   return { done: true };
 };
 
-const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill, tokenRefresh };
+const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill, covers: optional(covers), tokenRefresh };
 
 function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): SyncErrorKey {
   if (kind === 'rate_limit' || kind === 'app_rate_limit') return 'rate_limited';

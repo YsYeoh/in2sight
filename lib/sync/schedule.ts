@@ -6,6 +6,7 @@ import { addDays, localDay, localHour } from '@/lib/sync/time';
 
 const STORIES_EVERY_MIN = 30; // every tick: a story lives 24h, a missed window is lost data
 export const MEDIA_LIST_EVERY_MIN = 60;
+export const COVERS_EVERY_MIN = 60; // new posts appear with the hourly media list; their CDN links live ~1.4–4.5 days
 export const SLACK_MIN = 5; // a scheduler firing a few minutes early (or a slow previous tick) still counts as on time
 export const DAILY_HOUR = 6; // owner-local hour after which the daily account + audience jobs run
 export const BACKFILL_DAYS = 90; // first connect: account insights this far back (Meta keeps ~90 days)
@@ -40,10 +41,14 @@ export function storyExtrasDue(postedAt: string, now: Date): boolean {
 /**
  * Run order inside one account: time-critical first, token refresh last (the current token stays valid). It is also the
  * onboarding order of a new account: newest week (daily) -> post list -> newest posts' metrics -> audience -> older
- * history (backfill: days 8–90 newest first, then older posts' metrics; later plans append covers and comments there).
+ * history (backfill: days 8–90 newest first, then older posts' metrics) -> post covers (lane 2 only, once the history
+ * import is through).
  */
-export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'tokenRefresh'] as const;
+export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'covers', 'tokenRefresh'] as const;
 export type JobKind = (typeof JOBS)[number];
+
+/** Optional catch-up work that only lane 2 runs (never inside lane 1's small per-account slice). */
+export const LANE2_ONLY: readonly JobKind[] = ['covers'];
 
 /** regular = lane 1 (every account, small slice, never the history import); all = lane 2 / single-lane callers. */
 export type Lane = 'regular' | 'all';
@@ -123,13 +128,14 @@ export function dueJobs({ status, tokenExpiresAt, state: s }: ScheduleInput, now
   due.add('mediaMetrics'); // cheap when nothing is due: pickDueMedia decides per post
   if (!s.lastRun.audience || (afterDailyHour && !ranToday(s.lastRun.audience))) due.add('audience');
   if (isBackfilling(s)) due.add('backfill');
+  else if (atLeast(s.lastRun.covers, COVERS_EVERY_MIN * MIN)) due.add('covers'); // after the import: Overview numbers first
   const expires = tokenExpiresAt ? Date.parse(tokenExpiresAt) : NaN;
   if (!Number.isNaN(expires) && expires - t <= TOKEN_REFRESH_WITHIN_DAYS * 24 * HOUR && atLeast(s.lastRun.tokenRefresh, TOKEN_RETRY_HOURS * HOUR)) due.add('tokenRefresh');
 
   const jobs = JOBS.filter((j) => due.has(j));
   if (opts.lane !== 'regular') return jobs;
-  // lane 1 never imports history; a new account gets only its time-critical jobs there, its onboarding runs in lane 2
-  return jobs.filter((j) => j !== 'backfill' && (!firstWeek || j === 'stories' || j === 'tokenRefresh'));
+  // lane 1 never imports history or runs optional catch-up; a new account gets only its time-critical jobs there
+  return jobs.filter((j) => j !== 'backfill' && !LANE2_ONLY.includes(j) && (!firstWeek || j === 'stories' || j === 'tokenRefresh'));
 }
 
 /** Round-robin: accounts that waited longest go first (never-attempted first of all). */

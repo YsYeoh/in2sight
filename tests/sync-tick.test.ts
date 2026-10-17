@@ -102,7 +102,7 @@ describe('runTick', () => {
   it('plans from the row the claim returns: work another tick just finished is not run again', async () => {
     const { deps, mem, ig } = setup([account({ id: 'a1' })]);
     const iso = new Date(T0).toISOString();
-    mem.states.set('a1', { ...emptyState('a1'), leaseId: null, dailyDoneThrough: '2026-10-13', lastRun: { stories: iso, daily: iso, mediaList: iso, audience: iso } });
+    mem.states.set('a1', { ...emptyState('a1'), leaseId: null, dailyDoneThrough: '2026-10-13', lastRun: { stories: iso, daily: iso, mediaList: iso, audience: iso, covers: iso } });
     mem.store.loadStates = async (ids) => new Map(ids.map((id) => [id, emptyState(id)])); // the stale snapshot taken before the other tick finished
     const s = await runTick(deps, { trigger: 'cron' });
     expect(s.accounts[0]).toMatchObject({ outcome: 'ok', jobs: ['mediaMetrics'] });

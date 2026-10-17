@@ -8,7 +8,7 @@ import { ALERT_BUDGET_MS, runAlerts, type AlertDeps, type AlertRunSummary } from
 import type { IgData } from '@/lib/instagram/data';
 import { progressSink, type ProgressSink } from '@/lib/sync/progress-sink';
 import { runAccount, type AccountOutcome, type SyncErrorKey } from '@/lib/sync/run-account';
-import { byOldestAttempt, dueJobs, isBackfilling, type JobKind, type Lane, type SyncState } from '@/lib/sync/schedule';
+import { byOldestAttempt, dueJobs, isBackfilling, LANE2_ONLY, type JobKind, type Lane, type ScheduleInput, type SyncState } from '@/lib/sync/schedule';
 import type { SyncStore } from '@/lib/sync/store';
 
 /** Route maxDuration is 60s. Work stops at 35s: a call started just before the deadline can take its 10s timeout (twice for
@@ -28,6 +28,7 @@ export interface TickDeps {
   alerts?: AlertDeps; // omitted: no alert evaluation (tests of the sync itself)
   clock?: () => number;
   newId?: () => string;
+  cdnFetch?: typeof fetch; // cover downloads; default global fetch
 }
 
 interface TickAccount {
@@ -64,13 +65,14 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
   const active = (await deps.accounts.list()).filter((a) => a.status === 'active' && (!opts.accountId || a.id === opts.accountId));
   const states = await deps.store.loadStates(active.map((a) => a.id));
   const ordered = [...active].sort((a, b) => byOldestAttempt(states.get(a.id)!, states.get(b.id)!));
+  const input = (a: StoredAccount, state: SyncState): ScheduleInput => ({ status: a.status, tokenExpiresAt: a.tokenExpiresAt, state });
 
   /** One lane for one account: lease, plan from the claimed row, run until sliceEnd, persist, report progress. */
   async function runLane(account: StoredAccount, lane: Lane, sliceEnd: number, skip: readonly JobKind[]): Promise<LaneResult> {
     const id = account.id;
     const now = new Date(clock());
     const state = states.get(id)!;
-    const plan = (s: SyncState) => dueJobs({ status: account.status, tokenExpiresAt: account.tokenExpiresAt, state: s }, now, tz, { manual, lane }).filter((j) => !skip.includes(j));
+    const plan = (s: SyncState) => dueJobs(input(account, s), now, tz, { manual, lane }).filter((j) => !skip.includes(j));
     if (plan(state).length === 0) return { accountId: id, outcome: state.leaseUntil && Date.parse(state.leaseUntil) > now.getTime() ? 'locked' : 'idle', jobs: [] };
     const leaseId = newId();
     let progress: ProgressSink | undefined;
@@ -96,7 +98,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
       }
       // live progress only while importing or on a manual run: a complete account's 30-minute ticks stay silent
       progress = manual || isBackfilling(fresh) ? progressSink(deps.store, id, clock) : undefined;
-      const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline: sliceEnd, clock, progress }, jobs);
+      const { result, patch } = await runAccount({ ig: deps.ig, store: deps.store, accounts: deps.accounts, account, token, state: fresh, tz, now, deadline: sliceEnd, clock, progress, cdnFetch: deps.cdnFetch }, jobs);
       await deps.store.saveState(id, leaseId, patch);
       const next: SyncState = { ...fresh, ...patch, lastSuccessAt: patch.lastSuccessAt ?? fresh.lastSuccessAt };
       states.set(id, next);
@@ -133,7 +135,9 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
     : ordered.filter((a) => {
         const e = out.get(a.id);
         if (!e || e.outcome === 'locked' || e.outcome === 'needs_reconnect' || e.outcome === 'failed') return false; // a failed job is not retried in the same pass (+1 failure per tick, errorKey stays)
-        return e.outcome === 'partial' || isBackfilling(states.get(a.id)!);
+        const s = states.get(a.id)!;
+        const optionalDue = dueJobs(input(a, s), new Date(clock()), tz, { manual }).some((j) => LANE2_ONLY.includes(j)); // covers (+ comments)
+        return e.outcome === 'partial' || isBackfilling(s) || optionalDue;
       });
   for (const [i, account] of lane2.entries()) {
     const left = deadline - clock();
