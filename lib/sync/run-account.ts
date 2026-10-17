@@ -5,7 +5,9 @@ import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import { classifyIgError, isFatalIgError as fatal, isUnsupported, type IgData } from '@/lib/instagram/data';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
+import type { IgMediaItem } from '@/lib/instagram/parse';
 import { learn, shouldAsk, type Capabilities } from '@/lib/sync/capabilities';
+import { captureCover, coverUrl } from '@/lib/sync/covers';
 import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
 import { coveredDays } from '@/lib/sync/progress';
 import type { ProgressSink } from '@/lib/sync/progress-sink';
@@ -38,6 +40,8 @@ export interface RunContext {
   clock: () => number;
   /** Live progress (only while the account is importing or on a manual run); best-effort, never throws. */
   progress?: ProgressSink;
+  /** fetch for the Instagram CDN (cover images); default: global fetch. */
+  cdnFetch?: typeof fetch;
 }
 
 /**
@@ -143,6 +147,28 @@ async function captureExtras(c: RunContext, p: Progress, items: { id: string; ki
 }
 
 /**
+ * Story covers on FIRST SIGHT (the CDN link dies with the Story): every live Story whose cover is not stored yet, with
+ * the URL from the listing; retried on every pass while it is live (up to COVER_MAX_ATTEMPTS), then expired ones are
+ * marked unavailable. Entirely best-effort: nothing here can cost the Story capture.
+ */
+async function captureStoryCovers(c: RunContext, items: IgMediaItem[]): Promise<void> {
+  try {
+    if (items.length > 0) {
+      const byId = new Map(items.map((i) => [i.id, i]));
+      for (const ref of await c.store.coverRefs(c.account.id, { ids: [...byId.keys()], limit: items.length })) {
+        if (outOfTime(c)) break;
+        const url = coverUrl(byId.get(ref.id)?.details);
+        if (url) await captureCover(c.store, c.account.id, ref, url, c.now.toISOString(), c.cdnFetch);
+        // no URL (fields not offered on Stories, or none for this Story): no attempt counted; expiry ends it
+      }
+    }
+    await c.store.expireStoryCovers(c.account.id, c.now.toISOString());
+  } catch {
+    // covers are optional; the Story snapshot is already stored
+  }
+}
+
+/**
  * Live Stories with their image URLs (for the first-sight cover). Story support for the URL fields is unverified: on
  * an "unsupported field" answer the list is fetched again with the base fields and that is remembered.
  */
@@ -188,6 +214,7 @@ const stories: Job = async (c, p) => {
   } finally {
     await c.store.markCaptured(captured, at);
   }
+  await captureStoryCovers(c, items);
   const extrasDue = items.filter((s) => captured.includes(s.id) && storyExtrasDue(s.postedAt, c.now));
   await captureExtras(c, p, extrasDue.map((s) => ({ id: s.id, kind: 'STORY' })), at);
   return { done: true };

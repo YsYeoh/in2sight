@@ -2,6 +2,7 @@
 import { vi } from 'vitest';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import type { IgData, MediaExtras, MediaMetricValues } from '@/lib/instagram/data';
+import type { CoverStatus } from '@/lib/sync/covers';
 import { emptyState, type SyncState } from '@/lib/sync/schedule';
 import type { ProgressWrite, StatePatch, SyncRun, SyncStore } from '@/lib/sync/store';
 
@@ -32,6 +33,7 @@ export function fakeIg() {
     listStories: vi.fn<IgData['listStories']>(async () => []),
     feedInsights: vi.fn<IgData['feedInsights']>(async () => METRICS),
     storyInsights: vi.fn<IgData['storyInsights']>(async () => METRICS),
+    mediaCover: vi.fn<IgData['mediaCover']>(async () => ({ mediaType: 'IMAGE', productType: null, likeCount: null, commentsCount: null, isSharedToFeed: null, mediaUrl: null, thumbnailUrl: null, childrenCount: null, children: null })),
     extraInsights: vi.fn<IgData['extraInsights']>(async () => ({})),
     audience: vi.fn<IgData['audience']>(async () => ({})),
     onlineFollowers: vi.fn<IgData['onlineFollowers']>(async () => []),
@@ -58,6 +60,9 @@ export function memoryStore(init: MemoryInit = {}) {
   const snapshots: { accountId: string; capturedAt: string; followers: number | null }[] = [];
   const breakdowns: { accountId: string; day: string; rows: number }[] = [];
   const children: { mediaId: string; position: number; mediaType: string | null }[] = [];
+  /** cover state per media id; a media item without an entry is 'pending' with 0 attempts (the column default) */
+  const covers = new Map<string, { status: CoverStatus; attempts: number; triedAt: string | null; path?: string }>();
+  const uploads: { path: string; bytes: number; contentType: string }[] = [];
   const runs: SyncRun[] = [];
   const saved: { accountId: string; patch: StatePatch }[] = [];
   const progress: { accountId: string; p: ProgressWrite }[] = [];
@@ -99,13 +104,28 @@ export function memoryStore(init: MemoryInit = {}) {
       if (m) m.gone = true;
     },
     upsertAudience: async (accountId, _day, kind) => void audience.push({ accountId, kind }),
+    coverRefs: async (accountId, opts) =>
+      [...media.values()]
+        .filter((m) => m.accountId === accountId && !m.gone && (opts.ids ? opts.ids.includes(m.id) : m.kind !== 'STORY'))
+        .map((m) => ({ id: m.id, kind: m.kind, postedAt: m.postedAt, status: 'pending' as CoverStatus, attempts: 0, triedAt: null, ...covers.get(m.id) }))
+        .filter((r) => r.status === 'pending' || r.status === 'failed')
+        .sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1))
+        .slice(0, opts.limit),
+    markCover: async (id, r) => void covers.set(id, r),
+    uploadCover: async (path, bytes, contentType) => void uploads.push({ path, bytes: bytes.byteLength, contentType }),
+    expireStoryCovers: async (accountId, nowIso) => {
+      for (const m of media.values()) {
+        const st = covers.get(m.id)?.status ?? 'pending';
+        if (m.accountId === accountId && m.kind === 'STORY' && (st === 'pending' || st === 'failed') && Date.parse(m.postedAt) + 86_400_000 < Date.parse(nowIso)) covers.set(m.id, { status: 'unavailable', attempts: covers.get(m.id)?.attempts ?? 0, triedAt: null });
+      }
+    },
     upsertOnlineFollowers: async (accountId, day) => void online.push({ accountId, day }),
     insertFollowerSnapshot: async (accountId, capturedAt, v) => void snapshots.push({ accountId, capturedAt, followers: v.followers }),
     upsertDailyBreakdown: async (accountId, day, rows) => void breakdowns.push({ accountId, day, rows: rows.length }),
     recordRun: async (r) => void runs.push(r),
     writeProgress: async (accountId, p) => void progress.push({ accountId, p }),
   };
-  return { store, states, media, children, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
+  return { store, states, media, children, covers, uploads, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {
