@@ -3,6 +3,8 @@ import { addParts, breadcrumbs, bucketsOf, buildExplorer, byGroup, drillHref, dr
 import type { ItemRow } from '@/lib/explorer/read';
 import { parseExplorerState } from '@/lib/explorer/state';
 import type { DailyParts, Parts, PostParts } from '@/lib/metrics';
+import { addDays } from '@/lib/sync/time';
+import { bucketStart, daysIn } from '@/lib/time-scope/range';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -105,9 +107,45 @@ describe('buildExplorer', () => {
     const state = parseExplorerState({ m: 'reach', by: 'time' });
     const window = { current: { from: '2026-10-01', to: '2026-10-14' }, compare: { from: '2026-09-17', to: '2026-09-30' } };
     const m = buildExplorer(input({ state, window, gran: 'week', current: new Map([['2026-10-05', parts({ reach: 70 })]]), prior: new Map([['2026-09-21', parts({ reach: 35 })]]) }));
-    expect(m.rows.map((r) => [r.key, r.priorKey])).toEqual([['2026-09-28', '2026-09-14'], ['2026-10-05', '2026-09-21'], ['2026-10-12', '2026-09-28']]);
+    // only whole buckets compare: the partial ends of the range (and a bucket facing a partial one) have no comparison
+    expect(m.rows.map((r) => [r.key, r.priorKey])).toEqual([['2026-09-28', null], ['2026-10-05', '2026-09-21'], ['2026-10-12', null]]);
     expect(m.rows[1].values.reach).toMatchObject({ value: 70, prior: 35, change: 1 });
     expect(m.partial).toEqual(['2026-09-28', '2026-10-12']);
+  });
+
+  describe('by time with a flat series (100 reach a day): nothing changed, so nothing may show a change', () => {
+    const state = parseExplorerState({ m: 'reach', by: 'time' });
+    const days = (r: { from: string; to: string }) => Array.from({ length: daysIn(r) }, (_, n) => addDays(r.from, n));
+    const flat = (r: { from: string; to: string }, gran: 'day' | 'week') => {
+      const m = new Map<string, Parts>();
+      for (const day of days(r)) {
+        const k = bucketStart(day, gran, 'mon');
+        m.set(k, parts({ reach: (m.get(k)?.daily?.reach ?? 0) + 100 }));
+      }
+      return m;
+    };
+    const run = (window: ExplorerInput['window'], gran: 'day' | 'week') => buildExplorer(input({ state, window, gran, current: flat(window.current, gran), prior: flat(window.compare!, gran) }));
+
+    it('30 days by week, previous period: the cut weeks at both ends are not compared, the whole weeks are equal', () => {
+      const m = run(W, 'week');
+      expect(m.rows.map((r) => r.key)).toEqual(['2026-09-14', '2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12']);
+      expect(m.rows.map((r) => r.values.reach?.change)).toEqual([null, 0, 0, 0, null]);
+      expect(m.rows.map((r) => r.values.reach?.diff)).toEqual([null, 0, 0, 0, null]);
+      expect(m.rows.map((r) => r.priorKey === null)).toEqual([true, false, false, false, true]);
+    });
+
+    it('a whole week facing a cut comparison week has no comparison either', () => {
+      // Mon 5 Oct – Sun 18 Oct 2026 are whole weeks; the same days of 2025 start on a Sunday (Sun 5 Oct – Sat 18 Oct)
+      const m = run({ current: { from: '2026-10-05', to: '2026-10-18' }, compare: { from: '2025-10-05', to: '2025-10-18' } }, 'week');
+      expect(m.partial).toEqual([]);
+      expect(m.rows.map((r) => [r.key, r.priorKey, r.values.reach?.change])).toEqual([['2026-10-05', null, null], ['2026-10-12', '2025-10-06', 0]]);
+    });
+
+    it('by day every day compares with its counterpart', () => {
+      const m = run({ current: { from: '2026-10-01', to: '2026-10-03' }, compare: { from: '2026-09-28', to: '2026-09-30' } }, 'day');
+      expect(m.rows.map((r) => [r.key, r.priorKey, r.values.reach?.change])).toEqual([['2026-10-01', '2026-09-28', 0], ['2026-10-02', '2026-09-29', 0], ['2026-10-03', '2026-09-30', 0]]);
+      expect(m.partial).toEqual([]);
+    });
   });
 
   it('weekday and hour axes are complete and ordered; tags put untagged last; formats only when present', () => {
