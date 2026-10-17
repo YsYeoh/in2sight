@@ -616,7 +616,7 @@
     "scope": "Accounts",
     "scopeAll": "All accounts",
     "period": "Time range",
-    "periodHint": "The range shown on the page. Change it with the time bar above.",
+    "periodHint": "The time range selected on this page (default: last 30 days).",
     "sections": "Sections in the report",
     "reportTitle": "Title",
     "reportTitleHint": "Up to 120 characters. Empty uses the default title.",
