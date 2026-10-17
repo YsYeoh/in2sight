@@ -16,6 +16,7 @@ export interface ExportData {
   daily: Record<string, DailyRow[]>; // from readFrom(): both windows + lag, so KPIs can compare
   posts: Record<string, PostRow[]>; // newest first: the newest 500 per account and every post back to readFrom(), with caption + tag ids
   stories: Record<string, StoryRow[]>; // posted inside the range (newest STORY_LIMIT per account)
+  storiesTruncated: string[]; // ids of the accounts whose Stories hit that cap: the export says so, never silently stops
   audience: Record<string, AudienceSnapshots>;
   online: Record<string, OnlineFollowersRow[]>; // last 30 days (what Instagram keeps)
   tags: Tag[];
@@ -47,6 +48,7 @@ export async function loadExportData(db: SupabaseClient, accounts: StoredAccount
     daily: byId(accounts, per.map((p) => p[0])),
     posts: byId(accounts, per.map((p) => p[1])),
     stories: byId(accounts, stories.map((s) => s.stories)),
+    storiesTruncated: accounts.filter((_, i) => stories[i].truncated).map((a) => a.id),
     audience: byId(accounts, per.map((p) => p[2])),
     online,
     tags,

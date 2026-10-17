@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { STORY_LIMIT } from '@/lib/dashboard/detail-read';
 import { SECTIONS, type ReportParams } from '@/lib/export/params';
 import { buildReport, isReportModel, TOP_POSTS } from '@/lib/export/report';
 import { DEFAULT_SCOPE } from '@/lib/time-scope/scope';
-import { A, NOW, post, sampleData, scopeOf, TODAY, TZ } from './fixtures/export-data';
+import { A, NOW, post, sampleData, scopeOf, story, TODAY, TZ } from './fixtures/export-data';
 
 const params = (o: Partial<ReportParams> = {}): ReportParams => ({ scope: { kind: 'group', name: 'Brand X' }, time: DEFAULT_SCOPE, sections: [...SECTIONS], title: 'Monthly', note: 'Hi', ...o });
 const build = (p = params(), data = sampleData()) => buildReport(data, p, { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
@@ -79,14 +80,21 @@ describe('buildReport', () => {
     expect('globe' in m.audience[0].model).toBe(false);
     expect(m.audience[1].model.reason).toBe('needs_100_followers');
     expect(m.stories).toEqual([
-      { username: 'brand.one', count: 1, avgReach: 40, avgViews: 50, avgExitRate: 0.1 },
-      { username: '=brand\u{1F600}/two', count: 0, avgReach: null, avgViews: null, avgExitRate: null },
+      { username: 'brand.one', count: 1, capped: false, avgReach: 40, avgViews: 50, avgExitRate: 0.1 },
+      { username: '=brand\u{1F600}/two', count: 0, capped: false, avgReach: null, avgViews: null, avgExitRate: null },
     ]);
     expect(m.flags).toEqual([]);
   });
 
+  it('stories summary: an account that hit the Stories cap is marked, its count is what was read', () => {
+    const d = sampleData();
+    d.stories[A] = Array.from({ length: STORY_LIMIT }, (_, i) => story(`s${i}`));
+    d.storiesTruncated = [A];
+    expect(build(params(), d).stories.map((s) => [s.count, s.capped])).toEqual([[STORY_LIMIT, true], [0, false]]);
+  });
+
   it('no accounts at all: a valid, empty model', () => {
-    const m = build(params({ scope: { kind: 'all' } }), { accounts: [], scope: scopeOf(), sync: {}, daily: {}, posts: {}, stories: {}, audience: {}, online: {}, tags: [] });
+    const m = build(params({ scope: { kind: 'all' } }), { accounts: [], scope: scopeOf(), sync: {}, daily: {}, posts: {}, stories: {}, storiesTruncated: [], audience: {}, online: {}, tags: [] });
     expect(m.kpis.reach.value).toBeNull();
     expect(m.topPosts).toEqual([]);
     expect(isReportModel(JSON.parse(JSON.stringify(m)))).toBe(true); // survives the trip into the headless page

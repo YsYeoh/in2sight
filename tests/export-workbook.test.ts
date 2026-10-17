@@ -3,6 +3,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import type { CellObject } from 'write-excel-file/node';
+import { STORY_LIMIT } from '@/lib/dashboard/detail-read';
 import { buildWorkbook, translator, writeWorkbook, type WorkbookOptions } from '@/lib/export/workbook';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { A, NOW, post, sampleData, scopeOf, TODAY, TZ } from './fixtures/export-data';
@@ -98,8 +99,21 @@ describe('buildWorkbook', () => {
     expect(col(tags.data, 'Tag').map((c) => c?.value)).toEqual(["'=evil tag", 'Untagged']);
   });
 
+  it('Stories: an account that hit the cap gets a visible note row (localized) and no other account does', async () => {
+    const data = sampleData();
+    expect(buildWorkbook(data, en, opts())[3].data).toHaveLength(2); // header + one Story: no note
+    data.storiesTruncated = [A];
+    const sheets = buildWorkbook(data, en, opts());
+    const rows = sheets[3].data as (CellObject | null)[][];
+    expect(rows).toHaveLength(3);
+    expect(rows[2].map((c) => c?.value ?? null)).toEqual(['brand.one', `Only the newest ${STORY_LIMIT} Stories of this account are listed; older Stories in this range are not included.`]);
+    const zh = buildWorkbook(data, translator('zh-CN'), opts({ prefs: { ...DEFAULT_PREFS, locale: 'zh-CN', timezone: TZ } }));
+    expect((zh[3].data as (CellObject | null)[][])[2][1]?.value).toBe(`仅列出该账号最新的 ${STORY_LIMIT} 条快拍；此范围内更早的快拍未包含在内。`);
+    expect((await files(sheets))['xl/sharedStrings.xml']).toContain('Only the newest 200 Stories'); // the real file takes the shorter row
+  });
+
   it('no accounts at all: six sheets with just their header row, and still a valid file', async () => {
-    const empty = { accounts: [], scope: scopeOf(), sync: {}, daily: {}, posts: {}, stories: {}, audience: {}, online: {}, tags: [] };
+    const empty = { accounts: [], scope: scopeOf(), sync: {}, daily: {}, posts: {}, stories: {}, storiesTruncated: [], audience: {}, online: {}, tags: [] };
     const sheets = buildWorkbook(empty, en, opts());
     expect(sheets.map((s) => s.data.length)).toEqual([1, 1, 1, 1, 1, 2]); // Tags keeps the "Untagged" row (0 posts)
     const f = await files(sheets);

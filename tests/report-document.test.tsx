@@ -80,6 +80,14 @@ describe('ReportDocument', () => {
     expect(within(kpis).getAllByText('—').length).toBeGreaterThan(0);
   });
 
+  it('Stories summary: a capped account shows its count as "200+", an uncapped one the plain number', () => {
+    const m = model({ sections: ['stories'] });
+    m.stories = [{ ...m.stories[0], count: 200, capped: true }, { ...m.stories[0], username: 'other', count: 7, capped: false }];
+    const { container } = view(m);
+    const rows = [...container.querySelectorAll('tbody tr')].map((r) => r.querySelectorAll('td')[1]?.textContent);
+    expect(rows).toEqual(['200+', '7']);
+  });
+
   it('Chinese: section titles and labels from the zh-CN catalog', () => {
     view(model({ sections: ['trend', 'flags'] }), 'zh-CN');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Instagram 报告');

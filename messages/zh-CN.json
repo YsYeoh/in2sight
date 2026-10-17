@@ -704,6 +704,7 @@
       "U": "未说明"
     },
     "untagged": "未加标签",
+    "storiesCapped": "仅列出该账号最新的 {n} 条快拍；此范围内更早的快拍未包含在内。",
     "report": {
       "defaultTitle": "Instagram 报告",
       "range": "{from} 至 {to} · {days} 天",

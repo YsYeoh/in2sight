@@ -704,6 +704,7 @@
       "U": "Unspecified"
     },
     "untagged": "Untagged",
+    "storiesCapped": "Only the newest {n} Stories of this account are listed; older Stories in this range are not included.",
     "report": {
       "defaultTitle": "Instagram report",
       "range": "{from} – {to} · {days} days",
