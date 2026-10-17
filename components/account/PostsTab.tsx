@@ -9,11 +9,13 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FormField } from '@/components/shared/FormField';
 import { formHref, startProgress } from '@/components/shared/NavigationProgress';
+import { NavLink } from '@/components/shared/NavLink';
 import { TagBadge } from '@/components/shared/TagBadge';
 import { Button } from '@/components/ui/button';
 import { FEED_FORMATS } from '@/lib/analysis/posts';
 import type { Tag } from '@/lib/analysis/types';
 import type { PostFilters, PostView } from '@/lib/dashboard/content';
+import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
 import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
 
 export const POSTS_PAGE = 50;
@@ -67,13 +69,15 @@ function Filters({ tags, filters, scope }: { tags: Tag[]; filters: PostFilters; 
 }
 
 /** `scope` = the canonical Time Scope parameters of the page (ResolvedScope.params), kept by the filter form. */
-export function PostsTab({ posts, total, tags, filters, scope = {}, setPostTags }: { posts: PostView[]; total: number; tags: Tag[]; filters: PostFilters; scope?: Record<string, string>; setPostTags: SetPostTags }) {
+/** `accountId` set: each post links to its single-item level in the Explorer (with the page's scope). */
+export function PostsTab({ posts, total, tags, filters, scope = {}, accountId, setPostTags }: { posts: PostView[]; total: number; tags: Tag[]; filters: PostFilters; scope?: Record<string, string>; accountId?: string; setPostTags: SetPostTags }) {
   const t = useTranslations('pages.account.posts');
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
   const { prefs } = usePrefs();
   const count = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
   const label = (p: PostView) => `${ta(`format.${p.mediaType}`)} · ${formatDateTime(p.postedAt, prefs)}`;
+  const query = new URLSearchParams(scope).toString();
 
   const columns: Column<PostView>[] = [
     {
@@ -83,7 +87,13 @@ export function PostsTab({ posts, total, tags, filters, scope = {}, setPostTags 
       cell: (p) => (
         <span className="flex min-w-0 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate">{label(p)}</span>
+            {accountId ? (
+              <NavLink href={explorerHref(parseExplorerState({ by: 'post', acc: accountId, fmt: p.mediaType, item: p.id }), query)} className="truncate underline-offset-4 hover:underline">
+                {label(p)}
+              </NavLink>
+            ) : (
+              <span className="truncate">{label(p)}</span>
+            )}
             {p.permalink ? (
               <a href={p.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
                 <ExternalLink aria-hidden="true" className="size-3.5" />

@@ -10,14 +10,17 @@ import { useBestTimeRows } from '@/components/charts/useBestTimeRows';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable } from '@/components/shared/DataTable';
+import { NavLink } from '@/components/shared/NavLink';
 import { StatCard } from '@/components/shared/StatCard';
 import { useBucketFormat, useScopeText } from '@/components/shared/TimeScopeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Button } from '@/components/ui/button';
 import type { KpiId } from '@/lib/analysis/growth';
 import type { AccountOverviewModel } from '@/lib/dashboard/account';
+import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
 import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
+import { scopeQuery } from '@/lib/time-scope/scope';
 
 const KPI_IDS: KpiId[] = ['followers', 'reach', 'views', 'engagementRate', 'posts', 'netFollows'];
 
@@ -33,19 +36,29 @@ function Toggle<T extends string>({ label, value, options, onChange }: { label: 
   );
 }
 
-export function AccountOverview({ model }: { model: AccountOverviewModel }) {
+/** `account` set: formats and best-time cells link into the Explorer (drill-down), scoped to this account. */
+export function AccountOverview({ model, account }: { model: AccountOverviewModel; account?: { id: string; groupName: string | null } }) {
   const t = useTranslations('pages.account');
   const to = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
   const ts = useTranslations('timeScope');
   const tErr = useTranslations('accounts.errors');
+  const tx = useTranslations('explorer');
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
   const bestTime = useBestTimeRows();
   const [view, setView] = useState<'online' | 'posts'>('online'); // SPEC §7: followers online is the default
   const [scope, setScope] = useState<'account' | 'pooled'>('account');
   const heat = model.heat[view][scope];
+  // drill-down: a cell of "your post performance" lists the posts behind it. The grid uses every stored post, so the
+  // link asks for the whole history ("all"), this account or its pool (its group, or every account when isolated).
+  const cellScope = scope === 'account' ? { acc: account?.id } : account?.groupName ? { grp: account.groupName } : {};
+  const all = scopeQuery({ range: 'all', cmp: 'none', gran: 'auto' });
+  const heatRows = bestTime.rows(heat, view).map((r, i) => ({
+    ...r,
+    cells: r.cells.map((c, hour) => ({ ...c, href: account && view === 'posts' && c.value !== null ? explorerHref(parseExplorerState({ by: 'post', ...cellScope, wd: String(heat.rows[i].weekday), hr: String(hour) }), all) : undefined })),
+  }));
   const { vs } = useScopeText(model.scope);
   const fmtX = useBucketFormat(model.scope.gran, model.trendPartial);
   const gran = model.scope.gran;
@@ -95,7 +108,18 @@ export function AccountOverview({ model }: { model: AccountOverviewModel }) {
             empty={ta('reasons.no_data')}
             initialSort={{ key: 'avgReach', dir: 'desc' }}
             columns={[
-              { key: 'format', header: t('format'), cell: (r) => ta(`format.${r.mediaType}`) },
+              {
+                key: 'format',
+                header: t('format'),
+                cell: (r) =>
+                  account ? (
+                    <NavLink href={explorerHref(parseExplorerState({ by: 'post', acc: account.id, fmt: r.mediaType }), model.scope.query)} aria-label={tx('drill', { name: ta(`format.${r.mediaType}`) })} className="underline-offset-4 hover:underline">
+                      {ta(`format.${r.mediaType}`)}
+                    </NavLink>
+                  ) : (
+                    ta(`format.${r.mediaType}`)
+                  ),
+              },
               { key: 'posts', header: tm('posts'), cell: (r) => formatNumber(r.posts, prefs), sortValue: (r) => r.posts, align: 'right' },
               { key: 'avgReach', header: t('avgReach'), cell: (r) => formatCompact(r.avgReach, prefs), sortValue: (r) => r.avgReach, align: 'right' },
               { key: 'er', header: tm('engagementRate'), cell: (r) => formatPercent(r.engagementRate, prefs), sortValue: (r) => r.engagementRate, align: 'right' },
@@ -145,7 +169,7 @@ export function AccountOverview({ model }: { model: AccountOverviewModel }) {
           </div>
         }
       >
-        <Heatmap caption={t('bestTimeTitle')} columns={bestTime.hours} rows={bestTime.rows(heat, view)} lowLabel={ta('low')} highLabel={ta('high')} />
+        <Heatmap caption={t('bestTimeTitle')} columns={bestTime.hours} rows={heatRows} lowLabel={ta('low')} highLabel={ta('high')} />
       </ChartCard>
     </div>
   );
