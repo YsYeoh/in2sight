@@ -4106,3 +4106,646 @@ git commit -m "feat(covers): owner-only cover route; permanent delete removes th
 ```
 
 ---
+
+### Task 13: Comments ingestion (scope-gated `comments` job)
+
+**Files:**
+- Modify: `lib/instagram/metrics.ts` (`COMMENT_FIELDS`, `COMMENT_PAGE_SIZE`)
+- Modify: `lib/instagram/parse.ts` (`IgComment`, `parseCommentsPage`)
+- Modify: `lib/instagram/data.ts` (`commentsPage`)
+- Modify: `lib/sync/store.ts` (`mediaForComments`, `upsertComments`, `markCommentsSynced`)
+- Modify: `lib/sync/schedule.ts` (job `comments`, `LANE2_ONLY`, `COMMENTS_EVERY_MIN`, `ScheduleInput.commentsScope`)
+- Modify: `lib/sync/run-account.ts` (`COMMENT_CALLS_PER_RUN`, `comments` job)
+- Modify: `lib/sync/tick.ts` (schedule input carries `commentsScope: hasScope(account, COMMENTS_SCOPE)`)
+- Modify: `tests/fixtures/sync-fakes.ts` (`commentsPage`, comment methods, `commentCounts` + `comments` logs)
+- Test: `tests/sync-comments.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `hasScope`, `COMMENTS_SCOPE` (Task 2); `optional`, `LANE2_ONLY`, schedule `input()` helper in the tick (Task 11); `media.comments_count` written from the listing (Task 8).
+- Produces: `IgComment { id; text; username; likeCount; commentedAt }`; `parseCommentsPage(body) => { items; next }`; `IgData.commentsPage(token, mediaId, next?)`; `SyncStore.mediaForComments(accountId, sinceIso) => { id; commentsCount; syncedCount }[]`, `upsertComments(accountId, mediaId, items, seenAtIso)`, `markCommentsSynced(mediaId, count)`; `JOBS` = `[…, 'covers', 'comments', 'tokenRefresh']`; `COMMENT_CALLS_PER_RUN = 20`.
+
+Design: incremental by COUNT, not by cursor — a post is (re)read when its `comments_count` from the hourly listing differs from `comments_synced_count` (count at the last ingest). That is order-agnostic (Meta does not document the order of the comments edge) and costs nothing for quiet posts. Only posts of the last 30 days with `comments_count > 0`, newest first, top-level comments, ≤ 4 pages (200 comments) per post, ≤ 20 calls per run. Without the granted scope the job is never scheduled (and returns at once if called): Meta's empty answer is never recorded. A post that HAS comments but returns none is not marked synced (asked again). Upsert by comment id keeps `first_seen_at` (column default) and refreshes text/likes/`last_seen_at`. Edits that do not change the count are picked up at the next count change (documented limit). The reserved progress stage `comments` is reported (label `sync.activity.comments` already exists).
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-comments.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { igData, type IgData } from '@/lib/instagram/data';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+import { parseCommentsPage, type IgComment } from '@/lib/instagram/parse';
+import { COMMENT_CALLS_PER_RUN, runAccount, type RunContext } from '@/lib/sync/run-account';
+import { dueJobs, emptyState, type SyncState } from '@/lib/sync/schedule';
+import { supabaseSyncStore } from '@/lib/sync/store';
+import { runTick } from '@/lib/sync/tick';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const NOW = new Date('2026-10-14T02:00:00Z');
+const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
+const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights', 'instagram_business_manage_comments'];
+const COMPLETE: Partial<SyncState> = { dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16', lastRun: { backfill: hoursAgo(10), stories: hoursAgo(0.1), daily: hoursAgo(1), mediaList: hoursAgo(0.1), mediaMetrics: hoursAgo(0.1), audience: hoursAgo(1), covers: hoursAgo(0.1) } };
+const comment = (id: string, o: Partial<IgComment> = {}): IgComment => ({ id, text: `hello ${id}`, username: `fan_${id}`, likeCount: 0, commentedAt: hoursAgo(1), ...o });
+
+function ctx(o: { scopes?: string[] | null; posts?: { id: string; count: number; synced?: number | null; ageH?: number }[] } = {}) {
+  const ig = fakeIg();
+  const mem = memoryStore({ media: (o.posts ?? []).map((p) => ({ id: p.id, accountId: 'a1', postedAt: hoursAgo(p.ageH ?? 5), lastMetricsAt: hoursAgo(1) })) });
+  for (const p of o.posts ?? []) mem.commentCounts.set(p.id, { count: p.count, synced: p.synced ?? null });
+  const acc: StoredAccount = account({ id: 'a1', grantedScopes: o.scopes === undefined ? SCOPES : o.scopes });
+  const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: { ...emptyState('a1'), ...COMPLETE }, tz: 'UTC', now: NOW, deadline: 1e9, clock: () => 0 };
+  return { c, ig, mem, acc };
+}
+
+describe('comments scheduling', () => {
+  const input = (state: Partial<SyncState>, commentsScope?: boolean) => ({ status: 'active' as const, tokenExpiresAt: null, state: { ...emptyState('a1'), ...state }, commentsScope });
+  it('only with the granted scope, only after the import, hourly, never in lane 1', () => {
+    expect(dueJobs(input(COMPLETE, true), NOW, 'UTC')).toContain('comments');
+    expect(dueJobs(input(COMPLETE, false), NOW, 'UTC')).not.toContain('comments');
+    expect(dueJobs(input(COMPLETE), NOW, 'UTC')).not.toContain('comments');
+    expect(dueJobs(input({}, true), NOW, 'UTC')).not.toContain('comments');
+    expect(dueJobs(input({ ...COMPLETE, lastRun: { ...COMPLETE.lastRun, comments: hoursAgo(0.5) } }, true), NOW, 'UTC')).not.toContain('comments');
+    expect(dueJobs(input(COMPLETE, true), NOW, 'UTC', { lane: 'regular' })).not.toContain('comments');
+  });
+});
+
+describe('comments job', () => {
+  it('scope missing: no Instagram call, nothing recorded (an empty list must never read as "no comments")', async () => {
+    for (const scopes of [null, SCOPES.slice(0, 2)]) {
+      const { c, ig, mem } = ctx({ scopes, posts: [{ id: 'p1', count: 3 }] });
+      const { result } = await runAccount(c, ['comments']);
+      expect(result.outcome).toBe('ok');
+      expect(ig.commentsPage).not.toHaveBeenCalled();
+      expect(mem.comments).toEqual([]);
+      expect(mem.commentCounts.get('p1')!.synced).toBeNull();
+    }
+  });
+
+  it('a tick without the scope never schedules it; after a Reconnect that grants it, the first run reads every recent post', async () => {
+    const run = async (scopes: string[]) => {
+      const ig = fakeIg();
+      ig.commentsPage.mockResolvedValue({ items: [comment('c1')], next: null });
+      const mem = memoryStore({ tokens: { a1: 'tok' }, media: [{ id: 'p1', accountId: 'a1', postedAt: hoursAgo(5), lastMetricsAt: hoursAgo(0.1) }] });
+      mem.commentCounts.set('p1', { count: 1, synced: null });
+      mem.states.set('a1', { ...emptyState('a1'), ...COMPLETE, leaseId: null } as SyncState & { leaseId: null });
+      const s = await runTick({ store: mem.store, accounts: fakeAccounts([account({ id: 'a1', grantedScopes: scopes })]).accounts, ig, clock: () => NOW.getTime() }, { trigger: 'cron' });
+      return { s, ig, mem };
+    };
+    const before = await run(SCOPES.slice(0, 2));
+    expect(before.ig.commentsPage).not.toHaveBeenCalled();
+    expect(before.s.accounts[0].jobs).not.toContain('comments');
+    const after = await run(SCOPES);
+    expect(after.s.accounts[0].jobs).toContain('comments');
+    expect(after.mem.comments.map((x) => x.id)).toEqual(['c1']);
+  });
+
+  it('reads every page (up to the cap), upserts by id, marks the post synced at its current count; unchanged posts are skipped next time', async () => {
+    const { c, ig, mem } = ctx({ posts: [{ id: 'p1', count: 3 }, { id: 'p2', count: 2, synced: 2, ageH: 6 }] });
+    ig.commentsPage.mockImplementation((async (_t: string, _id: string, next?: string) =>
+      next ? { items: [comment('c3')], next: null } : { items: [comment('c1'), comment('c2')], next: 'https://graph.instagram.com/v25.0/p1/comments?after=X&access_token=IGQ-secret' }) as IgData['commentsPage']);
+    const { result } = await runAccount(c, ['comments']);
+    expect(result).toMatchObject({ outcome: 'ok', jobs: ['comments'] });
+    expect(ig.commentsPage.mock.calls.map((a) => [a[1], a[2] ? 'next' : 'first'])).toEqual([['p1', 'first'], ['p1', 'next']]); // p2 unchanged: not asked
+    expect(mem.comments.map((x) => x.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(mem.commentCounts.get('p1')).toEqual({ count: 3, synced: 3 });
+    ig.commentsPage.mockClear();
+    await runAccount(c, ['comments']);
+    expect(ig.commentsPage).not.toHaveBeenCalled();
+  });
+
+  it('an empty answer for a post that has comments writes nothing and is asked again next run', async () => {
+    const { c, ig, mem } = ctx({ posts: [{ id: 'p1', count: 4 }] });
+    await runAccount(c, ['comments']);
+    await runAccount(c, ['comments']);
+    expect(ig.commentsPage).toHaveBeenCalledTimes(2);
+    expect(mem.commentCounts.get('p1')!.synced).toBeNull();
+    expect(mem.comments).toEqual([]);
+  });
+
+  it('per-run call budget across posts; per-post page cap', async () => {
+    const posts = Array.from({ length: 30 }, (_, i) => ({ id: `p${String(i).padStart(2, '0')}`, count: 1, ageH: i + 1 }));
+    const { c, ig } = ctx({ posts });
+    ig.commentsPage.mockImplementation((async (_t: string, id: string) => ({ items: [comment(`${id}-c`)], next: 'https://graph.instagram.com/more' })) as IgData['commentsPage']);
+    await runAccount(c, ['comments']);
+    expect(ig.commentsPage).toHaveBeenCalledTimes(COMMENT_CALLS_PER_RUN);
+    expect(ig.commentsPage.mock.calls.filter((a) => a[1] === 'p00')).toHaveLength(4);
+  });
+
+  it('one post failing never stops the others; gone -> marked gone; rate limit -> stops; a DB failure never fails the account', async () => {
+    const { c, ig, mem } = ctx({ posts: [{ id: 'p1', count: 1, ageH: 1 }, { id: 'p2', count: 1, ageH: 2 }, { id: 'p3', count: 1, ageH: 3 }] });
+    ig.commentsPage.mockImplementation((async (_t: string, id: string) => {
+      if (id === 'p1') throw new InstagramApiError('data', 500, 2);
+      if (id === 'p2') throw new InstagramApiError('data', 400, 100, 33);
+      return { items: [comment('c3')], next: null };
+    }) as IgData['commentsPage']);
+    expect((await runAccount(c, ['comments'])).result.outcome).toBe('ok');
+    expect(mem.media.get('p2')!.gone).toBe(true);
+    expect(mem.comments.map((x) => x.id)).toEqual(['c3']);
+
+    const limited = ctx({ posts: [{ id: 'p1', count: 1 }] });
+    limited.ig.commentsPage.mockRejectedValue(new InstagramApiError('data', 400, 80002));
+    expect((await runAccount(limited.c, ['comments'])).result.errorKey).toBe('rate_limited');
+
+    const db = ctx({ posts: [{ id: 'p1', count: 1 }] });
+    db.ig.commentsPage.mockResolvedValue({ items: [comment('c1')], next: null });
+    db.mem.store.upsertComments = async () => {
+      throw new Error('sync store: upsertComments failed');
+    };
+    expect((await runAccount(db.c, ['comments'])).result.outcome).toBe('ok');
+  });
+
+  it('third-party names and texts never reach progress rows', async () => {
+    const { c, ig, mem } = ctx({ posts: [{ id: 'p1', count: 1 }] });
+    const writes: unknown[] = [];
+    c.progress = { report: async (...a) => void writes.push(a), finish: async () => undefined };
+    ig.commentsPage.mockResolvedValue({ items: [comment('c1', { username: 'private.person', text: 'my phone is 123' })], next: null });
+    await runAccount(c, ['comments']);
+    expect(mem.comments).toHaveLength(1);
+    expect(JSON.stringify(writes)).not.toMatch(/private\.person|phone/);
+  });
+});
+
+describe('comments data client and store', () => {
+  it('parses a page; skips items without id/timestamp; next only to Instagram\'s host', async () => {
+    expect(parseCommentsPage({ data: [{ id: '1', text: '', username: 'a', like_count: 2, timestamp: '2026-10-13T10:00:00+0000' }, { id: '2' }, { text: 'x', timestamp: '2026-10-13T10:00:00+0000' }], paging: { next: 'N' } })).toEqual({
+      items: [{ id: '1', text: '', username: 'a', likeCount: 2, commentedAt: '2026-10-13T10:00:00.000Z' }],
+      next: 'N',
+    });
+    const seen: URL[] = [];
+    const fn = (async (input: string | URL) => (seen.push(new URL(String(input))), new Response(JSON.stringify({ data: [] })))) as typeof fetch;
+    const ig = igData('v25.0', fn);
+    await ig.commentsPage('IGQ-secret', 'm1');
+    expect(seen[0].pathname).toBe('/v25.0/m1/comments');
+    expect(seen[0].searchParams.get('fields')).toBe('id,text,timestamp,username,like_count');
+    expect(await ig.commentsPage('IGQ-secret', 'm1', 'https://evil.example/steal?access_token=IGQ-secret')).toEqual({ items: [], next: null });
+    expect(seen).toHaveLength(1);
+  });
+
+  it('store: recent posts with comments, newest first; upsert by id without first_seen_at; synced count', async () => {
+    const calls: { table: string; op: string; args: unknown[]; filters: unknown[][] }[] = [];
+    const db = {
+      from(table: string) {
+        const c = { table, op: 'select', args: [] as unknown[], filters: [] as unknown[][] };
+        calls.push(c);
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        for (const op of ['upsert', 'update']) chain[op] = (...a: unknown[]) => ((c.op = op), (c.args = a), chain);
+        for (const f of ['eq', 'neq', 'is', 'gte', 'gt', 'order']) chain[f] = (...a: unknown[]) => (c.filters.push([f, ...a]), chain);
+        chain.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: [{ id: 'p1', comments_count: 3, comments_synced_count: null }], error: null }).then(res);
+        return chain;
+      },
+    };
+    const s = supabaseSyncStore(db as never);
+    expect(await s.mediaForComments('a1', 'SINCE')).toEqual([{ id: 'p1', commentsCount: 3, syncedCount: null }]);
+    expect(calls[0].filters).toEqual([['eq', 'account_id', 'a1'], ['neq', 'media_type', 'STORY'], ['is', 'gone_at', null], ['gte', 'posted_at', 'SINCE'], ['gt', 'comments_count', 0], ['order', 'posted_at', { ascending: false }]]);
+    await s.upsertComments('a1', 'p1', [comment('c1')], 'T');
+    expect(calls[1]).toMatchObject({ table: 'comments', op: 'upsert', args: [[{ id: 'c1', account_id: 'a1', media_id: 'p1', author_username: 'fan_c1', text: 'hello c1', like_count: 0, commented_at: hoursAgo(1), last_seen_at: 'T' }], { onConflict: 'id' }] });
+    expect((calls[1].args[0] as object[])[0]).not.toHaveProperty('first_seen_at');
+    await s.upsertComments('a1', 'p1', [], 'T');
+    expect(calls).toHaveLength(2);
+    await s.markCommentsSynced('p1', 3);
+    expect(calls[2]).toMatchObject({ table: 'media', op: 'update', args: [{ comments_synced_count: 3 }], filters: [['eq', 'id', 'p1']] });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-comments.test.ts`
+Expected: FAIL — `parseCommentsPage` / `COMMENT_CALLS_PER_RUN` are not exported.
+
+- [ ] **Step 3: Implement**
+
+In `lib/instagram/metrics.ts` replace:
+
+```ts
+/** UNCERTAIN: page-size maximum is not documented; 50 is conservative. */
+```
+
+with:
+
+```ts
+/**
+ * GET /{media-id}/comments (top-level comments). Needs instagram_business_manage_comments; WITHOUT it Meta answers an
+ * EMPTY list and no error (verified 2026-10-17), so the sync checks the granted scope first (lib/accounts/scopes.ts).
+ * Fields verified live 2026-10-16. Replies and `hidden` are not requested (moderation is a later plan).
+ */
+export const COMMENT_FIELDS = 'id,text,timestamp,username,like_count';
+export const COMMENT_PAGE_SIZE = 50;
+
+/** UNCERTAIN: page-size maximum is not documented; 50 is conservative. */
+```
+
+In `lib/instagram/parse.ts` replace:
+
+```ts
+/**
+ * The insight day an online_followers value belongs to.
+```
+
+with:
+
+```ts
+/** A comment on the owner's media. text and username are third-party personal data: never logged. */
+export interface IgComment {
+  id: string;
+  text: string | null;
+  username: string | null;
+  likeCount: number | null;
+  commentedAt: string; // ISO UTC
+}
+
+/** A page of /{media-id}/comments. Items without an id or a valid timestamp are skipped. */
+export function parseCommentsPage(body: unknown): { items: IgComment[]; next: string | null } {
+  const items: IgComment[] = [];
+  for (const c of entries(body)) {
+    const id = typeof c.id === 'number' ? String(c.id) : str(c.id);
+    const commentedAt = toIso(c.timestamp);
+    if (!id || !commentedAt) continue;
+    items.push({ id, text: typeof c.text === 'string' ? c.text : null, username: str(c.username), likeCount: num(c.like_count), commentedAt });
+  }
+  const paging = isObj(body) && isObj(body.paging) ? body.paging : null;
+  return { items, next: paging ? str(paging.next) : null };
+}
+
+/**
+ * The insight day an online_followers value belongs to.
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+import { mediaDetailsById, parseBreakdown, parseMediaDetails, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem, type MediaDetails } from '@/lib/instagram/parse';
+```
+
+with:
+
+```ts
+import { mediaDetailsById, parseBreakdown, parseCommentsPage, parseMediaDetails, parseMediaPage, parseOnlineFollowers, parseTotals, type IgComment, type IgMediaItem, type MediaDetails } from '@/lib/instagram/parse';
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+    /** Fresh cover URLs for one media item
+```
+
+with:
+
+```ts
+    /**
+     * One page of a media item's top-level comments. `next` (from the previous page) carries the token, so it is only
+     * followed to Instagram's own host; any other URL ends the paging.
+     */
+    async commentsPage(token: string, mediaId: string, next?: string): Promise<{ items: IgComment[]; next: string | null }> {
+      if (next !== undefined && !next.startsWith(`${HOST}/`)) return { items: [], next: null };
+      const body = next !== undefined ? await getUrl(next) : await get(`${mediaId}/comments`, { fields: M.COMMENT_FIELDS, limit: M.COMMENT_PAGE_SIZE }, token);
+      return parseCommentsPage(body);
+    },
+
+    /** Fresh cover URLs for one media item
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+import type { IgMediaItem } from '@/lib/instagram/parse';
+```
+
+with:
+
+```ts
+import type { IgComment, IgMediaItem } from '@/lib/instagram/parse';
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+  /** Stories past expires_at whose cover never landed: 'unavailable' (the CDN link died with them). */
+  expireStoryCovers(accountId: string, nowIso: string): Promise<void>;
+```
+
+with:
+
+```ts
+  /** Stories past expires_at whose cover never landed: 'unavailable' (the CDN link died with them). */
+  expireStoryCovers(accountId: string, nowIso: string): Promise<void>;
+  /** Feed + Reels posted since sinceIso that have comments (comments_count > 0), newest first, with the count at the last ingest. */
+  mediaForComments(accountId: string, sinceIso: string): Promise<{ id: string; commentsCount: number; syncedCount: number | null }[]>;
+  /** Upsert by comment id: text/likes/last_seen_at refresh, first_seen_at stays (column default on insert). */
+  upsertComments(accountId: string, mediaId: string, items: IgComment[], seenAtIso: string): Promise<void>;
+  markCommentsSynced(mediaId: string, commentsCount: number): Promise<void>;
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+    async upsertOnlineFollowers(accountId, day, hourly) {
+```
+
+with:
+
+```ts
+    async mediaForComments(accountId, sinceIso) {
+      const { data, error } = await db
+        .from('media')
+        .select('id,comments_count,comments_synced_count')
+        .eq('account_id', accountId)
+        .neq('media_type', 'STORY')
+        .is('gone_at', null)
+        .gte('posted_at', sinceIso)
+        .gt('comments_count', 0)
+        .order('posted_at', { ascending: false });
+      if (error) fail('mediaForComments');
+      return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, commentsCount: r.comments_count as number, syncedCount: (r.comments_synced_count as number | null) ?? null }));
+    },
+    async upsertComments(accountId, mediaId, items, seenAtIso) {
+      if (items.length === 0) return;
+      const rows = items.map((i) => ({ id: i.id, account_id: accountId, media_id: mediaId, author_username: i.username, text: i.text, like_count: i.likeCount, commented_at: i.commentedAt, last_seen_at: seenAtIso }));
+      check('upsertComments')(await db.from('comments').upsert(rows, { onConflict: 'id' }));
+    },
+    async markCommentsSynced(mediaId, commentsCount) {
+      check('markCommentsSynced')(await db.from('media').update({ comments_synced_count: commentsCount }).eq('id', mediaId));
+    },
+    async upsertOnlineFollowers(accountId, day, hourly) {
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+export const COVERS_EVERY_MIN = 60; // new posts appear with the hourly media list; their CDN links live ~1.4–4.5 days
+```
+
+with:
+
+```ts
+export const COVERS_EVERY_MIN = 60; // new posts appear with the hourly media list; their CDN links live ~1.4–4.5 days
+export const COMMENTS_EVERY_MIN = 60;
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+ * history (backfill: days 8–90 newest first, then older posts' metrics) -> post covers (lane 2 only, once the history
+ * import is through).
+ */
+export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'covers', 'tokenRefresh'] as const;
+export type JobKind = (typeof JOBS)[number];
+
+/** Optional catch-up work that only lane 2 runs (never inside lane 1's small per-account slice). */
+export const LANE2_ONLY: readonly JobKind[] = ['covers'];
+```
+
+with:
+
+```ts
+ * history (backfill: days 8–90 newest first, then older posts' metrics) -> post covers -> comments (both lane 2 only,
+ * once the history import is through; comments only with the granted scope).
+ */
+export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'covers', 'comments', 'tokenRefresh'] as const;
+export type JobKind = (typeof JOBS)[number];
+
+/** Optional catch-up work that only lane 2 runs (never inside lane 1's small per-account slice). */
+export const LANE2_ONLY: readonly JobKind[] = ['covers', 'comments'];
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+export interface ScheduleInput {
+  status: AccountStatus;
+  tokenExpiresAt: string | null;
+  state: SyncState;
+}
+```
+
+with:
+
+```ts
+export interface ScheduleInput {
+  status: AccountStatus;
+  tokenExpiresAt: string | null;
+  state: SyncState;
+  /** The account's token carries instagram_business_manage_comments (hasScope); missing = no comments job. */
+  commentsScope?: boolean;
+}
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+export function dueJobs({ status, tokenExpiresAt, state: s }: ScheduleInput,
+```
+
+with:
+
+```ts
+export function dueJobs({ status, tokenExpiresAt, state: s, commentsScope }: ScheduleInput,
+```
+
+In `lib/sync/schedule.ts` replace:
+
+```ts
+  else if (atLeast(s.lastRun.covers, COVERS_EVERY_MIN * MIN)) due.add('covers'); // after the import: Overview numbers first
+```
+
+with:
+
+```ts
+  else if (atLeast(s.lastRun.covers, COVERS_EVERY_MIN * MIN)) due.add('covers'); // after the import: Overview numbers first
+  if (commentsScope && !isBackfilling(s) && atLeast(s.lastRun.comments, COMMENTS_EVERY_MIN * MIN)) due.add('comments');
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import { markNeedsReconnect } from '@/lib/accounts/service';
+```
+
+with:
+
+```ts
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
+import { markNeedsReconnect } from '@/lib/accounts/service';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import type { IgMediaItem } from '@/lib/instagram/parse';
+```
+
+with:
+
+```ts
+import type { IgComment, IgMediaItem } from '@/lib/instagram/parse';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+/**
+ * Optional lane-2 work (covers, comments):
+```
+
+with:
+
+```ts
+/** Comment pages read per run (all posts together) and per post (50 comments a page). */
+export const COMMENT_CALLS_PER_RUN = 20;
+const COMMENT_PAGES_PER_MEDIA = 4;
+
+/**
+ * Comments (read only, lane 2, after the import) for posts of the last 30 days whose comments_count changed since the
+ * last ingest, newest first. Only with the granted scope: without it Meta answers an empty list with no error. An empty
+ * answer for a post that HAS comments is never taken as "no comments": nothing is written or marked, it is asked again.
+ * Upserts by comment id. Comment texts and usernames are never logged or put into progress/summary rows.
+ */
+const comments: Job = async (c) => {
+  if (!hasScope(c.account, COMMENTS_SCOPE)) return { done: true }; // belt and braces: dueJobs already requires it
+  const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
+  const due = (await c.store.mediaForComments(c.account.id, since)).filter((m) => m.commentsCount !== m.syncedCount);
+  let calls = COMMENT_CALLS_PER_RUN;
+  for (const [i, m] of due.entries()) {
+    if (outOfTime(c)) return { done: false };
+    if (calls <= 0) break; // the rest next time (stamped done: the cadence brings it back within the hour)
+    await c.progress?.report('comments', i, due.length);
+    const items: IgComment[] = [];
+    try {
+      let next: string | undefined;
+      for (let page = 0; page < COMMENT_PAGES_PER_MEDIA && calls > 0; page++) {
+        calls -= 1;
+        const r = await c.ig.commentsPage(c.token, m.id, next);
+        items.push(...r.items);
+        if (!r.next || outOfTime(c)) break;
+        next = r.next;
+      }
+    } catch (e) {
+      if (fatal(e)) throw e;
+      if (classifyIgError(e) === 'gone') await c.store.markGone(m.id, c.now.toISOString());
+      continue; // one post's problem never stops the others
+    }
+    if (items.length === 0) continue;
+    await c.store.upsertComments(c.account.id, m.id, items, c.now.toISOString());
+    await c.store.markCommentsSynced(m.id, m.commentsCount);
+  }
+  return { done: true };
+};
+
+/**
+ * Optional lane-2 work (covers, comments):
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+covers: optional(covers), tokenRefresh };
+```
+
+with:
+
+```ts
+covers: optional(covers), comments: optional(comments), tokenRefresh };
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
+```
+
+with:
+
+```ts
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
+import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
+```
+
+In `lib/sync/tick.ts` replace:
+
+```ts
+  const input = (a: StoredAccount, state: SyncState): ScheduleInput => ({ status: a.status, tokenExpiresAt: a.tokenExpiresAt, state });
+```
+
+with:
+
+```ts
+  const input = (a: StoredAccount, state: SyncState): ScheduleInput => ({ status: a.status, tokenExpiresAt: a.tokenExpiresAt, state, commentsScope: hasScope(a, COMMENTS_SCOPE) });
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+    mediaCover: vi.fn<IgData['mediaCover']>(
+```
+
+with:
+
+```ts
+    commentsPage: vi.fn<IgData['commentsPage']>(async () => ({ items: [], next: null })),
+    mediaCover: vi.fn<IgData['mediaCover']>(
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  const uploads: { path: string; bytes: number; contentType: string }[] = [];
+```
+
+with:
+
+```ts
+  const uploads: { path: string; bytes: number; contentType: string }[] = [];
+  /** comments_count / comments_synced_count per media id (only media listed here have comments) */
+  const commentCounts = new Map<string, { count: number; synced: number | null }>();
+  const comments: { accountId: string; mediaId: string; id: string; seenAt: string }[] = [];
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+    markCover: async (id, r) => void covers.set(id, r),
+```
+
+with:
+
+```ts
+    markCover: async (id, r) => void covers.set(id, r),
+    mediaForComments: async (accountId, since) =>
+      [...media.values()]
+        .filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && m.postedAt >= since && (commentCounts.get(m.id)?.count ?? 0) > 0)
+        .sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1))
+        .map((m) => ({ id: m.id, commentsCount: commentCounts.get(m.id)!.count, syncedCount: commentCounts.get(m.id)!.synced })),
+    upsertComments: async (accountId, mediaId, items, seenAt) => {
+      for (const i of items) {
+        const at = comments.findIndex((x) => x.id === i.id);
+        if (at >= 0) comments.splice(at, 1);
+        comments.push({ accountId, mediaId, id: i.id, seenAt });
+      }
+    },
+    markCommentsSynced: async (id, n) => void commentCounts.set(id, { count: commentCounts.get(id)?.count ?? n, synced: n }),
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  return { store, states, media, children, covers, uploads,
+```
+
+with:
+
+```ts
+  return { store, states, media, children, covers, uploads, commentCounts, comments,
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/sync-comments.test.ts tests/sync-schedule.test.ts tests/sync-onboarding-schedule.test.ts tests/sync-tick.test.ts tests/sync-lanes.test.ts tests/sync-covers-job.test.ts && npx tsc --noEmit`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/instagram/metrics.ts lib/instagram/parse.ts lib/instagram/data.ts lib/sync/store.ts lib/sync/schedule.ts lib/sync/run-account.ts lib/sync/tick.ts tests/fixtures/sync-fakes.ts tests/sync-comments.test.ts
+git commit -m "feat(sync): comments ingestion (read only, granted-scope gated, incremental by count, lane 2)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
