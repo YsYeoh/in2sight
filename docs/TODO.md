@@ -70,7 +70,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] PWA: manifest, icons, service worker (static + offline page only), install prompt (code done; not yet installed on a real phone — docs/RUNBOOK_ALERTS.md §3, §7)
 
 ## 6. UI pages (use `frontend-design`)
-- [x] Overview (grouped cards, totals, comparison, period selector) — code done; visual verification with real data pending (docs/RUNBOOK_DASHBOARDS.md)
+- [x] Overview (grouped cards, totals, comparison, Time Scope bar since Plan 12a) — code done; visual verification with real data pending (docs/RUNBOOK_DASHBOARDS.md, docs/RUNBOOK_TIMESCOPE.md)
 - [x] Account detail (Overview / Posts / Stories / Audience with globe), Tags page, Calendar (Plan 7) — code done; the tags migration and visual verification with real data pending (the globe and the new pages have not been viewed in a browser yet; docs/RUNBOOK_DASHBOARDS.md §4)
 - [x] Applied migration `20261017000001_tags.sql` (`npx supabase db push`; on the owner's go-ahead, BEFORE the deployed code is used — docs/RUNBOOK_DASHBOARDS.md §4.0)
 
@@ -114,6 +114,14 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] **Raw API response archive** _(Plan 11b: code done; live verification pending — RUNBOOK_CAPTURE §8)_: `api_snapshots` (account insights + audience bodies, deduped by hash, <= 64 KB, kept forever, `paging` links stripped).
 - [x] Migration `20261022000001_capture_v2b.sql` applied to the live project before the 11b deploy (tables and columns confirmed present 2026-10-17).
 - [ ] Owner: post a Story and run the probe (RUNBOOK_CAPTURE §3); Reconnect both accounts for comments (§1); then record the results in docs/META_PROBE_RESULTS.md. Full list: docs/OWNER_ACTIONS.md.
+
+## 6d. Time Scope (Plan 12a)
+- [x] **Shared Time Scope bar** on Overview, account pages (not Audience) and Calendar: presets 7d/14d/30d/90d/6m/1y/YTD/all, custom range, week/month/quarter pickers, compare (previous period / same period last year / custom days / none), granularity auto/day/week/month; URL-only state (`?from&to&cmp&gran`), old `?period=` and `?month=` links still work — code done; live verification pending (docs/RUNBOOK_TIMESCOPE.md)
+- [x] KPI windows from any range with an optional comparison (rolling presets keep the old 7/30/90 numbers); null-safe day/week/month buckets with partial buckets marked — code done; live verification pending
+- [x] Paged owner-session reads (no 200-day or 1,000-row cut for 1 year / all); Stories capped at 200 per account per range and the tab says so — code done; live verification pending
+- [x] Exports (Excel + PDF) follow the page's scope; strict parameters; file names and Summary state the days — code done; live verification pending (docs/RUNBOOK_TIMESCOPE.md §9)
+- [ ] Owner: run docs/RUNBOOK_TIMESCOPE.md (360/768/1280 × themes, 1 year, compare, DST range if the owner timezone has DST, old links)
+- [ ] Plan 12b: rollups, Explorer, drill-down, saved views; a Stories "final numbers" rollup lifts the 200-per-range cap
 
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
