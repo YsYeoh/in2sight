@@ -39,7 +39,7 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       const [rows, tags] = await Promise.all([loadPostRows(db, account.id, dayStart(scope.listRange.from, tz).toISOString()), loadTags(db)]);
       const filters = { ...parsePostFilters(sp), from: scope.listRange.from, to: scope.listRange.to }; // the dates come from the scope ("all" lists every stored post)
       // the imported server action is passed straight to the client component (never wrapped in a closure here)
-      return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} setPostTags={setPostTagsAction} />;
+      return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} accountId={account.id} setPostTags={setPostTagsAction} />;
     }
     case 'stories': {
       const { fromIso, toIso } = daysToIso(scope.range.from, scope.range.to, tz);
@@ -63,7 +63,7 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
         { account, sync: sync[account.id], daily, posts, online: online[account.id] ?? [], pooled: { accounts: pool.length, posts: [...posts, ...otherPosts.flat()], online: Object.values(online).flat() } },
         { scope, today, now, tz, weekStart: prefs.weekStart },
       );
-      return <AccountOverview model={model} />;
+      return <AccountOverview model={model} account={{ id: account.id, groupName: account.groupName }} />;
     }
   }
 }
