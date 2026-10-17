@@ -129,6 +129,13 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [x] Drill-down from Overview (tiles, groups, comparison rows/chart) and account pages (formats, best-time cells, Posts) _(code done; live verification pending — RUNBOOK_EXPLORER §3)_
 - [ ] Owner: fill the 1-year Server-Timing numbers in RUNBOOK_EXPLORER §4; confirm the open questions in the plan (Stories opt-in, 500-post cap, 6-tab phone bar)
 
+Follow-ups from the Plan 12b review (not done):
+- [ ] The weekday filter select is always Sunday-first (it ignores the week-start preference)
+- [ ] The Overview comparison chart's bucket drill works by mouse only (no keyboard path)
+- [ ] The breadcrumb trail drops the tag, weekday and hour filters
+- [ ] Measure the Explorer's real speed on the live database with Server-Timing at 1 and 2 years (the reviewer's local run: daily rollups 50-380 ms, heaviest calls 0.7-1.0 s at 1.33 M snapshots)
+- [ ] Owner: the three open defaults (Stories opt-in, 500-post cap, 6 items on the phone tab bar)
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
