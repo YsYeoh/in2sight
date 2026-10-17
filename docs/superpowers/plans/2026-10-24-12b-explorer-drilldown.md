@@ -31,6 +31,9 @@
 - **Export of the current view:** `GET /api/export/explorer?<same parameters>` → one-sheet `.xlsx` (dimension column, the selected metrics, and "previous" + "change" columns when comparing) through the existing `write-excel-file` module and cell rules (safe text, real dates, empty cells for missing values). It also sends `Server-Timing: explorer;dur=…` (the same loader as the page), which the runbook uses to measure 1-year performance.
 - **Navigation:** Explorer is a 6th main item between Calendar and Settings (icon `ChartNoAxesCombined`); the phone tab bar becomes 6 columns. It carries the Time Scope like Overview/Calendar do after 12a.
 - **Desktop-first layout:** controls in a left column from `lg` (sticky), stacked above the results below it; table + chart full width; card list on phones (DataTable). Every list and select scales to 20+ accounts (multi-select is a scrollable checkbox list).
+- **The Explorer's days follow the KPI cards** (12a `summarize`): a rolling preset ends on the latest settled insight day of the accounts in scope (`daily_done_through` within 3 days of yesterday, else yesterday), a fixed range is cut there, and 12a's `compareRange` gives the comparison — so a comparison never pits a window still missing Instagram's lagging days against a complete one. The page states the exact days.
+- **Reuse over copies:** the first captured day comes from 12a's `loadFirstDay`; tag/view names reuse `normalizeTagName` (with a `max`); permalinks reuse `safeLink`; the Excel sheet reuses `sheet()`/cell rules of `lib/export/workbook.ts`; the page and the export share ONE loader (`loadExplorer`) and ONE row-label function.
+- **Overview and account pages keep their own layouts;** they only gain links (tiles, group headings, comparison rows and chart buckets, format rows, best-time cells, post titles). The comparison table's account link is named "Open @…" so 12a's card-link test stays unambiguous.
 - **No new dependencies; no Meta calls; no new Meta metric names.**
 
 ## Open questions for the owner (the plan implements the default shown)
@@ -43,13 +46,21 @@
 
 ## Assumptions about 12a
 
-12b runs AFTER Plan 12a is merged. Names below are copied from the 12a plan's Interfaces blocks (commit `ce165ba`, Tasks 1–4); the ones marked **(assumed)** were not yet committed by the 12a planner when this was written and must be reconciled by the orchestrator.
+12b runs AFTER Plan 12a is merged. Every 12a name below is copied from the 12a plan (`docs/superpowers/plans/2026-10-23-12a-time-scope.md`, read at commit `5a3eba7`, Tasks 1–11 committed). **Replayed** = that 12a code was executed in this plan's dry-run clone; **read only** = taken from the 12a text without running it; **(assumed)** = not yet committed by the 12a planner when this was written — the orchestrator must reconcile these.
 
-- `lib/time-scope/range.ts` (12a Task 1, **dry-run here: its code was replayed in the clone**): `DayRange { from; to }`, `Window = { last: number } | DayRange`, `Compare`, `Granularity = 'day' | 'week' | 'month'`, `isDay`, `daysIn`, `minDay`, `compareRange(asked: Window, cur: DayRange, cmp: Compare): DayRange | null`, `bucketStart(day, gran, weekStart)`, `bucketRange(start, gran): DayRange`.
-- `lib/time-scope/scope.ts` (12a Task 2, **replayed**): `TimeScope { range: Preset | DayRange; cmp: Compare; gran: GranChoice }`, `SCOPE_KEYS`, `parseTimeScope(sp, weekStart)`, `scopeParams(s): Record<string, string>`, `scopeQuery(s): string`, `ResolvedScope { scope; params; query; preset; window; range; compare; gran; earliest; partial; comparePartial }`, `resolveScope(s, today, earliest)`.
-- `lib/analysis/growth.ts` after 12a Task 4: `MAX_LAG_DAYS` (= 3) and `Kpi { value; prior; diff; change; reason }` unchanged (verified in its Task 4 text).
-- Settled-day rule copied from 12a Task 4 `summarize()`: rolling windows end on the latest settled day, fixed windows are cut there (`explorerWindow` mirrors it for the accounts in scope).
-- _(further 12a names used by Tasks 11–13 — the `TimeScopeBar` props, the post-12a shape of `OverviewView`, `AccountOverview`, `PostsTab` and the account page — are listed here once 12a commits Tasks 6–9)_
+- `lib/time-scope/range.ts` (12a Task 1, **replayed**): `DayRange { from; to }`, `Window`, `Compare`, `Granularity = 'day' | 'week' | 'month'`, `minDay`, `compareRange(asked, cur, cmp)`, `bucketStart(day, gran, weekStart)`, `bucketRange(start, gran)`.
+- `lib/time-scope/scope.ts` (12a Task 2, **replayed**): `TimeScope { range; cmp; gran }`, `SCOPE_KEYS`, `parseTimeScope(sp, weekStart)` (accepts a Next.js params object or `URLSearchParams`; repeated key = missing), `scopeParams(s)`, `scopeQuery(s)`, `ResolvedScope { scope; params; query; preset; window; range; compare; gran; earliest; partial; comparePartial }`, `resolveScope(s, today, earliest)`.
+- `lib/analysis/buckets.ts` (12a Task 3, **replayed**) — not used by 12b (the SQL buckets; `bucketsOf` enumerates bucket starts with `bucketStart`/`bucketRange`).
+- `lib/analysis/growth.ts` (12a Task 4, **replayed**): `MAX_LAG_DAYS` (= 3), `Kpi { value; prior; diff; change; reason }`; the settled-day rule of `summarize()` is mirrored by `explorerWindow`/`settledDay`.
+- `components/shared/TimeScopeBar.tsx` (12a Task 6, **replayed** with its `timeScope` i18n): `TimeScopeBar({ scope: ResolvedScope; today: string; keep?: Record<string, string> })`; its granularity select is labelled "Group by" (hence the Explorer's "Break down by").
+- `lib/dashboard/read.ts` `loadFirstDay(db, accountIds): Promise<string | null>` (12a Task 10, **replayed** by hand: its hunk needs 12a Task 5's file) — used by Task 10 instead of a 12b copy. `safeLink` unchanged (12a Task 5 rewrites the file; **assumed** kept).
+- `lib/dashboard/detail-read.ts` `loadTags(db)` unchanged by 12a Task 5 (**read only**).
+- `components/overview/OverviewView.tsx` after 12a Task 9 (**replayed** with `lib/dashboard/overview.ts` and `tests/overview-view.test.tsx`): `OverviewModel { scope: ResolvedScope; days; partial; scopes; sections; totals }`, `OverviewView({ model, today, exportButton?, progress? })`, account cards link `/accounts/<id>?<scope query>`. Task 13's diff is against exactly that file.
+- `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx`, `lib/dashboard/account.ts` after 12a Task 10 (**replayed** + its `posts-tab`, `account-view`, `dashboard-account` test diffs): `AccountOverview({ model })` with `model.scope`; `PostsTab({ …, scope?: Record<string, string> })`. Task 14's diff is against exactly those files.
+- `app/(app)/accounts/[id]/page.tsx` after 12a Task 10 (**read only**): `TabContent` renders `<AccountOverview model={model} />` and `<PostsTab … scope={scope.params} setPostTags={setPostTagsAction} />` with `account` in scope — Task 14 Step 4 edits those two elements.
+- `lib/export/workbook.ts` after 12a Task 7 (**read only**): `WorkbookOptions` loses `period` (Task 11 therefore narrows `cellOf`/`sheet` to `Pick<WorkbookOptions, 'prefs'>`); `translator`, `writeWorkbook`, `WorkbookSheet`, `Translate` unchanged. `lib/export/request.ts` `exportHeaders`/`exportError`/`exportFile`, `lib/export/filename.ts` `contentDisposition(base, ext)`, `lib/export/download.ts` `downloadExport(url, format)` unchanged (**assumed**: 12a Tasks 7–8 change their parameters elsewhere, not these signatures). The Explorer file name follows 12a's `in2sight-<label>-<from>_<to>` pattern without calling `exportBasename`.
+- `pages.account.tab.{posts,stories}` and `pages.overview.{empty,emptyHint,addAccount}` i18n keys unchanged (**assumed**; 12a rewords other keys).
+- Navigation (12a Task 12, **(assumed)**, not committed yet): if 12a makes nav links carry the scope through a list of scoped destinations, Task 12 adds `/explorer` to it (stated in Task 12 Step 6).
 
 ## Out of scope
 
@@ -4815,7 +4826,7 @@ error code (never paste tokens or the service key).
 ```
 
 3. §7b: replace `custom report builder` with `custom report builder (the Explorer, §7e, is a whitelisted analysis view, not a free-form builder)`.
-4. §8: in the `Pages:` line, add ` · Explorer (§7e)` before the final period.
+4. §8: in the `Pages:` line, replace `· Tags. Design pass` with `· Tags · Explorer (§7e). Design pass`.
 
 - [ ] **Step 3: `docs/TODO.md`** — insert right before the `## 6b. Next (Plan 14/15 Settings)` heading:
 
@@ -4838,3 +4849,25 @@ Expected: lint, typecheck, every test file and `next build` pass (the build list
 git add docs/RUNBOOK_EXPLORER.md docs/SPEC.md docs/TODO.md
 git commit -m "docs: Explorer runbook, SPEC §5/§7e, TODO" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+## Dry-run result (2026-10-17)
+
+Executed in a throwaway clone outside the repo (`git clone` of `main` at `27f0374`, fresh `npm ci --fetch-retries=5 …` → exit 0), never in the real repo:
+
+- **SQL (Task 1) — verified on a real database.** A throwaway PostgreSQL 16 cluster (local `initdb`, TCP only) with a small stand-in for Supabase (`anon`/`authenticated`/`service_role` roles, `auth.uid()`/`auth.jwt()`/`auth.users`/`auth.mfa_factors`, `storage.buckets`): all 8 existing migrations + `20261024000001_explorer.sql` apply cleanly (exit 0). A SQL assertion script passed every check: per-account and per-bucket sums, followers as last value per account summed, ER parts only on days with both values, Monday/Sunday weeks, months, owner-timezone weekday/hour (Kuala Lumpur), Stories opt-in, latest snapshot, tag fan-out + untagged, tag/weekday/hour filters, hourly/daily follower curve, `explorer_views` constraints (padded name, array state, > 2 KB, duplicate name in another case), and **a signed-in non-owner gets 0 rows from every function and the table, cannot insert, and `anon` gets "permission denied"**. Volume test (10 accounts, 10,000 posts × 80 snapshots, 10,950 Stories × 48, 730 days, 350,400 follower snapshots = 1.33 M `media_metrics` rows), queried as the owner under RLS: with the original policies the heaviest rollup took 5.1 s; with the InitPlan rewrite every call took 2–285 ms (1y by account 22–33 ms, by week 35–49 ms, by format incl. Stories 262–284 ms, by tag/hour ≈ 80 ms, 2y by month 48–80 ms, newest 500 posts 65–90 ms, 2y daily follower curve 52–135 ms). A `set search_path` bucket helper measured 3× slower than the inline CASE, hence the inline rule.
+- **TypeScript tasks 2–14 — every test file of this plan was run in the clone** and passes: `explorer-migration` (19 + generic `migrations`), `explorer-registry` (6), `explorer-state` (9), `explorer-read` (8), `analysis-explorer` (15), `explorer-views` (11), `charts-drill` (4), `explorer-item` (4), `saved-views` (3), `explorer-load` (4), `explorer-export` (5), `explorer-view` (10), `overview-drill` (3), `account-drill` (4), plus the touched existing suites (`metrics`, `messages`, `tags`, `tag-actions`, `charts`, `export-workbook`, `export-xlsx-route`, `nav`, `app-shell`, `route-loading`, 12a's `overview-view`, `account-view`, `posts-tab`). `npx tsc --noEmit` and `npx eslint` on every new/changed 12b file: clean.
+- **12a replay in the same clone:** 12a Tasks 1, 2, 3 and 6 (code, tests, `timeScope` i18n) fully; Task 4 (`growth.ts`); Task 9 (`OverviewView.tsx`, `lib/dashboard/overview.ts`, `tests/overview-view.test.tsx`); Task 10 (`AccountOverview.tsx`, `AccountView.tsx`, `PostsTab.tsx`, `lib/dashboard/account.ts`, their three test diffs, `loadFirstDay` by hand). Full suite on that mixed tree: 183 of 189 files / 1,724 of 1,736 tests pass; the 6 failing files are all 12a pieces that were NOT replayed (12a Tasks 5, 7, 8, 11 and the Overview/account pages, 12a's i18n rewording of Tasks 9–10, and 12a test diffs for `analysis-coverage`, `dashboard-overview`, `sync-progress-wiring`, `navigation-start`, `account-page`) — none involves a 12b file.
+- **NOT dry-run:** Task 14 Step 4 (the two props in `app/(app)/accounts/[id]/page.tsx`: the 12a page was not replayed), the `next build` / `npm run check` of the combined 12a + 12b tree (Task 15 Step 4 is the first run), the 12a navigation change (12a Task 12 not written yet) and anything against live Supabase or a browser. The migration is unverified on the LIVE project until applied (runbook §0, §5).
+
+## Self-review (plan author)
+
+- **Spec coverage:** SQL rollups (Task 1) · registry, whitelisted ids, no free-form queries (Tasks 2–4) · Explorer page with metric picker, break-down, filters (accounts/groups/format/tag + weekday/hour), linked chart + table with card mode on phones, Time Scope bar, click-to-drill, saved views, export of the current view (Tasks 6–12) · vertical drill-down with breadcrumb and kept scope, single-item level with follower curve and audience slice, "no hourly reach" stated in the UI (Tasks 5, 8, 12–14) · horizontal comparison by account/group/format/tag/weekday/hour (dimensions) and periods (12a compare range) (Tasks 5, 12) · SPEC, TODO, RUNBOOK_EXPLORER with every requested live check (Task 15).
+- **No placeholders:** every step has its code or exact text; files are embedded from the dry-run clone byte for byte.
+- **Names checked across tasks:** `ExplorerState`, `parseExplorerState`, `explorerParams`, `explorerHref`, `withState`, `usable`, `rollupArgs`, `loadRollup`, `loadItems`, `ItemRow`, `toKpi`, `itemParts`, `byGroup`, `settledDay`, `explorerWindow`, `buildExplorer`, `drillTarget`, `drillHref`, `breadcrumbs`, `loadItem`, `ItemDetail`, `viewState`, `viewHref`, `loadViews`, `loadExplorer`, `ExplorerData`, `rowLabel`, `buildExplorerSheet` — one definition each, used with the same signature everywhere.
+- **Parallel safety:** see the Tasks table; the only shared files are `messages/*.json` (Task 2 only), `lib/analysis/explorer.ts` (Task 5 only) and the 12a-owned components (Tasks 13 and 14 touch disjoint ones).
+
+## Execution handoff
+
+Implement with superpowers:subagent-driven-development in the waves of the Tasks table (one commit per task), after Plan 12a is merged. Then an opus whole-branch review (focus: "Review Focus" above), one fix wave, **apply the migration (runbook §0) before deploying**, fast-forward merge, push, and the owner's live checks in `docs/RUNBOOK_EXPLORER.md`.
