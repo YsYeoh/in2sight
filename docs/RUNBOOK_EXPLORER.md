@@ -110,6 +110,37 @@ still means "the last 30 days" next week; a view saved with fixed dates keeps th
   error screen: pick a zone from the Settings list.
 - Days follow the KPI cards: a rolling range ends on the latest settled insight day (Instagram lags up to 48 h).
 
+## 8. Rollback
+
+**Order: deploy the previous code FIRST, then run the SQL.** The `/explorer` page and its export call the four functions
+and the table; if they vanish while the new code is still live, `/explorer` shows the error screen. Overview and the
+account pages do not call them, so they keep working either way.
+
+```sql
+begin;
+
+-- (a) give the five policies their original predicate back (same result, only the per-row evaluation returns)
+alter policy account_daily_owner_select on public.account_daily using (public.is_owner());
+alter policy media_owner_select on public.media using (public.is_owner());
+alter policy media_metrics_owner_select on public.media_metrics using (public.is_owner());
+alter policy media_tags_owner_all on public.media_tags using (public.is_owner()) with check (public.is_owner());
+alter policy follower_snapshots_owner_select on public.follower_snapshots using (public.is_owner());
+
+-- (b) the four rollup functions (exact argument types)
+drop function public.explorer_daily(uuid[], date, date, text, text, text);
+drop function public.explorer_media(uuid[], timestamptz, timestamptz, text, text, boolean, uuid, boolean, int, int);
+drop function public.explorer_posts(uuid[], timestamptz, timestamptz, text, text, boolean, uuid, boolean, int, int, text, text, text);
+drop function public.explorer_followers(uuid, timestamptz, timestamptz, text, boolean);
+
+-- (c) the saved views table: THIS DELETES THE OWNER'S SAVED VIEWS (nothing else reads them)
+drop table public.explorer_views;
+
+commit;
+```
+
+Dropping `explorer_views` deletes every saved Explorer view for good. Leave step (c) out if you want to keep them; the
+table is harmless on its own.
+
 ## What to send if it fails
 
 The URL (it holds the whole view), the width/theme, a screenshot, the `Server-Timing` value, and for SQL problems the
