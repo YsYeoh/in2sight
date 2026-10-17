@@ -5268,3 +5268,286 @@ git commit -m "feat(sync): archive raw account-insights and audience responses (
 ```
 
 ---
+
+### Task 15: Docs — RUNBOOK_CAPTURE, TODO, HANDOVER, SPEC §5/§6
+
+**Files:**
+- Create: `docs/RUNBOOK_CAPTURE.md`
+- Modify: `docs/TODO.md` (§6c honest ticks), `docs/HANDOVER.md` (§1d), `docs/SPEC.md` (§5 rows, §6 paragraph — **SPEC edit, flagged for the owner**), `docs/RUNBOOK_SYNC.md` (pointer)
+
+**Interfaces:**
+- Consumes: everything above (names, keys, limits).
+- Produces: the owner's live-verification procedure, including "post a Story and run a probe", the comments Reconnect, capability-memory reset (`update sync_state set capabilities = '{}'`), storage size queries and the orphan query.
+
+- [ ] **Step 1: Write the runbook** — create `docs/RUNBOOK_CAPTURE.md`:
+
+````markdown
+# Runbook — Data Capture v2b (Plan 11b)
+
+How to check, live, everything Plan 11b captures: granted scopes, capability memory, Story extras, per-media extras,
+media fields, cover images, comments and the raw response archive. Run the SQL in the Supabase SQL editor (it runs as
+`postgres`, so RLS does not hide rows). Nothing here prints tokens; never paste tokens, CDN URLs or comment texts into
+chats or issues.
+
+## 0. Before deploying
+1. Apply the migration FIRST: `npx supabase db push --yes --password $SUPABASE_DB_PASSWORD` (see docs/HANDOVER.md §4).
+   The new code writes columns that only exist after `20261022000001_capture_v2b.sql`.
+2. Check the bucket is private and capped:
+   ```sql
+   select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'covers';
+   -- expect: covers | false | 5242880 | {image/jpeg,image/png,image/webp}
+   select count(*) from pg_policies where schemaname = 'storage' and policyname ilike '%cover%';  -- expect 0
+   ```
+3. Existing accounts were given the two original scopes:
+   ```sql
+   select username, granted_scopes from accounts order by connected_at;
+   ```
+
+## 1. Comments scope: reconnect each account once
+Accounts connected before the comments scope was requested show **"Reconnect to enable comments"** on `/accounts`.
+1. Click it (or ⋮ → Reconnect), log in to that Instagram account, approve all permissions.
+2. Check: `select username, granted_scopes from accounts;` → the list now contains `instagram_business_manage_comments`.
+3. If `granted_scopes` is `null` after a reconnect, Meta did not report the granted permissions on the code exchange:
+   tell the assistant (comments stay off rather than guessing).
+4. Without the scope Instagram returns an EMPTY comments list without an error; the app never reads that as "no
+   comments" — the comments job simply does not run.
+
+## 2. Capability memory (`sync_state.capabilities`)
+```sql
+select a.username, s.capabilities from sync_state s join accounts a on a.id = s.account_id;
+```
+Keys: `story:follows`, `story:profile_visits`, `story:profile_activity`, `feed:follows_visits`, `feed:profile_activity`,
+`reels:watch`, `stories:url_fields`. `true` = Meta served it; `false` = Meta answered "not supported" (error 100 with
+the "does not support / nonexisting field" wording) and it is no longer requested. Transient errors never write `false`.
+**Reset** (e.g. after Meta adds support, or to re-probe):
+```sql
+update sync_state set capabilities = '{}';                                   -- all accounts
+update sync_state set capabilities = capabilities - 'story:follows';         -- one key
+```
+
+## 3. Story extras — "post a Story and run a probe"
+Story support for `follows`, `profile_visits`, `profile_activity` and the Story image fields is documented but was
+never verified live (no Story was up while probing). The code discovers it at runtime; this procedure confirms it.
+1. Post a Story on a connected account (insights need ≥ 5 viewers; under that Meta answers "not enough viewers" and
+   nothing is stored, which is expected).
+2. Wait for a tick, or trigger one: `POST /api/cron/tick` with `Authorization: Bearer $CRON_SECRET`.
+3. Story extras run on the pass in the first 30 minutes of each 2-hour window of the Story's age and on every pass in
+   its last hour. After the first such pass:
+   ```sql
+   select m.id, mm.captured_at, mm.reach, mm.taps_forward, mm.taps_back, mm.exits, mm.swipe_forward,
+          mm.follows, mm.profile_visits, mm.profile_activity
+     from media m join media_metrics mm on mm.media_id = m.id
+    where m.media_type = 'STORY'
+    order by mm.captured_at desc limit 20;
+   select capabilities from sync_state;   -- story:* keys now true (served) or false (unsupported)
+   ```
+4. Cover: `select id, cover_status, cover_attempts, cover_path from media where media_type = 'STORY' order by posted_at desc limit 5;`
+   → `ok` with `cover_path = '<account_id>/<media_id>.jpg'` within one tick of posting. If `stories:url_fields` is
+   `false`, Meta rejected `media_url`/`thumbnail_url` on Stories: Story covers cannot be captured (they end
+   `unavailable` at expiry) — report it.
+5. Record the outcome in `docs/META_PROBE_RESULTS.md` (supported / unsupported per metric, date, no ids).
+
+## 4. Per-media extras and the 7-day checkpoint
+```sql
+select m.media_type, mm.captured_at, mm.follows, mm.profile_visits, mm.profile_activity,
+       mm.avg_watch_ms, mm.total_watch_ms, mm.skip_rate
+  from media m join media_metrics mm on mm.media_id = m.id
+ where m.media_type <> 'STORY' and m.posted_at > now() - interval '30 days'
+ order by mm.captured_at desc limit 30;
+```
+Feed/carousel rows get follows/profile visits/activity, Reels rows get watch time and skip rate (Reels never get
+follows/profile visits — Meta does not support them). Extras are budgeted (20 extra calls per account run), so a busy
+tick can leave a snapshot without extras; the next one fills in.
+7-day checkpoint: each post gets one snapshot right after its 7th day:
+```sql
+select m.id, min(mm.captured_at - m.posted_at) filter (where mm.captured_at - m.posted_at >= interval '7 days') as first_after_day7
+  from media m join media_metrics mm on mm.media_id = m.id
+ where m.media_type <> 'STORY' and m.posted_at between now() - interval '20 days' and now() - interval '8 days'
+ group by m.id;   -- expect ~7 days + less than one hour
+```
+
+## 5. Media fields and carousel children
+```sql
+select media_type, media_product_type, like_count, comments_count, is_shared_to_feed, children_count
+  from media where media_type <> 'STORY' order by posted_at desc limit 10;
+select media_id, position, media_type from media_children order by media_id, position limit 20;
+```
+Filled by the hourly media list (recent posts) — older posts get them when they are next listed.
+
+## 6. Cover images
+```sql
+select a.username, m.cover_status, count(*) from media m join accounts a on a.id = m.account_id
+ group by 1, 2 order by 1, 2;
+select count(*) as objects, pg_size_pretty(sum((metadata->>'size')::bigint)) as size
+  from storage.objects where bucket_id = 'covers';
+```
+- New accounts: covers start after the history import (Overview numbers first), 25 per account per lane-2 run,
+  newest first, hourly; posts whose image Meta does not offer (copyrighted media) end `unavailable`; failures retry
+  after 30/60/120/240 min, then `unavailable`.
+- Signed in, open `https://<domain>/api/media/<media_id>/cover` → the image (`Cache-Control: private, max-age=31536000,
+  immutable`). Signed out → redirected to `/login`. A media id without a stored cover → 404.
+- Orphaned objects (Storage clean-up after a permanent delete failed):
+  ```sql
+  select name from storage.objects
+   where bucket_id = 'covers' and split_part(name, '/', 1) not in (select id::text from accounts);
+  ```
+  Delete them from the Storage dashboard (they are private and unreachable through the app).
+- Archive keeps covers; only "Delete permanently" removes them.
+
+## 7. Comments
+```sql
+select a.username, count(c.*) as comments, count(distinct c.author_username) as commenters, max(c.commented_at)
+  from accounts a left join comments c on c.account_id = a.id group by 1;
+select id, comments_count, comments_synced_count from media
+ where media_type <> 'STORY' and posted_at > now() - interval '30 days' and comments_count > 0
+ order by posted_at desc limit 10;   -- synced = count once ingested; a post stays unsynced while Meta returns nothing
+```
+Runs hourly in lane 2 after the import, only for accounts with the scope; posts of the last 30 days whose comment
+count changed; top-level comments only; 20 page calls per account run. Usernames and texts are third-party personal
+data: never copy them out of the database into chats or issues.
+
+## 8. Raw response archive
+```sql
+select a.username, count(*) as bodies, pg_size_pretty(sum(pg_column_size(s.body))) as size, max(s.captured_at)
+  from api_snapshots s join accounts a on a.id = s.account_id group by 1;
+select endpoint, captured_at from api_snapshots order by captured_at desc limit 10;
+```
+One row per distinct body per request (deduped by hash), so the daily re-fetch of the last 3 days only adds rows when
+Meta revised the numbers. Bodies over 64 KB are skipped. Kept forever.
+
+## 9. Expected growth (2 accounts)
+| What | Per account | 2 accounts / year |
+|---|---|---|
+| `api_snapshots` | ~10 bodies/day × 1–3 KB | ~10–20 MB |
+| `media_metrics` extras columns | a few bytes per snapshot | negligible |
+| `comments` | depends on the audience; ~200 B/comment | < 5 MB for thousands of comments |
+| Covers (Storage) | ~16–150 KB per post/Reel/Story | ~100 MB per 1,000 items (free tier: 1 GB) |
+
+## 10. Known limits
+- Comment edits that do not change a post's comment count are picked up at the next count change; replies and the
+  `hidden` flag are not read yet (moderation plan).
+- Carousel child covers are not captured (only the parent's first image).
+- Story extras / Story covers depend on Meta supporting them on Stories (section 3).
+- A cover backlog larger than 200 failed-and-waiting items can delay older pending ones until their back-off clears.
+````
+
+- [ ] **Step 2: Update TODO, HANDOVER, SPEC, RUNBOOK_SYNC**
+
+In `docs/TODO.md` replace:
+
+```markdown
+- [ ] **URGENT next capture: Story extras** (Stories vanish after 24 h): keep SWIPE_FORWARD from the `navigation` breakdown (currently dropped in `lib/instagram/metrics.ts`/`data.ts`), add `follows`, `profile_visits`, `profile_activity`. **CAUTION (learned from `reposts`): one unsupported metric in a batched insights request fails the WHOLE request** — Story support for these metrics is unverified (no live Story during probing), so fetch the extras in a SEPARATE non-fatal call (like `followerSnapshot` in `lib/sync/run-account.ts`) so the existing Story capture can never break; probe first while a Story is live.
+- [ ] Per-media extras (Reels watch time/skip rate; feed follows/profile_visits), raw API response archive, comments ingestion, cover capture. (Newest-first backfill and immediate sync on connect: done, see §6a.)
+```
+
+with:
+
+```markdown
+- [x] **Story extras** _(Plan 11b: code done; live verification pending — docs/RUNBOOK_CAPTURE.md §3 "post a Story and run a probe")_: SWIPE_FORWARD kept (`media_metrics.swipe_forward`); `follows`, `profile_visits`, `profile_activity` each in a SEPARATE non-fatal call after the core Story snapshot, every 2 h of a Story's life + its last hour; support learned at runtime (`sync_state.capabilities`), never assumed.
+- [x] **Per-media extras** _(Plan 11b: code done; live verification pending — RUNBOOK_CAPTURE §4)_: feed/carousel follows + profile visits + profile activity, Reels avg/total watch time + skip rate, separate non-fatal calls after the core loop, 20 extra calls per account run, + the 7-day checkpoint snapshot.
+- [x] **Media fields** _(Plan 11b; RUNBOOK_CAPTURE §5)_: `media_product_type`, `like_count`, `comments_count`, `is_shared_to_feed`, `children_count` + `media_children`.
+- [x] **Cover capture** _(Plan 11b: code done; live verification pending — RUNBOOK_CAPTURE §6)_: private bucket `covers`, Stories on first sight, posts/Reels backfilled newest first in lane 2 after the import, CDN allowlist/size/type/timeout, owner-only `GET /api/media/[id]/cover`, permanent delete removes the objects. Not yet: `MediaThumb` UI (Plan 12/13), carousel child covers.
+- [x] **Comments ingestion** _(Plan 11b: code done; live verification pending — RUNBOOK_CAPTURE §1 + §7; **each account must Reconnect once** to grant `instagram_business_manage_comments`)_: read only, gated on the scope stored at connect (`accounts.granted_scopes`), incremental by comment count, recent 30 days. Not yet: replies, hidden flag, moderation.
+- [x] **Raw API response archive** _(Plan 11b; RUNBOOK_CAPTURE §8)_: `api_snapshots` (account insights + audience bodies, deduped by hash, ≤ 64 KB, kept forever).
+- [ ] Owner: post a Story and run the probe (RUNBOOK_CAPTURE §3); Reconnect both accounts for comments (§1); then record the results in docs/META_PROBE_RESULTS.md.
+```
+
+In `docs/HANDOVER.md` replace:
+
+```markdown
+## 2. What to do next (approved design, not yet built)
+```
+
+with:
+
+```markdown
+## 1d. Plan 11b — capture extras (2026-10-22)
+- Granted scopes stored at connect (`accounts.granted_scopes`; existing accounts backfilled with the two original scopes → they show "Reconnect to enable comments"); capability memory (`sync_state.capabilities`); Story extras + SWIPE_FORWARD; per-media extras + 7-day checkpoint; media fields + `media_children`; covers in the private `covers` bucket (Stories on first sight, posts in lane 2) + `GET /api/media/[id]/cover`; comments (`comments` table, scope-gated); raw archive (`api_snapshots`). Plan: `docs/superpowers/plans/2026-10-22-11b-capture-extras.md`.
+- **Apply migration `20261022000001_capture_v2b.sql` BEFORE deploying the code** (it adds the columns, tables and the bucket the code writes).
+- Live verification pending: docs/RUNBOOK_CAPTURE.md (post a Story and probe; Reconnect each account once for comments; cover route; storage sizes). Plan 11 is complete in code after this; next: Plan 12 (Time Scope + rollups + Explorer).
+
+## 2. What to do next (approved design, not yet built)
+```
+
+In `docs/SPEC.md` replace:
+
+```markdown
+| `accounts` | id, ig_user_id (unique), username, group_name (nullable; null = isolated account), status (`active`/`needs_reconnect`/`archived`), archived_at, created_at, display_name, account_type, profile_picture_url, last_error, token_expires_at (non-secret copy of the token expiry, for the UI), connected_at |
+```
+
+with:
+
+```markdown
+| `accounts` | id, ig_user_id (unique), username, group_name (nullable; null = isolated account), status (`active`/`needs_reconnect`/`archived`), archived_at, created_at, display_name, account_type, profile_picture_url, last_error, token_expires_at (non-secret copy of the token expiry, for the UI), connected_at, granted_scopes text[] (what Meta reported at the last connect; null = unknown = not granted) |
+```
+
+In `docs/SPEC.md` replace:
+
+```markdown
+| `media` | id (IG media id), account_id, media_type (`IMAGE`/`CAROUSEL_ALBUM`/`REELS`/`STORY`), permalink, caption, posted_at, expires_at (stories), last_metrics_at, gone_at (deleted on Instagram; history kept) |
+| `media_metrics` | media_id, captured_at (timestamptz), reach, views, likes, comments, shares, saves, total_interactions, replies, taps_forward, taps_back, exits — pk(media_id, captured_at); story-only columns null for other types |
+```
+
+with:
+
+```markdown
+| `media` | id (IG media id), account_id, media_type (`IMAGE`/`CAROUSEL_ALBUM`/`REELS`/`STORY`), permalink, caption, posted_at, expires_at (stories), last_metrics_at, gone_at (deleted on Instagram; history kept), media_product_type, like_count, comments_count, is_shared_to_feed, children_count, cover_path (Storage key `{account_id}/{media_id}.jpg` in the private bucket `covers`), cover_status (`pending`/`ok`/`unavailable`/`failed`), cover_captured_at, cover_attempts, cover_tried_at, comments_synced_count |
+| `media_children` | media_id, position (0–9), media_type, cover_path, cover_status (child covers not captured yet) — pk(media_id, position) |
+| `media_metrics` | media_id, captured_at (timestamptz), reach, views, likes, comments, shares, saves, total_interactions, replies, taps_forward, taps_back, exits, swipe_forward, follows, profile_visits, profile_activity jsonb (by action_type), avg_watch_ms, total_watch_ms, skip_rate — pk(media_id, captured_at); story-only columns null for other types; extras null when not captured (never 0) |
+| `comments` | id (IG comment id), account_id, media_id, parent_id, author_username, author_id, text, like_count, commented_at, hidden, first_seen_at, last_seen_at — third-party personal data: owner-only, cascade-deleted with the account, never logged or exported by default |
+| `api_snapshots` | id, account_id, endpoint (path + sorted params, no token), captured_at, body jsonb, body_hash — unique(account_id, endpoint, body_hash); raw account-insights + audience responses, ≤ 64 KB, kept forever |
+```
+
+In `docs/SPEC.md` replace:
+
+```markdown
+last_run jsonb (per-job last success; `backfill` = history import finished) |
+```
+
+with:
+
+```markdown
+last_run jsonb (per-job last success; `backfill` = history import finished), capabilities jsonb (optional metrics/fields learned at runtime: `true` served, `false` "unsupported"; reset with `'{}'`) |
+```
+
+In `docs/SPEC.md` replace:
+
+```markdown
+**Stories job (every tick):** for each `active` account, list live Stories, upsert into `media`, insert a `media_metrics` snapshot per story. Stories exist for 24h only, so a missed window is lost data; a 30-minute tick gives ~48 snapshots per story.
+```
+
+with:
+
+```markdown
+**Stories job (every tick):** for each `active` account, list live Stories, upsert into `media`, insert a `media_metrics` snapshot per story. Stories exist for 24h only, so a missed window is lost data; a 30-minute tick gives ~48 snapshots per story.
+
+**Capture extras (Plan 11b):** every optional Meta metric or field is a SEPARATE, non-fatal call made after the core snapshot is stored (one unsupported metric fails a whole batched request); an "unsupported" answer is remembered in `sync_state.capabilities`, transient errors are not. Story job, after the snapshots: cover copy on first sight (URL from the listing; retried every pass while live, then `unavailable`), then Story extras (follows, profile visits, profile activity) every 2 h of the Story's life and in its last hour. Media metrics: after the core loop, feed/carousel extras (follows + profile visits, profile activity) and Reels extras (watch time, skip rate) within 20 extra calls per account run; plus a 7-day checkpoint snapshot. Lane 2 only, after the history import: `covers` (hourly, 25 posts/Reels per run, newest first, fresh URL per item, CDN allowlist + 5 MB + image types + 10 s, back-off then `unavailable`) and `comments` (hourly, only with the granted `instagram_business_manage_comments` scope — Meta returns an empty list without it — posts of the last 30 days whose comment count changed, ≤ 20 page calls per run). Raw account-insights and audience bodies are archived to `api_snapshots` (deduped, best-effort). Covers are served only by the owner-only route `GET /api/media/[id]/cover`; a permanent account delete removes the account's objects.
+```
+
+In `docs/RUNBOOK_SYNC.md` replace:
+
+```markdown
+## Known limits
+```
+
+with:
+
+```markdown
+> Plan 11b capture extras (Story/per-media extras, covers, comments, raw archive) have their own runbook: docs/RUNBOOK_CAPTURE.md.
+
+## Known limits
+```
+
+- [ ] **Step 3: Verify**
+
+Run: `npm run check`
+Expected: PASS (docs only; nothing else changes). Then re-read `docs/TODO.md` §6c: every tick says "code done; live verification pending" where the owner still has to look.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/RUNBOOK_CAPTURE.md docs/TODO.md docs/HANDOVER.md docs/SPEC.md docs/RUNBOOK_SYNC.md
+git commit -m "docs: Plan 11b runbook (live capture checks, Story probe, comments reconnect), TODO, handover, SPEC §5/§6" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
