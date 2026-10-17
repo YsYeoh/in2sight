@@ -10,13 +10,13 @@ import { useBestTimeRows } from '@/components/charts/useBestTimeRows';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable } from '@/components/shared/DataTable';
-import { PeriodSelect } from '@/components/shared/PeriodSelect';
 import { StatCard } from '@/components/shared/StatCard';
+import { useBucketFormat, useScopeText } from '@/components/shared/TimeScopeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Button } from '@/components/ui/button';
 import type { KpiId } from '@/lib/analysis/growth';
 import type { AccountOverviewModel } from '@/lib/dashboard/account';
-import { formatCompact, formatDateTime, formatDay, formatDelta, formatNumber, formatPercent } from '@/lib/format';
+import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
 
 const KPI_IDS: KpiId[] = ['followers', 'reach', 'views', 'engagementRate', 'posts', 'netFollows'];
@@ -38,6 +38,7 @@ export function AccountOverview({ model }: { model: AccountOverviewModel }) {
   const to = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
+  const ts = useTranslations('timeScope');
   const tErr = useTranslations('accounts.errors');
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
@@ -45,20 +46,18 @@ export function AccountOverview({ model }: { model: AccountOverviewModel }) {
   const [view, setView] = useState<'online' | 'posts'>('online'); // SPEC §7: followers online is the default
   const [scope, setScope] = useState<'account' | 'pooled'>('account');
   const heat = model.heat[view][scope];
-  const vs = to('vsPrevious', { days: model.period });
-  const fmtX = (d: string) => formatDay(d, prefs);
+  const { vs } = useScopeText(model.scope);
+  const fmtX = useBucketFormat(model.scope.gran, model.trendPartial);
+  const gran = model.scope.gran;
   const fmtY = (n: number) => formatCompact(n, prefs);
 
   return (
     <div className="grid min-w-0 gap-[var(--gp)]">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <p className="min-w-0 text-xs text-muted-foreground">
-          <span className="sr-only">{t('syncStatus')}: </span>
-          {model.lastSyncedAt ? to('lastSynced', { time: formatDateTime(model.lastSyncedAt, prefs) }) : to('neverSynced')}
-          {model.syncErrorKey ? <span className="ml-1 text-destructive">· {tErr.has(model.syncErrorKey) ? tErr(model.syncErrorKey) : tErr('unexpected')}</span> : null}
-        </p>
-        <PeriodSelect period={model.period} />
-      </div>
+      <p className="min-w-0 text-xs text-muted-foreground">
+        <span className="sr-only">{t('syncStatus')}: </span>
+        {model.lastSyncedAt ? to('lastSynced', { time: formatDateTime(model.lastSyncedAt, prefs) }) : to('neverSynced')}
+        {model.syncErrorKey ? <span className="ml-1 text-destructive">· {tErr.has(model.syncErrorKey) ? tErr(model.syncErrorKey) : tErr('unexpected')}</span> : null}
+      </p>
 
       {model.state === 'needs_reconnect' ? (
         <p className="flex items-center gap-2 text-sm text-destructive">
@@ -78,10 +77,11 @@ export function AccountOverview({ model }: { model: AccountOverviewModel }) {
       </section>
 
       <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-2">
-        <ChartCard title={t('trendTitle')} summary={t('trendSummary', { days: model.period })}>
+        <ChartCard title={t('trendTitle')} summary={t('trendSummary', { gran })}>
           <SeriesChart kind="line" data={model.trend} xKey="day" series={[{ key: 'reach', label: tm('reach') }, { key: 'views', label: tm('views') }]} title={t('trendTitle')} formatX={fmtX} formatY={fmtY} />
+          {model.trendPartial.length ? <p className="mt-1 text-xs text-muted-foreground">{ts('partialNote')}</p> : null}
         </ChartCard>
-        <ChartCard title={t('followersTitle')} summary={t('followersSummary', { days: model.period })}>
+        <ChartCard title={t('followersTitle')} summary={t('followersSummary', { gran })}>
           <SeriesChart kind="area" data={model.trend} xKey="day" series={[{ key: 'followers', label: tm('followers') }]} title={t('followersTitle')} formatX={fmtX} formatY={fmtY} />
         </ChartCard>
       </div>

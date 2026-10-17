@@ -124,6 +124,15 @@ export async function loadPosts(db: SupabaseClient, accountId: string, newest = 
   return rows.map(rowToPost).filter((p): p is Post => p !== null);
 }
 
+/** The first day with an account_daily row for these accounts (where the captured data starts); null when there is none. */
+export async function loadFirstDay(db: SupabaseClient, accountIds: string[]): Promise<string | null> {
+  if (accountIds.length === 0) return null;
+  const { data, error } = await db.from('account_daily').select('day').in('account_id', accountIds).order('day', { ascending: true }).limit(1);
+  if (error) fail('first day');
+  const r = ((data ?? []) as Row[])[0];
+  return r ? String(r.day) : null;
+}
+
 export interface OverviewInput {
   accounts: StoredAccount[]; // archived accounts are hidden from every view (SPEC §7c)
   sync: Record<string, SyncStatus>;

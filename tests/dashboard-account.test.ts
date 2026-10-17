@@ -3,6 +3,7 @@ import type { StoredAccount } from '@/lib/accounts/types';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 import { buildAccountOverview, parseTab, poolFor, type AccountOverviewInput } from '@/lib/dashboard/account';
 import { addDays } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 const TODAY = '2026-10-15';
 const NOW = new Date('2026-10-15T04:00:00Z');
@@ -11,7 +12,8 @@ const acct = (id: string, o: Partial<StoredAccount> = {}): StoredAccount => ({ i
 const days = (n: number, reach: number): DailyRow[] => Array.from({ length: n }, (_, i) => ({ day: addDays(TODAY, i - n), followers: 1000 + i, reach, views: reach * 2, accountsEngaged: null, interactions: reach / 10, follows: null, unfollows: null, linkTaps: null }));
 const post = (id: string, postedAt: string, reach: number, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt, permalink: null, reach, views: null, likes: 10, comments: null, shares: null, saves: null, ...o });
 const empty: AccountOverviewInput = { account: acct('a1'), sync: undefined, daily: [], posts: [], online: [], pooled: { accounts: 1, posts: [], online: [] } };
-const opts = { period: 7 as const, today: TODAY, now: NOW, tz: KL, weekStart: 'mon' as const };
+const optsOf = (q: string) => ({ scope: resolveScope(parseTimeScope(new URLSearchParams(q)), TODAY, '2026-01-01'), today: TODAY, now: NOW, tz: KL, weekStart: 'mon' as const });
+const opts = optsOf('from=7d');
 
 describe('parseTab', () => {
   it('accepts the four tabs only (tab param injection falls back to overview)', () => {
@@ -40,7 +42,8 @@ describe('buildAccountOverview', () => {
     expect(m.kpis.reach).toMatchObject({ value: 700, change: 0 });
     expect(m.trend).toHaveLength(7);
     expect(m.trend[6]).toEqual({ day: '2026-10-14', reach: 100, views: 200, followers: 1013 });
-    expect(m.formats.map((f) => f.mediaType)).toEqual(['REELS', 'IMAGE']);
+    expect(m.trendPartial).toEqual([]);
+    expect(m.formats.map((f) => f.mediaType)).toEqual(['REELS']); // only posts published in the scope's 7 days
     expect(m.heat.online.account.reason).toBeNull();
     expect(m.heat.online.pooled.reason).toBe('needs_100_followers');
     expect(m.heat.posts.pooled.sample).toBe(8);
@@ -61,6 +64,16 @@ describe('buildAccountOverview', () => {
     expect(m.flags).toEqual([]);
     expect(m.syncErrorKey).toBeNull();
     for (const k of Object.values(m.kpis)) for (const v of [k.value, k.diff, k.change]) if (v !== null) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it('a longer scope by weeks: weekly trend (sums, followers at the end of each week), formats over the whole range', () => {
+    const history = Array.from({ length: 6 }, (_, i) => post(`h${i}`, `${addDays('2026-09-20', i)}T02:00:00Z`, 100));
+    const m = buildAccountOverview({ ...empty, daily: days(28, 100), posts: history }, optsOf('from=2026-09-21&to=2026-10-14&gran=week&cmp=none'));
+    expect(m.trend.map((r) => r.day)).toEqual(['2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12']);
+    expect(m.trend[0]).toEqual({ day: '2026-09-21', reach: 700, views: 1400, followers: 1010 }); // 27 Sep, the week's last day
+    expect(m.trendPartial).toEqual(['2026-10-12']); // the range ends on a Wednesday
+    expect(m.formats).toEqual([expect.objectContaining({ mediaType: 'IMAGE', posts: 5 })]); // 20 Sep is outside
+    expect(m.kpis.reach).toMatchObject({ value: 2400, prior: null, reason: null });
   });
 
   it('a needs_reconnect account says so', () => {
