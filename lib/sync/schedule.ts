@@ -24,6 +24,18 @@ const BACKOFF_MAX_MIN = 240;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
+/** Story extras every STORY_EXTRAS_EVERY_MIN of a Story's life, and on every pass in its last hour (final values). */
+export const STORY_EXTRAS_EVERY_MIN = 120;
+
+/**
+ * Stateless cadence for Story extras (3 calls per Story when all are supported): the pass that lands in the first
+ * half hour of each 2-hour window of the Story's age, plus every pass after 23 h. ~13 extra snapshots per Story.
+ */
+export function storyExtrasDue(postedAt: string, now: Date): boolean {
+  const ageMin = (now.getTime() - Date.parse(postedAt)) / MIN;
+  return ageMin >= 23 * 60 || ageMin % STORY_EXTRAS_EVERY_MIN < STORIES_EVERY_MIN;
+}
+
 /**
  * Run order inside one account: time-critical first, token refresh last (the current token stays valid). It is also the
  * onboarding order of a new account: newest week (daily) -> post list -> newest posts' metrics -> audience -> older
