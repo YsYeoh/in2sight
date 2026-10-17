@@ -15,7 +15,12 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push('
 vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (await import('@/lib/prefs')).DEFAULT_PREFS }));
 vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ list: async () => (calls.push('accounts'), accounts) }) }));
 vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => ({}) }));
-vi.mock('@/lib/dashboard/read', () => ({ loadDaily: async () => (calls.push('daily'), []), loadPosts: async () => (calls.push('posts'), []) }));
+vi.mock('@/lib/dashboard/read', () => ({
+  MEDIA_LIMIT: 500,
+  loadDaily: async () => (calls.push('daily'), []),
+  loadPosts: async () => (calls.push('posts'), []),
+  loadFirstDay: async () => (calls.push('firstDay'), '2026-07-01'),
+}));
 vi.mock('@/lib/dashboard/detail-read', () => ({
   loadOnline: async () => (calls.push('online'), {}),
   loadPostRows: async () => {
@@ -67,7 +72,7 @@ describe('account detail page', () => {
     expect(el.props.tab).toBe('posts');
     expect(el.props.children.type).toBe(Suspense);
     expect(el.props.children.props.fallback.props.tab).toBe('posts');
-    expect(calls).toEqual(['requireOwner', 'session', 'accounts']); // the accounts list only; no tab query yet
+    expect([...calls].sort()).toEqual(['accounts', 'firstDay', 'requireOwner', 'session', 'session']); // the accounts list and the first captured day only; no tab query yet
   });
 
   it('the Suspense key changes with the query, so a new tab/period/filter shows its skeleton instead of the stale tab', async () => {
@@ -94,7 +99,16 @@ describe('account detail page', () => {
     const el = (await run(ID, { period: '90' })) as unknown as ReactElement<{ exportButton: ReactElement<{ defaultScope: string; time: { preset: string }; scopes: { value: string }[] }> }>;
     expect(el.props.exportButton.props.defaultScope).toBe(`a:${ID}`);
     expect(el.props.exportButton.props.time.preset).toBe('90d'); // the page's Time Scope (an old ?period=90 link)
+    expect(el.props.exportButton.props.time).toBe((el.props as unknown as { scope: unknown }).scope); // the same scope as the bar
     expect(el.props.exportButton.props.scopes.map((s) => s.value)).toEqual(['all', `a:${ID}`]); // archived accounts are not offered
+  });
+
+  it('the scope is resolved once with the first captured day and kept by the bar; Posts filters are kept (validated)', async () => {
+    accounts.push(acct(ID));
+    const el = (await run(ID, { tab: 'posts', from: 'all', format: 'REELS', tag: 'not-a-uuid' })) as unknown as ReactElement<{ scope: { window: unknown; query: string }; keep: Record<string, string> }>;
+    expect(el.props.scope.window).toEqual({ from: '2026-07-01', to: expect.any(String) });
+    expect(el.props.scope.query).toBe('from=all');
+    expect(el.props.keep).toEqual({ tab: 'posts', format: 'REELS' });
   });
 
   it('posts tab loads only its own data (posts with tags + tag list)', async () => {

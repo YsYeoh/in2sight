@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadDaily, loadOverviewInput, loadPosts, MEDIA_LIMIT, readPages, rowToPost } from '@/lib/dashboard/read';
+import { loadDaily, loadFirstDay, loadOverviewInput, loadPosts, MEDIA_LIMIT, readPages, rowToPost } from '@/lib/dashboard/read';
 
 type Call = { table: string; select: string; ops: unknown[][] };
 
@@ -39,6 +39,17 @@ describe('loadDaily', () => {
   it('throws a fixed message that never echoes the database error', async () => {
     const f = fakeDb({ account_daily: [{ error: { message: 'secret detail' } }] });
     await expect(loadDaily(f.db, 'a1', '2026-07-17')).rejects.toThrow(/^dashboard read: daily failed$/);
+  });
+});
+
+describe('loadFirstDay', () => {
+  it('one row: the oldest captured day of the accounts; none without accounts or rows', async () => {
+    const f = fakeDb({ account_daily: [{ data: [{ day: '2026-07-19' }] }, { data: [] }] });
+    expect(await loadFirstDay(f.db, ['a1', 'a2'])).toBe('2026-07-19');
+    expect(f.calls[0]).toMatchObject({ select: 'day', ops: [['in', 'account_id', ['a1', 'a2']], ['order', 'day', { ascending: true }], ['limit', 1]] });
+    expect(await loadFirstDay(f.db, ['a3'])).toBeNull();
+    expect(await loadFirstDay(f.db, [])).toBeNull();
+    expect(f.calls).toHaveLength(2);
   });
 });
 

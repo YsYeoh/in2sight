@@ -11,7 +11,6 @@ import { FormField } from '@/components/shared/FormField';
 import { formHref, startProgress } from '@/components/shared/NavigationProgress';
 import { TagBadge } from '@/components/shared/TagBadge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { FEED_FORMATS } from '@/lib/analysis/posts';
 import type { Tag } from '@/lib/analysis/types';
 import type { PostFilters, PostView } from '@/lib/dashboard/content';
@@ -20,13 +19,18 @@ import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/li
 export const POSTS_PAGE = 50;
 const SELECT = 'h-[var(--ctl)] w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground';
 
-/** Filters are a GET form (next/form: a client navigation, still a plain GET without JavaScript): the URL is the state. */
-function Filters({ tags, filters }: { tags: Tag[]; filters: PostFilters }) {
+/** Filters are a GET form (next/form: a client navigation, still a plain GET without JavaScript): the URL is the state.
+ *  The dates are the page's Time Scope (the bar above), carried as hidden fields. */
+function Filters({ tags, filters, scope }: { tags: Tag[]; filters: PostFilters; scope: Record<string, string> }) {
   const t = useTranslations('pages.account.posts');
   const ta = useTranslations('analysis');
+  const query = new URLSearchParams(scope).toString();
   return (
-    <Form action="" onSubmit={(e) => startProgress(formHref(e.currentTarget))} className="grid grid-cols-2 items-end gap-[var(--gp)] md:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+    <Form action="" onSubmit={(e) => startProgress(formHref(e.currentTarget))} className="grid grid-cols-2 items-end gap-[var(--gp)] md:grid-cols-[repeat(2,minmax(0,1fr))_auto]">
       <input type="hidden" name="tab" value="posts" />
+      {Object.entries(scope).map(([k, v]) => (
+        <input key={k} type="hidden" name={k} value={v} />
+      ))}
       <FormField id="f-format" label={t('format')}>
         {(p) => (
           <select {...p} name="format" defaultValue={filters.format ?? ''} className={SELECT}>
@@ -52,23 +56,18 @@ function Filters({ tags, filters }: { tags: Tag[]; filters: PostFilters }) {
           </select>
         )}
       </FormField>
-      <FormField id="f-from" label={t('from')}>
-        {(p) => <Input {...p} type="date" name="from" defaultValue={filters.from ?? ''} />}
-      </FormField>
-      <FormField id="f-to" label={t('to')}>
-        {(p) => <Input {...p} type="date" name="to" defaultValue={filters.to ?? ''} />}
-      </FormField>
       <div className="col-span-2 flex gap-2 md:col-span-1">
         <Button type="submit">{t('apply')}</Button>
         <Button asChild variant="ghost">
-          <Link href="?tab=posts">{t('reset')}</Link>
+          <Link href={`?tab=posts${query ? `&${query}` : ''}`}>{t('reset')}</Link>
         </Button>
       </div>
     </Form>
   );
 }
 
-export function PostsTab({ posts, total, tags, filters, setPostTags }: { posts: PostView[]; total: number; tags: Tag[]; filters: PostFilters; setPostTags: SetPostTags }) {
+/** `scope` = the canonical Time Scope parameters of the page (ResolvedScope.params), kept by the filter form. */
+export function PostsTab({ posts, total, tags, filters, scope = {}, setPostTags }: { posts: PostView[]; total: number; tags: Tag[]; filters: PostFilters; scope?: Record<string, string>; setPostTags: SetPostTags }) {
   const t = useTranslations('pages.account.posts');
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
@@ -120,7 +119,7 @@ export function PostsTab({ posts, total, tags, filters, setPostTags }: { posts: 
 
   return (
     <div className="grid min-w-0 gap-[var(--gp)]">
-      <Filters tags={tags} filters={filters} />
+      <Filters tags={tags} filters={filters} scope={scope} />
       <p className="text-xs text-muted-foreground" aria-live="polite">
         {t('count', { shown: formatNumber(posts.length, prefs), total: formatNumber(total, prefs) })}
       </p>

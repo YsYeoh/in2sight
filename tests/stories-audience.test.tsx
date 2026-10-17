@@ -54,7 +54,14 @@ describe('StoriesTab', () => {
     expect(within(cards[0]).getByRole('link')).toHaveAttribute('rel', 'noopener noreferrer');
     expect(within(cards[1]).getByText(en.pages.account.stories.expired)).toBeInTheDocument();
     expect(within(cards[2]).getByText(en.analysis.reasons.needs_5_viewers)).toBeInTheDocument();
-    expect(screen.getByText('3 Stories in the last 14 days')).toBeInTheDocument();
+    expect(screen.getByText('3 Stories in this range')).toBeInTheDocument();
+    expect(screen.queryByText(/Showing the newest/)).toBeNull();
+  });
+
+  it('a capped range says so', () => {
+    const stories = buildStories([story('s9', '2026-10-15T01:00:00Z', [])], NOW);
+    wrap(<StoriesTab stories={stories} truncated />);
+    expect(screen.getByRole('status')).toHaveTextContent('Showing the newest 1 Stories of this range. Pick a shorter range to see older ones.');
   });
 });
 

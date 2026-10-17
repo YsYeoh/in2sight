@@ -64,11 +64,11 @@ describe('PostsTab', () => {
     expect(links[0]).toHaveAttribute('href', 'https://www.instagram.com/p/m2/');
   });
 
-  it('filters are a GET form that keeps the tab and shows the current values', () => {
+  it('filters are a GET form that keeps the tab and the time scope and shows the current values', () => {
     const { container } = render(
       <NextIntlClientProvider locale="en" messages={en}>
         <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
-          <PostsTab posts={[]} total={3} tags={TAGS} filters={{ format: 'REELS', tag: T1, from: '2026-10-01', to: null }} setPostTags={vi.fn()} />
+          <PostsTab posts={[]} total={3} tags={TAGS} filters={{ format: 'REELS', tag: T1, from: '2026-10-01', to: '2026-10-31' }} scope={{ from: '2026-10-01', to: '2026-10-31', cmp: 'yoy' }} setPostTags={vi.fn()} />
         </PrefsProvider>
       </NextIntlClientProvider>,
     );
@@ -77,8 +77,9 @@ describe('PostsTab', () => {
     expect(form.querySelector('input[name="tab"]')).toHaveValue('posts');
     expect(screen.getByLabelText(en.pages.account.posts.format)).toHaveValue('REELS');
     expect(screen.getByLabelText(en.pages.account.posts.tag)).toHaveValue(T1);
-    expect(screen.getByLabelText(en.pages.account.posts.from)).toHaveValue('2026-10-01');
-    expect(screen.getByRole('link', { name: en.pages.account.posts.reset })).toHaveAttribute('href', '?tab=posts');
+    expect(Object.fromEntries([...form.querySelectorAll<HTMLInputElement>('input[type=hidden]')].map((i) => [i.name, i.value]))).toEqual({ tab: 'posts', from: '2026-10-01', to: '2026-10-31', cmp: 'yoy' });
+    expect(form.querySelector('input[type=date]')).toBeNull(); // the dates are the time scope's
+    expect(screen.getByRole('link', { name: en.pages.account.posts.reset })).toHaveAttribute('href', '?tab=posts&from=2026-10-01&to=2026-10-31&cmp=yoy');
     expect(screen.getAllByText(en.pages.account.posts.empty).length).toBeGreaterThan(0);
   });
 

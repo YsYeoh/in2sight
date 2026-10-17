@@ -10,6 +10,7 @@ import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { PROGRESS_START_EVENT } from '@/components/shared/NavigationProgress';
 import { buildMonth } from '@/lib/dashboard/calendar';
 import { DEFAULT_PREFS } from '@/lib/prefs';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 const push = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
@@ -47,15 +48,16 @@ const wrap = (ui: React.ReactNode) =>
 const A1 = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
 
 describe('client navigations that are not link clicks start the top bar', () => {
-  it('choosing an account tab starts the bar, then pushes ?tab=…', async () => {
+  it('choosing an account tab starts the bar, then pushes ?tab=… with the time scope', async () => {
+    const scope = resolveScope(parseTimeScope({ from: '90d' }), '2026-10-15', '2026-01-01');
     wrap(
-      <AccountView account={{ id: A1, username: 'brand.one', displayName: null, groupName: null }} tab="overview">
+      <AccountView account={{ id: A1, username: 'brand.one', displayName: null, groupName: null }} tab="overview" scope={scope} today="2026-10-15" keep={{ tab: 'overview' }}>
         <p>x</p>
       </AccountView>,
     );
     await userEvent.click(screen.getByRole('tab', { name: 'Stories' }));
     expect(started).toHaveBeenCalledOnce();
-    expect(push).toHaveBeenCalledWith('?tab=stories', { scroll: false });
+    expect(push).toHaveBeenCalledWith('?tab=stories&from=90d', { scroll: false });
   });
 
   it('submitting the Posts filters starts the bar (next/form GET, no method attribute needed)', () => {

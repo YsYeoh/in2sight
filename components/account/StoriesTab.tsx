@@ -10,7 +10,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { StoryView } from '@/lib/dashboard/content';
 import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
 
-export function StoriesTab({ stories }: { stories: StoryView[] }) {
+/** `truncated`: the range holds more Stories than are read (STORY_LIMIT); said out loud, never silent. */
+export function StoriesTab({ stories, truncated = false }: { stories: StoryView[]; truncated?: boolean }) {
   const t = useTranslations('pages.account.stories');
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
@@ -21,6 +22,11 @@ export function StoriesTab({ stories }: { stories: StoryView[] }) {
   return (
     <div className="grid min-w-0 gap-[var(--gp)]">
       <p className="text-xs text-muted-foreground">{t('summary', { count: formatNumber(stories.length, prefs) })}</p>
+      {truncated ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          {t('truncated', { count: formatNumber(stories.length, prefs) })}
+        </p>
+      ) : null}
       <ul className="grid gap-[var(--gp)] sm:grid-cols-2 xl:grid-cols-3">
         {stories.map((s) => {
           const f = s.final;

@@ -1,13 +1,16 @@
 // Account detail: URL parsing and the Overview tab model. Pure: today/now/tz are inputs.
 import type { StoredAccount } from '@/lib/accounts/types';
 import { onlineHeatmap, postHeatmap, type Heatmap } from '@/lib/analysis/best-time';
+import { bucketize } from '@/lib/analysis/buckets';
 import { reachDrop, takingOff, type Flag } from '@/lib/analysis/flags';
 import { kpis, summarize, type Kpi, type KpiId } from '@/lib/analysis/growth';
 import { formatComparison } from '@/lib/analysis/posts';
-import type { DailyRow, OnlineFollowersRow, Period, Post } from '@/lib/analysis/types';
+import type { DailyRow, OnlineFollowersRow, Post } from '@/lib/analysis/types';
 import { cardState, type CardState } from '@/lib/dashboard/overview';
 import type { WeekStart } from '@/lib/prefs';
 import type { SyncStatus } from '@/lib/sync/store';
+import { localDay } from '@/lib/sync/time';
+import type { ResolvedScope } from '@/lib/time-scope/scope';
 
 export const TABS = ['overview', 'posts', 'stories', 'audience'] as const;
 export type Tab = (typeof TABS)[number];
@@ -33,11 +36,12 @@ export interface AccountOverviewInput {
 }
 
 export interface AccountOverviewModel {
-  period: Period;
+  scope: ResolvedScope;
   state: CardState;
   kpis: Record<KpiId, Kpi>;
-  trend: { day: string; reach: number | null; views: number | null; followers: number | null }[]; // current window
-  formats: ReturnType<typeof formatComparison>;
+  trend: { day: string; reach: number | null; views: number | null; followers: number | null }[]; // current window, one row per bucket (its first day)
+  trendPartial: string[]; // buckets the window only partly covers
+  formats: ReturnType<typeof formatComparison>; // posts published in the scope's days
   heat: { online: { account: Heatmap; pooled: Heatmap }; posts: { account: Heatmap; pooled: Heatmap } };
   pooledAccounts: number;
   flags: Flag[];
@@ -45,24 +49,36 @@ export interface AccountOverviewModel {
   syncErrorKey: string | null;
 }
 
-export function buildAccountOverview(input: AccountOverviewInput, o: { period: Period; today: string; now: Date; tz: string; weekStart: WeekStart }): AccountOverviewModel {
+export function buildAccountOverview(input: AccountOverviewInput, o: { scope: ResolvedScope; today: string; now: Date; tz: string; weekStart: WeekStart }): AccountOverviewModel {
   const { account, sync, daily, posts } = input;
-  const s = summarize(daily, posts, o.period, o.today, o.tz);
+  const { window, gran, range } = o.scope;
+  const s = summarize(daily, posts, window, o.today, o.tz, o.scope.scope.cmp);
   const byDay = new Map(daily.map((r) => [r.day, r]));
   const drop = reachDrop(daily, o.today, o.tz);
   const state = cardState(account.status, account.tokenExpiresAt, o.now, sync, s, daily.length > 0);
+  const trend = bucketize(
+    s.reachByDay.map(({ day }) => ({ day, reach: byDay.get(day)?.reach ?? null, views: byDay.get(day)?.views ?? null, followers: byDay.get(day)?.followers ?? null })),
+    gran,
+    o.weekStart,
+    { reach: 'sum', views: 'sum', followers: 'last' },
+  );
+  const inRange = posts.filter((p) => {
+    const day = localDay(new Date(p.postedAt), o.tz);
+    return day >= range.from && day <= range.to;
+  });
   return {
-    period: o.period,
+    scope: o.scope,
     state,
     kpis: kpis(s, { backfilling: state === 'backfilling' }),
-    trend: s.reachByDay.map(({ day }) => ({ day, reach: byDay.get(day)?.reach ?? null, views: byDay.get(day)?.views ?? null, followers: byDay.get(day)?.followers ?? null })),
-    formats: formatComparison(posts),
+    trend: trend.rows,
+    trendPartial: trend.partial,
+    formats: formatComparison(inRange),
     heat: {
       online: { account: onlineHeatmap(input.online, o.weekStart), pooled: onlineHeatmap(input.pooled.online, o.weekStart) },
       posts: { account: postHeatmap(posts, o.tz, o.weekStart), pooled: postHeatmap(input.pooled.posts, o.tz, o.weekStart) },
     },
     pooledAccounts: input.pooled.accounts,
-    flags: [...takingOff(posts, o.now, o.period), ...(drop ? [drop] : [])],
+    flags: [...takingOff(posts, o.now, 'last' in window ? window.last : 7), ...(drop ? [drop] : [])], // "right now" signals
     lastSyncedAt: sync?.lastSuccessAt ?? null,
     syncErrorKey: sync && sync.consecutiveFailures > 0 ? sync.lastErrorKey : null,
   };
