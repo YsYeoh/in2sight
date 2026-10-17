@@ -6,6 +6,7 @@ import { rowLabel, type LabelContext } from '@/lib/explorer/labels';
 import { loadExplorer } from '@/lib/explorer/load';
 import { translator } from '@/lib/export/workbook';
 import type { FormatPrefs } from '@/lib/format';
+import { addDays, dayStart } from '@/lib/sync/time';
 const A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const B = 'aaaaaaaa-0000-4000-8000-000000000002';
 const C = 'aaaaaaaa-0000-4000-8000-000000000003';
@@ -58,6 +59,22 @@ describe('loadExplorer', () => {
     expect(short.calls.filter((c) => c[0] === 'rpc').map((c) => (c[2] as { p_grain: string }).p_grain)).toEqual(['day']);
     expect(s.scope.gran).toBe('day');
     expect(s.model.rows[0].key).toBe('2026-01-01');
+  });
+
+  it('the posts list of "all" starts at the first STORED post day (listRange), not at the first captured insight day', async () => {
+    const first = { account_daily: { data: [{ day: '2026-01-01' }], error: null } };
+    const all = fakeDb(first);
+    const d = await loadExplorer(all.db, { by: 'post', from: 'all' }, O);
+    expect(d.scope.listRange.from < '2026-01-01').toBe(true);
+    const [, name, args] = all.calls.find((c) => c[0] === 'rpc')!;
+    expect(name).toBe('explorer_media');
+    expect((args as { p_from: string }).p_from).toBe(dayStart(d.scope.listRange.from, 'UTC').toISOString());
+    expect((args as { p_to: string }).p_to).toBe(dayStart(addDays(d.scope.listRange.to, 1), 'UTC').toISOString());
+    expect(d.window.current.from).toBe('2026-01-01'); // the KPI / chart window is unchanged
+    // any other scope keeps the explorer window (a drill from a chart row counts the same posts as the row)
+    const month = fakeDb(first);
+    await loadExplorer(month.db, { by: 'post', from: '30d', cmp: 'none' }, O);
+    expect((month.calls.find((c) => c[0] === 'rpc')![2] as { p_from: string }).p_from).toBe(dayStart('2026-09-16', 'UTC').toISOString());
   });
 
   it('single posts read the capped list (no rollup); the item level reads only the item', async () => {
