@@ -4749,3 +4749,522 @@ git commit -m "feat(sync): comments ingestion (read only, granted-scope gated, i
 ```
 
 ---
+
+### Task 14: Raw response archive (`api_snapshots`)
+
+**Files:**
+- Modify: `lib/instagram/data.ts` (`Archive`, `endpointKey`, `get(…, archive?)`, `archive?` on `accountDay`, `accountDayBreakdown`, `audience`, `onlineFollowers`)
+- Modify: `lib/sync/store.ts` (`SNAPSHOT_MAX_BYTES`, `archiveSnapshot`)
+- Modify: `lib/sync/run-account.ts` (`RunContext.archive`, `ARCHIVE_WAIT_MS`, `settle`, archive wiring in `runAccount`, pass `c.archive` in the daily/backfill and audience calls)
+- Modify: `tests/fixtures/sync-fakes.ts` (`archiveSnapshot`, `archived` log)
+- Test: `tests/sync-archive.test.ts` (new)
+
+**Interfaces:**
+- Consumes: table `api_snapshots` (Task 1).
+- Produces: `type Archive = (endpoint: string, body: Record<string, unknown>) => void`; `endpointKey(path, params)` (sorted params, never the token); `SyncStore.archiveSnapshot(accountId, endpoint, body, capturedAtIso)`; `SNAPSHOT_MAX_BYTES = 65536`; `ARCHIVE_WAIT_MS = 2000`.
+
+What is archived: the raw JSON of every account-level insights call (day totals, follows/unfollows, reach/views breakdowns) and audience call (demographics, online followers) — the data Meta deletes after 90 days. NOT archived: media lists, captions, media insights (re-fetchable ~2 years), comments (third-party data). Dedupe: `unique (account_id, endpoint, body_hash)` + `ignoreDuplicates`, so the daily 3-day settle re-fetch only adds a row when Meta revised the numbers (which is exactly the history worth keeping). Size: ~10 bodies of 1–3 KB per account per day ≈ 5–10 MB per account per year before dedupe; kept forever. Best-effort: the client swallows archive errors; the runner fires the writes without awaiting them per call and settles them once at the end, capped at 2 s, so a slow database can never stall a sync.
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-archive.test.ts`:
+
+```ts
+import { createHash } from 'node:crypto';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { endpointKey, igData, type Archive, type IgData } from '@/lib/instagram/data';
+import { ARCHIVE_WAIT_MS, runAccount, type RunContext } from '@/lib/sync/run-account';
+import { emptyState } from '@/lib/sync/schedule';
+import { SNAPSHOT_MAX_BYTES, supabaseSyncStore } from '@/lib/sync/store';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const NOW = new Date('2026-10-14T02:00:00Z');
+afterEach(() => vi.useRealTimers());
+
+describe('data client archive hook', () => {
+  const body = { data: [{ name: 'reach', total_value: { value: 5 } }] };
+  const fn = (async () => new Response(JSON.stringify(body))) as typeof fetch;
+
+  it('account insights and audience calls hand their raw body and a token-free key to the archive', async () => {
+    const seen: [string, unknown][] = [];
+    const archive: Archive = (e, b) => void seen.push([e, b]);
+    const ig = igData('v25.0', fn);
+    await ig.accountDay('IGQ-secret', 100, 200, archive);
+    await ig.accountDayBreakdown('IGQ-secret', 100, 200, archive);
+    await ig.audience('IGQ-secret', 'country', archive);
+    await ig.onlineFollowers('IGQ-secret', 100, 200, archive);
+    expect(seen).toHaveLength(2 + 2 + 1 + 1);
+    expect(seen[0]).toEqual(['me/insights?metric=reach%2Cviews%2Caccounts_engaged%2Ctotal_interactions%2Cprofile_links_taps&metric_type=total_value&period=day&since=100&until=200', body]);
+    expect(JSON.stringify(seen)).not.toContain('IGQ-secret');
+  });
+
+  it('keys are stable whatever the parameter order', () => {
+    expect(endpointKey('me/insights', { b: 2, a: 1 })).toBe(endpointKey('me/insights', { a: 1, b: 2 }));
+  });
+
+  it('a throwing archive never costs the call', async () => {
+    const v = await igData('v25.0', fn).accountDay('t', 1, 2, () => {
+      throw new Error('archive down');
+    });
+    expect(v.reach).toBe(5);
+  });
+});
+
+describe('runner wiring', () => {
+  function ctx() {
+    const ig = fakeIg();
+    const mem = memoryStore();
+    const acc = account({ id: 'a1' });
+    // the fakes call the archive like the real client would
+    ig.accountDay.mockImplementation((async (_t: string, since: number, _u: number, archive?: Archive) => {
+      archive?.(`me/insights?day=${since}`, { data: [{ name: 'reach', total_value: { value: 1 } }] });
+      return { reach: 1, views: 1, accountsEngaged: 1, totalInteractions: 1, linkTaps: 1, follows: null, unfollows: null };
+    }) as IgData['accountDay']);
+    ig.audience.mockImplementation((async (_t: string, kind: string, archive?: Archive) => (archive?.(`aud-${kind}`, { data: [] }), {})) as IgData['audience']);
+    const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: emptyState('a1'), tz: 'UTC', now: NOW, deadline: 1e9, clock: () => 0 };
+    return { c, ig, mem };
+  }
+
+  it('daily + audience bodies are archived for this account (media lists, media insights and comments never are)', async () => {
+    const { c, mem } = ctx();
+    await runAccount(c, ['daily', 'audience', 'mediaList', 'mediaMetrics', 'stories']);
+    expect(mem.archived.length).toBe(7 + 3);
+    expect(mem.archived.every((a) => a.accountId === 'a1' && a.capturedAt === NOW.toISOString())).toBe(true);
+    expect(mem.archived.map((a) => a.endpoint)).toContain('aud-country');
+  });
+
+  it('a failing archive write never fails a job', async () => {
+    const { c, mem } = ctx();
+    mem.store.archiveSnapshot = async () => {
+      throw new Error('sync store: archiveSnapshot failed');
+    };
+    const { result } = await runAccount(c, ['daily']);
+    expect(result.outcome).toBe('ok');
+  });
+
+  it('a hanging archive write holds the run up for at most ARCHIVE_WAIT_MS', async () => {
+    vi.useFakeTimers();
+    const { c, mem } = ctx();
+    mem.store.archiveSnapshot = () => new Promise<void>(() => {});
+    let done = false;
+    const run = runAccount(c, ['audience']).then((r) => ((done = true), r));
+    await vi.advanceTimersByTimeAsync(ARCHIVE_WAIT_MS - 1);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await run).result.outcome).toBe('ok');
+  });
+});
+
+describe('store: api_snapshots', () => {
+  function recorder() {
+    const calls: unknown[][] = [];
+    const db = { from: (t: string) => ({ upsert: async (row: unknown, opts: unknown) => (calls.push([t, row, opts]), { error: null }) }) };
+    return { db: db as never, calls };
+  }
+  it('dedupes on (account, endpoint, sha256 of the JSON text); identical bodies hash the same', async () => {
+    const r = recorder();
+    const body = { data: [{ name: 'reach', total_value: { value: 9 } }] };
+    await supabaseSyncStore(r.db).archiveSnapshot('a1', 'me/insights?x=1', body, 'T');
+    const hash = createHash('sha256').update(JSON.stringify(body)).digest('hex');
+    expect(r.calls[0]).toEqual(['api_snapshots', { account_id: 'a1', endpoint: 'me/insights?x=1', captured_at: 'T', body, body_hash: hash }, { onConflict: 'account_id,endpoint,body_hash', ignoreDuplicates: true }]);
+  });
+  it('skips bodies over 64 KB', async () => {
+    const r = recorder();
+    await supabaseSyncStore(r.db).archiveSnapshot('a1', 'e', { blob: 'x'.repeat(SNAPSHOT_MAX_BYTES) }, 'T');
+    expect(r.calls).toHaveLength(0);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-archive.test.ts`
+Expected: FAIL — `endpointKey` / `ARCHIVE_WAIT_MS` / `SNAPSHOT_MAX_BYTES` are not exported.
+
+- [ ] **Step 3: Implement**
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
+  const getUrl = (url: string) => call('data', fetchFn, url, graphInit());
+  const get = (path: string, params: Record<string, string | number>, token: string) => {
+    const u = new URL(`${HOST}/${apiVersion}/${path}`);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
+    u.searchParams.set('access_token', token);
+    return getUrl(u.toString());
+  };
+```
+
+with:
+
+```ts
+/**
+ * Raw-response archive hook (api_snapshots): called with the request key (path + sorted params, never the token) and
+ * the parsed JSON body of account-level insights and audience calls only. Must not throw (errors are swallowed anyway).
+ */
+export type Archive = (endpoint: string, body: Record<string, unknown>) => void;
+
+/** Stable archive key: path + params sorted by name. The token is never part of it. */
+export const endpointKey = (path: string, params: Record<string, string | number>) =>
+  `${path}?${new URLSearchParams(Object.entries(params).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => [k, String(v)])).toString()}`;
+
+export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
+  const getUrl = (url: string) => call('data', fetchFn, url, graphInit());
+  const get = async (path: string, params: Record<string, string | number>, token: string, archive?: Archive) => {
+    const u = new URL(`${HOST}/${apiVersion}/${path}`);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
+    u.searchParams.set('access_token', token);
+    const body = await getUrl(u.toString());
+    try {
+      archive?.(endpointKey(path, params), body);
+    } catch {
+      // the archive is best-effort: never costs the call
+    }
+    return body;
+  };
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+    async accountDayBreakdown(token: string, since: number, until: number): Promise<BreakdownRow[]> {
+```
+
+with:
+
+```ts
+    async accountDayBreakdown(token: string, since: number, until: number, archive?: Archive): Promise<BreakdownRow[]> {
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+        const r = parseBreakdown(await get('me/insights', { metric_type: 'total_value', period: 'day', since, until, metric, breakdown: M.BREAKDOWN_DIMS }, token), metric);
+```
+
+with:
+
+```ts
+        const r = parseBreakdown(await get('me/insights', { metric_type: 'total_value', period: 'day', since, until, metric, breakdown: M.BREAKDOWN_DIMS }, token, archive), metric);
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+    async accountDay(token: string, since: number, until: number): Promise<AccountDayValues> {
+```
+
+with:
+
+```ts
+    async accountDay(token: string, since: number, until: number, archive?: Archive): Promise<AccountDayValues> {
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+      const t = parseTotals(await get('me/insights', { ...base, metric: M.ACCOUNT_DAY_METRICS.join(',') }, token));
+      const f = parseBreakdown(await get('me/insights', { ...base, metric: M.FOLLOWS_METRIC, breakdown: M.FOLLOWS_BREAKDOWN }, token), M.FOLLOWS_METRIC);
+```
+
+with:
+
+```ts
+      const t = parseTotals(await get('me/insights', { ...base, metric: M.ACCOUNT_DAY_METRICS.join(',') }, token, archive));
+      const f = parseBreakdown(await get('me/insights', { ...base, metric: M.FOLLOWS_METRIC, breakdown: M.FOLLOWS_BREAKDOWN }, token, archive), M.FOLLOWS_METRIC);
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+    async audience(token: string, kind: M.AudienceKind): Promise<Record<string, number>> {
+```
+
+with:
+
+```ts
+    async audience(token: string, kind: M.AudienceKind, archive?: Archive): Promise<Record<string, number>> {
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+      return parseBreakdown(await get('me/insights', params, token), M.DEMOGRAPHICS_METRIC);
+```
+
+with:
+
+```ts
+      return parseBreakdown(await get('me/insights', params, token, archive), M.DEMOGRAPHICS_METRIC);
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+    async onlineFollowers(token: string, since: number, until: number) {
+      return parseOnlineFollowers(await get('me/insights', { metric: M.ONLINE_FOLLOWERS_METRIC, period: 'lifetime', since, until }, token));
+```
+
+with:
+
+```ts
+    async onlineFollowers(token: string, since: number, until: number, archive?: Archive) {
+      return parseOnlineFollowers(await get('me/insights', { metric: M.ONLINE_FOLLOWERS_METRIC, period: 'lifetime', since, until }, token, archive));
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+import type { SupabaseClient } from '@supabase/supabase-js';
+```
+
+with:
+
+```ts
+import { createHash } from 'node:crypto';
+import type { SupabaseClient } from '@supabase/supabase-js';
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+  markCommentsSynced(mediaId: string, commentsCount: number): Promise<void>;
+```
+
+with:
+
+```ts
+  markCommentsSynced(mediaId: string, commentsCount: number): Promise<void>;
+  /** Raw JSON of one insights/audience call, deduped on (account, endpoint, sha256(body)); bodies over 64 KB are skipped. */
+  archiveSnapshot(accountId: string, endpoint: string, body: Record<string, unknown>, capturedAtIso: string): Promise<void>;
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+const EXTRA_COLUMNS: Record<keyof MediaExtras, string>
+```
+
+with:
+
+```ts
+/** api_snapshots size guard: an insights body is ~1–3 KB; anything this big is not what we meant to keep. */
+export const SNAPSHOT_MAX_BYTES = 64 * 1024;
+
+const EXTRA_COLUMNS: Record<keyof MediaExtras, string>
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+    async upsertOnlineFollowers(accountId, day, hourly) {
+```
+
+with:
+
+```ts
+    async archiveSnapshot(accountId, endpoint, body, capturedAtIso) {
+      const text = JSON.stringify(body);
+      if (Buffer.byteLength(text) > SNAPSHOT_MAX_BYTES) return;
+      const row = { account_id: accountId, endpoint, captured_at: capturedAtIso, body, body_hash: createHash('sha256').update(text).digest('hex') };
+      check('archiveSnapshot')(await db.from('api_snapshots').upsert(row, { onConflict: 'account_id,endpoint,body_hash', ignoreDuplicates: true }));
+    },
+    async upsertOnlineFollowers(accountId, day, hourly) {
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import { classifyIgError, isFatalIgError as fatal, isUnsupported, type IgData } from '@/lib/instagram/data';
+```
+
+with:
+
+```ts
+import { classifyIgError, isFatalIgError as fatal, isUnsupported, type Archive, type IgData } from '@/lib/instagram/data';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+  /** fetch for the Instagram CDN (cover images); default: global fetch. */
+  cdnFetch?: typeof fetch;
+}
+```
+
+with:
+
+```ts
+  /** fetch for the Instagram CDN (cover images); default: global fetch. */
+  cdnFetch?: typeof fetch;
+  /** Raw-response archive for account insights + audience calls; set by runAccount (best-effort). */
+  archive?: Archive;
+}
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+    await c.store.upsertDaily(c.account.id, day, await c.ig.accountDay(c.token, since, until));
+```
+
+with:
+
+```ts
+    await c.store.upsertDaily(c.account.id, day, await c.ig.accountDay(c.token, since, until, c.archive));
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+    await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until));
+```
+
+with:
+
+```ts
+    await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until, c.archive));
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+    const data = await c.ig.audience(c.token, kind);
+```
+
+with:
+
+```ts
+    const data = await c.ig.audience(c.token, kind, c.archive);
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+  for (const d of await c.ig.onlineFollowers(c.token, since, until)) await c.store.upsertOnlineFollowers(c.account.id, d.day, d.hourly);
+```
+
+with:
+
+```ts
+  for (const d of await c.ig.onlineFollowers(c.token, since, until, c.archive)) await c.store.upsertOnlineFollowers(c.account.id, d.day, d.hourly);
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+ * Runs `jobs` in order. auth -> needs_reconnect, stop.
+```
+
+with:
+
+```ts
+/** The archive never holds up a run: pending writes get this long after the last job, then they are left behind. */
+export const ARCHIVE_WAIT_MS = 2_000;
+
+async function settle(pending: Promise<void>[]): Promise<void> {
+  if (pending.length === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([Promise.allSettled(pending), new Promise<void>((resolve) => (timer = setTimeout(resolve, ARCHIVE_WAIT_MS)))]);
+  clearTimeout(timer);
+}
+
+/**
+ * Runs `jobs` in order. auth -> needs_reconnect, stop.
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+  const completed: JobKind[] = [];
+  let partial = false;
+```
+
+with:
+
+```ts
+  const completed: JobKind[] = [];
+  // raw insights/audience bodies -> api_snapshots; fire-and-forget per call, settled (time-capped) before returning
+  const archived: Promise<void>[] = [];
+  const archive: Archive = (endpoint, body) => void archived.push(c.store.archiveSnapshot(c.account.id, endpoint, body, nowIso).catch(() => {}));
+  const ctx: RunContext = { ...c, archive };
+  let partial = false;
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+      const r = await JOB_RUNNERS[job](c, progress);
+```
+
+with:
+
+```ts
+      const r = await JOB_RUNNERS[job](ctx, progress);
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+  if (outcome === 'ok' && partial) outcome = 'partial';
+
+```
+
+with:
+
+```ts
+  if (outcome === 'ok' && partial) outcome = 'partial';
+  await settle(archived);
+
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  const comments: { accountId: string; mediaId: string; id: string; seenAt: string }[] = [];
+```
+
+with:
+
+```ts
+  const comments: { accountId: string; mediaId: string; id: string; seenAt: string }[] = [];
+  const archived: { accountId: string; endpoint: string; body: unknown; capturedAt: string }[] = [];
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+    markCommentsSynced: async (id, n) =>
+```
+
+with:
+
+```ts
+    archiveSnapshot: async (accountId, endpoint, body, capturedAt) => void archived.push({ accountId, endpoint, body, capturedAt }),
+    markCommentsSynced: async (id, n) =>
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  return { store, states, media, children, covers, uploads, commentCounts, comments,
+```
+
+with:
+
+```ts
+  return { store, states, media, children, covers, uploads, commentCounts, comments, archived,
+```
+
+- [ ] **Step 4: Run the full check**
+
+Run: `npm run check`
+Expected: lint, typecheck, all tests and the production build pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/instagram/data.ts lib/sync/store.ts lib/sync/run-account.ts tests/fixtures/sync-fakes.ts tests/sync-archive.test.ts
+git commit -m "feat(sync): archive raw account-insights and audience responses (deduped, size-capped, best-effort)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
