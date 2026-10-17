@@ -61,6 +61,14 @@ export const STORY_FIELDS = `${MEDIA_BASE_FIELDS},media_url,thumbnail_url`;
  * thumbnail_url = videos/Reels; media_url = images (omitted for copyrighted media); children = carousels.
  */
 export const COVER_FIELDS = 'media_type,media_url,thumbnail_url,children{media_type,media_url,thumbnail_url}';
+/**
+ * GET /{media-id}/comments (top-level comments). Needs instagram_business_manage_comments; WITHOUT it Meta answers an
+ * EMPTY list and no error (verified 2026-10-17), so the sync checks the granted scope first (lib/accounts/scopes.ts).
+ * Fields verified live 2026-10-16. Replies and `hidden` are not requested (moderation is a later plan).
+ */
+export const COMMENT_FIELDS = 'id,text,timestamp,username,like_count';
+export const COMMENT_PAGE_SIZE = 50;
+
 /** UNCERTAIN: page-size maximum is not documented; 50 is conservative. */
 export const MEDIA_PAGE_SIZE = 50;
 

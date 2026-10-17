@@ -7,6 +7,7 @@ import { addDays, localDay, localHour } from '@/lib/sync/time';
 const STORIES_EVERY_MIN = 30; // every tick: a story lives 24h, a missed window is lost data
 export const MEDIA_LIST_EVERY_MIN = 60;
 export const COVERS_EVERY_MIN = 60; // new posts appear with the hourly media list; their CDN links live ~1.4–4.5 days
+export const COMMENTS_EVERY_MIN = 60;
 export const SLACK_MIN = 5; // a scheduler firing a few minutes early (or a slow previous tick) still counts as on time
 export const DAILY_HOUR = 6; // owner-local hour after which the daily account + audience jobs run
 export const BACKFILL_DAYS = 90; // first connect: account insights this far back (Meta keeps ~90 days)
@@ -41,14 +42,14 @@ export function storyExtrasDue(postedAt: string, now: Date): boolean {
 /**
  * Run order inside one account: time-critical first, token refresh last (the current token stays valid). It is also the
  * onboarding order of a new account: newest week (daily) -> post list -> newest posts' metrics -> audience -> older
- * history (backfill: days 8–90 newest first, then older posts' metrics) -> post covers (lane 2 only, once the history
- * import is through).
+ * history (backfill: days 8–90 newest first, then older posts' metrics) -> post covers -> comments (both lane 2 only,
+ * once the history import is through; comments only with the granted scope).
  */
-export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'covers', 'tokenRefresh'] as const;
+export const JOBS = ['stories', 'daily', 'mediaList', 'mediaMetrics', 'audience', 'backfill', 'covers', 'comments', 'tokenRefresh'] as const;
 export type JobKind = (typeof JOBS)[number];
 
 /** Optional catch-up work that only lane 2 runs (never inside lane 1's small per-account slice). */
-export const LANE2_ONLY: readonly JobKind[] = ['covers'];
+export const LANE2_ONLY: readonly JobKind[] = ['covers', 'comments'];
 
 /** regular = lane 1 (every account, small slice, never the history import); all = lane 2 / single-lane callers. */
 export type Lane = 'regular' | 'all';
@@ -104,9 +105,11 @@ export interface ScheduleInput {
   status: AccountStatus;
   tokenExpiresAt: string | null;
   state: SyncState;
+  /** The account's token carries instagram_business_manage_comments (hasScope); missing = no comments job. */
+  commentsScope?: boolean;
 }
 
-export function dueJobs({ status, tokenExpiresAt, state: s }: ScheduleInput, now: Date, tz: string, opts: { manual?: boolean; lane?: Lane } = {}): JobKind[] {
+export function dueJobs({ status, tokenExpiresAt, state: s, commentsScope }: ScheduleInput, now: Date, tz: string, opts: { manual?: boolean; lane?: Lane } = {}): JobKind[] {
   if (status !== 'active') return []; // archived and needs_reconnect accounts are never synced
   const t = now.getTime();
   if (s.leaseUntil && Date.parse(s.leaseUntil) > t) return []; // another tick holds this account
@@ -129,6 +132,7 @@ export function dueJobs({ status, tokenExpiresAt, state: s }: ScheduleInput, now
   if (!s.lastRun.audience || (afterDailyHour && !ranToday(s.lastRun.audience))) due.add('audience');
   if (isBackfilling(s)) due.add('backfill');
   else if (atLeast(s.lastRun.covers, COVERS_EVERY_MIN * MIN)) due.add('covers'); // after the import: Overview numbers first
+  if (commentsScope && !isBackfilling(s) && atLeast(s.lastRun.comments, COMMENTS_EVERY_MIN * MIN)) due.add('comments');
   const expires = tokenExpiresAt ? Date.parse(tokenExpiresAt) : NaN;
   if (!Number.isNaN(expires) && expires - t <= TOKEN_REFRESH_WITHIN_DAYS * 24 * HOUR && atLeast(s.lastRun.tokenRefresh, TOKEN_RETRY_HOURS * HOUR)) due.add('tokenRefresh');
 

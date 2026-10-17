@@ -3,6 +3,7 @@
 // the history import, regular jobs a slice cut short), the remaining budget split equally across those accounts. Each
 // lane run leases the account, runs within its slice, persists state; then alerts are evaluated and a summary recorded.
 // One account failing (bad token, DB hiccup) never stops the others.
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import { ALERT_BUDGET_MS, runAlerts, type AlertDeps, type AlertRunSummary } from '@/lib/alerts/run';
 import type { IgData } from '@/lib/instagram/data';
@@ -65,7 +66,7 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
   const active = (await deps.accounts.list()).filter((a) => a.status === 'active' && (!opts.accountId || a.id === opts.accountId));
   const states = await deps.store.loadStates(active.map((a) => a.id));
   const ordered = [...active].sort((a, b) => byOldestAttempt(states.get(a.id)!, states.get(b.id)!));
-  const input = (a: StoredAccount, state: SyncState): ScheduleInput => ({ status: a.status, tokenExpiresAt: a.tokenExpiresAt, state });
+  const input = (a: StoredAccount, state: SyncState): ScheduleInput => ({ status: a.status, tokenExpiresAt: a.tokenExpiresAt, state, commentsScope: hasScope(a, COMMENTS_SCOPE) });
 
   /** One lane for one account: lease, plan from the claimed row, run until sliceEnd, persist, report progress. */
   async function runLane(account: StoredAccount, lane: Lane, sliceEnd: number, skip: readonly JobKind[]): Promise<LaneResult> {

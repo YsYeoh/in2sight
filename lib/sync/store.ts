@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccountDayValues, BreakdownRow, MediaExtras, MediaMetricValues } from '@/lib/instagram/data';
 import type { AudienceKind } from '@/lib/instagram/metrics';
-import type { IgMediaItem } from '@/lib/instagram/parse';
+import type { IgComment, IgMediaItem } from '@/lib/instagram/parse';
 import { DEFAULT_PREFS, isValidTimeZone } from '@/lib/prefs';
 import { parseCapabilities, type Capabilities } from '@/lib/sync/capabilities';
 import { COVERS_BUCKET, type CoverRef, type CoverStatus } from '@/lib/sync/covers';
@@ -74,6 +74,11 @@ export interface SyncStore {
   uploadCover(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
   /** Stories past expires_at whose cover never landed: 'unavailable' (the CDN link died with them). */
   expireStoryCovers(accountId: string, nowIso: string): Promise<void>;
+  /** Feed + Reels posted since sinceIso that have comments (comments_count > 0), newest first, with the count at the last ingest. */
+  mediaForComments(accountId: string, sinceIso: string): Promise<{ id: string; commentsCount: number; syncedCount: number | null }[]>;
+  /** Upsert by comment id: text/likes/last_seen_at refresh, first_seen_at stays (column default on insert). */
+  upsertComments(accountId: string, mediaId: string, items: IgComment[], seenAtIso: string): Promise<void>;
+  markCommentsSynced(mediaId: string, commentsCount: number): Promise<void>;
   upsertOnlineFollowers(accountId: string, day: string, hourly: number[]): Promise<void>;
   recordRun(run: SyncRun): Promise<void>;
   /** Upserts the account's live progress row. Callers treat it as best-effort (lib/sync/progress-sink.ts). */
@@ -298,6 +303,27 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
       check('expireStoryCovers')(
         await db.from('media').update({ cover_status: 'unavailable' }).eq('account_id', accountId).eq('media_type', 'STORY').in('cover_status', ['pending', 'failed']).lt('expires_at', nowIso),
       );
+    },
+    async mediaForComments(accountId, sinceIso) {
+      const { data, error } = await db
+        .from('media')
+        .select('id,comments_count,comments_synced_count')
+        .eq('account_id', accountId)
+        .neq('media_type', 'STORY')
+        .is('gone_at', null)
+        .gte('posted_at', sinceIso)
+        .gt('comments_count', 0)
+        .order('posted_at', { ascending: false });
+      if (error) fail('mediaForComments');
+      return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, commentsCount: r.comments_count as number, syncedCount: (r.comments_synced_count as number | null) ?? null }));
+    },
+    async upsertComments(accountId, mediaId, items, seenAtIso) {
+      if (items.length === 0) return;
+      const rows = items.map((i) => ({ id: i.id, account_id: accountId, media_id: mediaId, author_username: i.username, text: i.text, like_count: i.likeCount, commented_at: i.commentedAt, last_seen_at: seenAtIso }));
+      check('upsertComments')(await db.from('comments').upsert(rows, { onConflict: 'id' }));
+    },
+    async markCommentsSynced(mediaId, commentsCount) {
+      check('markCommentsSynced')(await db.from('media').update({ comments_synced_count: commentsCount }).eq('id', mediaId));
     },
     async upsertOnlineFollowers(accountId, day, hourly) {
       check('upsertOnlineFollowers')(await db.from('online_followers').upsert({ account_id: accountId, day, hourly }, { onConflict: 'account_id,day' }));
