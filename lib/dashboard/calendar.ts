@@ -1,12 +1,12 @@
 // Calendar model: whole weeks around the Time Scope's days, with the published posts and Stories binned by the
 // OWNER-timezone day (SPEC section 7 "Daily boundaries ... displayed in the user's timezone"). Pure: today and tz are inputs.
 import { snippet } from '@/lib/dashboard/content';
-import type { MonthMedia } from '@/lib/dashboard/detail-read';
+import type { CoverFields, MonthMedia } from '@/lib/dashboard/detail-read';
 import type { WeekStart } from '@/lib/prefs';
 import { addDays, daysToIso, localDay } from '@/lib/sync/time';
 import { daysIn, weekOf, type DayRange } from '@/lib/time-scope/range';
 
-export interface CalendarItem {
+export interface CalendarItem extends CoverFields {
   id: string;
   accountId: string;
   mediaType: MonthMedia['mediaType'];
@@ -43,7 +43,7 @@ export function buildCalendar(range: DayRange, media: MonthMedia[], o: { weekSta
     const at = new Date(m.postedAt);
     if (Number.isNaN(at.getTime())) continue;
     const day = localDay(at, o.tz);
-    byDay.set(day, [...(byDay.get(day) ?? []), { id: m.id, accountId: m.accountId, mediaType: m.mediaType, postedAt: m.postedAt, permalink: m.permalink, caption: snippet(m.caption) }]);
+    byDay.set(day, [...(byDay.get(day) ?? []), { id: m.id, accountId: m.accountId, mediaType: m.mediaType, postedAt: m.postedAt, permalink: m.permalink, caption: snippet(m.caption), cover: m.cover, slides: m.slides }]);
   }
   const cells = days.map((day) => {
     const items = byDay.get(day) ?? [];

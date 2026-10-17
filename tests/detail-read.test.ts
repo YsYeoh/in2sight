@@ -29,7 +29,7 @@ describe('loadPostRows', () => {
       media: [
         {
           data: [
-            { id: 'm1', account_id: 'a1', media_type: 'REELS', posted_at: '2026-10-10T10:00:00Z', permalink: null, caption: null, media_metrics: [{ reach: 50, likes: 3 }], media_tags: [{ tag_id: 't1' }, { tag_id: null }] },
+            { id: 'm1', account_id: 'a1', media_type: 'REELS', posted_at: '2026-10-10T10:00:00Z', permalink: null, caption: null, cover_status: 'ok', children_count: 4, media_metrics: [{ reach: 50, likes: 3 }], media_tags: [{ tag_id: 't1' }, { tag_id: null }] },
             { id: 'm2', account_id: 'a1', media_type: 'IMAGE', posted_at: '2026-10-09T10:00:00Z', permalink: 'https://www.instagram.com/p/x/', caption: 'Hello', media_metrics: [], media_tags: null },
             { id: 'bad', account_id: 'a1', media_type: 'VIDEO', posted_at: '2026-10-09T10:00:00Z' },
           ],
@@ -38,9 +38,10 @@ describe('loadPostRows', () => {
     });
     const rows = await loadPostRows(f.db, 'a1');
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ id: 'm1', caption: null, permalink: null, reach: 50, tagIds: ['t1'] });
-    expect(rows[1]).toMatchObject({ id: 'm2', caption: 'Hello', reach: null, tagIds: [] });
+    expect(rows[0]).toMatchObject({ id: 'm1', caption: null, permalink: null, reach: 50, tagIds: ['t1'], cover: 'ok', slides: 4 });
+    expect(rows[1]).toMatchObject({ id: 'm2', caption: 'Hello', reach: null, tagIds: [], cover: 'pending', slides: null }); // no status read = never requested
     expect(f.calls[0].select).toContain('media_tags(tag_id)');
+    expect(f.calls[0].select).toContain('cover_status,children_count');
     expect(f.calls[0].ops).toContainEqual(['neq', 'media_type', 'STORY']);
     expect(f.calls[0].ops).toContainEqual(['range', 0, MEDIA_LIMIT - 1]);
     expect(f.calls[0].ops).toContainEqual(['limit', 1, { referencedTable: 'media_metrics' }]);
@@ -59,7 +60,7 @@ describe('loadStories', () => {
       media: [
         {
           data: [
-            { id: 's1', posted_at: '2026-10-14T08:00:00Z', expires_at: '2026-10-15T08:00:00Z', permalink: null, media_metrics: [{ captured_at: '2026-10-14T08:30:00Z', views: 10, exits: 1, total_interactions: 2 }] },
+            { id: 's1', posted_at: '2026-10-14T08:00:00Z', expires_at: '2026-10-15T08:00:00Z', permalink: null, cover_status: 'ok', media_metrics: [{ captured_at: '2026-10-14T08:30:00Z', views: 10, exits: 1, total_interactions: 2 }] },
             { id: 's2', posted_at: '2026-10-13T08:00:00Z', expires_at: null, permalink: null, media_metrics: [] },
           ],
         },
@@ -68,6 +69,8 @@ describe('loadStories', () => {
     const { stories: out, truncated } = await loadStories(f.db, 'a1', '2026-10-01T00:00:00.000Z', '2026-10-15T16:00:00.000Z');
     expect(out[0].snapshots[0]).toEqual({ capturedAt: '2026-10-14T08:30:00Z', reach: null, views: 10, replies: null, shares: null, interactions: 2, tapsForward: null, tapsBack: null, exits: 1 });
     expect(out[1].snapshots).toEqual([]);
+    expect([out[0].cover, out[1].cover]).toEqual(['ok', 'pending']);
+    expect(f.calls[0].select).toContain('cover_status');
     expect(truncated).toBe(false);
     expect(f.calls[0].ops).toEqual([
       ['eq', 'account_id', 'a1'],
@@ -122,9 +125,10 @@ describe('loadOnline, loadTags, loadMonthMedia', () => {
   });
 
   it('month media: posts and stories in [from, to) for the accounts', async () => {
-    const f = fakeDb({ media: [{ data: [{ id: 's', account_id: 'a1', media_type: 'STORY', posted_at: '2026-10-01T00:00:00Z', permalink: null, caption: null }] }] });
+    const f = fakeDb({ media: [{ data: [{ id: 's', account_id: 'a1', media_type: 'STORY', posted_at: '2026-10-01T00:00:00Z', permalink: null, caption: null, cover_status: 'unavailable', children_count: null }] }] });
     const out = await loadMonthMedia(f.db, ['a1'], '2026-09-30T16:00:00.000Z', '2026-10-31T16:00:00.000Z');
-    expect(out).toEqual({ media: [{ id: 's', accountId: 'a1', mediaType: 'STORY', postedAt: '2026-10-01T00:00:00Z', permalink: null, caption: null }], truncated: false });
+    expect(out).toEqual({ media: [{ id: 's', accountId: 'a1', mediaType: 'STORY', postedAt: '2026-10-01T00:00:00Z', permalink: null, caption: null, cover: 'unavailable', slides: null }], truncated: false });
+    expect(f.calls[0].select).toBe('id,account_id,media_type,posted_at,permalink,caption,cover_status,children_count');
     expect(f.calls[0].ops.slice(0, 3)).toEqual([['in', 'account_id', ['a1']], ['gte', 'posted_at', '2026-09-30T16:00:00.000Z'], ['lt', 'posted_at', '2026-10-31T16:00:00.000Z']]);
     noStar(f.calls);
   });
