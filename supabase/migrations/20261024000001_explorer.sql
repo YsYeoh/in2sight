@@ -59,7 +59,8 @@ $$;
 
 -- 3. Media published in [p_from, p_to) with their LATEST metrics snapshot (lifetime values) and the owner-timezone day,
 -- weekday (0 = Sunday) and hour they were published. Stories only when p_stories. Filters: format, tag or untagged,
--- weekday, hour (null / false = no filter). Captions are cut to 200 characters (the table shows a snippet).
+-- weekday, hour (null / false = no filter; a NULL boolean is treated as false, so it can never change the meaning).
+-- Captions are cut to 200 characters (the table shows a snippet).
 create or replace function public.explorer_media(p_accounts uuid[], p_from timestamptz, p_to timestamptz, p_tz text, p_format text, p_stories boolean, p_tag uuid, p_untagged boolean, p_weekday int, p_hour int)
 returns table (id text, account_id uuid, media_type text, posted_at timestamptz, permalink text, caption text, local_day date, weekday int, hour int, reach int, views int, likes int, comments int, saves int, shares int)
 language sql
@@ -82,11 +83,11 @@ as $$
    where m.account_id = any (p_accounts)
      and m.posted_at >= p_from and m.posted_at < p_to
      and (p_format is null or m.media_type = p_format)
-     and (p_stories or m.media_type <> 'STORY')
+     and (coalesce(p_stories, false) or m.media_type <> 'STORY')
      and (p_weekday is null or extract(dow from l.at)::int = p_weekday)
      and (p_hour is null or extract(hour from l.at)::int = p_hour)
      and (p_tag is null or exists (select 1 from public.media_tags t where t.media_id = m.id and t.tag_id = p_tag))
-     and (not p_untagged or not exists (select 1 from public.media_tags t where t.media_id = m.id))
+     and (not coalesce(p_untagged, false) or not exists (select 1 from public.media_tags t where t.media_id = m.id))
 $$;
 
 -- 4. The media of explorer_media() summed per account, format, tag ('untagged' for none; a post with several tags counts
