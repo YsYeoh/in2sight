@@ -49,6 +49,3 @@ export interface MediaTag {
 
 /** Why a number is missing. Each key has a translation under `analysis.reasons.*`. */
 export type MissingReason = 'no_data' | 'needs_100_followers' | 'not_enough_history' | 'not_enough_posts' | 'backfilling' | 'needs_5_viewers' | 'few_posts';
-
-export const PERIODS = [7, 30, 90] as const;
-export type Period = (typeof PERIODS)[number];

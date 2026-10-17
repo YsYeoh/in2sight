@@ -4,11 +4,9 @@ import type { AccountStatus } from '@/lib/accounts/types';
 import { bucketize, type DayValues } from '@/lib/analysis/buckets';
 import { reachDrop, takingOff, type Flag } from '@/lib/analysis/flags';
 import { combine, kpis, summarize, type Kpi, type KpiId, type Summary } from '@/lib/analysis/growth';
-import { PERIODS, type Period } from '@/lib/analysis/types';
 import type { OverviewInput } from '@/lib/dashboard/read';
 import type { WeekStart } from '@/lib/prefs';
 import type { SyncStatus } from '@/lib/sync/store';
-import { addDays } from '@/lib/sync/time';
 import type { ResolvedScope } from '@/lib/time-scope/scope';
 
 export type CardState = 'ok' | 'backfilling' | 'no_data' | 'needs_reconnect';
@@ -43,17 +41,6 @@ export interface OverviewModel {
   days: string[]; // comparison x axis: the first day of each bucket (day, week or month) of the current window
   partial: string[]; // buckets the window only partly covers
   series: Record<string, (number | null)[]>; // reach per bucket per account id, aligned with days
-}
-
-/** ?period= from the URL; anything else falls back to 30 days (SPEC §7b default). */
-export function parsePeriod(v: unknown): Period {
-  const n = Number(Array.isArray(v) ? v[0] : v);
-  return (PERIODS as readonly number[]).includes(n) ? (n as Period) : 30;
-}
-
-/** First day to read: two windows plus Instagram's up-to-48 h lag. The reach-drop flag needs 2 × 7 days at least. */
-export function fromDayFor(period: Period, today: string): string {
-  return addDays(today, -(2 * Math.max(period, 7) + 2));
 }
 
 /** backfilling = history still importing (SyncStatus.backfilling); without that flag (older rows): never synced and no rows. */

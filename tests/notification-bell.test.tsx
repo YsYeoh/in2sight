@@ -11,7 +11,7 @@ import type { NotificationItem } from '@/lib/alerts/read';
 import { deepMerge } from '@/lib/merge';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/overview' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/overview', useSearchParams: () => new URLSearchParams() }));
 // a plain anchor: these tests are about the bell, not Next's client router
 vi.mock('next/link', () => ({ default: ({ href, children, onClick, ...p }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} onClick={(e) => (e.preventDefault(), onClick?.(e))} {...p}>{children}</a>, useLinkStatus: () => ({ pending: false }) }));
 

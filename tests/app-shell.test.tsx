@@ -8,7 +8,8 @@ import { AppShell } from '@/components/shared/AppShell';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 
 let pathname = '/accounts';
-vi.mock('next/navigation', () => ({ usePathname: () => pathname }));
+let search = new URLSearchParams();
+vi.mock('next/navigation', () => ({ usePathname: () => pathname, useSearchParams: () => search }));
 
 function setup(props: Partial<React.ComponentProps<typeof AppShell>> = {}, persist = vi.fn()) {
   return render(
@@ -61,6 +62,20 @@ describe('AppShell', () => {
     setup();
     const nav = screen.getByRole('navigation', { name: 'Main tabs' });
     expect(within(nav).getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+  });
+
+  it('Overview and Calendar links carry the Time Scope of the current URL (both landmarks)', () => {
+    pathname = '/accounts/12';
+    search = new URLSearchParams('tab=posts&from=2026-09-01&to=2026-09-30&format=REELS');
+    setup();
+    for (const name of ['Main navigation', 'Main tabs']) {
+      const nav = screen.getByRole('navigation', { name });
+      expect(within(nav).getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '/overview?from=2026-09-01&to=2026-09-30');
+      expect(within(nav).getByRole('link', { name: 'Calendar' })).toHaveAttribute('href', '/calendar?from=2026-09-01&to=2026-09-30');
+      expect(within(nav).getByRole('link', { name: 'Accounts' })).toHaveAttribute('href', '/accounts');
+    }
+    pathname = '/accounts';
+    search = new URLSearchParams();
   });
 
   it('reserves space at the bottom on phones so the tab bar never covers content', () => {

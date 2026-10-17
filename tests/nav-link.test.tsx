@@ -10,7 +10,7 @@ import { DEFAULT_PREFS } from '@/lib/prefs';
 
 const status = vi.hoisted(() => ({ pending: false }));
 vi.mock('next/link', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/link')>()), useLinkStatus: () => ({ pending: status.pending }) }));
-vi.mock('next/navigation', () => ({ usePathname: () => '/overview' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/overview', useSearchParams: () => new URLSearchParams() }));
 
 const wrap = (ui: React.ReactNode) =>
   render(

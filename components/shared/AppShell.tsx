@@ -1,11 +1,11 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ModeToggle } from '@/components/shared/ModeToggle';
 import { NavLink } from '@/components/shared/NavLink';
 import { UserMenu } from '@/components/shared/UserMenu';
-import { NAV_ITEMS, isActive } from '@/lib/nav';
+import { NAV_ITEMS, isActive, navHref } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
 function Brand({ className, wordClassName }: { className?: string; wordClassName?: string }) {
@@ -19,6 +19,7 @@ function Brand({ className, wordClassName }: { className?: string; wordClassName
 
 export function AppShell({ children, userEmail, signOutAction, bell }: { children: React.ReactNode; userEmail?: string; signOutAction?: () => Promise<void>; bell?: React.ReactNode }) {
   const pathname = usePathname();
+  const search = useSearchParams(); // the (app) routes are all dynamic (owner check), so this never forces client-side rendering
   const t = useTranslations('nav');
   return (
     <div className="min-h-dvh bg-background">
@@ -29,7 +30,7 @@ export function AppShell({ children, userEmail, signOutAction, bell }: { childre
           {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
             <NavLink
               key={href}
-              href={href}
+              href={navHref(href, search)}
               icon={Icon}
               iconClassName="size-4"
               aria-current={isActive(pathname, href) ? 'page' : undefined}
@@ -58,7 +59,7 @@ export function AppShell({ children, userEmail, signOutAction, bell }: { childre
         {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
           <NavLink
             key={href}
-            href={href}
+            href={navHref(href, search)}
             icon={Icon}
             iconClassName="size-5"
             aria-current={isActive(pathname, href) ? 'page' : undefined}

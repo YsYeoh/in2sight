@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StoredAccount } from '@/lib/accounts/types';
 import type { DailyRow, Post } from '@/lib/analysis/types';
-import { buildOverview, fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
+import { buildOverview } from '@/lib/dashboard/overview';
 import type { OverviewInput } from '@/lib/dashboard/read';
 import { addDays } from '@/lib/sync/time';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
@@ -23,19 +23,6 @@ function input(o: Partial<OverviewInput> = {}): OverviewInput {
     ...o,
   };
 }
-
-describe('parsePeriod / fromDayFor', () => {
-  it('accepts 7/30/90, defaults to 30', () => {
-    expect(parsePeriod('7')).toBe(7);
-    expect(parsePeriod(['90'])).toBe(90);
-    expect(parsePeriod('28')).toBe(30);
-    expect(parsePeriod(undefined)).toBe(30);
-  });
-  it('reads two windows plus lag, at least 2 × 7 days', () => {
-    expect(fromDayFor(30, TODAY)).toBe(addDays(TODAY, -62));
-    expect(fromDayFor(7, TODAY)).toBe(addDays(TODAY, -16));
-  });
-});
 
 describe('buildOverview', () => {
   it('groups A→Z with accounts A→Z inside, isolated accounts last and never combined', () => {
