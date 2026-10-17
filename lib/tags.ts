@@ -17,13 +17,14 @@ export const isMediaId = (v: unknown): v is string => typeof v === 'string' && M
 // something else. Plain RTL text (Arabic, Hebrew) is fine. Tabs/newlines are whitespace and collapse instead.
 const FORBIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
 
-/** NFC, whitespace collapsed and trimmed, 1-40 code points (Postgres char_length counts code points too). */
-export function normalizeTagName(raw: unknown): { ok: true; value: string } | { ok: false; error: 'invalid_name' } {
+/** NFC, whitespace collapsed and trimmed, 1-`max` code points (Postgres char_length counts code points too). Also
+ *  used for saved Explorer view names (max 60). */
+export function normalizeTagName(raw: unknown, max: number = TAG_NAME_MAX): { ok: true; value: string } | { ok: false; error: 'invalid_name' } {
   if (typeof raw !== 'string') return { ok: false, error: 'invalid_name' };
   const nfc = raw.normalize('NFC');
   if (FORBIDDEN.test(nfc)) return { ok: false, error: 'invalid_name' };
   const value = nfc.replace(/\s+/g, ' ').trim();
-  if (value === '' || [...value].length > TAG_NAME_MAX) return { ok: false, error: 'invalid_name' };
+  if (value === '' || [...value].length > max) return { ok: false, error: 'invalid_name' };
   return { ok: true, value };
 }
 
