@@ -57,11 +57,16 @@ describe('itemParts', () => {
 });
 
 describe('windows', () => {
-  it('settled day: the newest done-through day within the lag, else yesterday', () => {
-    expect(settledDay(['2026-10-15', '2026-10-14', null], TODAY)).toBe('2026-10-15');
-    expect(settledDay(['2026-10-10'], TODAY)).toBe('2026-10-16'); // stale: yesterday, its gap shows
+  it('settled day: the OLDEST done-through day among the accounts within the lag, else yesterday', () => {
+    expect(settledDay(['2026-10-16', '2026-10-14'], TODAY)).toBe('2026-10-14'); // the lagging account decides: no dip for it
+    expect(settledDay(['2026-10-15', '2026-10-14', null], TODAY)).toBe('2026-10-14'); // never synced (null) does not count
+    expect(settledDay(['2026-10-15', '2026-10-10'], TODAY)).toBe('2026-10-15'); // a stale / broken sync cannot pull every window back
+    expect(settledDay(['2026-10-13', '2026-10-12'], TODAY)).toBe('2026-10-13'); // lag limit is 3 days before yesterday
+    expect(settledDay(['2026-10-10'], TODAY)).toBe('2026-10-16'); // all stale: yesterday, the gap shows
+    expect(settledDay([null, undefined], TODAY)).toBe('2026-10-16');
     expect(settledDay([], TODAY)).toBe('2026-10-16');
     expect(settledDay(['2026-10-17'], TODAY)).toBe('2026-10-16'); // today is never settled
+    expect(settledDay(['2026-10-17', '2026-10-15'], TODAY)).toBe('2026-10-15'); // a day after yesterday is ignored
   });
 
   it('rolling presets end on the settled day; fixed ranges are cut there; comparison from 12a compareRange', () => {
