@@ -133,7 +133,7 @@ export function ReportDocument({ model }: { model: ReportModel }) {
         caption={t('section.stories')}
         columns={[
           { key: 'account', header: t('cols.account'), cell: (s) => <span dir="auto">@{s.username}</span> },
-          { key: 'count', header: t('report.storiesCount'), cell: (s) => formatNumber(s.count, prefs), align: 'right' },
+          { key: 'count', header: t('report.storiesCount'), cell: (s) => `${formatNumber(s.count, prefs)}${s.capped ? '+' : ''}`, align: 'right' },
           { key: 'reach', header: tp('avgReach'), cell: (s) => formatCompact(s.avgReach, prefs), align: 'right' },
           { key: 'views', header: t('report.avgViews'), cell: (s) => formatCompact(s.avgViews, prefs), align: 'right' },
           { key: 'exit', header: t('report.avgExitRate'), cell: (s) => formatPercent(s.avgExitRate, prefs), align: 'right' },

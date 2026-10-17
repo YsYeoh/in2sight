@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { calls, fail, rec } = vi.hoisted(() => {
+const { calls, fail, rec, capped } = vi.hoisted(() => {
   const calls: unknown[][] = [];
   const fail = { op: '' };
+  const capped = new Set<unknown>(); // account ids whose Stories hit STORY_LIMIT
   const rec =
     (op: string, value: unknown) =>
     async (...args: unknown[]) => {
@@ -11,13 +12,13 @@ const { calls, fail, rec } = vi.hoisted(() => {
       if (fail.op === op) throw new Error(`dashboard read: ${op} failed`);
       return value;
     };
-  return { calls, fail, rec };
+  return { calls, fail, rec, capped };
 });
 
 vi.mock('@/lib/dashboard/read', () => ({ loadDaily: rec('daily', [{ day: '2026-10-14' }]) }));
 vi.mock('@/lib/dashboard/detail-read', () => ({
   loadPostRows: rec('posts', [{ id: 'p' }]),
-  loadStories: rec('stories', { stories: [{ id: 's' }], truncated: false }),
+  loadStories: async (...args: unknown[]) => ({ ...((await rec('stories', { stories: [{ id: 's' }] })(...args)) as object), truncated: capped.has(args[1]) }),
   loadAudience: rec('audience', { age_gender: null, country: null, city: null }),
   loadOnline: rec('online', { x: [] }),
   loadTags: rec('tags', [{ id: 't', name: 'T', color: 'chart-1' }]),
@@ -32,6 +33,7 @@ const db = {} as SupabaseClient;
 beforeEach(() => {
   calls.length = 0;
   fail.op = '';
+  capped.clear();
 });
 
 const time = (q: string) => parseTimeScope(new URLSearchParams(q));
@@ -51,6 +53,14 @@ describe('loadExportData', () => {
     expect(d.stories[A]).toEqual([{ id: 's' }]);
     expect(calls).toContainEqual(['online', [A, B], '2026-09-15']);
     expect(calls.filter((c) => c[0] === 'audience')).toHaveLength(2);
+  });
+
+  it('says which accounts hit the Stories cap (the rest of their Stories are not in the export)', async () => {
+    capped.add(B);
+    const d = await loadExportData(db, [acct(A, 'a'), acct(B, 'b')], { time: time('from=7d'), today: '2026-10-15', tz: 'UTC' });
+    expect(d.storiesTruncated).toEqual([B]);
+    capped.clear();
+    expect((await loadExportData(db, [acct(A, 'a'), acct(B, 'b')], { time: time('from=7d'), today: '2026-10-15', tz: 'UTC' })).storiesTruncated).toEqual([]);
   });
 
   it('no accounts: only the shared reads, empty maps', async () => {

@@ -47,7 +47,7 @@ export interface ReportModel {
   untagged: TagStat;
   bestTime: { online: Heatmap; posts: Heatmap };
   audience: { username: string; model: Omit<AudienceModel, 'globe'> }[];
-  stories: { username: string; count: number; avgReach: number | null; avgViews: number | null; avgExitRate: number | null }[];
+  stories: { username: string; count: number; capped: boolean; avgReach: number | null; avgViews: number | null; avgExitRate: number | null }[];
   flags: { username: string; flag: Flag }[];
 }
 
@@ -118,7 +118,8 @@ export function buildReport(data: ExportData, p: ReportParams, o: { today: strin
     }),
     stories: data.accounts.map((a) => {
       const list = buildStories(data.stories[a.id] ?? [], o.now);
-      return { username: a.username, count: list.length, avgReach: avg(list.map((s) => s.final?.reach)), avgViews: avg(list.map((s) => s.final?.views)), avgExitRate: avg(list.map((s) => s.exitRate)) };
+      // capped: the read stopped at STORY_LIMIT, so `count` (= that limit) is "at least" (the view adds the "+")
+      return { username: a.username, count: list.length, capped: data.storiesTruncated.includes(a.id), avgReach: avg(list.map((s) => s.final?.reach)), avgViews: avg(list.map((s) => s.final?.views)), avgExitRate: avg(list.map((s) => s.exitRate)) };
     }),
     flags: data.accounts.flatMap((a) => {
       const drop = reachDrop(data.daily[a.id] ?? [], o.today, o.tz);

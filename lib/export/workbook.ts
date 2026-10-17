@@ -6,7 +6,7 @@ import writeXlsxFile, { type Cell, type SheetData } from 'write-excel-file/node'
 import { combine, kpis, summarize, type KpiId, type Summary } from '@/lib/analysis/growth';
 import { engagementRate } from '@/lib/analysis/posts';
 import { buildStories, buildTagStats } from '@/lib/dashboard/content';
-import type { PostRow } from '@/lib/dashboard/detail-read';
+import { STORY_LIMIT, type PostRow } from '@/lib/dashboard/detail-read';
 import { AVG_FORMAT, COUNT_FORMAT, excelDateFormat, excelDateTimeFormat, PERCENT_FORMAT, safeText, sheetNames } from '@/lib/export/cells';
 import type { ExportData } from '@/lib/export/read';
 import { formatCountry, wallClock, type FormatPrefs } from '@/lib/format';
@@ -199,11 +199,15 @@ export function buildWorkbook(data: ExportData, t: Translate, o: WorkbookOptions
     { header: t('metrics.engagementRate'), kind: 'percent', width: 12, get: (r) => r.engagementRate },
   ];
 
+  // an account whose Stories hit the cap gets a note row under the data (Stories are never cut silently)
+  const stories = sheet(t('export.sheets.stories'), storyCols, storyRows, o);
+  for (const a of data.accounts) if (data.storiesTruncated.includes(a.id)) stories.data.push([cellOf('text', a.username, o), cellOf('text', t('export.storiesCapped', { n: STORY_LIMIT }), o)]);
+
   const built = [
     sheet(t('export.sheets.summary'), summaryCols, sumRows, o),
     sheet(t('export.sheets.daily'), dailyCols, dailyRows, o),
     sheet(t('export.sheets.posts'), postCols, posts, o),
-    sheet(t('export.sheets.stories'), storyCols, storyRows, o),
+    stories,
     sheet(t('export.sheets.audience'), audCols, audRows, o),
     sheet(t('export.sheets.tags'), tagCols, tagRows, o),
   ];

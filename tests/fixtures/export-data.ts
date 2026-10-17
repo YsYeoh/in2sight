@@ -41,6 +41,7 @@ export function sampleData(q = ''): ExportData {
     daily: { [A]: days(20, 100), [B]: [] },
     posts: { [A]: [post('p1', A, { caption: '=1+1 cmd', tagIds: [TAG.id], mediaType: 'REELS' }), post('p2', A, { reach: null, likes: null, comments: null, shares: null, saves: null, caption: null })], [B]: [] },
     stories: { [A]: [story('s1')], [B]: [] },
+    storiesTruncated: [],
     audience: {
       [A]: { age_gender: { day: '2026-10-14', data: { '18-24|F': 30, '18-24|M': 20 } }, country: { day: '2026-10-14', data: { MY: 60, SG: 40 } }, city: { day: '2026-10-14', data: { '=Kuala Lumpur': 50 } } },
       [B]: { age_gender: null, country: null, city: null },
