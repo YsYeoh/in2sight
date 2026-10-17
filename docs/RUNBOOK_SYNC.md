@@ -160,6 +160,8 @@ from public.sync_progress p join public.accounts a on a.id = p.account_id;
 - `needs_reconnect` on the account = token rejected: Reconnect (coverage is kept, the import resumes where it stopped).
 - Otherwise press **Retry** (= Sync now) on the panel: one manual pass + a continuation chain if work is left.
 
+> Plan 11b capture extras (Story/per-media extras, covers, comments, raw archive) have their own runbook: docs/RUNBOOK_CAPTURE.md.
+
 ## Known limits
 
 - Meta's `X-Business-Use-Case-Usage` response header is not read. Throttling is handled reactively (error codes 4 / 17 / 32 / 613 / 80002 stop the account or the tick and back off). Fine for 3-4 accounts; revisit if you add many.
