@@ -1,6 +1,7 @@
 // Pure scheduling decisions: which jobs are due for an account on this tick, and which media need a new snapshot.
 // The tick runs every 30 minutes from any HTTP scheduler (docs/RUNBOOK_SYNC.md); intervals here are independent of it.
 import type { AccountStatus } from '@/lib/accounts/types';
+import type { Capabilities } from '@/lib/sync/capabilities';
 import { addDays, localDay, localHour } from '@/lib/sync/time';
 
 const STORIES_EVERY_MIN = 30; // every tick: a story lives 24h, a missed window is lost data
@@ -46,6 +47,8 @@ export interface SyncState {
   /** Oldest insight day handled by the newest-first import (backward edge); null = not started. */
   backfilledFrom: string | null;
   lastRun: Partial<Record<JobKind, string>>; // ISO time of each job's last success
+  /** Optional metrics/fields Meta answered "unsupported" (false) or served (true); see lib/sync/capabilities.ts. */
+  capabilities?: Capabilities;
 }
 
 export const emptyState = (accountId: string): SyncState => ({
@@ -58,6 +61,7 @@ export const emptyState = (accountId: string): SyncState => ({
   dailyDoneThrough: null,
   backfilledFrom: null,
   lastRun: {},
+  capabilities: {},
 });
 
 /**

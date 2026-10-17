@@ -56,6 +56,18 @@ export function classifyIgError(e: unknown): IgErrorClass {
   return 'other';
 }
 
+/** Only auth and rate-limit problems may stop a job; everything else in an optional extra capture is skipped. */
+export const isFatalIgError = (e: unknown): boolean => ['auth', 'app_rate_limit', 'rate_limit'].includes(classifyIgError(e));
+
+/**
+ * Meta said this metric/field is not available here (code 100 + the "not supported" wording). Never true for a
+ * pre-conversion post (no data, 2108006) or a deleted object (33), and never for transient or network errors, so a
+ * hiccup can not be mistaken for "unsupported" and poison the capability memory.
+ */
+export function isUnsupported(e: unknown): boolean {
+  return e instanceof InstagramApiError && e.kind !== 'network' && e.code === M.IG_ERROR.invalidParam && e.unsupported && e.subcode !== M.IG_ERROR.preConversionSubcode && e.subcode !== M.IG_ERROR.objectMissingSubcode;
+}
+
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
