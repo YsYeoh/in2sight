@@ -15,9 +15,19 @@ const MESSAGES: Record<Kind, string> = {
   network: 'instagram request failed (network)',
 };
 
-/** Fixed message per kind: response bodies, tokens, codes and secrets never end up in an error. */
+/**
+ * Meta's wording when a metric or field is not available for this object/product type (verified 2026-10-16: "does not
+ * support the metric for this media product type"; invalid names: "must be one of the following values"; unknown
+ * fields: "nonexisting field"). Matched once in call(); the text itself is discarded.
+ */
+const UNSUPPORTED = /does not support|must be one of the following values|nonexisting field/i;
+
+/**
+ * Fixed message per kind: response bodies, tokens, codes and secrets never end up in an error. `unsupported` = Meta
+ * said the requested metric/field is not available (see UNSUPPORTED); it is a flag, not the message.
+ */
 export class InstagramApiError extends Error {
-  constructor(public kind: Kind, public status?: number, public code?: number, public subcode?: number) {
+  constructor(public kind: Kind, public status?: number, public code?: number, public subcode?: number, public unsupported = false) {
     super(MESSAGES[kind]);
     this.name = 'InstagramApiError';
   }
@@ -48,10 +58,12 @@ export async function call(kind: Kind, fetchFn: typeof fetch, url: string, init?
     // non-JSON body: fall through with the status only
   }
   if (!res.ok) {
-    const err = body.error as { code?: unknown; error_subcode?: unknown } | undefined;
+    const err = body.error as { code?: unknown; error_subcode?: unknown; message?: unknown } | undefined;
     const raw = typeof err === 'object' && err ? err.code : body.code;
     const sub = typeof err === 'object' && err ? err.error_subcode : undefined;
-    throw new InstagramApiError(kind, res.status, typeof raw === 'number' ? raw : undefined, typeof sub === 'number' ? sub : undefined);
+    // only a boolean leaves this function: Meta's message text is never stored or logged
+    const unsupported = typeof err === 'object' && err && typeof err.message === 'string' && UNSUPPORTED.test(err.message);
+    throw new InstagramApiError(kind, res.status, typeof raw === 'number' ? raw : undefined, typeof sub === 'number' ? sub : undefined, !!unsupported);
   }
   return body;
 }

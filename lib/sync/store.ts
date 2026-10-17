@@ -5,6 +5,7 @@ import type { AccountDayValues, BreakdownRow, MediaMetricValues } from '@/lib/in
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { IgMediaItem } from '@/lib/instagram/parse';
 import { DEFAULT_PREFS, isValidTimeZone } from '@/lib/prefs';
+import { parseCapabilities, type Capabilities } from '@/lib/sync/capabilities';
 import type { LiveState, Stage } from '@/lib/sync/progress';
 import { emptyState, isBackfilling, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
 
@@ -16,6 +17,7 @@ export interface StatePatch {
   dailyDoneThrough: string | null;
   backfilledFrom: string | null;
   lastRun: Partial<Record<JobKind, string>>;
+  capabilities?: Capabilities; // omitted = keep the stored map
 }
 
 /** One live progress write (sync_progress row). started_at comes from resetSyncProgress or the insert default. */
@@ -84,6 +86,7 @@ export function rowToState(r: Row): SyncState {
     dailyDoneThrough: (r.daily_done_through as string | null) ?? null,
     backfilledFrom: (r.backfilled_from as string | null) ?? null,
     lastRun: typeof r.last_run === 'object' && r.last_run !== null ? (r.last_run as SyncState['lastRun']) : {},
+    capabilities: parseCapabilities(r.capabilities),
   };
 }
 
@@ -143,6 +146,7 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
         last_run: p.lastRun,
       };
       if (p.lastSuccessAt) row.last_success_at = p.lastSuccessAt;
+      if (p.capabilities) row.capabilities = p.capabilities;
       check('saveState')(await db.from('sync_state').update(row).eq('account_id', accountId).eq('lease_id', leaseId));
     },
     async getToken(accountId) {

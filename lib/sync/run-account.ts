@@ -2,9 +2,10 @@
 // on to the next account. Tokens are only passed to the Instagram client, never logged or returned.
 import { markNeedsReconnect } from '@/lib/accounts/service';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
-import { classifyIgError, type IgData } from '@/lib/instagram/data';
+import { classifyIgError, isFatalIgError as fatal, type IgData } from '@/lib/instagram/data';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
+import type { Capabilities } from '@/lib/sync/capabilities';
 import { coveredDays } from '@/lib/sync/progress';
 import type { ProgressSink } from '@/lib/sync/progress-sink';
 import { BACKFILL_DAYS, FIRST_DAYS, firstWeekPending, MEDIA_BACKFILL_MAX, MEDIA_DAILY_UNDER_DAYS, MEDIA_RECENT_MAX, SETTLE_DAYS, pickDueMedia, type JobKind, type SyncState } from '@/lib/sync/schedule';
@@ -38,10 +39,14 @@ export interface RunContext {
   progress?: ProgressSink;
 }
 
-/** Coverage edges that must survive a job failing half-way (e.g. 40 history days written, then a 5xx). */
+/**
+ * What must survive a job failing half-way: the coverage edges (e.g. 40 history days written, then a 5xx) and the
+ * capability memory learned so far (saved with the state patch).
+ */
 interface Progress {
   dailyDoneThrough: string | null;
   backfilledFrom: string | null;
+  capabilities: Capabilities;
 }
 
 /** done=false: stopped for the time budget; the job stays due and continues next tick. */
@@ -108,9 +113,6 @@ const daily: Job = async (c, p) => {
   if (followersCount !== null) await c.store.upsertFollowers(c.account.id, today, followersCount);
   return { done: true };
 };
-
-/** Only auth and rate-limit problems may stop a job; everything else in an optional extra capture is skipped. */
-const fatal = (e: unknown) => ['auth', 'app_rate_limit', 'rate_limit'].includes(classifyIgError(e));
 
 /** Follower / following / media counts, once per tick (intraday follower curve). A failure here must not cost the Stories capture. */
 async function followerSnapshot(c: RunContext) {
@@ -267,7 +269,7 @@ function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): Sync
 export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ result: AccountResult; patch: StatePatch }> {
   const nowIso = c.now.toISOString();
   const lastRun = { ...c.state.lastRun };
-  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough, backfilledFrom: c.state.backfilledFrom };
+  const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough, backfilledFrom: c.state.backfilledFrom, capabilities: { ...(c.state.capabilities ?? {}) } };
   const completed: JobKind[] = [];
   let partial = false;
   let errorKey: SyncErrorKey | undefined;
@@ -314,6 +316,7 @@ export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ resu
     dailyDoneThrough: progress.dailyDoneThrough,
     backfilledFrom: progress.backfilledFrom,
     lastRun,
+    capabilities: progress.capabilities,
   };
   return { result: { accountId: c.account.id, outcome, jobs: completed, ...(errorKey ? { errorKey } : {}), ...(appRateLimited ? { appRateLimited } : {}) }, patch };
 }
