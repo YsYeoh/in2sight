@@ -4,10 +4,12 @@ import type { DailyRow, Post } from '@/lib/analysis/types';
 import { buildOverview, fromDayFor, parsePeriod } from '@/lib/dashboard/overview';
 import type { OverviewInput } from '@/lib/dashboard/read';
 import { addDays } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 const TODAY = '2026-10-15';
 const NOW = new Date('2026-10-15T04:00:00Z');
-const OPTS = { period: 7 as const, today: TODAY, now: NOW, tz: 'Asia/Kuala_Lumpur', locale: 'en' };
+const opts = (q: string) => ({ scope: resolveScope(parseTimeScope(new URLSearchParams(q)), TODAY, '2026-09-01'), today: TODAY, now: NOW, tz: 'Asia/Kuala_Lumpur', locale: 'en', weekStart: 'mon' as const });
+const OPTS = opts('from=7d');
 const acct = (id: string, o: Partial<StoredAccount> = {}): StoredAccount => ({ id, igUserId: id, username: id, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-01T00:00:00Z', connectedAt: '2026-09-01T00:00:00Z', ...o });
 const days = (n: number, reach: number): DailyRow[] => Array.from({ length: n }, (_, i) => ({ day: addDays(TODAY, i - n), followers: 1000, reach, views: reach * 2, accountsEngaged: null, interactions: reach / 10, follows: null, unfollows: null, linkTaps: null }));
 const synced = { lastSuccessAt: '2026-10-15T03:00:00Z', lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-14' };
@@ -98,5 +100,18 @@ describe('buildOverview', () => {
     const m = buildOverview({ accounts: [], sync: {}, daily: {}, posts: {} }, OPTS);
     expect(m).toMatchObject({ totals: null, sections: [], scopes: [], totalsSpark: [] });
     expect(m.days).toHaveLength(7);
+  });
+
+  it('carries the scope; a fixed range by weeks buckets the comparison series and marks cut weeks', () => {
+    const m = buildOverview(input(), opts('from=2026-10-01&to=2026-10-14&gran=week'));
+    expect(m.scope.query).toBe('from=2026-10-01&to=2026-10-14&gran=week');
+    expect(m.days).toEqual(['2026-09-28', '2026-10-05', '2026-10-12']);
+    expect(m.partial).toEqual(['2026-09-28', '2026-10-12']);
+    expect(m.series.zeta).toEqual([400, 700, 300]); // 4 + 7 + 3 days × 100: sums, never averages
+  });
+
+  it('no comparison: totals keep their values without a delta or a reason', () => {
+    const m = buildOverview(input(), opts('from=7d&cmp=none'));
+    expect(m.totals?.reach).toMatchObject({ value: 1127, prior: null, diff: null, reason: null });
   });
 });

@@ -4,6 +4,7 @@ import { combine, kpis, summarize } from '@/lib/analysis/growth';
 import type { DailyRow } from '@/lib/analysis/types';
 import { buildOverview } from '@/lib/dashboard/overview';
 import { addDays } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 const KL = 'Asia/Kuala_Lumpur';
 const TODAY = '2026-10-15';
@@ -57,7 +58,7 @@ describe('Overview while an account is importing', () => {
         daily: { old: days(14, { reach: 100, followers: 1000, interactions: 10 }), new: days(7, { reach: 40, followers: 300, interactions: 4 }) },
         posts: {},
       },
-      { period: 7, today: TODAY, now: NOW, tz: KL, locale: 'en' },
+      { scope: resolveScope(parseTimeScope({ from: '7d' }), TODAY), today: TODAY, now: NOW, tz: KL, locale: 'en', weekStart: 'mon' },
     );
     const card = m.sections.flatMap((s) => s.cards).find((c) => c.id === 'new')!;
     expect(card.state).toBe('backfilling');
@@ -68,7 +69,7 @@ describe('Overview while an account is importing', () => {
   });
 
   it('a sync row without the flag (older data) keeps the old rule: rows or a done-through date mean not importing', () => {
-    const m = buildOverview({ accounts: [acct('x')], sync: { x: synced }, daily: { x: days(14, { reach: 1 }) }, posts: {} }, { period: 7, today: TODAY, now: NOW, tz: KL, locale: 'en' });
+    const m = buildOverview({ accounts: [acct('x')], sync: { x: synced }, daily: { x: days(14, { reach: 1 }) }, posts: {} }, { scope: resolveScope(parseTimeScope({ from: '7d' }), TODAY), today: TODAY, now: NOW, tz: KL, locale: 'en', weekStart: 'mon' });
     expect(m.sections[0].cards[0].state).toBe('ok');
   });
 });
