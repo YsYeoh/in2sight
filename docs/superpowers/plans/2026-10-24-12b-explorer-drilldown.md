@@ -1409,7 +1409,326 @@ git commit -m "feat(analysis): explorer model (groups, comparison, drill targets
 
 ### Task 6: Saved views — validation + server actions
 
-_(pending)_
+**Files:**
+- Create: `lib/explorer/views.ts`, `app/(app)/explorer/actions.ts`
+- Modify: `lib/tags.ts` (`normalizeTagName` gains an optional `max`; default unchanged)
+- Test: `tests/explorer-views.test.ts` (new). `tests/tags.test.ts` and `tests/tag-actions.test.ts` must keep passing unchanged.
+
+**Interfaces:**
+- Consumes: `EXPLORER_KEYS`, `explorerParams`, `parseExplorerState` (Task 3); 12a `parseTimeScope`, `SCOPE_KEYS`, `scopeParams` (`lib/time-scope/scope.ts`); `normalizeTagName`, `sameTagName`, `isUuid` (`lib/tags.ts`); `requireOwner`, `createServerSupabase`, `getPrefs`; table `explorer_views` (Task 1).
+- Produces:
+  - `VIEW_NAME_MAX = 60`, `MAX_VIEWS = 50`, `interface SavedView { id; name; href }`.
+  - `viewState(query: string, weekStart): Record<string, string>` (canonical Explorer + Time Scope params; unknown keys dropped; repeated key = missing), `viewHref(stored: unknown, weekStart): string` (re-validates stored JSON), `loadViews(db, weekStart): Promise<SavedView[]>` (never throws).
+  - Server actions `saveViewAction(name, query)`, `renameViewAction(id, name)`, `deleteViewAction(id)` → `ViewResult = { ok: true } | { ok: false; error: ViewError }`, `ViewError = 'invalid_name' | 'invalid_state' | 'duplicate' | 'not_found' | 'too_many' | 'unexpected'` (i18n `explorer.views.errors.<key>`, Task 2).
+  - `normalizeTagName(raw, max = TAG_NAME_MAX)`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/explorer-views.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+type Op = unknown[];
+const { calls, requireOwner, queue } = vi.hoisted(() => ({
+  calls: [] as Op[],
+  requireOwner: vi.fn(),
+  queue: [] as { data?: unknown; error?: unknown }[],
+}));
+
+/** Owner-session fake: records every call; each awaited query resolves to the next queued result. */
+function fakeDb() {
+  return {
+    from(table: string) {
+      calls.push(['from', table]);
+      const chain: Record<string, unknown> = {};
+      for (const op of ['select', 'insert', 'update', 'delete', 'eq', 'order', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(queue.shift() ?? { data: [], error: null }).then(res, rej);
+      return chain;
+    },
+  };
+}
+
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: () => requireOwner() }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push(['session']), fakeDb()) }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push(['ADMIN']) }));
+vi.mock('@/lib/prefs.server', () => ({ getPrefs: async () => ({ weekStart: 'mon' }) }));
+vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => calls.push(['revalidate', ...a]) }));
+
+import { deleteViewAction, renameViewAction, saveViewAction } from '@/app/(app)/explorer/actions';
+import { loadViews, MAX_VIEWS, viewHref, viewState } from '@/lib/explorer/views';
+
+const V1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const V2 = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+const has = (op: string, ...args: unknown[]) => calls.some((c) => c[0] === op && args.every((a, i) => JSON.stringify(c[i + 1]) === JSON.stringify(a)));
+
+beforeEach(() => {
+  calls.length = 0;
+  queue.length = 0;
+  requireOwner.mockReset().mockImplementation(async () => void calls.push(['requireOwner']));
+});
+
+describe('viewState / viewHref', () => {
+  it('keeps only Explorer and Time Scope keys, canonical; a preset stays a preset, picker shorthands become fixed days', () => {
+    expect(viewState('m=likes&by=hour&from=90d&cmp=yoy&tab=posts&evil=1', 'mon')).toEqual({ m: 'likes', by: 'hour', from: '90d', cmp: 'yoy' });
+    expect(viewState('by=time&month=2026-09&gran=week', 'mon')).toEqual({ m: 'reach,engagementRate,posts,avgReach', by: 'time', from: '2026-09-01', to: '2026-09-30', gran: 'week' });
+    expect(viewState('m=reach&m=likes&by=format', 'mon')).toEqual({ m: 'posts,avgReach,postEngagementRate', by: 'format' }); // repeated = missing
+  });
+
+  it('a stored state is re-validated: junk JSON, unknown keys and non-strings never reach the link', () => {
+    expect(viewHref({ m: 'likes', by: 'tag', from: '2026-01-01', to: '2026-03-31', x: 'y', acc: 5 }, 'mon')).toBe('/explorer?m=likes&by=tag&from=2026-01-01&to=2026-03-31');
+    for (const junk of [null, 'm=likes', [], 42, { by: 'drop table', from: '<script>' }]) expect(viewHref(junk, 'mon')).toBe('/explorer?m=reach%2CengagementRate%2Cposts%2CavgReach&by=account');
+  });
+
+  it('loadViews: A→Z, at most MAX_VIEWS, links rebuilt; a failed read is an empty menu', async () => {
+    queue.push({ data: [{ id: V1, name: 'Reels', state: { m: 'likes', by: 'hour' } }], error: null });
+    expect(await loadViews(fakeDb() as unknown as SupabaseClient, 'mon')).toEqual([{ id: V1, name: 'Reels', href: '/explorer?m=likes&by=hour' }]);
+    expect(has('order', 'name', { ascending: true })).toBe(true);
+    expect(has('limit', MAX_VIEWS)).toBe(true);
+    queue.push({ data: null, error: { message: 'x' } });
+    expect(await loadViews(fakeDb() as unknown as SupabaseClient, 'mon')).toEqual([]);
+  });
+});
+
+describe('saved view actions: authorization and validation', () => {
+  it.each([
+    ['save', () => saveViewAction('Reels by hour', 'by=hour')],
+    ['rename', () => renameViewAction(V1, 'New')],
+    ['delete', () => deleteViewAction(V1)],
+  ])('%s: requireOwner runs first; a redirect propagates and nothing is touched', async (_n, run) => {
+    await run();
+    expect(calls[0]).toEqual(['requireOwner']);
+    calls.length = 0;
+    requireOwner.mockRejectedValue(new Error('NEXT_REDIRECT'));
+    await expect(run()).rejects.toThrow('NEXT_REDIRECT');
+    expect(calls).toEqual([]);
+  });
+
+  it('invalid input returns an error key without opening a database client; never the admin client', async () => {
+    expect(await saveViewAction('   ', 'by=hour')).toEqual({ ok: false, error: 'invalid_name' });
+    expect(await saveViewAction('a'.repeat(61), 'by=hour')).toEqual({ ok: false, error: 'invalid_name' });
+    expect(await saveViewAction('ok', 'x'.repeat(4001))).toEqual({ ok: false, error: 'invalid_state' });
+    expect(await saveViewAction('ok', 42 as unknown as string)).toEqual({ ok: false, error: 'invalid_state' });
+    expect(await renameViewAction("1' or 1=1", 'x')).toEqual({ ok: false, error: 'not_found' });
+    expect(await deleteViewAction('nope')).toEqual({ ok: false, error: 'not_found' });
+    expect(calls.some((c) => c[0] === 'session' || c[0] === 'ADMIN')).toBe(false);
+  });
+});
+
+describe('saveViewAction', () => {
+  it('stores the normalised name and the canonical state, then revalidates', async () => {
+    queue.push({ data: [{ id: V2, name: 'Other' }] }, { error: null });
+    expect(await saveViewAction('  Reels   by hour ', 'm=likes&by=hour&from=30d&tab=x')).toEqual({ ok: true });
+    expect(has('insert', { name: 'Reels by hour', state: { m: 'likes', by: 'hour' } })).toBe(true);
+    expect(has('revalidate', '/explorer')).toBe(true);
+  });
+
+  it('duplicate names (any case), too many views, a DB race and unexpected errors map to keys, never messages', async () => {
+    queue.push({ data: [{ id: V2, name: 'reels' }] });
+    expect(await saveViewAction('REELS', '')).toEqual({ ok: false, error: 'duplicate' });
+    queue.push({ data: Array.from({ length: MAX_VIEWS }, (_, i) => ({ id: `v${i}`, name: `View ${i}` })) });
+    expect(await saveViewAction('One more', '')).toEqual({ ok: false, error: 'too_many' });
+    queue.push({ data: [] }, { error: { code: '23505', message: 'duplicate key' } });
+    expect(await saveViewAction('Race', '')).toEqual({ ok: false, error: 'duplicate' });
+    queue.push({ error: { message: 'secret' } });
+    expect(await saveViewAction('Boom', '')).toEqual({ ok: false, error: 'unexpected' });
+    expect(calls.some((c) => c[0] === 'insert' && JSON.stringify(c).includes('One more'))).toBe(false);
+  });
+});
+
+describe('renameViewAction / deleteViewAction', () => {
+  it('rename: own name in another case is fine, another view with that name is a duplicate, a gone view is not_found', async () => {
+    queue.push({ data: [{ id: V1, name: 'reels' }] }, { data: [{ id: V1 }] });
+    expect(await renameViewAction(V1, 'Reels')).toEqual({ ok: true });
+    expect(calls.some((c) => c[0] === 'update' && (c[1] as { name: string }).name === 'Reels')).toBe(true);
+    expect(has('eq', 'id', V1)).toBe(true);
+    queue.push({ data: [{ id: V2, name: 'Reels' }] });
+    expect(await renameViewAction(V1, 'reels')).toEqual({ ok: false, error: 'duplicate' });
+    queue.push({ data: [] }, { data: [] });
+    expect(await renameViewAction(V1, 'X')).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  it('delete: removes by id; a gone view is not_found', async () => {
+    queue.push({ data: [{ id: V1 }] });
+    expect(await deleteViewAction(V1)).toEqual({ ok: true });
+    expect(has('delete')).toBe(true);
+    queue.push({ data: [] });
+    expect(await deleteViewAction(V1)).toEqual({ ok: false, error: 'not_found' });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/explorer-views.test.ts`
+Expected: FAIL — `Failed to resolve import "@/app/(app)/explorer/actions"`.
+
+- [ ] **Step 3: Give `normalizeTagName` a maximum** — in `lib/tags.ts` replace the JSDoc + signature + length check of `normalizeTagName` so the diff is exactly:
+
+```diff
+diff --git a/lib/tags.ts b/lib/tags.ts
+index 3afbd50..54cd6d6 100644
+--- a/lib/tags.ts
++++ b/lib/tags.ts
+@@ -17,13 +17,14 @@ export const isMediaId = (v: unknown): v is string => typeof v === 'string' && M
+ // something else. Plain RTL text (Arabic, Hebrew) is fine. Tabs/newlines are whitespace and collapse instead.
+ const FORBIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
+ 
+-/** NFC, whitespace collapsed and trimmed, 1-40 code points (Postgres char_length counts code points too). */
+-export function normalizeTagName(raw: unknown): { ok: true; value: string } | { ok: false; error: 'invalid_name' } {
++/** NFC, whitespace collapsed and trimmed, 1-`max` code points (Postgres char_length counts code points too). Also
++ *  used for saved Explorer view names (max 60). */
++export function normalizeTagName(raw: unknown, max: number = TAG_NAME_MAX): { ok: true; value: string } | { ok: false; error: 'invalid_name' } {
+   if (typeof raw !== 'string') return { ok: false, error: 'invalid_name' };
+   const nfc = raw.normalize('NFC');
+   if (FORBIDDEN.test(nfc)) return { ok: false, error: 'invalid_name' };
+   const value = nfc.replace(/\s+/g, ' ').trim();
+-  if (value === '' || [...value].length > TAG_NAME_MAX) return { ok: false, error: 'invalid_name' };
++  if (value === '' || [...value].length > max) return { ok: false, error: 'invalid_name' };
+   return { ok: true, value };
+ }
+ 
+```
+
+- [ ] **Step 4: Write `lib/explorer/views.ts`**
+
+```ts
+// Saved Explorer views (table explorer_views, owner-authored, RLS is_owner()). A view stores the canonical query of the
+// Explorer plus the Time Scope exactly as Plan 12a writes it (a preset stays rolling, fixed days stay fixed). The stored
+// JSON is never trusted: it is re-validated through both parsers when saved AND when read.
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { EXPLORER_KEYS, explorerParams, parseExplorerState } from '@/lib/explorer/state';
+import type { WeekStart } from '@/lib/prefs';
+import { parseTimeScope, SCOPE_KEYS, scopeParams } from '@/lib/time-scope/scope';
+
+export const VIEW_NAME_MAX = 60;
+export const MAX_VIEWS = 50;
+
+export interface SavedView {
+  id: string;
+  name: string;
+  href: string; // '/explorer?…' rebuilt from the validated state
+}
+
+/** The canonical parameters to store for a query: Explorer keys + Time Scope keys only, each re-serialised by its parser. */
+export function viewState(query: string, weekStart: WeekStart): Record<string, string> {
+  const q = new URLSearchParams(query);
+  const one = (k: string) => (q.getAll(k).length === 1 ? q.get(k)! : undefined); // repeated = missing (as on the page)
+  const state = parseExplorerState(Object.fromEntries(EXPLORER_KEYS.map((k) => [k, one(k)])));
+  return { ...Object.fromEntries(explorerParams(state)), ...scopeParams(parseTimeScope(q, weekStart)) };
+}
+
+/** A stored state (any JSON) → a safe Explorer link. Unknown keys and non-string values are dropped before parsing. */
+export function viewHref(stored: unknown, weekStart: WeekStart): string {
+  const o = stored !== null && typeof stored === 'object' && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
+  const allowed: readonly string[] = [...EXPLORER_KEYS, ...SCOPE_KEYS];
+  const q = new URLSearchParams(Object.entries(o).filter((e): e is [string, string] => allowed.includes(e[0]) && typeof e[1] === 'string'));
+  return `/explorer?${new URLSearchParams(viewState(q.toString(), weekStart))}`;
+}
+
+/** The owner's saved views, A→Z (owner session, RLS). Never throws: the Explorer still works without its menu. */
+export async function loadViews(db: SupabaseClient, weekStart: WeekStart): Promise<SavedView[]> {
+  const { data, error } = await db.from('explorer_views').select('id,name,state').order('name', { ascending: true }).limit(MAX_VIEWS);
+  if (error || !data) return [];
+  return (data as Record<string, unknown>[]).map((r) => ({ id: String(r.id), name: String(r.name), href: viewHref(r.state, weekStart) }));
+}
+```
+
+- [ ] **Step 5: Write `app/(app)/explorer/actions.ts`**
+
+```ts
+'use server';
+
+// Saved Explorer views are owner-authored data: these actions use the OWNER-SESSION client, so RLS
+// (explorer_views_owner_all, gated on is_owner()) applies to every write. Never the admin client here.
+import { revalidatePath } from 'next/cache';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { MAX_VIEWS, VIEW_NAME_MAX, viewState } from '@/lib/explorer/views';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { isUuid, normalizeTagName, sameTagName } from '@/lib/tags';
+
+export type ViewError = 'invalid_name' | 'invalid_state' | 'duplicate' | 'not_found' | 'too_many' | 'unexpected';
+export type ViewResult = { ok: true } | { ok: false; error: ViewError };
+
+/** A view's query is at most a few hundred characters; anything far longer is not one of ours. */
+const QUERY_MAX = 4000;
+
+type DbError = { code?: string } | null;
+// 23505 unique_violation (lower(name) index, a race with another tab), 23514 check (state too large)
+const keyOf = (e: DbError): ViewError => (e?.code === '23505' ? 'duplicate' : e?.code === '23514' ? 'invalid_state' : 'unexpected');
+const fail = (error: ViewError): ViewResult => ({ ok: false, error });
+
+function done(): ViewResult {
+  revalidatePath('/explorer');
+  return { ok: true };
+}
+
+async function existing(db: Awaited<ReturnType<typeof createServerSupabase>>) {
+  const { data, error } = await db.from('explorer_views').select('id,name').limit(MAX_VIEWS + 1);
+  if (error) throw new Error('views read failed');
+  return (data ?? []) as { id: string; name: string }[];
+}
+
+// Server actions are public endpoints: authorize first (outside try/catch: it redirects by throwing), then validate.
+export async function saveViewAction(name: string, query: string): Promise<ViewResult> {
+  await requireOwner();
+  const n = normalizeTagName(name, VIEW_NAME_MAX);
+  if (!n.ok) return fail(n.error);
+  if (typeof query !== 'string' || query.length > QUERY_MAX) return fail('invalid_state');
+  try {
+    const state = viewState(query, (await getPrefs()).weekStart);
+    const db = await createServerSupabase();
+    const views = await existing(db);
+    if (views.some((v) => sameTagName(v.name, n.value))) return fail('duplicate');
+    if (views.length >= MAX_VIEWS) return fail('too_many');
+    const { error } = await db.from('explorer_views').insert({ name: n.value, state });
+    return error ? fail(keyOf(error)) : done();
+  } catch {
+    return fail('unexpected');
+  }
+}
+
+export async function renameViewAction(id: string, name: string): Promise<ViewResult> {
+  await requireOwner();
+  if (!isUuid(id)) return fail('not_found');
+  const n = normalizeTagName(name, VIEW_NAME_MAX);
+  if (!n.ok) return fail(n.error);
+  try {
+    const db = await createServerSupabase();
+    if ((await existing(db)).some((v) => v.id !== id && sameTagName(v.name, n.value))) return fail('duplicate');
+    const { data, error } = await db.from('explorer_views').update({ name: n.value, updated_at: new Date().toISOString() }).eq('id', id).select('id');
+    if (error) return fail(keyOf(error));
+    return (data ?? []).length ? done() : fail('not_found');
+  } catch {
+    return fail('unexpected');
+  }
+}
+
+export async function deleteViewAction(id: string): Promise<ViewResult> {
+  await requireOwner();
+  if (!isUuid(id)) return fail('not_found');
+  try {
+    const db = await createServerSupabase();
+    const { data, error } = await db.from('explorer_views').delete().eq('id', id).select('id');
+    if (error) return fail(keyOf(error));
+    return (data ?? []).length ? done() : fail('not_found');
+  } catch {
+    return fail('unexpected');
+  }
+}
+```
+
+- [ ] **Step 6: Run the tests**
+
+Run: `npx vitest run tests/explorer-views.test.ts tests/tags.test.ts tests/tag-actions.test.ts` and `npx tsc --noEmit`
+Expected: PASS (3 files); typecheck clean.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/explorer/views.ts "app/(app)/explorer/actions.ts" lib/tags.ts tests/explorer-views.test.ts
+git commit -m "feat(explorer): saved views (validated state, owner-session actions)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
 
 ---
 
