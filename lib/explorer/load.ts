@@ -52,7 +52,10 @@ export async function loadExplorer(db: SupabaseClient, sp: Params, o: { today: s
   const empty: ExplorerModel = { rows: [], partial: [] };
   if (state.item !== null) return { ...base, model: empty, items: [], truncated: false, item: await loadItem(db, state.item, ids, o.tz) };
   if (state.by === 'post') {
-    const { items, truncated } = await loadItems(db, state, q);
+    // "all" lists every stored post (listRange reaches back MAX_DAYS), not only those since the first captured insight day:
+    // the best-time cells count all of them. Every other scope lists the window the chart rows were counted over.
+    const days = scope.preset === 'all' ? scope.listRange : window.current;
+    const { items, truncated } = await loadItems(db, state, { ...q, from: days.from, to: days.to });
     return { ...base, items, truncated, item: null, model: buildExplorer({ state, window, current: new Map(), prior: null, accounts, items, gran, weekStart: o.weekStart }) };
   }
   const [current, prior] = await Promise.all([loadRollup(db, state, q), window.compare ? loadRollup(db, state, { ...q, from: window.compare.from, to: window.compare.to }) : null]);
