@@ -5,8 +5,9 @@ here as you go. **No secrets belong in this file** (no passwords, tokens, keys, 
 "done" and a date.
 
 ## Plan 11b — capture extras (docs/RUNBOOK_CAPTURE.md)
-- [ ] Apply the migration `supabase/migrations/20261022000001_capture_v2b.sql` BEFORE the new code is deployed
-      ([RUNBOOK_CAPTURE §0](RUNBOOK_CAPTURE.md), command in [HANDOVER §4](HANDOVER.md)). It is not applied anywhere yet.
+- [x] Apply the migration `supabase/migrations/20261022000001_capture_v2b.sql` BEFORE the new code is deployed
+      ([RUNBOOK_CAPTURE §0](RUNBOOK_CAPTURE.md), command in [HANDOVER §4](HANDOVER.md)). Done; the new tables and
+      columns were confirmed present on the live project on 2026-10-17.
 - [ ] Reconnect each Instagram account once to grant comments: `/accounts` -> "Reconnect to enable comments"
       ([RUNBOOK_CAPTURE §1](RUNBOOK_CAPTURE.md)). Until you do, comments are not read for that account.
 - [ ] Post a Story (>= 5 viewers) and run the probe, then record supported / unsupported in

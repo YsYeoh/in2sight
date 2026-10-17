@@ -91,7 +91,10 @@ select media_type, media_product_type, like_count, comments_count, is_shared_to_
   from media where media_type <> 'STORY' order by posted_at desc limit 10;
 select media_id, position, media_type from media_children order by media_id, position limit 20;
 ```
-Filled by the hourly media list (recent posts) — older posts get them when they are next listed.
+Filled by the hourly media list, which only re-lists posts of the last 30 days. Accounts imported before Plan 11b
+therefore have these fields only for recent posts. Optional one-off for older posts (owner/assistant; one extra
+listing of up to 500 posts, nothing else changes): `update sync_state set last_run = last_run - 'mediaList';` — the
+next run then treats the account's post list as a first run and lists everything again.
 
 ## 6. Cover images
 ```sql
@@ -150,6 +153,9 @@ skipped. Kept forever.
 ## 10. Known limits
 - Comment edits that do not change a post's comment count are picked up at the next count change; replies and the
   `hidden` flag are not read yet (moderation plan).
+- At most 4 pages (about 200 top-level comments) are read per post and run, and Meta does not document the order
+  comments come back in: on a post with more comments than that, new ones may not be picked up. A post that the call
+  budget or the clock cut off earlier is not marked synced and is read again next run.
 - Carousel child covers are not captured (only the parent's first image).
 - Story extras / Story covers depend on Meta supporting them on Stories (section 3).
 - A cover backlog larger than 200 failed-and-waiting items can delay older pending ones until their back-off clears.

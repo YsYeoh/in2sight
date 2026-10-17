@@ -59,7 +59,7 @@ It reads the first active account's token from the database with the secret key 
 
 | Uncertain item | How to confirm | If wrong |
 |---|---|---|
-| `caption`, `media_product_type` on `/me/media` (docs say Facebook-Login-only) | `media-page-1` is `[ok]` and the file shows both fields | `[!!] code 100`: delete both from `MEDIA_FIELDS` (the parser falls back) |
+| ~~`caption`, `media_product_type` on `/me/media`~~ | **Verified live 2026-10-16** (docs/META_PROBE_RESULTS.md). Both are in `MEDIA_BASE_FIELDS`, which Stories also use: do not remove them | – |
 | `/me/stories` with Instagram Login | `stories` is `[ok]` (post a test story first) | report it: Stories capture then needs a different source |
 | `follows_and_unfollows` -> `FOLLOWER` = follows, `NON_FOLLOWER` = unfollows | compare `account-follows.json` with the Instagram app's follows/unfollows for that day | swap the values in `FOLLOW_TYPE` |
 | `online_followers` still served; hour base | `online-followers` is `[ok]` with 24 keys (needs 100+ followers) | if `code 100`: remove the call from the audience job |
