@@ -62,7 +62,7 @@ describe('dueJobs lanes', () => {
   });
 
   it('a legacy (pre-Plan-11a) complete account never gets the backfill job', () => {
-    const legacy = st({ dailyDoneThrough: '2026-10-13', lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), audience: minsAgo(60) } });
+    const legacy = st({ dailyDoneThrough: '2026-10-13', lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), audience: minsAgo(60), covers: minsAgo(10) } });
     expect(dueJobs(input(legacy), NOW, TZ)).toEqual(['mediaMetrics']);
   });
 });

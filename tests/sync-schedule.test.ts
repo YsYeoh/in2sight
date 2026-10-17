@@ -13,7 +13,7 @@ const fresh = (o: Partial<SyncState> = {}): SyncState => ({
   lastAttemptAt: minsAgo(30),
   lastSuccessAt: minsAgo(30),
   dailyDoneThrough: '2026-10-13',
-  lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), mediaMetrics: minsAgo(10), audience: minsAgo(60) },
+  lastRun: { stories: minsAgo(10), daily: minsAgo(60), mediaList: minsAgo(10), mediaMetrics: minsAgo(10), audience: minsAgo(60), covers: minsAgo(10) },
   ...o,
 });
 const input = (state: SyncState, o: Partial<ScheduleInput> = {}): ScheduleInput => ({ status: 'active', tokenExpiresAt: inDays(50), state, ...o });
