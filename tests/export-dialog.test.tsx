@@ -35,7 +35,7 @@ const scopes: ScopeOption[] = [
   { value: 'g:Brand X', kind: 'group', name: 'Brand X' },
   { value: `a:${A}`, kind: 'account', name: 'brand.one' },
 ];
-const file = (type: string, name = 'in2sight-all-2026-10-15.xlsx') => new Response(new Blob(['x']), { status: 200, headers: { 'content-type': type, 'content-disposition': `attachment; filename="${name}"` } });
+const file = (type: string, name = 'in2sight-all-2026-10-15.xlsx') => new Response('x', { status: 200, headers: { 'content-type': type, 'content-disposition': `attachment; filename="${name}"` } });
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 async function open(props: Partial<React.ComponentProps<typeof ExportDialog>> = {}, locale: 'en' | 'zh-CN' = 'en') {
