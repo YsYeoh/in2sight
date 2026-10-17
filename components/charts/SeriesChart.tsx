@@ -9,11 +9,19 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip
 export interface Series {
   key: string; // property name in each data row
   label: string; // legend + tooltip name (already translated)
+  muted?: boolean; // a secondary series (the comparison period): dashed line, lighter bar
 }
 
 export type ChartRow = Record<string, string | number | null>;
 
 export const seriesColor = (i: number) => `var(--chart-${(i % 6) + 1})`;
+
+/** The data index a chart click landed on. Recharts 3 reports it as a number or a numeric string; anything else is null. */
+export function clickedIndex(s: { activeTooltipIndex?: number | string | null } | null | undefined): number | null {
+  const v = s?.activeTooltipIndex;
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : Number.NaN;
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
 
 const AXIS_TICK = { fill: 'var(--muted-foreground)', fontSize: 10 };
 const TOOLTIP_STYLE = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rs)', boxShadow: 'var(--shadow)', fontSize: 'var(--lb)', color: 'var(--foreground)' };
@@ -29,6 +37,7 @@ export function SeriesChart({
   formatX = String,
   formatY = String,
   animate = true,
+  onPointClick,
 }: {
   kind: 'line' | 'area' | 'bar';
   data: ChartRow[];
@@ -40,10 +49,17 @@ export function SeriesChart({
   formatX?: (v: string) => string;
   formatY?: (v: number) => string;
   animate?: boolean; // false for print/PDF: the snapshot must show the finished chart
+  onPointClick?: (index: number) => void; // drill-down: a click on a bar / point. Mouse only: the linked table holds the keyboard path
 }) {
   const gid = useId().replace(/:/g, '');
   const anim = animate ? ('auto' as const) : false;
-  const common = { data, responsive: true, style: { width: '100%', height }, title, desc, margin: { top: 8, right: 8, bottom: 0, left: 0 } };
+  const onClick = onPointClick
+    ? (state: { activeTooltipIndex?: number | string | null }) => {
+        const i = clickedIndex(state);
+        if (i !== null) onPointClick(i);
+      }
+    : undefined;
+  const common = { data, responsive: true, style: { width: '100%', height, cursor: onPointClick ? 'pointer' : undefined }, title, desc, margin: { top: 8, right: 8, bottom: 0, left: 0 }, onClick };
   const parts = [
     <CartesianGrid key="grid" vertical={false} stroke="var(--border)" strokeDasharray="3 4" />,
     <XAxis key="x" dataKey={xKey} tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={(v) => formatX(String(v))} minTickGap={24} />,
@@ -65,7 +81,7 @@ export function SeriesChart({
         <LineChart {...common}>
           {parts}
           {series.map((s, i) => (
-            <Line key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'var(--surface)', strokeWidth: 2 }} connectNulls={false} isAnimationActive={anim} />
+            <Line key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} strokeDasharray={s.muted ? '4 3' : undefined} dot={false} activeDot={{ r: 4, fill: 'var(--surface)', strokeWidth: 2 }} connectNulls={false} isAnimationActive={anim} />
           ))}
         </LineChart>
       ) : kind === 'area' ? (
@@ -87,7 +103,7 @@ export function SeriesChart({
         <BarChart {...common}>
           {parts}
           {series.map((s, i) => (
-            <Bar key={s.key} dataKey={s.key} name={s.label} fill={seriesColor(i)} radius={[4, 4, 0, 0]} maxBarSize={30} isAnimationActive={anim} />
+            <Bar key={s.key} dataKey={s.key} name={s.label} fill={seriesColor(i)} fillOpacity={s.muted ? 0.45 : 1} radius={[4, 4, 0, 0]} maxBarSize={30} isAnimationActive={anim} />
           ))}
         </BarChart>
       )}
