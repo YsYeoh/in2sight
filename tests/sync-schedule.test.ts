@@ -114,7 +114,7 @@ describe('pickDueMedia', () => {
       { id: 'young-due', postedAt: hoursAgo(5), lastMetricsAt: hoursAgo(1) },
       { id: 'young-fresh', postedAt: hoursAgo(5), lastMetricsAt: hoursAgo(0.5) },
       { id: 'week-due', postedAt: hoursAgo(24 * 7), lastMetricsAt: hoursAgo(24) },
-      { id: 'week-fresh', postedAt: hoursAgo(24 * 7), lastMetricsAt: hoursAgo(12) },
+      { id: 'week-fresh', postedAt: hoursAgo(24 * 7 + 12), lastMetricsAt: hoursAgo(12) }, // captured at day 7: checkpoint done
       { id: 'old', postedAt: hoursAgo(24 * 31), lastMetricsAt: hoursAgo(24 * 5) },
     ];
     expect(pickDueMedia(refs, NOW)).toEqual(['young-due', 'week-due', 'never']);

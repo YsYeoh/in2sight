@@ -83,7 +83,7 @@ export function memoryStore(init: MemoryInit = {}) {
       for (const i of items) media.set(i.id, { id: i.id, accountId, postedAt: i.postedAt, lastMetricsAt: media.get(i.id)?.lastMetricsAt ?? null, kind: i.kind, gone: media.get(i.id)?.gone ?? false });
     },
     mediaForMetrics: async (accountId, since) =>
-      [...media.values()].filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && (m.postedAt >= since || m.lastMetricsAt === null)).map(({ id, postedAt, lastMetricsAt }) => ({ id, postedAt, lastMetricsAt })),
+      [...media.values()].filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && (m.postedAt >= since || m.lastMetricsAt === null)).map(({ id, postedAt, lastMetricsAt, kind }) => ({ id, postedAt, lastMetricsAt, kind })),
     insertMetrics: async (mediaId, capturedAt) => void metrics.push({ mediaId, capturedAt }),
     updateMetricExtras: async (mediaId, capturedAt, e) => void extras.push({ mediaId, capturedAt, e }),
     markCaptured: async (ids, at) => {
