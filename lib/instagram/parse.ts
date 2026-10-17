@@ -126,6 +126,28 @@ export function parseMediaPage(body: unknown, story: boolean): { items: IgMediaI
   return { items, next: paging ? str(paging.next) : null };
 }
 
+/** A comment on the owner's media. text and username are third-party personal data: never logged. */
+export interface IgComment {
+  id: string;
+  text: string | null;
+  username: string | null;
+  likeCount: number | null;
+  commentedAt: string; // ISO UTC
+}
+
+/** A page of /{media-id}/comments. Items without an id or a valid timestamp are skipped. */
+export function parseCommentsPage(body: unknown): { items: IgComment[]; next: string | null } {
+  const items: IgComment[] = [];
+  for (const c of entries(body)) {
+    const id = typeof c.id === 'number' ? String(c.id) : str(c.id);
+    const commentedAt = toIso(c.timestamp);
+    if (!id || !commentedAt) continue;
+    items.push({ id, text: typeof c.text === 'string' ? c.text : null, username: str(c.username), likeCount: num(c.like_count), commentedAt });
+  }
+  const paging = isObj(body) && isObj(body.paging) ? body.paging : null;
+  return { items, next: paging ? str(paging.next) : null };
+}
+
 /**
  * The insight day an online_followers value belongs to. end_time marks the END of the day it covers (midnight in
  * Instagram's day, e.g. 07:00Z = Pacific midnight); stepping back 12h lands safely inside that day.

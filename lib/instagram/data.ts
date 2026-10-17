@@ -2,7 +2,7 @@
 // Errors are InstagramApiError('data' | 'network'): fixed messages, never a URL, body or token.
 import * as M from '@/lib/instagram/metrics';
 import { call, graphInit, InstagramApiError, refreshLongLived } from '@/lib/instagram/oauth';
-import { mediaDetailsById, parseBreakdown, parseMediaDetails, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem, type MediaDetails } from '@/lib/instagram/parse';
+import { mediaDetailsById, parseBreakdown, parseCommentsPage, parseMediaDetails, parseMediaPage, parseOnlineFollowers, parseTotals, type IgComment, type IgMediaItem, type MediaDetails } from '@/lib/instagram/parse';
 
 const HOST = 'https://graph.instagram.com';
 
@@ -190,6 +190,16 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
 
     async onlineFollowers(token: string, since: number, until: number) {
       return parseOnlineFollowers(await get('me/insights', { metric: M.ONLINE_FOLLOWERS_METRIC, period: 'lifetime', since, until }, token));
+    },
+
+    /**
+     * One page of a media item's top-level comments. `next` (from the previous page) carries the token, so it is only
+     * followed to Instagram's own host; any other URL ends the paging.
+     */
+    async commentsPage(token: string, mediaId: string, next?: string): Promise<{ items: IgComment[]; next: string | null }> {
+      if (next !== undefined && !next.startsWith(`${HOST}/`)) return { items: [], next: null };
+      const body = next !== undefined ? await getUrl(next) : await get(`${mediaId}/comments`, { fields: M.COMMENT_FIELDS, limit: M.COMMENT_PAGE_SIZE }, token);
+      return parseCommentsPage(body);
     },
 
     /** Fresh cover URLs for one media item (they expire within days, so they are asked right before the copy). */

@@ -1,11 +1,12 @@
 // Runs the due jobs for ONE account. Never throws: every failure becomes an outcome + error key, so the tick can move
 // on to the next account. Tokens are only passed to the Instagram client, never logged or returned.
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import { markNeedsReconnect } from '@/lib/accounts/service';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import { classifyIgError, isFatalIgError as fatal, isUnsupported, type IgData } from '@/lib/instagram/data';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
-import type { IgMediaItem } from '@/lib/instagram/parse';
+import type { IgComment, IgMediaItem } from '@/lib/instagram/parse';
 import { learn, shouldAsk, type Capabilities } from '@/lib/sync/capabilities';
 import { afterFailure, captureCover, coverUrl, pickCoverDue } from '@/lib/sync/covers';
 import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
@@ -338,6 +339,47 @@ const covers: Job = async (c) => {
   return { done: true };
 };
 
+/** Comment pages read per run (all posts together) and per post (50 comments a page). */
+export const COMMENT_CALLS_PER_RUN = 20;
+const COMMENT_PAGES_PER_MEDIA = 4;
+
+/**
+ * Comments (read only, lane 2, after the import) for posts of the last 30 days whose comments_count changed since the
+ * last ingest, newest first. Only with the granted scope: without it Meta answers an empty list with no error. An empty
+ * answer for a post that HAS comments is never taken as "no comments": nothing is written or marked, it is asked again.
+ * Upserts by comment id. Comment texts and usernames are never logged or put into progress/summary rows.
+ */
+const comments: Job = async (c) => {
+  if (!hasScope(c.account, COMMENTS_SCOPE)) return { done: true }; // belt and braces: dueJobs already requires it
+  const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
+  const due = (await c.store.mediaForComments(c.account.id, since)).filter((m) => m.commentsCount !== m.syncedCount);
+  let calls = COMMENT_CALLS_PER_RUN;
+  for (const [i, m] of due.entries()) {
+    if (outOfTime(c)) return { done: false };
+    if (calls <= 0) break; // the rest next time (stamped done: the cadence brings it back within the hour)
+    await c.progress?.report('comments', i, due.length);
+    const items: IgComment[] = [];
+    try {
+      let next: string | undefined;
+      for (let page = 0; page < COMMENT_PAGES_PER_MEDIA && calls > 0; page++) {
+        calls -= 1;
+        const r = await c.ig.commentsPage(c.token, m.id, next);
+        items.push(...r.items);
+        if (!r.next || outOfTime(c)) break;
+        next = r.next;
+      }
+    } catch (e) {
+      if (fatal(e)) throw e;
+      if (classifyIgError(e) === 'gone') await c.store.markGone(m.id, c.now.toISOString());
+      continue; // one post's problem never stops the others
+    }
+    if (items.length === 0) continue;
+    await c.store.upsertComments(c.account.id, m.id, items, c.now.toISOString());
+    await c.store.markCommentsSynced(m.id, m.commentsCount);
+  }
+  return { done: true };
+};
+
 /**
  * Optional lane-2 work (covers, comments): only auth / rate-limit errors surface (needs_reconnect / back-off); any
  * other failure ends the job quietly — it is due again next time and must never mark the account as failing.
@@ -376,7 +418,7 @@ const tokenRefresh: Job = async (c) => {
   return { done: true };
 };
 
-const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill, covers: optional(covers), tokenRefresh };
+const JOB_RUNNERS: Record<JobKind, Job> = { stories, daily, mediaList, mediaMetrics, audience, backfill, covers: optional(covers), comments: optional(comments), tokenRefresh };
 
 function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): SyncErrorKey {
   if (kind === 'rate_limit' || kind === 'app_rate_limit') return 'rate_limited';

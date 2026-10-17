@@ -33,6 +33,7 @@ export function fakeIg() {
     listStories: vi.fn<IgData['listStories']>(async () => []),
     feedInsights: vi.fn<IgData['feedInsights']>(async () => METRICS),
     storyInsights: vi.fn<IgData['storyInsights']>(async () => METRICS),
+    commentsPage: vi.fn<IgData['commentsPage']>(async () => ({ items: [], next: null })),
     mediaCover: vi.fn<IgData['mediaCover']>(async () => ({ mediaType: 'IMAGE', productType: null, likeCount: null, commentsCount: null, isSharedToFeed: null, mediaUrl: null, thumbnailUrl: null, childrenCount: null, children: null })),
     extraInsights: vi.fn<IgData['extraInsights']>(async () => ({})),
     audience: vi.fn<IgData['audience']>(async () => ({})),
@@ -63,6 +64,9 @@ export function memoryStore(init: MemoryInit = {}) {
   /** cover state per media id; a media item without an entry is 'pending' with 0 attempts (the column default) */
   const covers = new Map<string, { status: CoverStatus; attempts: number; triedAt: string | null; path?: string }>();
   const uploads: { path: string; bytes: number; contentType: string }[] = [];
+  /** comments_count / comments_synced_count per media id (only media listed here have comments) */
+  const commentCounts = new Map<string, { count: number; synced: number | null }>();
+  const comments: { accountId: string; mediaId: string; id: string; seenAt: string }[] = [];
   const runs: SyncRun[] = [];
   const saved: { accountId: string; patch: StatePatch }[] = [];
   const progress: { accountId: string; p: ProgressWrite }[] = [];
@@ -112,6 +116,19 @@ export function memoryStore(init: MemoryInit = {}) {
         .sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1))
         .slice(0, opts.limit),
     markCover: async (id, r) => void covers.set(id, r),
+    mediaForComments: async (accountId, since) =>
+      [...media.values()]
+        .filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && m.postedAt >= since && (commentCounts.get(m.id)?.count ?? 0) > 0)
+        .sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1))
+        .map((m) => ({ id: m.id, commentsCount: commentCounts.get(m.id)!.count, syncedCount: commentCounts.get(m.id)!.synced })),
+    upsertComments: async (accountId, mediaId, items, seenAt) => {
+      for (const i of items) {
+        const at = comments.findIndex((x) => x.id === i.id);
+        if (at >= 0) comments.splice(at, 1);
+        comments.push({ accountId, mediaId, id: i.id, seenAt });
+      }
+    },
+    markCommentsSynced: async (id, n) => void commentCounts.set(id, { count: commentCounts.get(id)?.count ?? n, synced: n }),
     uploadCover: async (path, bytes, contentType) => void uploads.push({ path, bytes: bytes.byteLength, contentType }),
     expireStoryCovers: async (accountId, nowIso) => {
       for (const m of media.values()) {
@@ -125,7 +142,7 @@ export function memoryStore(init: MemoryInit = {}) {
     recordRun: async (r) => void runs.push(r),
     writeProgress: async (accountId, p) => void progress.push({ accountId, p }),
   };
-  return { store, states, media, children, covers, uploads, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
+  return { store, states, media, children, covers, uploads, commentCounts, comments, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {
