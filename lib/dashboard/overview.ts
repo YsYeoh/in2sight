@@ -1,12 +1,15 @@
 // Shapes loadOverviewInput() into what the Overview page renders. Pure: today/now/tz are inputs.
 import { tokenStatus } from '@/lib/accounts/token-status';
 import type { AccountStatus } from '@/lib/accounts/types';
+import { bucketize, type DayValues } from '@/lib/analysis/buckets';
 import { reachDrop, takingOff, type Flag } from '@/lib/analysis/flags';
 import { combine, kpis, summarize, type Kpi, type KpiId, type Summary } from '@/lib/analysis/growth';
 import { PERIODS, type Period } from '@/lib/analysis/types';
 import type { OverviewInput } from '@/lib/dashboard/read';
+import type { WeekStart } from '@/lib/prefs';
 import type { SyncStatus } from '@/lib/sync/store';
 import { addDays } from '@/lib/sync/time';
+import type { ResolvedScope } from '@/lib/time-scope/scope';
 
 export type CardState = 'ok' | 'backfilling' | 'no_data' | 'needs_reconnect';
 
@@ -32,13 +35,14 @@ export interface Scope {
 }
 
 export interface OverviewModel {
-  period: Period;
+  scope: ResolvedScope; // the Time Scope the numbers are for
   totals: Record<KpiId, Kpi> | null; // every non-archived account together; null when there are none
   totalsSpark: (number | null)[];
   sections: { group: string | null; totals: Record<KpiId, Kpi> | null; cards: AccountCard[] }[]; // named groups A→Z, isolated last
   scopes: Scope[]; // comparison scopes: groups with 2+ accounts, then all accounts (when 2+)
-  days: string[]; // comparison x axis: the current window
-  series: Record<string, (number | null)[]>; // daily reach per account id, aligned with days
+  days: string[]; // comparison x axis: the first day of each bucket (day, week or month) of the current window
+  partial: string[]; // buckets the window only partly covers
+  series: Record<string, (number | null)[]>; // reach per bucket per account id, aligned with days
 }
 
 /** ?period= from the URL; anything else falls back to 30 days (SPEC §7b default). */
@@ -59,12 +63,14 @@ export function cardState(status: AccountStatus, tokenExpiresAt: string | null, 
   return s.current.days === 0 && s.current.followers === null ? 'no_data' : 'ok';
 }
 
-export function buildOverview(input: OverviewInput, o: { period: Period; today: string; now: Date; tz: string; locale: string }): OverviewModel {
+export function buildOverview(input: OverviewInput, o: { scope: ResolvedScope; today: string; now: Date; tz: string; locale: string; weekStart: WeekStart }): OverviewModel {
+  const { window, gran } = o.scope;
+  const cmp = o.scope.scope.cmp;
   const summaries = new Map<string, Summary>();
   const cards: AccountCard[] = input.accounts.map((a) => {
     const daily = input.daily[a.id] ?? [];
     const posts = input.posts[a.id] ?? [];
-    const s = summarize(daily, posts, o.period, o.today, o.tz);
+    const s = summarize(daily, posts, window, o.today, o.tz, cmp);
     summaries.set(a.id, s);
     const sync = input.sync[a.id];
     const drop = reachDrop(daily, o.today, o.tz);
@@ -89,7 +95,7 @@ export function buildOverview(input: OverviewInput, o: { period: Period; today: 
   const groups = [...new Set(cards.map((c) => c.groupName).filter((g): g is string => !!g))].sort((x, y) => x.localeCompare(y, o.locale));
   // Totals only add up healthy accounts: one needs_reconnect / backfilling / no_data account must not remove the
   // comparison (coverage) for everyone else. A scope with none left shows "no data" instead of a number.
-  const empty = summarize([], [], o.period, o.today, o.tz);
+  const empty = summarize([], [], window, o.today, o.tz, cmp);
   const healthy = (list: AccountCard[]) => combine(list.filter((x) => x.state === 'ok').map((x) => summaries.get(x.id)!));
   const totalsOf = (list: AccountCard[]) => (list.length ? kpis(healthy(list) ?? empty) : null);
   const sections = [
@@ -105,15 +111,12 @@ export function buildOverview(input: OverviewInput, o: { period: Period; today: 
     ...(cards.length >= 2 ? [{ id: 'all', group: null, accountIds: sections.flatMap((s) => s.cards.map((c) => c.id)) }] : []),
   ];
 
-  const all = combine([...summaries.values()]);
-  const end = all?.endDay ?? addDays(o.today, -1);
-  const days = Array.from({ length: o.period }, (_, i) => addDays(end, i - o.period + 1));
-  const series = Object.fromEntries(
-    [...summaries.entries()].map(([id, s]) => {
-      const m = new Map(s.reachByDay.map((d) => [d.day, d.value]));
-      return [id, days.map((d) => m.get(d) ?? null)];
-    }),
-  );
+  // comparison chart: every account's daily reach on the calendar days of the combined window, then bucketed
+  const all = combine([...summaries.values()]) ?? empty;
+  const byAccount = [...summaries.entries()].map(([id, s]) => [id, new Map(s.reachByDay.map((d) => [d.day, d.value]))] as const);
+  const rows = all.reachByDay.map(({ day }) => ({ ...Object.fromEntries(byAccount.map(([id, m]) => [id, m.get(day) ?? null])), day }) as DayValues<string>);
+  const chart = bucketize(rows, gran, o.weekStart, Object.fromEntries(byAccount.map(([id]) => [id, 'sum' as const])));
+  const series = Object.fromEntries(byAccount.map(([id]) => [id, chart.rows.map((r) => r[id])]));
 
-  return { period: o.period, totals: totalsOf(cards), totalsSpark: healthy(cards)?.reachByDay.map((d) => d.value) ?? [], sections, scopes, days, series };
+  return { scope: o.scope, totals: totalsOf(cards), totalsSpark: healthy(cards)?.reachByDay.map((d) => d.value) ?? [], sections, scopes, days: chart.rows.map((r) => r.day), partial: chart.partial, series };
 }

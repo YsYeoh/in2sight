@@ -14,18 +14,17 @@ import { DataTable, type Column } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { NavLink } from '@/components/shared/NavLink';
 import { PageHeader } from '@/components/shared/PageHeader';
-import { PeriodSelect } from '@/components/shared/PeriodSelect';
 import { DeltaPill, StatCard } from '@/components/shared/StatCard';
+import { TimeScopeBar, useBucketFormat, useScopeText } from '@/components/shared/TimeScopeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Kpi, KpiId } from '@/lib/analysis/growth';
-import type { Period } from '@/lib/analysis/types';
 import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';
 import type { AccountProgress } from '@/lib/sync/progress';
-import { formatCompact, formatDateTime, formatDay, formatDelta, formatNumber, formatPercent } from '@/lib/format';
+import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
 
@@ -45,7 +44,8 @@ function MiniStat({ id, k }: { id: KpiId; k: Kpi }) {
 /** Stable default (see useSyncProgress): never a new [] per render. */
 const NO_PROGRESS: AccountProgress[] = [];
 
-function AccountCardView({ c, period, p }: { c: AccountCard; period: Period; p: AccountProgress | undefined }) {
+/** `vs` = the comparison text of the scope; `query` = the scope's URL query, carried into the account page. */
+function AccountCardView({ c, vs, query, p }: { c: AccountCard; vs: string; query: string; p: AccountProgress | undefined }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
@@ -64,7 +64,7 @@ function AccountCardView({ c, period, p }: { c: AccountCard; period: Period; p: 
             </Avatar>
             <div className="min-w-0 flex-1">
               <h3 className="truncate font-medium">
-                <NavLink href={`/accounts/${c.id}`} className="underline-offset-4 hover:underline">
+                <NavLink href={`/accounts/${c.id}${query ? `?${query}` : ''}`} className="underline-offset-4 hover:underline">
                   @{c.username}
                 </NavLink>
               </h3>
@@ -87,7 +87,7 @@ function AccountCardView({ c, period, p }: { c: AccountCard; period: Period; p: 
             </div>
             {delta ? <DeltaPill delta={delta} /> : null}
           </div>
-          <p className="-mt-2 text-xs text-muted-foreground">{delta ? t('vsPrevious', { days: period }) : c.kpis.followers.reason ? tR(c.kpis.followers.reason) : null}</p>
+          <p className="-mt-2 text-xs text-muted-foreground">{delta ? vs : c.kpis.followers.reason ? tR(c.kpis.followers.reason) : null}</p>
 
           <Sparkline data={c.spark} className={reachDown ? 'text-destructive' : 'text-chart-1'} />
 
@@ -147,8 +147,10 @@ function AccountCardView({ c, period, p }: { c: AccountCard; period: Period; p: 
 function Comparison({ model }: { model: OverviewModel }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
+  const ts = useTranslations('timeScope');
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
+  const formatX = useBucketFormat(model.scope.gran, model.partial);
   const [scopeId, setScopeId] = useState(model.scopes[0]?.id);
   const scope = model.scopes.find((s) => s.id === scopeId) ?? model.scopes[0];
   if (!scope) return null;
@@ -176,7 +178,7 @@ function Comparison({ model }: { model: OverviewModel }) {
     <ChartCard
       title={t('compareTitle')}
       subtitle={t('compareHint')}
-      summary={t('chartSummary', { count: inScope.length, days: model.period })}
+      summary={t('chartSummary', { count: inScope.length, gran: model.scope.gran })}
       actions={
         <div role="group" aria-label={t('scope')} className="flex flex-wrap gap-1">
           {model.scopes.map((s) => (
@@ -187,7 +189,8 @@ function Comparison({ model }: { model: OverviewModel }) {
         </div>
       }
     >
-      <SeriesChart kind="line" data={data} xKey="day" series={inScope.map((c) => ({ key: c.id, label: `@${c.username}` }))} title={t('compareTitle')} formatX={(d) => formatDay(d, prefs)} formatY={(n) => formatCompact(n, prefs)} />
+      <SeriesChart kind="line" data={data} xKey="day" series={inScope.map((c) => ({ key: c.id, label: `@${c.username}` }))} title={t('compareTitle')} formatX={formatX} formatY={(n) => formatCompact(n, prefs)} />
+      {model.partial.length ? <p className="mt-1 text-xs text-muted-foreground">{ts('partialNote')}</p> : null}
       <div className="mt-4">
         <DataTable rows={inScope} columns={columns} rowKey={(c) => c.id} caption={t('compareTitle')} initialSort={{ key: 'reach', dir: 'desc' }} />
       </div>
@@ -195,7 +198,7 @@ function Comparison({ model }: { model: OverviewModel }) {
   );
 }
 
-export function OverviewView({ model, exportButton, progress = NO_PROGRESS }: { model: OverviewModel; exportButton?: ReactNode; progress?: AccountProgress[] }) {
+export function OverviewView({ model, today, exportButton, progress = NO_PROGRESS }: { model: OverviewModel; today: string; exportButton?: ReactNode; progress?: AccountProgress[] }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
@@ -204,17 +207,12 @@ export function OverviewView({ model, exportButton, progress = NO_PROGRESS }: { 
   const uid = useId();
   const live = useSyncProgress(progress); // polls while an account imports; refreshes the numbers as each step lands
   const byId = new Map(live.map((p) => [p.accountId, p]));
+  const { vs } = useScopeText(model.scope);
   const header = (
-    <PageHeader
-      title={t('title')}
-      subtitle={t('subtitle')}
-      actions={
-        <>
-          {exportButton}
-          <PeriodSelect period={model.period} />
-        </>
-      }
-    />
+    <>
+      <PageHeader title={t('title')} subtitle={t('subtitle')} actions={exportButton} />
+      <TimeScopeBar scope={model.scope} today={today} />
+    </>
   );
 
   if (model.sections.length === 0) {
@@ -236,7 +234,6 @@ export function OverviewView({ model, exportButton, progress = NO_PROGRESS }: { 
   }
 
   const totals = model.totals!;
-  const vs = t('vsPrevious', { days: model.period });
   return (
     <>
       {header}
@@ -278,7 +275,7 @@ export function OverviewView({ model, exportButton, progress = NO_PROGRESS }: { 
             </div>
             <ul className="grid gap-[var(--gp)] sm:grid-cols-2 xl:grid-cols-3">
               {s.cards.map((c) => (
-                <AccountCardView key={c.id} c={c} period={model.period} p={byId.get(c.id)} />
+                <AccountCardView key={c.id} c={c} vs={vs} query={model.scope.query} p={byId.get(c.id)} />
               ))}
             </ul>
           </section>

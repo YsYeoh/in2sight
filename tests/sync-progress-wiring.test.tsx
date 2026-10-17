@@ -8,6 +8,7 @@ import { OverviewView } from '@/components/overview/OverviewView';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { buildOverview } from '@/lib/dashboard/overview';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import type { AccountProgress } from '@/lib/sync/progress';
 
@@ -81,8 +82,9 @@ describe('progress on the Accounts page', () => {
 
 describe('progress on Overview cards', () => {
   it('the importing account card carries the badge; the settled one does not', () => {
-    const model = buildOverview({ accounts, sync: {}, daily: { a1: [], a2: [] }, posts: {} }, { period: 7, today: '2026-10-14', now: new Date('2026-10-14T02:00:00Z'), tz: 'Asia/Kuala_Lumpur', locale: 'en' });
-    wrap(<OverviewView model={model} progress={PROGRESS} />);
+    const scope = resolveScope(parseTimeScope({ from: '7d' }), '2026-10-14');
+    const model = buildOverview({ accounts, sync: {}, daily: { a1: [], a2: [] }, posts: {} }, { scope, today: '2026-10-14', now: new Date('2026-10-14T02:00:00Z'), tz: 'Asia/Kuala_Lumpur', locale: 'en', weekStart: 'mon' });
+    wrap(<OverviewView model={model} today="2026-10-14" progress={PROGRESS} />);
     const fresh = screen.getByRole('heading', { name: '@fresh.one' }).closest('li')!;
     const settled = screen.getByRole('heading', { name: '@settled' }).closest('li')!;
     expect(within(fresh).getByText('Importing… 40%')).toBeInTheDocument();

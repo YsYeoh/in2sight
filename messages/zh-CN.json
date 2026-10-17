@@ -337,7 +337,7 @@
       "compareTitle": "各账号触达",
       "compareHint": "默认按分组对比，可扩大到全部账号",
       "scope": "对比范围",
-      "chartSummary": "{count} 个账号近 {days} 天的每日触达。下方表格列出相同账号。",
+      "chartSummary": "{count} 个账号在所选范围内{gran, select, day {每天} week {每周} other {每月}}的触达。下方表格列出相同账号。",
       "account": "账号",
       "points": "{value} 个百分点"
     },

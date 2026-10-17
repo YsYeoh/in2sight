@@ -337,7 +337,7 @@
       "compareTitle": "Reach by account",
       "compareHint": "Scoped to a group by default — widen to compare everything",
       "scope": "Comparison scope",
-      "chartSummary": "Daily reach of {count} accounts over the last {days} days. The table below lists the same accounts.",
+      "chartSummary": "Reach of {count} accounts for {gran, select, day {each day} week {each week} other {each month}} of the selected range. The table below lists the same accounts.",
       "account": "Account",
       "points": "{value} pp"
     },
