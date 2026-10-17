@@ -1,7 +1,7 @@
 // Posts tab, Stories tab and Tags page models. Pure: now/tz are inputs.
 import { engagementRate, FEED_FORMATS, groupStats, tagPerformance, type GroupStats } from '@/lib/analysis/posts';
 import type { MissingReason, Tag } from '@/lib/analysis/types';
-import type { PostRow, StoryRow, StorySnapshot } from '@/lib/dashboard/detail-read';
+import type { CoverFields, PostRow, StoryRow, StorySnapshot } from '@/lib/dashboard/detail-read';
 import type { MediaKind } from '@/lib/instagram/parse';
 import { localDay } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
@@ -38,6 +38,10 @@ export function parsePostFilters(sp: Params): PostFilters {
   };
 }
 
+/** Posts tab layout from `?view=`: an explicit grid or table; null = automatic (grid below md, table from md; CSS only). */
+export type PostsView = 'grid' | 'table';
+export const parsePostsView = (v: string | string[] | undefined): PostsView | null => (v === 'grid' || v === 'table' ? v : null);
+
 const CAPTION_SNIPPET = 80;
 
 /** First 80 code points of a caption on one line (emoji and CJK never split in half). */
@@ -48,7 +52,7 @@ export function snippet(caption: string | null): string | null {
   return chars.length > CAPTION_SNIPPET ? `${chars.slice(0, CAPTION_SNIPPET).join('')}…` : chars.join('');
 }
 
-export interface PostView {
+export interface PostView extends CoverFields {
   id: string;
   mediaType: FeedFormat;
   postedAt: string;
@@ -88,6 +92,8 @@ export function buildPosts(rows: PostRow[], tags: Tag[], f: PostFilters, tz: str
       saves: p.saves,
       shares: p.shares,
       engagementRate: engagementRate(p),
+      cover: p.cover,
+      slides: p.slides,
       tags: p.tagIds
         .map((id) => byId.get(id))
         .filter((t): t is Tag => !!t)
@@ -95,7 +101,7 @@ export function buildPosts(rows: PostRow[], tags: Tag[], f: PostFilters, tz: str
     }));
 }
 
-export interface StoryView {
+export interface StoryView extends CoverFields {
   id: string;
   postedAt: string;
   permalink: string | null;
@@ -119,6 +125,7 @@ export function buildStories(stories: StoryRow[], now: Date): StoryView[] {
       id: s.id,
       postedAt: s.postedAt,
       permalink: s.permalink,
+      cover: s.cover,
       live: now.getTime() < expires,
       final,
       exitRate: final && final.exits !== null && views !== null && views > 0 ? final.exits / views : null,
@@ -127,6 +134,19 @@ export function buildStories(stories: StoryRow[], now: Date): StoryView[] {
       reason: final ? null : 'needs_5_viewers',
     };
   });
+}
+
+/** Stories by owner-timezone day for the filmstrip: days newest first, the Stories of a day oldest first (the order they played). */
+export function storyDays(stories: StoryView[], tz: string): { day: string; stories: StoryView[] }[] {
+  const byDay = new Map<string, StoryView[]>();
+  for (const s of stories) {
+    if (Number.isNaN(Date.parse(s.postedAt))) continue;
+    const day = localDay(new Date(s.postedAt), tz);
+    byDay.set(day, [...(byDay.get(day) ?? []), s]);
+  }
+  return [...byDay.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([day, list]) => ({ day, stories: list.sort((a, b) => Date.parse(a.postedAt) - Date.parse(b.postedAt)) }));
 }
 
 /** Below this many measured posts a tag's averages are shown greyed with a reason. */

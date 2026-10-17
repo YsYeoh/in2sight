@@ -5,6 +5,7 @@ import type { OnlineFollowersRow, Post, Tag } from '@/lib/analysis/types';
 import { MEDIA_LIMIT, PAGE, reaches, readPages, rowToPost, safeLink } from '@/lib/dashboard/read';
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { MediaKind } from '@/lib/instagram/parse';
+import type { CoverStatus } from '@/lib/sync/covers';
 
 /** Newest Stories per account per range: each carries every snapshot (~48), so a year of Stories would be megabytes. The tab says when it is capped. */
 export const STORY_LIMIT = 200;
@@ -22,7 +23,17 @@ function fail(op: string): never {
   throw new Error(`dashboard read: ${op} failed`);
 }
 
-export interface PostRow extends Post {
+const COVER_STATUSES: readonly string[] = ['pending', 'ok', 'unavailable', 'failed'];
+/** media.cover_status as stored (Plan 11b); any other value counts as "not saved yet", so the UI never requests it. */
+export const coverOf = (v: unknown): CoverStatus => (COVER_STATUSES.includes(v as string) ? (v as CoverStatus) : 'pending');
+
+/** What the cover UI needs from a media row (optional: hand-built rows and the exports leave them out = no cover). */
+export interface CoverFields {
+  cover?: CoverStatus;
+  slides?: number | null; // children_count of a carousel; null = unknown
+}
+
+export interface PostRow extends Post, CoverFields {
   caption: string | null;
   tagIds: string[];
 }
@@ -39,7 +50,7 @@ export interface StorySnapshot {
   exits: number | null;
 }
 
-export interface StoryRow {
+export interface StoryRow extends CoverFields {
   id: string;
   postedAt: string;
   expiresAt: string | null;
@@ -49,7 +60,7 @@ export interface StoryRow {
 
 export type AudienceSnapshots = Record<AudienceKind, { day: string; data: Record<string, number> } | null>;
 
-export interface MonthMedia {
+export interface MonthMedia extends CoverFields {
   id: string;
   accountId: string;
   mediaType: MediaKind;
@@ -64,7 +75,7 @@ export async function loadPostRows(db: SupabaseClient, accountId: string, since:
     (from, to) =>
       db
         .from('media')
-        .select('id,account_id,media_type,posted_at,permalink,caption,media_metrics(captured_at,reach,views,likes,comments,shares,saves),media_tags(tag_id)')
+        .select('id,account_id,media_type,posted_at,permalink,caption,cover_status,children_count,media_metrics(captured_at,reach,views,likes,comments,shares,saves),media_tags(tag_id)')
         .eq('account_id', accountId)
         .neq('media_type', 'STORY')
         .order('posted_at', { ascending: false })
@@ -79,17 +90,18 @@ export async function loadPostRows(db: SupabaseClient, accountId: string, since:
     const p = rowToPost(r);
     if (!p || p.mediaType === 'STORY') return [];
     const tags = Array.isArray(r.media_tags) ? (r.media_tags as Row[]) : [];
-    return [{ ...p, caption: str(r.caption), tagIds: tags.map((t) => str(t.tag_id)).filter((t): t is string => t !== null) }];
+    return [{ ...p, caption: str(r.caption), tagIds: tags.map((t) => str(t.tag_id)).filter((t): t is string => t !== null), cover: coverOf(r.cover_status), slides: num(r.children_count) }];
   });
 }
 
 /** Stories posted in [fromIso, toIso), newest first, with every snapshot (oldest first); at most STORY_LIMIT, `truncated` when there are more.
  *  ponytail: snapshots are embedded without a per-story cap, so 200 stories x 30-minute snapshots is the ceiling;
- *  a "final numbers" rollup (Plan 12b) lifts the cap. */
+ *  lifting it needs a `story_finals` SQL function (final snapshot + count + views series per Story, security invoker),
+ *  applied BEFORE the code that calls it (Plan 13a kept the cap: see its Decisions). */
 export async function loadStories(db: SupabaseClient, accountId: string, fromIso: string, toIso: string): Promise<{ stories: StoryRow[]; truncated: boolean }> {
   const { data, error } = await db
     .from('media')
-    .select('id,posted_at,expires_at,permalink,media_metrics(captured_at,reach,views,replies,shares,total_interactions,taps_forward,taps_back,exits)')
+    .select('id,posted_at,expires_at,permalink,cover_status,media_metrics(captured_at,reach,views,replies,shares,total_interactions,taps_forward,taps_back,exits)')
     .eq('account_id', accountId)
     .eq('media_type', 'STORY')
     .gte('posted_at', fromIso)
@@ -108,6 +120,7 @@ function rowToStory(r: Row): StoryRow {
     postedAt: String(r.posted_at),
     expiresAt: str(r.expires_at),
     permalink: safeLink(r.permalink),
+    cover: coverOf(r.cover_status),
     snapshots: (Array.isArray(r.media_metrics) ? (r.media_metrics as Row[]) : []).map((m) => ({
       capturedAt: String(m.captured_at),
       reach: num(m.reach),
@@ -166,7 +179,7 @@ export async function loadMonthMedia(db: SupabaseClient, accountIds: string[], f
     (from, to) =>
       db
         .from('media')
-        .select('id,account_id,media_type,posted_at,permalink,caption')
+        .select('id,account_id,media_type,posted_at,permalink,caption,cover_status,children_count')
         .in('account_id', accountIds)
         .gte('posted_at', fromIso)
         .lt('posted_at', toIso)
@@ -178,7 +191,7 @@ export async function loadMonthMedia(db: SupabaseClient, accountIds: string[], f
   );
   const media = rows.flatMap((r) => {
     const p = rowToPost({ ...r, media_metrics: [] });
-    return p ? [{ id: p.id, accountId: p.accountId, mediaType: p.mediaType, postedAt: p.postedAt, permalink: p.permalink, caption: str(r.caption) }] : [];
+    return p ? [{ id: p.id, accountId: p.accountId, mediaType: p.mediaType, postedAt: p.postedAt, permalink: p.permalink, caption: str(r.caption), cover: coverOf(r.cover_status), slides: num(r.children_count) }] : [];
   });
   return { media, truncated };
 }
