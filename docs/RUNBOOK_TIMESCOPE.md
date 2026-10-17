@@ -44,7 +44,7 @@ Keyboard only (no mouse): Tab reaches every preset, Custom, Compare and Group by
 
 ## 4. Pickers
 
-1. **Month**: pick the current month. It is compared with the same days of last month (e.g. 1–17 Oct vs 1–17 Sep), never with all of September. Pick last month: compared with the whole month before.
+1. **Month**: pick the current month. It is compared with the same days of last month (e.g. 1–17 Oct vs 1–17 Sep), never with all of September. Pick last month (a finished one, e.g. September): compared with an equal-length window counted from the 1st of the month before (1–30 Aug, so 31 Aug is not part of it): the comparison is never longer than the current window, which keeps sums comparable.
 2. **Week**: pick any day; the range is that week starting on your Settings → week start. Switch the week start (Monday ↔ Sunday) in Settings and pick again: the week moves.
 3. **Quarter**: Q3 shows 1 Jul – 30 Sep; "Previous period" is Q2.
 4. **Date range**: pick a range; the end cannot be after today (the date input stops there).
