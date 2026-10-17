@@ -3,8 +3,8 @@
 import { normalizeGroup } from '@/lib/accounts/group';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { isUuid } from '@/lib/tags';
-import { isDay } from '@/lib/time-scope/range';
-import { parseTimeScope, PRESETS, SCOPE_KEYS, type TimeScope } from '@/lib/time-scope/scope';
+import { daysIn, isDay } from '@/lib/time-scope/range';
+import { MAX_DAYS, parseTimeScope, PRESETS, SCOPE_KEYS, type TimeScope } from '@/lib/time-scope/scope';
 
 export const SECTIONS = ['kpis', 'trend', 'topPosts', 'formats', 'tags', 'bestTime', 'audience', 'stories', 'flags'] as const;
 export type Section = (typeof SECTIONS)[number];
@@ -67,13 +67,17 @@ const TIME_VALUE: Partial<Record<(typeof SCOPE_KEYS)[number], (v: string) => boo
   period: (v) => v === '7' || v === '30' || v === '90',
 };
 
-/** The Time Scope of an export URL, strictly: an unknown value, a repeated key or half a pair of days is rejected. No range = the default (30 days). */
+/** A pair of real days must be in order and at most MAX_DAYS long (the pages repair these; an export would hand over a different file than asked for). */
+const sane = (a: string | null, b: string | null): boolean => !isDay(a) || !isDay(b) || (a <= b && daysIn({ from: a, to: b }) <= MAX_DAYS);
+
+/** The Time Scope of an export URL, strictly: an unknown value, a repeated key, half a pair of days, or a reversed / over-long range is rejected. No range = the default (30 days). */
 function parseTime(q: URLSearchParams): TimeScope | null {
   for (const k of SCOPE_KEYS) {
     const all = q.getAll(k);
     if (all.length > 1 || (all.length === 1 && !TIME_VALUE[k]?.(all[0]))) return null;
   }
   if (q.has('to') !== isDay(q.get('from')) || q.has('cfrom') !== q.has('cto')) return null;
+  if (!sane(q.get('from'), q.get('to')) || !sane(q.get('cfrom'), q.get('cto'))) return null;
   return parseTimeScope(q);
 }
 

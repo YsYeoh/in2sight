@@ -27,6 +27,7 @@ export async function openExport<P extends ExportParams>(q: URLSearchParams, par
   const prefs = await getPrefs(); // timezone + formats: the owner's (synced to profiles); the sync writes days in it too
   const now = new Date();
   const today = localDay(now, prefs.timezone);
+  if (typeof parsed.params.time.range === 'object' && parsed.params.time.range.from > today) return { ok: false, status: 400, error: 'bad_params' }; // not repaired into the default 30 days under that name
   const db = await createServerSupabase({ responseHeaders: h }); // owner session: RLS applies
   const accounts = resolveScope(parsed.params.scope, await supabaseAccountsStore(db).list());
   if (!accounts) return { ok: false, status: 404, error: 'not_found' };

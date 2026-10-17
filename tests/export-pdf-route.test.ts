@@ -79,7 +79,7 @@ describe('GET /api/export/pdf', () => {
   });
 
   it('tampered parameters are rejected before any read', async () => {
-    for (const qs of [`scope=a:${A}&period=30`, `${OK}&sections=evil`, `scope=a:${A}&period=30&sections=kpis&title=${'x'.repeat(121)}`, `scope=a:${A}&period=30&sections=kpis&note=%E2%80%AE`, `${OK}&scope=all`]) {
+    for (const qs of [`scope=a:${A}&period=30`, `${OK}&sections=evil`, `scope=a:${A}&period=30&sections=kpis&title=${'x'.repeat(121)}`, `scope=a:${A}&period=30&sections=kpis&note=%E2%80%AE`, `${OK}&scope=all`, `scope=a:${A}&from=2026-09-30&to=2026-09-01&sections=kpis`, `scope=a:${A}&from=2099-01-01&to=2099-01-31&sections=kpis`]) { // reversed range; a range that starts after today
       const res = await get(qs);
       expect(res.status, qs).toBe(400);
       expect(await res.json()).toEqual({ error: 'bad_params' });
