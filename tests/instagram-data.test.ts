@@ -52,7 +52,7 @@ describe('igData requests', () => {
     const items = await igData('v25.0', f.fn).listMedia(TOKEN, 500);
     expect(items.map((i) => i.id)).toEqual(['18000000000000003', '18000000000000002', '18000000000000001', '18000000000000000']);
     expect(f.calls).toHaveLength(2);
-    expect(f.calls[0].url.searchParams.get('fields')).toBe('id,caption,media_type,media_product_type,permalink,timestamp');
+    expect(f.calls[0].url.searchParams.get('fields')).toBe('id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,is_shared_to_feed,children{media_type}');
   });
 
   it('listMedia respects maxItems and stopBefore (no further pages once old media is reached)', async () => {

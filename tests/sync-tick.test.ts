@@ -144,7 +144,7 @@ describe('runTick', () => {
     const { deps, ig } = setup();
     const s = await runTick(deps, { trigger: 'manual', accountId: 'a2' });
     expect(s.accounts.map((a) => a.accountId)).toEqual(['a2']);
-    expect(ig.listStories).toHaveBeenCalledWith('tok-a2');
+    expect(ig.listStories).toHaveBeenCalledWith('tok-a2', true);
   });
 
   it('the summary and the recorded run never contain a token', async () => {

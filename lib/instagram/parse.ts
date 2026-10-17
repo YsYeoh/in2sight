@@ -48,6 +48,52 @@ export interface IgMediaItem {
   caption: string | null;
   permalink: string | null;
   postedAt: string; // ISO UTC
+  /** Extra fields from the listing (counts, product type, cover URLs, children); absent = not requested/parsed. */
+  details?: MediaDetails;
+}
+
+export interface MediaChild {
+  mediaType: string | null;
+  mediaUrl: string | null;
+  thumbnailUrl: string | null;
+}
+export interface MediaDetails {
+  mediaType: string | null;
+  productType: string | null;
+  likeCount: number | null;
+  commentsCount: number | null;
+  isSharedToFeed: boolean | null;
+  mediaUrl: string | null; // signed CDN URL: never logged, never stored
+  thumbnailUrl: string | null; // signed CDN URL: never logged, never stored
+  childrenCount: number | null;
+  children: MediaChild[] | null; // carousels: the first 10, in order
+}
+
+/** One media object's optional fields. Missing or malformed values are null (never 0). */
+export function parseMediaDetails(v: unknown): MediaDetails {
+  const m = isObj(v) ? v : {};
+  const kids = isObj(m.children) && Array.isArray(m.children.data) ? m.children.data.filter(isObj) : null;
+  return {
+    mediaType: str(m.media_type),
+    productType: str(m.media_product_type),
+    likeCount: num(m.like_count),
+    commentsCount: num(m.comments_count),
+    isSharedToFeed: typeof m.is_shared_to_feed === 'boolean' ? m.is_shared_to_feed : null,
+    mediaUrl: str(m.media_url),
+    thumbnailUrl: str(m.thumbnail_url),
+    childrenCount: kids ? kids.length : null,
+    children: kids ? kids.slice(0, 10).map((c) => ({ mediaType: str(c.media_type), mediaUrl: str(c.media_url), thumbnailUrl: str(c.thumbnail_url) })) : null,
+  };
+}
+
+/** Details of every item on a media page, by id (parseMediaPage keeps its original item shape). */
+export function mediaDetailsById(body: unknown): Map<string, MediaDetails> {
+  const out = new Map<string, MediaDetails>();
+  for (const m of entries(body)) {
+    const id = typeof m.id === 'number' ? String(m.id) : str(m.id);
+    if (id) out.set(id, parseMediaDetails(m));
+  }
+  return out;
 }
 
 /** Every feed video is a Reel since 2022, so VIDEO maps to REELS when media_product_type is unavailable. */

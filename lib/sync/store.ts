@@ -57,6 +57,7 @@ export interface SyncStore {
   /** Daily reach/views by follower type x product type; upserts each combination (re-fetching a day settles Meta's lag). */
   upsertDailyBreakdown(accountId: string, day: string, rows: BreakdownRow[]): Promise<void>;
   upsertFollowers(accountId: string, day: string, followers: number): Promise<void>;
+  /** Media rows (+ listing details when present) and, for carousels, their children rows. */
   upsertMedia(accountId: string, items: IgMediaItem[]): Promise<void>;
   mediaForMetrics(accountId: string, sinceIso: string): Promise<MediaRef[]>;
   insertMetrics(mediaId: string, capturedAt: string, v: MediaMetricValues): Promise<void>;
@@ -102,6 +103,10 @@ const ITEM_TO_ROW = (accountId: string) => (i: IgMediaItem) => ({
   caption: i.caption,
   posted_at: i.postedAt,
   expires_at: i.kind === 'STORY' ? new Date(Date.parse(i.postedAt) + 86_400_000).toISOString() : null,
+  // listing details (never the CDN URLs); cover_* and comments_synced_count are never in this payload
+  ...(i.details
+    ? { media_product_type: i.details.productType, like_count: i.details.likeCount, comments_count: i.details.commentsCount, is_shared_to_feed: i.details.isSharedToFeed, children_count: i.details.childrenCount }
+    : {}),
 });
 
 export function supabaseSyncStore(db: SupabaseClient): SyncStore {
@@ -192,6 +197,8 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
       if (items.length === 0) return;
       // last_metrics_at / gone_at are not in the payload, so re-listing never resets them
       check('upsertMedia')(await db.from('media').upsert(items.map(ITEM_TO_ROW(accountId)), { onConflict: 'id' }));
+      const children = items.flatMap((i) => (i.details?.children ?? []).map((ch, position) => ({ media_id: i.id, position, media_type: ch.mediaType })));
+      if (children.length > 0) check('upsertMediaChildren')(await db.from('media_children').upsert(children, { onConflict: 'media_id,position' }));
     },
     async mediaForMetrics(accountId, sinceIso) {
       const { data, error } = await db

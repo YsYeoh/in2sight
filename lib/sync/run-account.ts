@@ -2,10 +2,10 @@
 // on to the next account. Tokens are only passed to the Instagram client, never logged or returned.
 import { markNeedsReconnect } from '@/lib/accounts/service';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
-import { classifyIgError, isFatalIgError as fatal, type IgData } from '@/lib/instagram/data';
+import { classifyIgError, isFatalIgError as fatal, isUnsupported, type IgData } from '@/lib/instagram/data';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
-import type { Capabilities } from '@/lib/sync/capabilities';
+import { learn, shouldAsk, type Capabilities } from '@/lib/sync/capabilities';
 import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
 import { coveredDays } from '@/lib/sync/progress';
 import type { ProgressSink } from '@/lib/sync/progress-sink';
@@ -143,13 +143,32 @@ async function captureExtras(c: RunContext, p: Progress, items: { id: string; ki
 }
 
 /**
+ * Live Stories with their image URLs (for the first-sight cover). Story support for the URL fields is unverified: on
+ * an "unsupported field" answer the list is fetched again with the base fields and that is remembered.
+ */
+async function listLiveStories(c: RunContext, p: Progress) {
+  const key = 'stories:url_fields';
+  if (shouldAsk(p.capabilities, key)) {
+    try {
+      const items = await c.ig.listStories(c.token, true);
+      p.capabilities = learn(p.capabilities, key, { ok: true });
+      return items;
+    } catch (e) {
+      if (!isUnsupported(e)) throw e;
+      p.capabilities = learn(p.capabilities, key, { error: e });
+    }
+  }
+  return c.ig.listStories(c.token, false);
+}
+
+/**
  * Live stories: upsert, then one metrics snapshot each. Under 5 viewers Instagram refuses (no_data): skip that story.
  * Then, only once every live Story's core snapshot is stored, the Story extras on their own cadence (storyExtrasDue).
  */
 const stories: Job = async (c, p) => {
   await c.progress?.report('profile', 0, 1);
   await followerSnapshot(c);
-  const items = await c.ig.listStories(c.token);
+  const items = await listLiveStories(c, p);
   await c.store.upsertMedia(c.account.id, items);
   await c.progress?.report('stories', 0, items.length);
   const at = c.now.toISOString();

@@ -2,7 +2,7 @@
 // Errors are InstagramApiError('data' | 'network'): fixed messages, never a URL, body or token.
 import * as M from '@/lib/instagram/metrics';
 import { call, graphInit, InstagramApiError, refreshLongLived } from '@/lib/instagram/oauth';
-import { parseBreakdown, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem } from '@/lib/instagram/parse';
+import { mediaDetailsById, parseBreakdown, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem } from '@/lib/instagram/parse';
 
 const HOST = 'https://graph.instagram.com';
 
@@ -94,15 +94,16 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
    * Follows paging.next until maxItems, the last page, a page reaching media older than stopBefore, a page cap (items the
    * parser skips must not let a long cursor be walked to the end), or timeUp() (the tick's budget). Returns what it has.
    */
-  async function listPaged(path: string, token: string, story: boolean, maxItems: number, stopBefore?: string, timeUp?: () => boolean): Promise<IgMediaItem[]> {
+  async function listPaged(path: string, token: string, story: boolean, maxItems: number, fields: string, stopBefore?: string, timeUp?: () => boolean): Promise<IgMediaItem[]> {
     const out: IgMediaItem[] = [];
     const maxPages = Math.ceil(maxItems / M.MEDIA_PAGE_SIZE) + 1;
-    let body = await get(path, { fields: M.MEDIA_FIELDS, limit: M.MEDIA_PAGE_SIZE }, token);
+    let body = await get(path, { fields, limit: M.MEDIA_PAGE_SIZE }, token);
     for (let pages = 1; ; pages++) {
       const page = parseMediaPage(body, story);
+      const details = mediaDetailsById(body);
       for (const item of page.items) {
         if (out.length >= maxItems) return out;
-        out.push(item);
+        out.push({ ...item, details: details.get(item.id) });
       }
       const reachedOld = stopBefore !== undefined && page.items.some((i) => i.postedAt < stopBefore);
       // the next URL carries the token: only ever follow it to Instagram's own host
@@ -146,8 +147,9 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
       };
     },
 
-    listMedia: (token: string, maxItems: number, stopBefore?: string, timeUp?: () => boolean) => listPaged('me/media', token, false, maxItems, stopBefore, timeUp),
-    listStories: (token: string) => listPaged('me/stories', token, true, 100),
+    listMedia: (token: string, maxItems: number, stopBefore?: string, timeUp?: () => boolean) => listPaged('me/media', token, false, maxItems, M.MEDIA_FIELDS, stopBefore, timeUp),
+    /** withUrls=false: the base fields only (fallback when Meta rejects the URL fields on Stories). */
+    listStories: (token: string, withUrls = true) => listPaged('me/stories', token, true, 100, withUrls ? M.STORY_FIELDS : M.MEDIA_BASE_FIELDS),
 
     async feedInsights(token: string, mediaId: string): Promise<MediaMetricValues> {
       const t = parseTotals(await get(`${mediaId}/insights`, { metric: M.FEED_METRICS.join(',') }, token));
