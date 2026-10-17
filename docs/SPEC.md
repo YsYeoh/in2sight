@@ -82,7 +82,7 @@ Upsert only; rows are deleted solely by the explicit "Delete all data permanentl
 
 **Metric definitions (defaults):**
 - *Engagement rate* (post) = (likes + comments + saves + shares) ÷ reach. Account ER over a period = Σ interactions ÷ Σ reach.
-- *Delta* = value vs the comparison window of the Time Scope (§7b): by default the immediately preceding period of equal length (a calendar month/quarter/year is compared with the previous one, cut to the same days while it is still running); or the same period last year, custom days, or nothing. A comparison is shown only when at least 80 % of its days have data; otherwise the value shows with "not enough history".
+- *Delta* = value vs the comparison window of the Time Scope (§7b): by default the immediately preceding period of equal length (a calendar month/quarter/year is compared with the previous one, always cut to the same number of days counted from its first day, so sums stay comparable: a running 1–17 Oct vs 1–17 Sep, a finished September vs 1–30 Aug; a comparison is never longer than the current window); or the same period last year, custom days, or nothing. A comparison is shown only when at least 80 % of its days have data; otherwise the value shows with "not enough history".
 - *Net follower change* = follows − unfollows; *followers* = daily snapshot.
 - *Story exit rate* = exits ÷ story views.
 - *Post taking off* = reach ≥ 2× the median reach of the account's previous 20 feed posts, evaluated ≥ 24 h after posting; needs ≥ 5 prior posts.

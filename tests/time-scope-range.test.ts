@@ -70,7 +70,7 @@ describe('compareRange', () => {
     expect(compareRange({ last: 30 }, { from: '2026-09-01', to: '2026-09-30' }, 'prev')).toEqual({ from: '2026-08-02', to: '2026-08-31' });
     expect(compareRange({ last: 7 }, { from: '2026-10-08', to: '2026-10-14' }, 'yoy')).toEqual({ from: '2025-10-08', to: '2025-10-14' });
   });
-  it('a running month compares with the same days of the previous month, a finished one with the whole month', () => {
+  it('a running month compares with the same days of the previous month, a finished one with an equal-length window from the 1st', () => {
     const oct = { from: '2026-10-01', to: '2026-10-31' };
     expect(compareRange(oct, { from: '2026-10-01', to: '2026-10-15' }, 'prev')).toEqual({ from: '2026-09-01', to: '2026-09-15' });
     expect(compareRange(oct, { from: '2026-10-01', to: '2026-10-15' }, 'yoy')).toEqual({ from: '2025-10-01', to: '2025-10-15' });
