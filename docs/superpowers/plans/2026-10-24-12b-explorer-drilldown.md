@@ -779,7 +779,10 @@ export function useKpiDelta() {
     "partial": "* The range cuts this period, so it holds fewer days.",
     "export": "Export view",
     "window": "Data from {from} to {to}",
-    "windowCompare": "compared with {from} to {to}"
+    "windowCompare": "compared with {from} to {to}",
+    "exploreMetric": "Explore {metric} in the Explorer",
+    "exploreCell": "{label}: show these posts in the Explorer",
+    "openAccount": "Open {name}"
   }
 }
 ```
@@ -897,7 +900,10 @@ and into `messages/zh-CN.json`:
     "partial": "* 范围截断了这个时段，因此它包含的天数较少。",
     "export": "导出视图",
     "window": "数据范围：{from} 至 {to}",
-    "windowCompare": "对比 {from} 至 {to}"
+    "windowCompare": "对比 {from} 至 {to}",
+    "exploreMetric": "在探索中查看{metric}",
+    "exploreCell": "{label}：在探索中查看这些帖子",
+    "openAccount": "打开 {name}"
   }
 }
 ```
@@ -4160,4 +4166,264 @@ git commit -m "feat(explorer): /explorer page (settings, linked chart + table, d
 
 ---
 
-_(Tasks 13–15 pending)_
+### Task 13: Drill from the Overview (tiles, group headings, comparison rows and chart)
+
+**Files:**
+- Modify: `components/overview/OverviewView.tsx` (the version 12a's Task 9 leaves: `TimeScopeBar`, `useScopeText`, `useBucketFormat`, `model.scope`)
+- Test: `tests/overview-drill.test.tsx` (new). 12a's `tests/overview-view.test.tsx` must keep passing unchanged (the comparison table's account link is named "Open @…" so the card link stays the only link named "@…").
+
+**Interfaces:**
+- Consumes: `explorerHref`, `parseExplorerState` (Task 3), `SeriesChart` `onPointClick` (Task 7), `startProgress`, i18n `explorer.exploreMetric`, `explorer.openAccount` (Task 2); 12a `OverviewModel { scope: ResolvedScope; days; partial; scopes; sections }`, `bucketRange` (`lib/time-scope/range.ts`), `scopeQuery` (`lib/time-scope/scope.ts`).
+- Produces (all links keep the Time Scope via `model.scope.query`):
+  - each total tile (followers, reach, views, engagement) is a link to `/explorer?m=<metric>&by=group|account&<scope>` (group when any named group exists — the portfolio level);
+  - each named group heading links to `/explorer?…&by=account&grp=<group>&<scope>` (isolated accounts are not a group);
+  - each comparison-table row's account links to `/accounts/<id>?<scope>`;
+  - a click on a comparison-chart bucket opens `/explorer?m=reach&by=account[&grp=<group>]` on that bucket's days (fixed range, the comparison mode kept, granularity auto).
+
+- [ ] **Step 1: Write the failing test** — create `tests/overview-drill.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { OverviewView } from '@/components/overview/OverviewView';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { StoredAccount } from '@/lib/accounts/types';
+import type { DailyRow } from '@/lib/analysis/types';
+import { buildOverview } from '@/lib/dashboard/overview';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { addDays } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
+
+const push = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
+// Recharts draws nothing in jsdom (no layout): a stand-in exposes the chart's click handler as buttons
+vi.mock('@/components/charts/SeriesChart', () => ({
+  SeriesChart: ({ data, onPointClick }: { data: { day: string }[]; onPointClick?: (i: number) => void }) => (
+    <div>
+      {data.map((d, i) => (
+        <button key={d.day} type="button" onClick={() => onPointClick?.(i)}>
+          {`bucket ${d.day}`}
+        </button>
+      ))}
+    </div>
+  ),
+}));
+
+const TODAY = '2026-10-15';
+const acct = (id: string, groupName: string | null): StoredAccount => ({ id, igUserId: id, username: id, displayName: null, accountType: null, profilePictureUrl: null, groupName, status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-01T00:00:00Z', connectedAt: '2026-09-01T00:00:00Z' });
+const days = (n: number, reach: number): DailyRow[] => Array.from({ length: n }, (_, i) => ({ day: addDays(TODAY, i - n), followers: 1000, reach, views: reach * 2, accountsEngaged: null, interactions: reach / 10, follows: null, unfollows: null, linkTaps: null }));
+const synced = { lastSuccessAt: '2026-10-15T03:00:00Z', lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-14' };
+
+function view(q: string) {
+  const scope = resolveScope(parseTimeScope(new URLSearchParams(q)), TODAY, '2026-09-01');
+  const model = buildOverview(
+    { accounts: [acct('brand.one', 'Brand X'), acct('brand.two', 'Brand X')], sync: { 'brand.one': synced, 'brand.two': synced }, daily: { 'brand.one': days(14, 100), 'brand.two': days(14, 50) }, posts: {} },
+    { scope, today: TODAY, now: new Date('2026-10-15T04:00:00Z'), tz: 'UTC', locale: 'en', weekStart: 'mon' },
+  );
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <OverviewView model={model} today={TODAY} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('Overview drill-down into the Explorer (the scope is kept)', () => {
+  it('each total tile opens the Explorer on that metric at the portfolio level', () => {
+    view('from=7d');
+    const totals = screen.getByRole('region', { name: en.pages.overview.allAccounts });
+    expect(within(totals).getByRole('link', { name: /Explore Reach in the Explorer/ })).toHaveAttribute('href', '/explorer?m=reach&by=group&from=7d');
+    expect(within(totals).getByRole('link', { name: /Explore Engagement in the Explorer/ })).toHaveAttribute('href', '/explorer?m=engagementRate&by=group&from=7d');
+  });
+
+  it('a group heading opens its accounts; a comparison row opens the account page', () => {
+    view('from=7d&cmp=yoy');
+    expect(screen.getByRole('link', { name: 'Brand X' })).toHaveAttribute('href', '/explorer?m=reach%2CengagementRate%2Cposts%2CavgReach&by=account&grp=Brand+X&from=7d&cmp=yoy');
+    const table = screen.getByRole('table', { name: en.pages.overview.compareTitle });
+    expect(within(table).getByRole('link', { name: 'Open @brand.one' })).toHaveAttribute('href', '/accounts/brand.one?from=7d&cmp=yoy');
+  });
+
+  it('a click on a chart bucket opens the Explorer on those days, the group compared side by side', async () => {
+    const user = userEvent.setup();
+    view('from=7d');
+    await user.click(screen.getByRole('button', { name: 'bucket 2026-10-08' }));
+    expect(push).toHaveBeenCalledWith('/explorer?m=reach&by=account&grp=Brand+X&from=2026-10-08&to=2026-10-08');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/overview-drill.test.tsx`
+Expected: FAIL — no link named "Explore Reach in the Explorer", no group link, no "Open @brand.one", `push` not called.
+
+- [ ] **Step 3: Edit `components/overview/OverviewView.tsx`** — exactly this diff on top of 12a's Task 9 version:
+
+```diff
+diff --git a/components/overview/OverviewView.tsx b/components/overview/OverviewView.tsx
+index 6c0ff50..d7e1305 100644
+--- a/components/overview/OverviewView.tsx
++++ b/components/overview/OverviewView.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useId, useState, type ReactNode } from 'react';
+ import Link from 'next/link';
++import { useRouter } from 'next/navigation';
+ import { CircleUserRound, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
+ import { useTranslations } from 'next-intl';
+ import { SyncBadge } from '@/components/accounts/SyncBadge';
+@@ -12,6 +13,7 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
+ import { ChartCard } from '@/components/shared/ChartCard';
+ import { DataTable, type Column } from '@/components/shared/DataTable';
+ import { EmptyState } from '@/components/shared/EmptyState';
++import { startProgress } from '@/components/shared/NavigationProgress';
+ import { NavLink } from '@/components/shared/NavLink';
+ import { PageHeader } from '@/components/shared/PageHeader';
+ import { DeltaPill, StatCard } from '@/components/shared/StatCard';
+@@ -23,9 +25,12 @@ import { Button } from '@/components/ui/button';
+ import { Card, CardContent } from '@/components/ui/card';
+ import type { Kpi, KpiId } from '@/lib/analysis/growth';
+ import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';
++import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
+ import type { AccountProgress } from '@/lib/sync/progress';
+ import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
+ import { formatMetric } from '@/lib/metrics';
++import { bucketRange } from '@/lib/time-scope/range';
++import { scopeQuery } from '@/lib/time-scope/scope';
+ import { cn } from '@/lib/utils';
+ 
+ function MiniStat({ id, k }: { id: KpiId; k: Kpi }) {
+@@ -151,9 +156,17 @@ function Comparison({ model }: { model: OverviewModel }) {
+   const { prefs } = usePrefs();
+   const delta = useKpiDelta();
+   const formatX = useBucketFormat(model.scope.gran, model.partial);
++  const tx = useTranslations('explorer');
++  const router = useRouter();
+   const [scopeId, setScopeId] = useState(model.scopes[0]?.id);
+   const scope = model.scopes.find((s) => s.id === scopeId) ?? model.scopes[0];
+   if (!scope) return null;
++  // drill-down: a click on a bucket opens the Explorer on those days, accounts of this comparison side by side
++  const bucketHref = (i: number) =>
++    explorerHref(
++      parseExplorerState({ m: 'reach', by: 'account', ...(scope.group ? { grp: scope.group } : {}) }),
++      scopeQuery({ range: bucketRange(model.days[i], model.scope.gran), cmp: typeof model.scope.scope.cmp === 'object' ? 'prev' : model.scope.scope.cmp, gran: 'auto' }),
++    );
+   const cards = model.sections.flatMap((s) => s.cards);
+   const inScope = scope.accountIds.map((id) => cards.find((c) => c.id === id)).filter((c): c is AccountCard => !!c);
+   const data = model.days.map((day, i) => ({ day, ...Object.fromEntries(inScope.map((c) => [c.id, model.series[c.id]?.[i] ?? null])) }));
+@@ -172,7 +185,12 @@ function Comparison({ model }: { model: OverviewModel }) {
+       );
+     },
+   });
+-  const columns: Column<AccountCard>[] = [{ key: 'account', header: t('account'), cell: (c) => `@${c.username}`, sortValue: (c) => c.username }, kpiCol('followers'), kpiCol('reach'), kpiCol('engagementRate'), kpiCol('posts')];
++  const account = (c: AccountCard) => (
++    <NavLink href={`/accounts/${c.id}${model.scope.query ? `?${model.scope.query}` : ''}`} aria-label={tx('openAccount', { name: `@${c.username}` })} className="underline-offset-4 hover:underline">
++      @{c.username}
++    </NavLink>
++  );
++  const columns: Column<AccountCard>[] = [{ key: 'account', header: t('account'), cell: account, sortValue: (c) => c.username }, kpiCol('followers'), kpiCol('reach'), kpiCol('engagementRate'), kpiCol('posts')];
+ 
+   return (
+     <ChartCard
+@@ -189,7 +207,20 @@ function Comparison({ model }: { model: OverviewModel }) {
+         </div>
+       }
+     >
+-      <SeriesChart kind="line" data={data} xKey="day" series={inScope.map((c) => ({ key: c.id, label: `@${c.username}` }))} title={t('compareTitle')} formatX={formatX} formatY={(n) => formatCompact(n, prefs)} />
++      <SeriesChart
++        kind="line"
++        data={data}
++        xKey="day"
++        series={inScope.map((c) => ({ key: c.id, label: `@${c.username}` }))}
++        title={t('compareTitle')}
++        formatX={formatX}
++        formatY={(n) => formatCompact(n, prefs)}
++        onPointClick={(i) => {
++          const h = bucketHref(i);
++          startProgress(h);
++          router.push(h);
++        }}
++      />
+       {model.partial.length ? <p className="mt-1 text-xs text-muted-foreground">{ts('partialNote')}</p> : null}
+       <div className="mt-4">
+         <DataTable rows={inScope} columns={columns} rowKey={(c) => c.id} caption={t('compareTitle')} initialSort={{ key: 'reach', dir: 'desc' }} />
+@@ -202,6 +233,7 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
+   const t = useTranslations('pages.overview');
+   const tm = useTranslations('metrics');
+   const tR = useTranslations('analysis.reasons');
++  const tx = useTranslations('explorer');
+   const { prefs } = usePrefs();
+   const delta = useKpiDelta();
+   const uid = useId();
+@@ -234,20 +266,24 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
+   }
+ 
+   const totals = model.totals!;
++  const by = model.sections.some((s) => s.group !== null) ? 'group' : 'account'; // the Explorer's portfolio level
+   return (
+     <>
+       {header}
+       <section aria-label={t('allAccounts')} className="mb-[var(--gp)] grid grid-cols-2 gap-[var(--gp)] lg:grid-cols-4">
+         {(['followers', 'reach', 'views', 'engagementRate'] as const).map((id) => (
+-          <StatCard
+-            key={id}
+-            label={tm(id)}
+-            value={formatMetric(id, totals[id].value, prefs, { full: id === 'followers' })}
+-            delta={delta(id, totals[id])}
+-            comparison={vs}
+-            note={totals[id].reason ? tR(totals[id].reason) : undefined}
+-            spark={id === 'reach' ? <Sparkline data={model.totalsSpark} /> : undefined}
+-          />
++          <Link key={id} href={explorerHref(parseExplorerState({ m: id, by }), model.scope.query)} className="block min-w-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
++            <StatCard
++              className="h-full"
++              label={tm(id)}
++              value={formatMetric(id, totals[id].value, prefs, { full: id === 'followers' })}
++              delta={delta(id, totals[id])}
++              comparison={vs}
++              note={totals[id].reason ? tR(totals[id].reason) : undefined}
++              spark={id === 'reach' ? <Sparkline data={model.totalsSpark} /> : undefined}
++            />
++            <span className="sr-only">{tx('exploreMetric', { metric: tm(id) })}</span>
++          </Link>
+         ))}
+       </section>
+ 
+@@ -256,7 +292,15 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
+           <section key={s.group ?? '\u0000isolated'} aria-labelledby={`${uid}-grp-${i}`}>
+             <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+               <h2 id={`${uid}-grp-${i}`} className="flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+-                <span className="min-w-0 truncate">{s.group ?? t('isolated')}</span>
++                <span className="min-w-0 truncate">
++                  {s.group ? (
++                    <NavLink href={explorerHref(parseExplorerState({ grp: s.group, by: 'account' }), model.scope.query)} className="underline-offset-4 hover:underline">
++                      {s.group}
++                    </NavLink>
++                  ) : (
++                    t('isolated')
++                  )}
++                </span>
+                 <Badge variant="secondary">{formatNumber(s.cards.length, prefs)}</Badge>
+               </h2>
+               {s.totals ? (
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/overview-drill.test.tsx tests/overview-view.test.tsx` and `npx tsc --noEmit`
+Expected: PASS (2 files); typecheck clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/overview/OverviewView.tsx tests/overview-drill.test.tsx
+git commit -m "feat(overview): drill into the Explorer from tiles, groups, comparison rows and chart" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+_(Tasks 14–15 pending)_
