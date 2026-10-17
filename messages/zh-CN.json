@@ -422,14 +422,12 @@
       "allAccounts": "全部账号",
       "account": "账号",
       "show": "显示",
-      "previous": "上个月",
-      "next": "下个月",
       "posts": "{count, plural, other {# 篇帖子}}",
       "stories": "{count, plural, other {# 条快拍}}",
       "dayLabel": "{date}：{posts, plural, other {# 篇帖子}}，{stories, plural, other {# 条快拍}}",
       "nothing": "这一天没有发布内容",
-      "emptyMonth": "本月没有发布内容",
-      "truncated": "本月内容过多，无法全部显示。请选择单个账号查看其余内容。",
+      "emptyMonth": "此范围内没有发布内容",
+      "truncated": "此范围内内容过多，无法全部显示。请选择更短的范围或单个账号查看其余内容。",
       "open": "在 Instagram 中打开"
     },
     "tags": {

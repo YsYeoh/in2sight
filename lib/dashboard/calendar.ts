@@ -1,9 +1,10 @@
-// Calendar model: a month grid of published posts and Stories, binned by the OWNER-timezone day (SPEC section 7
-// "Daily boundaries ... displayed in the user's timezone"). Pure: today and tz are inputs.
+// Calendar model: whole weeks around the Time Scope's days, with the published posts and Stories binned by the
+// OWNER-timezone day (SPEC section 7 "Daily boundaries ... displayed in the user's timezone"). Pure: today and tz are inputs.
 import { snippet } from '@/lib/dashboard/content';
 import type { MonthMedia } from '@/lib/dashboard/detail-read';
 import type { WeekStart } from '@/lib/prefs';
-import { addDays, dayStart, localDay } from '@/lib/sync/time';
+import { addDays, daysToIso, localDay } from '@/lib/sync/time';
+import { daysIn, weekOf, type DayRange } from '@/lib/time-scope/range';
 
 export interface CalendarItem {
   id: string;
@@ -15,45 +16,27 @@ export interface CalendarItem {
 }
 export interface CalendarDay {
   day: string;
-  inMonth: boolean;
+  inRange: boolean; // inside the scope's days (the rest of the first and last week is dimmed)
   isToday: boolean;
   posts: number; // feed posts + reels
   stories: number;
   items: CalendarItem[]; // oldest first
 }
-export interface MonthModel {
-  month: string; // 'YYYY-MM'
-  prev: string;
-  next: string;
+export interface CalendarModel {
+  range: DayRange;
   weeks: CalendarDay[][]; // whole weeks starting on the user's week start
 }
 
-/** ?month=YYYY-MM, years 1970-2099 only (0000-0099 would be read as 19xx by Date.UTC, 5-digit years are not
- *  'YYYY-MM'); anything else (2026-13, 0050-06, 9999-12, arrays, junk) falls back to the month of `today`. */
-export function parseMonth(v: unknown, today: string): string {
-  return typeof v === 'string' && /^(19[7-9]\d|20\d\d)-(0[1-9]|1[0-2])$/.test(v) ? v : today.slice(0, 7);
+/** The grid's days (whole weeks around the range) and the [fromIso, toIso) instants that bound them in the owner's timezone. */
+export function calendarRange(range: DayRange, weekStart: WeekStart, tz: string): { days: string[]; fromIso: string; toIso: string } {
+  const start = weekOf(range.from, weekStart).from;
+  const end = weekOf(range.to, weekStart).to;
+  const days = Array.from({ length: daysIn({ from: start, to: end }) }, (_, i) => addDays(start, i));
+  return { days, ...daysToIso(start, end, tz) };
 }
 
-// Plain month arithmetic (no Date): for a parsed month the result is always a 4-digit AD year (1969-12 .. 2100-01).
-function shiftMonth(month: string, n: number): string {
-  const [y, m] = month.split('-').map(Number);
-  const i = y * 12 + m - 1 + n;
-  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
-}
-
-/** The grid's days (whole weeks) and the [fromIso, toIso) instants that bound them in the owner's timezone. */
-export function monthRange(month: string, weekStart: WeekStart, tz: string): { days: string[]; fromIso: string; toIso: string } {
-  const first = `${month}-01`;
-  const last = addDays(`${shiftMonth(month, 1)}-01`, -1);
-  const offset = (new Date(`${first}T00:00:00Z`).getUTCDay() - (weekStart === 'sun' ? 0 : 1) + 7) % 7;
-  const start = addDays(first, -offset);
-  const span = Math.ceil((offset + Number(last.slice(8))) / 7) * 7;
-  const days = Array.from({ length: span }, (_, i) => addDays(start, i));
-  return { days, fromIso: dayStart(days[0], tz).toISOString(), toIso: dayStart(addDays(days[days.length - 1], 1), tz).toISOString() };
-}
-
-export function buildMonth(month: string, media: MonthMedia[], o: { weekStart: WeekStart; tz: string; today: string }): MonthModel {
-  const { days } = monthRange(month, o.weekStart, o.tz);
+export function buildCalendar(range: DayRange, media: MonthMedia[], o: { weekStart: WeekStart; tz: string; today: string }): CalendarModel {
+  const { days } = calendarRange(range, o.weekStart, o.tz);
   const byDay = new Map<string, CalendarItem[]>();
   const sorted = [...media].sort((a, b) => (a.postedAt === b.postedAt ? (a.id < b.id ? -1 : 1) : a.postedAt < b.postedAt ? -1 : 1));
   for (const m of sorted) {
@@ -65,8 +48,7 @@ export function buildMonth(month: string, media: MonthMedia[], o: { weekStart: W
   const cells = days.map((day) => {
     const items = byDay.get(day) ?? [];
     const stories = items.filter((i) => i.mediaType === 'STORY').length;
-    return { day, inMonth: day.startsWith(month), isToday: day === o.today, posts: items.length - stories, stories, items };
+    return { day, inRange: day >= range.from && day <= range.to, isToday: day === o.today, posts: items.length - stories, stories, items };
   });
-  // edge months link to themselves, never out of range
-  return { month, prev: parseMonth(shiftMonth(month, -1), month), next: parseMonth(shiftMonth(month, 1), month), weeks: Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7)) };
+  return { range, weeks: Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7)) };
 }
