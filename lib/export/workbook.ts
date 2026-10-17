@@ -33,9 +33,9 @@ export interface WorkbookSheet {
   stickyRowsCount: number; // the header row stays visible ("frozen")
 }
 
-type Kind = 'text' | 'count' | 'avg' | 'percent' | 'date' | 'datetime';
+export type Kind = 'text' | 'count' | 'avg' | 'percent' | 'date' | 'datetime';
 type Value = string | number | null | undefined;
-interface Col<R> {
+export interface Col<R> {
   header: string;
   kind: Kind;
   width: number;
@@ -52,7 +52,7 @@ export interface WorkbookOptions {
 const KPI_IDS: KpiId[] = ['followers', 'reach', 'views', 'engagementRate', 'posts', 'netFollows'];
 const num = (v: Value) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-function cellOf(kind: Kind, v: Value, o: WorkbookOptions): Cell {
+function cellOf(kind: Kind, v: Value, o: Pick<WorkbookOptions, 'prefs'>): Cell {
   if (kind === 'text') {
     const s = safeText(typeof v === 'string' ? v : null);
     return s === null ? null : { value: s, type: String };
@@ -69,7 +69,7 @@ function cellOf(kind: Kind, v: Value, o: WorkbookOptions): Cell {
   return { value: n, type: Number, format: kind === 'percent' ? PERCENT_FORMAT : kind === 'avg' ? AVG_FORMAT : COUNT_FORMAT };
 }
 
-function sheet<R>(name: string, cols: Col<R>[], rows: R[], o: WorkbookOptions): Omit<WorkbookSheet, 'sheet'> & { name: string } {
+export function sheet<R>(name: string, cols: Col<R>[], rows: R[], o: Pick<WorkbookOptions, 'prefs'>): Omit<WorkbookSheet, 'sheet'> & { name: string } {
   return {
     name,
     data: [cols.map((c) => ({ value: c.header, type: String, fontWeight: 'bold' as const })), ...rows.map((r) => cols.map((c) => cellOf(c.kind, c.get(r), o)))],
