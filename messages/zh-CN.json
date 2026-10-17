@@ -358,7 +358,8 @@
         "tapsForward": "向前点按",
         "liveHint": "{count, plural, other {目前已采集 # 次}}",
         "finalHint": "最终数据 · {count, plural, other {共采集 # 次}}",
-        "open": "在 Instagram 中打开 {time} 的快拍"
+        "open": "在 Instagram 中打开 {time} 的快拍",
+        "day": "{date} · {count, plural, other {# 条快拍}}"
       },
       "audience": {
         "emptyHint": "账号粉丝达到 100 人且每日同步运行后，这里会显示受众数据。",
@@ -415,7 +416,10 @@
         "noTags": "还没有标签。",
         "manageTags": "创建标签",
         "save": "保存",
-        "cancel": "取消"
+        "cancel": "取消",
+        "view": "视图",
+        "grid": "网格",
+        "table": "表格"
       }
     },
     "calendar": {
@@ -849,5 +853,18 @@
     "partialNote": "* 仅部分在所选范围内",
     "previous": "上一周期",
     "next": "下一周期"
+  },
+  "media": {
+    "noCover": "{name}（{why}）",
+    "cover": {
+      "pending": "封面尚未保存",
+      "unavailable": "没有可用的封面",
+      "failed": "封面保存失败",
+      "error": "封面加载失败"
+    },
+    "expired": "已过期",
+    "slides": "{count, plural, other {# 张}}",
+    "details": "{name}的详情",
+    "open": "在 Instagram 中打开"
   }
 }
