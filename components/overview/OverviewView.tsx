@@ -2,6 +2,7 @@
 
 import { useId, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { CircleUserRound, TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { SyncBadge } from '@/components/accounts/SyncBadge';
@@ -12,6 +13,7 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { startProgress } from '@/components/shared/NavigationProgress';
 import { NavLink } from '@/components/shared/NavLink';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DeltaPill, StatCard } from '@/components/shared/StatCard';
@@ -23,9 +25,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Kpi, KpiId } from '@/lib/analysis/growth';
 import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';
+import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
 import type { AccountProgress } from '@/lib/sync/progress';
 import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
+import { bucketRange } from '@/lib/time-scope/range';
+import { scopeQuery } from '@/lib/time-scope/scope';
 import { cn } from '@/lib/utils';
 
 function MiniStat({ id, k }: { id: KpiId; k: Kpi }) {
@@ -151,9 +156,17 @@ function Comparison({ model }: { model: OverviewModel }) {
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
   const formatX = useBucketFormat(model.scope.gran, model.partial);
+  const tx = useTranslations('explorer');
+  const router = useRouter();
   const [scopeId, setScopeId] = useState(model.scopes[0]?.id);
   const scope = model.scopes.find((s) => s.id === scopeId) ?? model.scopes[0];
   if (!scope) return null;
+  // drill-down: a click on a bucket opens the Explorer on those days, accounts of this comparison side by side
+  const bucketHref = (i: number) =>
+    explorerHref(
+      parseExplorerState({ m: 'reach', by: 'account', ...(scope.group ? { grp: scope.group } : {}) }),
+      scopeQuery({ range: bucketRange(model.days[i], model.scope.gran), cmp: typeof model.scope.scope.cmp === 'object' ? 'prev' : model.scope.scope.cmp, gran: 'auto' }),
+    );
   const cards = model.sections.flatMap((s) => s.cards);
   const inScope = scope.accountIds.map((id) => cards.find((c) => c.id === id)).filter((c): c is AccountCard => !!c);
   const data = model.days.map((day, i) => ({ day, ...Object.fromEntries(inScope.map((c) => [c.id, model.series[c.id]?.[i] ?? null])) }));
@@ -172,7 +185,12 @@ function Comparison({ model }: { model: OverviewModel }) {
       );
     },
   });
-  const columns: Column<AccountCard>[] = [{ key: 'account', header: t('account'), cell: (c) => `@${c.username}`, sortValue: (c) => c.username }, kpiCol('followers'), kpiCol('reach'), kpiCol('engagementRate'), kpiCol('posts')];
+  const account = (c: AccountCard) => (
+    <NavLink href={`/accounts/${c.id}${model.scope.query ? `?${model.scope.query}` : ''}`} aria-label={tx('openAccount', { name: `@${c.username}` })} className="underline-offset-4 hover:underline">
+      @{c.username}
+    </NavLink>
+  );
+  const columns: Column<AccountCard>[] = [{ key: 'account', header: t('account'), cell: account, sortValue: (c) => c.username }, kpiCol('followers'), kpiCol('reach'), kpiCol('engagementRate'), kpiCol('posts')];
 
   return (
     <ChartCard
@@ -189,7 +207,20 @@ function Comparison({ model }: { model: OverviewModel }) {
         </div>
       }
     >
-      <SeriesChart kind="line" data={data} xKey="day" series={inScope.map((c) => ({ key: c.id, label: `@${c.username}` }))} title={t('compareTitle')} formatX={formatX} formatY={(n) => formatCompact(n, prefs)} />
+      <SeriesChart
+        kind="line"
+        data={data}
+        xKey="day"
+        series={inScope.map((c) => ({ key: c.id, label: `@${c.username}` }))}
+        title={t('compareTitle')}
+        formatX={formatX}
+        formatY={(n) => formatCompact(n, prefs)}
+        onPointClick={(i) => {
+          const h = bucketHref(i);
+          startProgress(h);
+          router.push(h);
+        }}
+      />
       {model.partial.length ? <p className="mt-1 text-xs text-muted-foreground">{ts('partialNote')}</p> : null}
       <div className="mt-4">
         <DataTable rows={inScope} columns={columns} rowKey={(c) => c.id} caption={t('compareTitle')} initialSort={{ key: 'reach', dir: 'desc' }} />
@@ -202,6 +233,7 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
+  const tx = useTranslations('explorer');
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
   const uid = useId();
@@ -234,20 +266,24 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
   }
 
   const totals = model.totals!;
+  const by = model.sections.some((s) => s.group !== null) ? 'group' : 'account'; // the Explorer's portfolio level
   return (
     <>
       {header}
       <section aria-label={t('allAccounts')} className="mb-[var(--gp)] grid grid-cols-2 gap-[var(--gp)] lg:grid-cols-4">
         {(['followers', 'reach', 'views', 'engagementRate'] as const).map((id) => (
-          <StatCard
-            key={id}
-            label={tm(id)}
-            value={formatMetric(id, totals[id].value, prefs, { full: id === 'followers' })}
-            delta={delta(id, totals[id])}
-            comparison={vs}
-            note={totals[id].reason ? tR(totals[id].reason) : undefined}
-            spark={id === 'reach' ? <Sparkline data={model.totalsSpark} /> : undefined}
-          />
+          <Link key={id} href={explorerHref(parseExplorerState({ m: id, by }), model.scope.query)} className="block min-w-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatCard
+              className="h-full"
+              label={tm(id)}
+              value={formatMetric(id, totals[id].value, prefs, { full: id === 'followers' })}
+              delta={delta(id, totals[id])}
+              comparison={vs}
+              note={totals[id].reason ? tR(totals[id].reason) : undefined}
+              spark={id === 'reach' ? <Sparkline data={model.totalsSpark} /> : undefined}
+            />
+            <span className="sr-only">{tx('exploreMetric', { metric: tm(id) })}</span>
+          </Link>
         ))}
       </section>
 
@@ -256,7 +292,15 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
           <section key={s.group ?? '\u0000isolated'} aria-labelledby={`${uid}-grp-${i}`}>
             <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <h2 id={`${uid}-grp-${i}`} className="flex min-w-0 items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                <span className="min-w-0 truncate">{s.group ?? t('isolated')}</span>
+                <span className="min-w-0 truncate">
+                  {s.group ? (
+                    <NavLink href={explorerHref(parseExplorerState({ grp: s.group, by: 'account' }), model.scope.query)} className="underline-offset-4 hover:underline">
+                      {s.group}
+                    </NavLink>
+                  ) : (
+                    t('isolated')
+                  )}
+                </span>
                 <Badge variant="secondary">{formatNumber(s.cards.length, prefs)}</Badge>
               </h2>
               {s.totals ? (
