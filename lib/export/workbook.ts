@@ -5,17 +5,15 @@ import { createTranslator } from 'next-intl';
 import writeXlsxFile, { type Cell, type SheetData } from 'write-excel-file/node';
 import { combine, kpis, summarize, type KpiId, type Summary } from '@/lib/analysis/growth';
 import { engagementRate } from '@/lib/analysis/posts';
-import type { Period } from '@/lib/analysis/types';
 import { buildStories, buildTagStats } from '@/lib/dashboard/content';
 import type { PostRow } from '@/lib/dashboard/detail-read';
 import { AVG_FORMAT, COUNT_FORMAT, excelDateFormat, excelDateTimeFormat, PERCENT_FORMAT, safeText, sheetNames } from '@/lib/export/cells';
-import { exportWindow } from '@/lib/export/params';
 import type { ExportData } from '@/lib/export/read';
 import { formatCountry, wallClock, type FormatPrefs } from '@/lib/format';
 import { deepMerge } from '@/lib/merge';
 import { METRICS } from '@/lib/metrics';
 import type { Locale } from '@/lib/prefs';
-import { addDays, localDay } from '@/lib/sync/time';
+import { localDay } from '@/lib/sync/time';
 import en from '@/messages/en.json';
 import zh from '@/messages/zh-CN.json';
 
@@ -45,7 +43,6 @@ interface Col<R> {
 }
 
 export interface WorkbookOptions {
-  period: Period;
   today: string;
   now: Date;
   prefs: FormatPrefs;
@@ -82,7 +79,7 @@ function sheet<R>(name: string, cols: Col<R>[], rows: R[], o: WorkbookOptions): 
 }
 
 export function buildWorkbook(data: ExportData, t: Translate, o: WorkbookOptions): WorkbookSheet[] {
-  const { from, to } = exportWindow(o.period, o.today);
+  const { from, to } = data.scope.range; // the days the scope covers, up to today
   const tz = o.prefs.timezone;
   const user = new Map(data.accounts.map((a) => [a.id, a.username]));
   const inWindow = (iso: string) => {
@@ -95,7 +92,7 @@ export function buildWorkbook(data: ExportData, t: Translate, o: WorkbookOptions
   // Summary: one row per account, plus the scope total when there are 2+ accounts (accounts without data stay out of
   // the total so they cannot remove its comparison, like the Overview totals)
   type SumRow = { label: string; group: string | null; s: Summary; lastSynced: string | null };
-  const summaries = data.accounts.map((a) => summarize(data.daily[a.id] ?? [], data.posts[a.id] ?? [], o.period, o.today, tz));
+  const summaries = data.accounts.map((a) => summarize(data.daily[a.id] ?? [], data.posts[a.id] ?? [], data.scope.window, o.today, tz, data.scope.scope.cmp));
   const withData = summaries.filter((_, i) => (data.daily[data.accounts[i].id] ?? []).length > 0);
   const total = data.accounts.length > 1 ? combine(withData.length ? withData : summaries) : null;
   const sumRows: SumRow[] = [
@@ -106,8 +103,10 @@ export function buildWorkbook(data: ExportData, t: Translate, o: WorkbookOptions
   const summaryCols: Col<SumRow>[] = [
     { header: t('export.cols.account'), kind: 'text', width: 24, get: (r) => r.label },
     { header: t('export.cols.group'), kind: 'text', width: 16, get: (r) => r.group },
-    { header: t('export.cols.from'), kind: 'date', width: 13, get: (r) => addDays(r.s.endDay, -(o.period - 1)) },
+    { header: t('export.cols.from'), kind: 'date', width: 13, get: (r) => r.s.from },
     { header: t('export.cols.to'), kind: 'date', width: 13, get: (r) => r.s.endDay },
+    { header: t('export.cols.compareFrom'), kind: 'date', width: 14, get: (r) => r.s.compare?.from },
+    { header: t('export.cols.compareTo'), kind: 'date', width: 14, get: (r) => r.s.compare?.to },
     ...KPI_IDS.flatMap((id): Col<SumRow>[] => [
       { header: t(`metrics.${id}`), kind: METRICS[id].kind === 'percent' ? 'percent' : 'count', width: 12, get: (r) => k(r)[id].value },
       { header: t('export.cols.change', { metric: t(`metrics.${id}`) }), kind: 'percent', width: 14, get: (r) => k(r)[id].change },

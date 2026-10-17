@@ -4,6 +4,7 @@ import type { DailyRow } from '@/lib/analysis/types';
 import type { PostRow, StoryRow } from '@/lib/dashboard/detail-read';
 import type { ExportData } from '@/lib/export/read';
 import { addDays } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 export const TODAY = '2026-10-15';
 export const NOW = new Date('2026-10-15T04:00:00Z');
@@ -28,10 +29,14 @@ export const story = (id: string, o: Partial<StoryRow> = {}): StoryRow => ({
   ...o,
 });
 
-/** Two accounts in one group: "brand.one" with data, "=brand<emoji>/two" (hostile name) with none at all. */
-export function sampleData(): ExportData {
+/** A Time Scope from a URL query (default: last 30 days), resolved at TODAY with account A's first day (20 days back) as the first captured day. */
+export const scopeOf = (q = '') => resolveScope(parseTimeScope(new URLSearchParams(q)), TODAY, addDays(TODAY, -20));
+
+/** Two accounts in one group: "brand.one" with data, "=brand<emoji>/two" (hostile name) with none at all. `q` = the Time Scope query. */
+export function sampleData(q = ''): ExportData {
   return {
     accounts: [acct(A, 'brand.one', { groupName: 'Brand X', displayName: '品牌一号' }), acct(B, '=brand\u{1F600}/two', { groupName: 'Brand X' })],
+    scope: scopeOf(q),
     sync: { [A]: { lastSuccessAt: '2026-10-15T03:00:00Z', lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-14' } },
     daily: { [A]: days(20, 100), [B]: [] },
     posts: { [A]: [post('p1', A, { caption: '=1+1 cmd', tagIds: [TAG.id], mediaType: 'REELS' }), post('p2', A, { reach: null, likes: null, comments: null, shares: null, saves: null, caption: null })], [B]: [] },

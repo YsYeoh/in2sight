@@ -16,7 +16,7 @@ function graph(entry: string, seen = new Set<string>()): Set<string> {
 describe('client module graph', () => {
   it('PrintShell never pulls the export readers, the sync store or the accounts store', () => {
     const mods = [...graph('@/components/report/PrintShell')];
-    expect(mods).toContain('@/lib/export/params');
+    expect(mods).toContain('@/lib/export/report'); // the walk really goes deep (report.ts only imports params' types now)
     expect(mods.filter((m) => /export\/read|sync\/store|supabase-store|dashboard\/read/.test(m))).toEqual([]);
   });
 });

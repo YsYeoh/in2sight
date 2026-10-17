@@ -5,9 +5,10 @@ import { SECTIONS } from '@/lib/export/params';
 import { appOrigin, renderReportPdf } from '@/lib/export/pdf';
 import { buildReport } from '@/lib/export/report';
 import { DEFAULT_PREFS, PREFS_COOKIE, parsePrefsCookie } from '@/lib/prefs';
+import { DEFAULT_SCOPE } from '@/lib/time-scope/scope';
 import { NOW, sampleData, TODAY, TZ } from './fixtures/export-data';
 
-const model = buildReport(sampleData(), { scope: { kind: 'all' }, period: 7, sections: [...SECTIONS], title: 'T', note: '' }, { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
+const model = buildReport(sampleData('from=7d'), { scope: { kind: 'all' }, time: DEFAULT_SCOPE, sections: [...SECTIONS], title: 'T', note: '' }, { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
 const PDF = new Uint8Array([37, 80, 68, 70]); // %PDF
 const never = () => new Promise<never>(() => {});
 

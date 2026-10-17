@@ -656,6 +656,8 @@
       "group": "Group",
       "from": "From",
       "to": "To",
+      "compareFrom": "Compared from",
+      "compareTo": "Compared to",
       "lastSynced": "Last synced",
       "change": "{metric} change",
       "day": "Date",

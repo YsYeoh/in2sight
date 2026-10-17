@@ -12,6 +12,7 @@ import { SECTIONS, type ReportParams } from '@/lib/export/params';
 import { buildReport, type ReportModel } from '@/lib/export/report';
 import { deepMerge } from '@/lib/merge';
 import { DEFAULT_PREFS } from '@/lib/prefs';
+import { DEFAULT_SCOPE } from '@/lib/time-scope/scope';
 import { NOW, sampleData, TODAY, TZ } from './fixtures/export-data';
 
 const anim = vi.hoisted(() => ({ line: [] as unknown[], area: [] as unknown[] }));
@@ -27,7 +28,7 @@ vi.mock('recharts', async (orig) => {
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
 afterEach(() => vi.unstubAllGlobals());
 
-const params = (o: Partial<ReportParams> = {}): ReportParams => ({ scope: { kind: 'group', name: 'Brand X' }, period: 30, sections: [...SECTIONS], title: '', note: '', ...o });
+const params = (o: Partial<ReportParams> = {}): ReportParams => ({ scope: { kind: 'group', name: 'Brand X' }, time: DEFAULT_SCOPE, sections: [...SECTIONS], title: '', note: '', ...o });
 const model = (o: Partial<ReportParams> = {}) => buildReport(sampleData(), params(o), { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
 function view(m: ReportModel, locale: 'en' | 'zh-CN' = 'en') {
   return render(
@@ -45,6 +46,14 @@ describe('ReportDocument', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Instagram report');
     expect(screen.getByRole('heading', { level: 1 }).nextElementSibling).toHaveTextContent('Brand X · 2026-09-15 – 2026-10-14 · 30 days');
     expect(screen.getByText('Generated 2026-10-15 12:00')).toBeInTheDocument();
+  });
+
+  it('KPIs say what they are compared with; a weekly trend marks its partial weeks', () => {
+    view(model({ sections: ['kpis'] }));
+    expect(screen.getAllByText('vs 2026-08-16 – 2026-09-14').length).toBeGreaterThan(0);
+    const weekly = buildReport(sampleData('quarter=2026-Q3&gran=week'), params({ sections: ['trend'] }), { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
+    view(weekly);
+    expect(screen.getByText('* only partly inside the range')).toBeInTheDocument();
   });
 
   it('renders exactly the sections of the model, in the model order (parseReportParams sorts them)', () => {
