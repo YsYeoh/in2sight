@@ -24,6 +24,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { normalizeGroup } from '@/lib/accounts/group';
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import { tokenStatus } from '@/lib/accounts/token-status';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { formatDate, formatDateTime, formatNumber } from '@/lib/format';
@@ -81,6 +82,18 @@ function Identity({ a }: { a: StoredAccount }) {
         {a.displayName ? <p className="truncate text-xs text-muted-foreground">{a.displayName}</p> : null}
       </div>
     </div>
+  );
+}
+
+// an active account whose token lacks the comments scope (connected before it was requested, or declined): one
+// Reconnect grants it. Needs-reconnect accounts already say "Reconnect"; archived ones are not synced.
+function CommentsHint({ a }: { a: StoredAccount }) {
+  const t = useTranslations('accounts');
+  if (a.status !== 'active' || hasScope(a, COMMENTS_SCOPE)) return null;
+  return (
+    <a href={connectHref(a.groupName)} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+      {t('commentsHint')}
+    </a>
   );
 }
 
@@ -158,6 +171,7 @@ function AccountTable({ accounts, now, sync, progress, ...menu }: RowProps) {
                 <div className="flex flex-wrap items-center gap-1">
                   <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
                   <SyncBadge p={progress.get(a.id)} />
+                  <CommentsHint a={a} />
                 </div>
               </TableCell>
               <TableCell>
@@ -192,6 +206,7 @@ function AccountCards({ accounts, now, sync, progress, ...menu }: RowProps) {
                 <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, now).state} />
                 <SyncBadge p={progress.get(a.id)} />
                 <GroupBadge name={a.groupName} />
+                <CommentsHint a={a} />
               </div>
               <TokenMeter expiresAt={a.tokenExpiresAt} now={now} />
               <div className="flex flex-wrap gap-1 text-xs">
