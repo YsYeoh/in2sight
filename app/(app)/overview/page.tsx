@@ -8,10 +8,12 @@ import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { loadSyncProgress } from '@/lib/sync/progress-read';
 import { localDay } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 export default async function OverviewPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
-  const period = parsePeriod((await searchParams).period);
+  const sp = await searchParams;
+  const period = parsePeriod(sp.period);
   const prefs = await getPrefs(); // timezone = the owner's (synced to profiles); the sync writes days in it too
   const now = new Date();
   const today = localDay(now, prefs.timezone);
@@ -19,5 +21,5 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   const input = await loadOverviewInput(db, fromDayFor(period, today), prefs.timezone);
   const model = buildOverview(input, { period, today, now, tz: prefs.timezone, locale: prefs.locale });
   const progress = await loadSyncProgress(db, input.accounts, now); // never throws; [] when nothing imports
-  return <OverviewView model={model} progress={progress} exportButton={<ExportDialog scopes={exportScopes(input.accounts)} defaultScope="all" period={period} />} />;
+  return <OverviewView model={model} progress={progress} exportButton={<ExportDialog scopes={exportScopes(input.accounts)} defaultScope="all" time={resolveScope(parseTimeScope(sp, prefs.weekStart), today)} />} />;
 }

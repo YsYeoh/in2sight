@@ -1,5 +1,4 @@
 // Browser side of the export dialog: build the request URL and save the answer as a file.
-import type { Period } from '@/lib/analysis/types';
 import { filenameFromDisposition } from '@/lib/export/filename';
 import type { Section } from '@/lib/export/params';
 
@@ -7,7 +6,7 @@ export type ExportFormat = 'xlsx' | 'pdf';
 export interface ExportRequest {
   format: ExportFormat;
   scope: string; // a ScopeOption value
-  period: Period;
+  time: string; // the page's canonical Time Scope query (ResolvedScope.query; '' = the default)
   sections: Section[];
   title: string;
   note: string;
@@ -18,7 +17,8 @@ const TYPES: Record<ExportFormat, string> = { xlsx: 'application/vnd.openxmlform
 
 /** '/api/export/<format>?…' (a download) or '/report?…' (the browser preview of the PDF report). */
 export function exportUrl(r: ExportRequest, target: 'file' | 'preview' = 'file'): string {
-  const q = new URLSearchParams({ scope: r.scope, period: String(r.period) });
+  const q = new URLSearchParams({ scope: r.scope });
+  for (const [k, v] of new URLSearchParams(r.time)) q.append(k, v);
   if (r.format === 'pdf' || target === 'preview') {
     q.set('sections', r.sections.join(','));
     if (r.title.trim()) q.set('title', r.title.trim());

@@ -5,9 +5,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import en from '@/messages/en.json';
 import zh from '@/messages/zh-CN.json';
 import { ExportDialog } from '@/components/export/ExportDialog';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { downloadExport, exportUrl } from '@/lib/export/download';
 import { SECTIONS, type ScopeOption } from '@/lib/export/params';
 import { deepMerge } from '@/lib/merge';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
@@ -37,11 +40,15 @@ const scopes: ScopeOption[] = [
 ];
 const file = (type: string, name = 'in2sight-all-2026-10-15.xlsx') => new Response('x', { status: 200, headers: { 'content-type': type, 'content-disposition': `attachment; filename="${name}"` } });
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+/** The page's Time Scope from its URL query (today 2026-10-15). */
+const time = (q = '') => resolveScope(parseTimeScope(new URLSearchParams(q)), '2026-10-15', '2026-01-01');
 
 async function open(props: Partial<React.ComponentProps<typeof ExportDialog>> = {}, locale: 'en' | 'zh-CN' = 'en') {
   render(
     <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : deepMerge(en, zh)}>
-      <ExportDialog scopes={scopes} defaultScope="all" period={30} {...props} />
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        <ExportDialog scopes={scopes} defaultScope="all" time={time()} {...props} />
+      </PrefsProvider>
     </NextIntlClientProvider>,
   );
   await userEvent.click(screen.getByRole('button', { name: locale === 'en' ? 'Export' : '导出' }));
@@ -49,13 +56,15 @@ async function open(props: Partial<React.ComponentProps<typeof ExportDialog>> = 
 }
 
 describe('exportUrl', () => {
-  const base = { format: 'xlsx' as const, scope: 'g:Brand & Co', period: 7 as const, sections: [...SECTIONS], title: ' Hi ', note: '' };
-  it('Excel: scope + period only, encoded', () => {
-    expect(exportUrl(base)).toBe('/api/export/xlsx?scope=g%3ABrand+%26+Co&period=7');
+  const base = { format: 'xlsx' as const, scope: 'g:Brand & Co', time: 'from=7d', sections: [...SECTIONS], title: ' Hi ', note: '' };
+  it('Excel: scope + the Time Scope only, encoded; the default scope adds nothing', () => {
+    expect(exportUrl(base)).toBe('/api/export/xlsx?scope=g%3ABrand+%26+Co&from=7d');
+    expect(exportUrl({ ...base, time: 'from=2026-09-01&to=2026-09-30&cmp=yoy' })).toBe('/api/export/xlsx?scope=g%3ABrand+%26+Co&from=2026-09-01&to=2026-09-30&cmp=yoy');
+    expect(exportUrl({ ...base, time: '' })).toBe('/api/export/xlsx?scope=g%3ABrand+%26+Co');
   });
   it('PDF and preview: sections, trimmed title, note only when set', () => {
-    expect(exportUrl({ ...base, format: 'pdf', sections: ['kpis', 'flags'] })).toBe('/api/export/pdf?scope=g%3ABrand+%26+Co&period=7&sections=kpis%2Cflags&title=Hi');
-    expect(exportUrl({ ...base, format: 'pdf', sections: ['kpis'], title: '', note: 'a\nb' }, 'preview')).toBe('/report?scope=g%3ABrand+%26+Co&period=7&sections=kpis&note=a%0Ab');
+    expect(exportUrl({ ...base, format: 'pdf', sections: ['kpis', 'flags'] })).toBe('/api/export/pdf?scope=g%3ABrand+%26+Co&from=7d&sections=kpis%2Cflags&title=Hi');
+    expect(exportUrl({ ...base, format: 'pdf', sections: ['kpis'], title: '', note: 'a\nb' }, 'preview')).toBe('/report?scope=g%3ABrand+%26+Co&from=7d&sections=kpis&note=a%0Ab');
   });
 });
 
@@ -74,32 +83,34 @@ describe('downloadExport', () => {
 });
 
 describe('ExportDialog', () => {
-  it('Excel by default: downloads the chosen scope and period, no report options shown', async () => {
+  it("Excel by default: downloads the chosen accounts over the page's time range, no report options shown", async () => {
     fetchMock.mockResolvedValue(file(XLSX));
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    await open({ defaultScope: `a:${A}`, period: 7 });
+    const dialog = await open({ defaultScope: `a:${A}`, time: time('from=7d') });
+    expect(dialog).toHaveTextContent('Time range');
+    expect(dialog).toHaveTextContent('Last 7 days · vs previous 7 days');
     expect(screen.queryByLabelText('Title')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Download' }));
-    expect(fetchMock).toHaveBeenCalledWith(`/api/export/xlsx?scope=a%3A${A}&period=7`, { credentials: 'same-origin' });
+    expect(fetchMock).toHaveBeenCalledWith(`/api/export/xlsx?scope=a%3A${A}&from=7d`, { credentials: 'same-origin' });
     expect(await screen.findByRole('status')).toHaveTextContent('Download started');
     expect(click).toHaveBeenCalled();
     click.mockRestore();
   });
 
-  it('PDF: sections (all on by default), title, note, preview link; period switch', async () => {
+  it("PDF: sections (all on by default), title, note, preview link; the page's fixed range and comparison", async () => {
     fetchMock.mockResolvedValue(file('application/pdf', 'r.pdf'));
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    await open();
+    const dialog = await open({ time: time('month=2026-09&cmp=yoy') });
+    expect(dialog).toHaveTextContent('September 2026 · vs September 2025');
     await userEvent.click(screen.getByLabelText('PDF report (A4)'));
-    await userEvent.click(screen.getByLabelText('90 days'));
     expect(screen.getAllByRole('checkbox').filter((c) => c.getAttribute('data-state') === 'checked')).toHaveLength(SECTIONS.length);
     await userEvent.click(screen.getByLabelText('Audience'));
     await userEvent.type(screen.getByLabelText('Title'), '月报');
-    expect(screen.getByRole('link', { name: 'Preview in the browser' }).getAttribute('href')).toBe(`/report?scope=all&period=90&sections=${SECTIONS.filter((s) => s !== 'audience').join('%2C')}&title=%E6%9C%88%E6%8A%A5`);
+    expect(screen.getByRole('link', { name: 'Preview in the browser' }).getAttribute('href')).toBe(`/report?scope=all&from=2026-09-01&to=2026-09-30&cmp=yoy&sections=${SECTIONS.filter((s) => s !== 'audience').join('%2C')}&title=%E6%9C%88%E6%8A%A5`);
     expect(screen.getByLabelText('Title')).toHaveAttribute('maxlength', '120');
     expect(screen.getByLabelText('Note (optional)')).toHaveAttribute('maxlength', '1000');
     await userEvent.click(screen.getByRole('button', { name: 'Download' }));
-    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^\/api\/export\/pdf\?scope=all&period=90&sections=kpis%2Ctrend/);
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^\/api\/export\/pdf\?scope=all&from=2026-09-01&to=2026-09-30&cmp=yoy&sections=kpis%2Ctrend/);
   });
 
   it('no sections chosen: an error, nothing requested', async () => {
@@ -126,6 +137,6 @@ describe('ExportDialog', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     await open({ defaultScope: 'a:deleted' });
     await userEvent.click(screen.getByRole('button', { name: 'Download' }));
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/export/xlsx?scope=all&period=30');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/export/xlsx?scope=all'); // the default scope (last 30 days) needs no parameter
   });
 });
