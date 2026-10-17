@@ -55,6 +55,19 @@ describe('parseScope / parseExportParams', () => {
     ];
     for (const s of bad) expect(parseExportParams(q(s)), s).toEqual({ ok: false, error: 'bad_params' });
   });
+
+  it('rejects a reversed or over-long range (and comparison range) instead of repairing it; MAX_DAYS exactly and one day are fine', () => {
+    const bad = [
+      'scope=all&from=2026-09-30&to=2026-09-01', // reversed
+      'scope=all&from=2020-01-01&to=2026-10-17', // far longer than MAX_DAYS
+      'scope=all&from=2021-10-13&to=2026-10-17', // MAX_DAYS + 1 days
+      'scope=all&from=30d&cfrom=2025-03-31&cto=2025-01-01', // reversed comparison
+      'scope=all&from=30d&cfrom=2000-01-01&cto=2026-10-17', // over-long comparison
+    ];
+    for (const s of bad) expect(parseExportParams(q(s)), s).toEqual({ ok: false, error: 'bad_params' });
+    for (const s of ['scope=all&from=2021-10-14&to=2026-10-17', 'scope=all&from=2026-09-01&to=2026-09-01', 'scope=all&from=30d&cfrom=2021-10-14&cto=2026-10-17'])
+      expect(parseExportParams(q(s)).ok, s).toBe(true);
+  });
 });
 
 function scopeParamCases() {

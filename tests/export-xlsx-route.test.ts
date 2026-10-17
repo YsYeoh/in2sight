@@ -49,11 +49,18 @@ describe('GET /api/export/xlsx', () => {
   });
 
   it('400 bad_params for anything off the allow-list, before any read', async () => {
-    for (const qs of ['', 'period=30', 'scope=all&period=365', 'scope=all&from=junk', 'scope=all&month=2026-09', 'scope=a:not-a-uuid&period=7', 'scope=all&scope=all&period=7']) {
+    for (const qs of ['', 'period=30', 'scope=all&period=365', 'scope=all&from=junk', 'scope=all&month=2026-09', 'scope=a:not-a-uuid&period=7', 'scope=all&scope=all&period=7', 'scope=all&from=2026-09-30&to=2026-09-01', 'scope=all&from=2020-01-01&to=2026-10-17']) {
       const res = await get(qs);
       expect(res.status, qs).toBe(400);
       expect(await res.json()).toEqual({ error: 'bad_params' });
     }
+    expect(state.loads).toBe(0);
+  });
+
+  it('400 bad_params for a range that starts after today (never quietly the last 30 days under that name), before any read', async () => {
+    const res = await get('scope=all&from=2099-01-01&to=2099-01-31');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'bad_params' });
     expect(state.loads).toBe(0);
   });
 
