@@ -38,6 +38,11 @@ export function dayStart(day: string, tz: string): Date {
   return new Date(t);
 }
 
+/** [first day 00:00, the day after the last day 00:00) in tz as ISO instants: the posted_at bounds of owner-timezone days. */
+export function daysToIso(from: string, to: string, tz: string): { fromIso: string; toIso: string } {
+  return { fromIso: dayStart(from, tz).toISOString(), toIso: dayStart(addDays(to, 1), tz).toISOString() };
+}
+
 /** [since, until) of a day as unix seconds, the form Instagram's insights API takes. */
 export function dayRangeSec(day: string, tz: string): { since: number; until: number } {
   return { since: dayStart(day, tz).getTime() / 1000, until: dayStart(addDays(day, 1), tz).getTime() / 1000 };

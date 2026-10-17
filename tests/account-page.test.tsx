@@ -23,7 +23,7 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
     return calls.push('postRows'), [];
   },
   loadTags: async () => (calls.push('tags'), []),
-  loadStories: async () => (calls.push('stories'), []),
+  loadStories: async () => (calls.push('stories'), { stories: [], truncated: false }),
   loadAudience: async () => (calls.push('audience'), { age_gender: null, country: null, city: null }),
 }));
 

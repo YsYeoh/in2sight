@@ -2,15 +2,15 @@
 // limits, fixed error messages (Supabase messages can echo values). Never the admin client, never account_tokens.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { OnlineFollowersRow, Post, Tag } from '@/lib/analysis/types';
-import { MEDIA_LIMIT, rowToPost, safeLink } from '@/lib/dashboard/read';
+import { MEDIA_LIMIT, PAGE, reaches, readPages, rowToPost, safeLink } from '@/lib/dashboard/read';
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { MediaKind } from '@/lib/instagram/parse';
 
-/** Stories are read for the last 14 days; ~10 a day is already a heavy poster. */
+/** Newest Stories per account per range: each carries every snapshot (~48), so a year of Stories would be megabytes. The tab says when it is capped. */
 export const STORY_LIMIT = 200;
 export const TAG_LIMIT = 500;
-/** One month of posts + stories over 3-4 accounts stays far below this (PostgREST's default cap is 1000). */
-const MONTH_LIMIT = 1000;
+/** Calendar items (posts + Stories of every account in scope) read for one range, in 1,000-row pages; past this the page says "too many". */
+export const CALENDAR_LIMIT = 5000;
 const ONLINE_LIMIT = 1000;
 const AUDIENCE_KINDS: AudienceKind[] = ['age_gender', 'country', 'city'];
 
@@ -58,19 +58,24 @@ export interface MonthMedia {
   caption: string | null;
 }
 
-/** Feed posts + reels (no stories), newest first, each with its latest metrics snapshot, caption and tag ids. */
-export async function loadPostRows(db: SupabaseClient, accountId: string): Promise<PostRow[]> {
-  const { data, error } = await db
-    .from('media')
-    .select('id,account_id,media_type,posted_at,permalink,caption,media_metrics(captured_at,reach,views,likes,comments,shares,saves),media_tags(tag_id)')
-    .eq('account_id', accountId)
-    .neq('media_type', 'STORY')
-    .order('posted_at', { ascending: false })
-    .order('captured_at', { ascending: false, referencedTable: 'media_metrics' })
-    .limit(MEDIA_LIMIT)
-    .limit(1, { referencedTable: 'media_metrics' });
-  if (error) fail('post rows');
-  return ((data ?? []) as Row[]).flatMap((r) => {
+/** Feed posts + reels (no stories), newest first, each with its latest metrics snapshot, caption and tag ids: the newest MEDIA_LIMIT and, with `since`, every older one back to that instant. */
+export async function loadPostRows(db: SupabaseClient, accountId: string, since: string | null = null): Promise<PostRow[]> {
+  const { rows } = await readPages(
+    (from, to) =>
+      db
+        .from('media')
+        .select('id,account_id,media_type,posted_at,permalink,caption,media_metrics(captured_at,reach,views,likes,comments,shares,saves),media_tags(tag_id)')
+        .eq('account_id', accountId)
+        .neq('media_type', 'STORY')
+        .order('posted_at', { ascending: false })
+        .order('id', { ascending: false })
+        .order('captured_at', { ascending: false, referencedTable: 'media_metrics' })
+        .range(from, to)
+        .limit(1, { referencedTable: 'media_metrics' }),
+    'post rows',
+    { size: MEDIA_LIMIT, enough: reaches(MEDIA_LIMIT, since) },
+  );
+  return rows.flatMap((r) => {
     const p = rowToPost(r);
     if (!p || p.mediaType === 'STORY') return [];
     const tags = Array.isArray(r.media_tags) ? (r.media_tags as Row[]) : [];
@@ -78,21 +83,27 @@ export async function loadPostRows(db: SupabaseClient, accountId: string): Promi
   });
 }
 
-/** Stories posted since `sinceIso`, newest first, with every snapshot (oldest first).
+/** Stories posted in [fromIso, toIso), newest first, with every snapshot (oldest first); at most STORY_LIMIT, `truncated` when there are more.
  *  ponytail: snapshots are embedded without a per-story cap, so 200 stories x 30-minute snapshots is the ceiling;
- *  if that gets heavy, read only the latest snapshot for finished stories. */
-export async function loadStories(db: SupabaseClient, accountId: string, sinceIso: string): Promise<StoryRow[]> {
+ *  a "final numbers" rollup (Plan 12b) lifts the cap. */
+export async function loadStories(db: SupabaseClient, accountId: string, fromIso: string, toIso: string): Promise<{ stories: StoryRow[]; truncated: boolean }> {
   const { data, error } = await db
     .from('media')
     .select('id,posted_at,expires_at,permalink,media_metrics(captured_at,reach,views,replies,shares,total_interactions,taps_forward,taps_back,exits)')
     .eq('account_id', accountId)
     .eq('media_type', 'STORY')
-    .gte('posted_at', sinceIso)
+    .gte('posted_at', fromIso)
+    .lt('posted_at', toIso)
     .order('posted_at', { ascending: false })
     .order('captured_at', { ascending: true, referencedTable: 'media_metrics' })
-    .limit(STORY_LIMIT);
+    .limit(STORY_LIMIT + 1);
   if (error) fail('stories');
-  return ((data ?? []) as Row[]).map((r) => ({
+  const rows = (data ?? []) as Row[];
+  return { stories: rows.slice(0, STORY_LIMIT).map(rowToStory), truncated: rows.length > STORY_LIMIT };
+}
+
+function rowToStory(r: Row): StoryRow {
+  return {
     id: String(r.id),
     postedAt: String(r.posted_at),
     expiresAt: str(r.expires_at),
@@ -108,7 +119,7 @@ export async function loadStories(db: SupabaseClient, accountId: string, sinceIs
       tapsBack: num(m.taps_back),
       exits: num(m.exits),
     })),
-  }));
+  };
 }
 
 const isCounts = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -147,23 +158,27 @@ export async function loadTags(db: SupabaseClient): Promise<Tag[]> {
   return ((data ?? []) as Row[]).map((r) => ({ id: String(r.id), name: String(r.name), color: String(r.color) }));
 }
 
-/** Every media item (posts AND stories) published in [fromIso, toIso) for the given accounts, oldest first.
- *  `truncated`: the read hit MONTH_LIMIT rows, so the latest days of the month may be missing. */
+/** Every media item (posts AND stories) published in [fromIso, toIso) for the given accounts, oldest first, in pages.
+ *  `truncated`: the read stopped at CALENDAR_LIMIT rows, so the latest days of the range may be missing. */
 export async function loadMonthMedia(db: SupabaseClient, accountIds: string[], fromIso: string, toIso: string): Promise<{ media: MonthMedia[]; truncated: boolean }> {
   if (accountIds.length === 0) return { media: [], truncated: false };
-  const { data, error } = await db
-    .from('media')
-    .select('id,account_id,media_type,posted_at,permalink,caption')
-    .in('account_id', accountIds)
-    .gte('posted_at', fromIso)
-    .lt('posted_at', toIso)
-    .order('posted_at', { ascending: true })
-    .limit(MONTH_LIMIT);
-  if (error) fail('month media');
-  const rows = (data ?? []) as Row[];
+  const { rows, truncated } = await readPages(
+    (from, to) =>
+      db
+        .from('media')
+        .select('id,account_id,media_type,posted_at,permalink,caption')
+        .in('account_id', accountIds)
+        .gte('posted_at', fromIso)
+        .lt('posted_at', toIso)
+        .order('posted_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    'month media',
+    { size: PAGE, max: CALENDAR_LIMIT },
+  );
   const media = rows.flatMap((r) => {
     const p = rowToPost({ ...r, media_metrics: [] });
     return p ? [{ id: p.id, accountId: p.accountId, mediaType: p.mediaType, postedAt: p.postedAt, permalink: p.permalink, caption: str(r.caption) }] : [];
   });
-  return { media, truncated: rows.length >= MONTH_LIMIT };
+  return { media, truncated };
 }

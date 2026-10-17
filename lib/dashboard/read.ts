@@ -6,11 +6,14 @@ import type { StoredAccount } from '@/lib/accounts/types';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 import type { MediaKind } from '@/lib/instagram/parse';
 import { listSyncStatus, type SyncStatus } from '@/lib/sync/store';
+import { dayStart } from '@/lib/sync/time';
 
-/** SPEC §7c: the backfill stops at 500 posts, so reads never need more per account (also under PostgREST's 1000-row cap). */
+/** Post reads always include the newest 500 (SPEC §7c backfill size; flags and heatmaps use them), then reach back as far as the Time Scope needs. */
 export const MEDIA_LIMIT = 500;
-/** 2 × 90-day windows + today; keeps a daily read well under PostgREST's 1000-row cap. */
-export const DAILY_LIMIT = 200;
+/** PostgREST answers at most 1,000 rows per request (Supabase's default max-rows): a shorter page is the last page. */
+export const PAGE = 1000;
+/** Safety stop for one paged read. ponytail: 10,000 posts per account in one scope is far beyond any real account; raise it if one ever gets close. */
+export const MAX_ROWS = 10_000;
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -19,6 +22,31 @@ const MEDIA_KINDS: readonly string[] = ['IMAGE', 'CAROUSEL_ALBUM', 'REELS', 'STO
 function fail(op: string): never {
   throw new Error(`dashboard read: ${op} failed`);
 }
+
+/**
+ * Reads page after page with `.range(from, to)` until a page comes back short, `enough(rows)` says so, or `max` rows
+ * are in (truncated = stopped there with possibly more left). The query must be ordered, so pages never overlap.
+ */
+export async function readPages(
+  page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
+  op: string,
+  o: { size?: number; max?: number; enough?: (rows: Row[]) => boolean } = {},
+): Promise<{ rows: Row[]; truncated: boolean }> {
+  const size = o.size ?? PAGE;
+  const max = o.max ?? MAX_ROWS;
+  const rows: Row[] = [];
+  for (;;) {
+    const { data, error } = await page(rows.length, rows.length + size - 1);
+    if (error) fail(op);
+    const got = Array.isArray(data) ? (data as Row[]) : [];
+    rows.push(...got);
+    if (got.length < size || o.enough?.(rows)) return { rows, truncated: false };
+    if (rows.length >= max) return { rows, truncated: true };
+  }
+}
+
+/** A newest-first media read is complete once it holds the newest `n` rows and reaches back past `since` (an ISO instant). */
+export const reaches = (n: number, since: string | null) => (rows: Row[]) => rows.length >= n && (since === null || Date.parse(String(rows[rows.length - 1].posted_at)) < Date.parse(since));
 
 export function rowToDaily(r: Row): DailyRow {
   return {
@@ -56,31 +84,44 @@ export function rowToPost(r: Row): Post | null {
   };
 }
 
+/** Every account_daily row from `fromDay` to today, oldest first (paged: a year or "all" is more than one page). */
 export async function loadDaily(db: SupabaseClient, accountId: string, fromDay: string): Promise<DailyRow[]> {
-  const { data, error } = await db
-    .from('account_daily')
-    .select('day,followers,reach,views,accounts_engaged,total_interactions,follows,unfollows,link_taps')
-    .eq('account_id', accountId)
-    .gte('day', fromDay)
-    .order('day', { ascending: true })
-    .limit(DAILY_LIMIT);
-  if (error) fail('daily');
-  return ((data ?? []) as Row[]).map(rowToDaily);
+  const { rows } = await readPages(
+    (from, to) =>
+      db
+        .from('account_daily')
+        .select('day,followers,reach,views,accounts_engaged,total_interactions,follows,unfollows,link_taps')
+        .eq('account_id', accountId)
+        .gte('day', fromDay)
+        .order('day', { ascending: true })
+        .range(from, to),
+    'daily',
+  );
+  return rows.map(rowToDaily);
 }
 
-/** Newest feed posts + reels (stories excluded) with ONLY their latest metrics snapshot (one row per post). */
-export async function loadPosts(db: SupabaseClient, accountId: string, limit = MEDIA_LIMIT): Promise<Post[]> {
-  const { data, error } = await db
-    .from('media')
-    .select('id,account_id,media_type,posted_at,permalink,media_metrics(captured_at,reach,views,likes,comments,shares,saves)')
-    .eq('account_id', accountId)
-    .neq('media_type', 'STORY')
-    .order('posted_at', { ascending: false })
-    .order('captured_at', { ascending: false, referencedTable: 'media_metrics' })
-    .limit(Math.min(limit, MEDIA_LIMIT))
-    .limit(1, { referencedTable: 'media_metrics' });
-  if (error) fail('posts');
-  return ((data ?? []) as Row[]).map(rowToPost).filter((p): p is Post => p !== null);
+/**
+ * Feed posts + reels (stories excluded), newest first, with ONLY their latest metrics snapshot: the newest `newest`
+ * (at most MEDIA_LIMIT) and, when `since` is given, every older one back to that instant (paged in steps of `newest`).
+ */
+export async function loadPosts(db: SupabaseClient, accountId: string, newest = MEDIA_LIMIT, since: string | null = null): Promise<Post[]> {
+  const n = Math.min(newest, MEDIA_LIMIT);
+  const { rows } = await readPages(
+    (from, to) =>
+      db
+        .from('media')
+        .select('id,account_id,media_type,posted_at,permalink,media_metrics(captured_at,reach,views,likes,comments,shares,saves)')
+        .eq('account_id', accountId)
+        .neq('media_type', 'STORY')
+        .order('posted_at', { ascending: false })
+        .order('id', { ascending: false })
+        .order('captured_at', { ascending: false, referencedTable: 'media_metrics' })
+        .range(from, to)
+        .limit(1, { referencedTable: 'media_metrics' }),
+    'posts',
+    { size: n, enough: reaches(n, since) },
+  );
+  return rows.map(rowToPost).filter((p): p is Post => p !== null);
 }
 
 export interface OverviewInput {
@@ -90,11 +131,12 @@ export interface OverviewInput {
   posts: Record<string, Post[]>;
 }
 
-/** Everything the Overview needs: 1 + 1 + 2 × accounts queries, run in parallel. */
-export async function loadOverviewInput(db: SupabaseClient, fromDay: string): Promise<OverviewInput> {
+/** Everything the Overview needs: 1 + 1 + 2 × accounts queries (more pages for long scopes), run in parallel. Posts reach back to `fromDay` in the owner's timezone. */
+export async function loadOverviewInput(db: SupabaseClient, fromDay: string, tz: string): Promise<OverviewInput> {
   const [all, sync] = await Promise.all([supabaseAccountsStore(db).list(), listSyncStatus(db)]);
   const accounts = all.filter((a) => a.status !== 'archived');
-  const per = await Promise.all(accounts.map((a) => Promise.all([loadDaily(db, a.id, fromDay), loadPosts(db, a.id)])));
+  const since = dayStart(fromDay, tz).toISOString();
+  const per = await Promise.all(accounts.map((a) => Promise.all([loadDaily(db, a.id, fromDay), loadPosts(db, a.id, MEDIA_LIMIT, since)])));
   return {
     accounts,
     sync,
