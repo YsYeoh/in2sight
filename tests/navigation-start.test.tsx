@@ -8,7 +8,7 @@ import { PostsTab } from '@/components/account/PostsTab';
 import { CalendarView } from '@/components/calendar/CalendarView';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { PROGRESS_START_EVENT } from '@/components/shared/NavigationProgress';
-import { buildMonth } from '@/lib/dashboard/calendar';
+import { buildCalendar } from '@/lib/dashboard/calendar';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
@@ -69,8 +69,9 @@ describe('client navigations that are not link clicks start the top bar', () => 
   });
 
   it('picking an account in the Calendar submits the GET form and starts the bar', () => {
-    const model = buildMonth('2026-10', [], { weekStart: 'mon', tz: 'UTC', today: '2026-10-15' });
-    wrap(<CalendarView model={model} accounts={[{ id: A1, username: 'brand.one' }]} account={null} truncated={false} />);
+    const scope = resolveScope(parseTimeScope({ month: '2026-10' }), '2026-10-15');
+    const model = buildCalendar({ from: '2026-10-01', to: '2026-10-31' }, [], { weekStart: 'mon', tz: 'UTC', today: '2026-10-15' });
+    wrap(<CalendarView model={model} scope={scope} today="2026-10-15" accounts={[{ id: A1, username: 'brand.one' }]} account={null} truncated={false} />);
     fireEvent.change(screen.getByRole('combobox', { name: en.pages.calendar.account }), { target: { value: A1 } });
     expect(started).toHaveBeenCalledOnce();
   });

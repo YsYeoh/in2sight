@@ -1,6 +1,7 @@
 'use client';
 
-// Month grid on md+, agenda list on phones (CSS breakpoints only: both are rendered, never matchMedia).
+// Grid of whole weeks on md+, agenda list on phones (CSS breakpoints only: both are rendered, never matchMedia). The days
+// are the Time Scope's (a month picker gives the classic month view); the arrows step one period of the same kind.
 import { useState } from 'react';
 import Form from 'next/form';
 import Link from 'next/link';
@@ -9,11 +10,13 @@ import { useTranslations } from 'next-intl';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { formHref, startProgress } from '@/components/shared/NavigationProgress';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { TimeScopeBar, useScopeText } from '@/components/shared/TimeScopeBar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { weekdayOf } from '@/lib/analysis/best-time';
-import type { CalendarDay, MonthModel } from '@/lib/dashboard/calendar';
-import { formatDay, formatMonth, formatNumber, formatTime } from '@/lib/format';
+import type { CalendarDay, CalendarModel } from '@/lib/dashboard/calendar';
+import { formatDay, formatNumber, formatTime } from '@/lib/format';
+import { scopeHref, stepScope, type ResolvedScope } from '@/lib/time-scope/scope';
 import { cn } from '@/lib/utils';
 
 interface CalendarAccount {
@@ -55,15 +58,19 @@ function DayItems({ day, accounts, showAccount }: { day: CalendarDay; accounts: 
   );
 }
 
-export function CalendarView({ model, accounts, account, truncated }: { model: MonthModel; accounts: CalendarAccount[]; account: string | null; truncated: boolean }) {
+export function CalendarView({ model, scope, today, accounts, account, truncated }: { model: CalendarModel; scope: ResolvedScope; today: string; accounts: CalendarAccount[]; account: string | null; truncated: boolean }) {
   const t = useTranslations('pages.calendar');
   const ta = useTranslations('analysis');
   const { prefs } = usePrefs();
+  const ts = useTranslations('timeScope');
+  const { label: rangeLabel } = useScopeText(scope);
   const days = model.weeks.flat();
-  const inMonth = days.filter((d) => d.inMonth);
-  const [selected, setSelected] = useState(() => (inMonth.find((d) => d.isToday) ?? inMonth.find((d) => d.items.length) ?? inMonth[0]).day);
+  const inRange = days.filter((d) => d.inRange);
+  const [selected, setSelected] = useState(() => (inRange.find((d) => d.isToday) ?? inRange.find((d) => d.items.length) ?? inRange[0]).day);
   const current = days.find((d) => d.day === selected);
-  const q = (month: string) => `?month=${month}${account ? `&account=${account}` : ''}`;
+  const keep: Record<string, string> = account ? { account } : {};
+  const prev = stepScope(scope, -1, today);
+  const next = stepScope(scope, 1, today); // null: it would start after today
   const label = (d: CalendarDay) => t('dayLabel', { date: formatDay(d.day, prefs), posts: d.posts, stories: d.stories });
 
   return (
@@ -73,7 +80,9 @@ export function CalendarView({ model, accounts, account, truncated }: { model: M
         subtitle={account ? `@${accounts.find((a) => a.id === account)?.username ?? ''}` : t('allAccounts')}
         actions={
           <Form action="" onSubmit={(e) => startProgress(formHref(e.currentTarget))} className="flex items-center gap-2">
-            <input type="hidden" name="month" value={model.month} />
+            {Object.entries(scope.params).map(([k, v]) => (
+              <input key={k} type="hidden" name={k} value={v} />
+            ))}
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               {t('account')}
               <select name="account" defaultValue={account ?? ''} onChange={(e) => e.currentTarget.form?.requestSubmit()} className="h-[var(--ctl-sm)] max-w-40 rounded-md border border-input bg-background px-2 text-xs text-foreground">
@@ -94,22 +103,35 @@ export function CalendarView({ model, accounts, account, truncated }: { model: M
         }
       />
 
+      <TimeScopeBar scope={scope} today={today} keep={keep} />
+
       <div className="mb-[var(--gp)] flex items-center justify-between gap-2">
-        <Button asChild variant="ghost" size="sm">
-          <Link href={q(model.prev)} aria-label={t('previous')}>
-            <ChevronLeft aria-hidden="true" />
-            <span className="max-sm:sr-only">{formatMonth(model.prev, prefs)}</span>
-          </Link>
-        </Button>
-        <h2 className="text-[length:var(--fh)] font-medium" aria-live="polite">
-          {formatMonth(model.month, prefs)}
+        {prev ? (
+          <Button asChild variant="ghost" size="sm">
+            <Link href={scopeHref(prev, keep)}>
+              <ChevronLeft aria-hidden="true" />
+              <span className="max-sm:sr-only">{ts('previous')}</span>
+            </Link>
+          </Button>
+        ) : (
+          <span />
+        )}
+        <h2 className="min-w-0 truncate text-[length:var(--fh)] font-medium" aria-live="polite">
+          {rangeLabel}
         </h2>
-        <Button asChild variant="ghost" size="sm">
-          <Link href={q(model.next)} aria-label={t('next')}>
-            <span className="max-sm:sr-only">{formatMonth(model.next, prefs)}</span>
+        {next ? (
+          <Button asChild variant="ghost" size="sm">
+            <Link href={scopeHref(next, keep)}>
+              <span className="max-sm:sr-only">{ts('next')}</span>
+              <ChevronRight aria-hidden="true" />
+            </Link>
+          </Button>
+        ) : (
+          <Button type="button" variant="ghost" size="sm" disabled>
+            <span className="max-sm:sr-only">{ts('next')}</span>
             <ChevronRight aria-hidden="true" />
-          </Link>
-        </Button>
+          </Button>
+        )}
       </div>
 
       {truncated ? (
@@ -121,7 +143,7 @@ export function CalendarView({ model, accounts, account, truncated }: { model: M
       {/* md+: month grid; tapping a day shows its list below */}
       <div className="hidden md:block">
         <table className="w-full table-fixed border-separate border-spacing-1">
-          <caption className="sr-only">{formatMonth(model.month, prefs)}</caption>
+          <caption className="sr-only">{rangeLabel}</caption>
           <thead>
             <tr>
               {model.weeks[0].map((d) => (
@@ -143,7 +165,7 @@ export function CalendarView({ model, accounts, account, truncated }: { model: M
                       onClick={() => setSelected(d.day)}
                       className={cn(
                         'flex h-20 w-full flex-col gap-1 rounded-md border bg-card p-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring',
-                        !d.inMonth && 'opacity-40',
+                        !d.inRange && 'opacity-40',
                         d.day === selected && 'border-primary',
                       )}
                     >
@@ -169,8 +191,8 @@ export function CalendarView({ model, accounts, account, truncated }: { model: M
 
       {/* phones: agenda of the days that have something */}
       <div className="grid gap-[var(--gp)] md:hidden">
-        {inMonth.some((d) => d.items.length) ? (
-          inMonth
+        {inRange.some((d) => d.items.length) ? (
+          inRange
             .filter((d) => d.items.length)
             .map((d) => (
               <section key={d.day} aria-label={label(d)} className="rounded-lg border bg-card p-[var(--pc)]">
