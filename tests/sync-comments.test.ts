@@ -98,6 +98,33 @@ describe('comments job', () => {
     expect(ig.commentsPage.mock.calls.filter((a) => a[1] === 'p00')).toHaveLength(4);
   });
 
+  // three pages per post (next on pages 1 and 2, none on 3)
+  const threePages = ((_t: string, id: string, next?: string) =>
+    Promise.resolve(next === undefined ? { items: [comment(`${id}-1`)], next: 'https://graph.instagram.com/p?after=1' } : next.endsWith('1') ? { items: [comment(`${id}-2`)], next: 'https://graph.instagram.com/p?after=2' } : { items: [comment(`${id}-3`)], next: null })) as IgData['commentsPage'];
+
+  it('a post cut off by the call budget keeps what was read but is not marked synced (read again next run)', async () => {
+    const posts = Array.from({ length: 7 }, (_, i) => ({ id: `p${i}`, count: 3, ageH: i + 1 })); // 6 x 3 pages = 18 calls; the 7th gets 2 of its 3
+    const { c, ig, mem } = ctx({ posts });
+    ig.commentsPage.mockImplementation(threePages);
+    await runAccount(c, ['comments']);
+    expect(ig.commentsPage).toHaveBeenCalledTimes(COMMENT_CALLS_PER_RUN);
+    expect(mem.commentCounts.get('p5')!.synced).toBe(3);
+    expect(mem.commentCounts.get('p6')!.synced).toBeNull();
+    expect(mem.comments.filter((x) => x.mediaId === 'p6')).toHaveLength(2);
+  });
+
+  it('a post cut off by the clock keeps what was read but is not marked synced', async () => {
+    const { c, ig, mem } = ctx({ posts: [{ id: 'p1', count: 3 }] });
+    let now = 0;
+    c.deadline = 100;
+    c.clock = () => now;
+    ig.commentsPage.mockImplementation(((t: string, id: string, next?: string) => ((now += 100), threePages(t, id, next))) as IgData['commentsPage']);
+    await runAccount(c, ['comments']);
+    expect(ig.commentsPage).toHaveBeenCalledTimes(1);
+    expect(mem.comments).toHaveLength(1);
+    expect(mem.commentCounts.get('p1')!.synced).toBeNull();
+  });
+
   it('one post failing never stops the others; gone -> marked gone; rate limit -> stops; a DB failure never fails the account', async () => {
     const { c, ig, mem } = ctx({ posts: [{ id: 'p1', count: 1, ageH: 1 }, { id: 'p2', count: 1, ageH: 2 }, { id: 'p3', count: 1, ageH: 3 }] });
     ig.commentsPage.mockImplementation((async (_t: string, id: string) => {

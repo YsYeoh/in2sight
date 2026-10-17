@@ -9,10 +9,10 @@ const NOW = new Date('2026-10-14T02:00:00Z');
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
 const DONE: Partial<SyncState> = { dailyDoneThrough: '2026-10-13', backfilledFrom: '2026-07-16', lastRun: { backfill: hoursAgo(48) } };
 
-function ctx(media: { id: string; kind: string; postedAt?: string }[], o: { deadline?: number } = {}) {
+function ctx(media: { id: string; kind: string; postedAt?: string; productType?: string }[], o: { deadline?: number; capabilities?: Record<string, boolean> } = {}) {
   const ig = fakeIg();
   const mem = memoryStore();
-  for (const m of media) mem.media.set(m.id, { id: m.id, accountId: 'a1', postedAt: m.postedAt ?? hoursAgo(5), lastMetricsAt: null, kind: m.kind, gone: false });
+  for (const m of media) mem.media.set(m.id, { id: m.id, accountId: 'a1', postedAt: m.postedAt ?? hoursAgo(5), lastMetricsAt: null, kind: m.kind, productType: m.productType, gone: false });
   const acc = account({ id: 'a1' });
   let now = 0;
   const log: string[] = [];
@@ -23,7 +23,7 @@ function ctx(media: { id: string; kind: string; postedAt?: string }[], o: { dead
     if (breakdown) return { BIO_LINK_CLICKED: 1 };
     return Object.fromEntries(metrics.map((m, i) => [m, i + 1]));
   }) as IgData['extraInsights']);
-  const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: { ...emptyState('a1'), ...DONE }, tz: 'UTC', now: NOW, deadline: o.deadline ?? 1_000_000, clock: () => now };
+  const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: { ...emptyState('a1'), ...DONE, capabilities: o.capabilities ?? {} }, tz: 'UTC', now: NOW, deadline: o.deadline ?? 1_000_000, clock: () => now };
   return { c, ig, mem, log };
 }
 
@@ -70,6 +70,23 @@ describe('per-media extras', () => {
     expect(mem.metrics).toEqual([{ mediaId: 'img', capturedAt: NOW.toISOString() }]);
     expect(mem.extras).toEqual([{ mediaId: 'img', capturedAt: NOW.toISOString(), e: { profileActivity: { BIO_LINK_CLICKED: 1 } } }]);
     expect(patch.capabilities).toMatchObject({ 'feed:follows_visits': false, 'feed:profile_activity': true });
+  });
+
+  it('an old feed video (kind REELS, product type FEED) gets the core snapshot but no Reels extras', async () => {
+    const { c, mem, log } = ctx([{ id: 'oldvid', kind: 'REELS', productType: 'FEED' }, { id: 'reel', kind: 'REELS', productType: 'REELS' }]);
+    await runAccount(c, ['mediaMetrics']);
+    expect(mem.metrics.map((m) => m.mediaId).sort()).toEqual(['oldvid', 'reel']);
+    expect(log.filter((l) => l.startsWith('extra:')).map((l) => l.split(':')[1])).toEqual(['reel']);
+  });
+
+  it('one refusal never switches off a metric that already worked for the account', async () => {
+    const { c, ig } = ctx([{ id: 'reel', kind: 'REELS', productType: 'REELS' }], { capabilities: { 'reels:watch': true } });
+    ig.extraInsights.mockImplementation((async () => {
+      throw new InstagramApiError('data', 400, 100, undefined, true);
+    }) as IgData['extraInsights']);
+    const { result, patch } = await runAccount(c, ['mediaMetrics']);
+    expect(result.outcome).toBe('ok');
+    expect(patch.capabilities).toEqual({ 'reels:watch': true });
   });
 
   it('no extras for a post without a fresh core snapshot (gone, under-5/no data, unclassified error)', async () => {

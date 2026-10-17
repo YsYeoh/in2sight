@@ -214,21 +214,25 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
     },
     async upsertMedia(accountId, items) {
       if (items.length === 0) return;
-      // last_metrics_at / gone_at are not in the payload, so re-listing never resets them
-      check('upsertMedia')(await db.from('media').upsert(items.map(ITEM_TO_ROW(accountId)), { onConflict: 'id' }));
+      // last_metrics_at / gone_at are not in the payload, so re-listing never resets them.
+      // Two batches: a PostgREST bulk upsert writes NULL for a key that only some rows carry, which would wipe the stored
+      // listing details of the rows that came without any.
+      for (const group of [items.filter((i) => i.details), items.filter((i) => !i.details)]) {
+        if (group.length > 0) check('upsertMedia')(await db.from('media').upsert(group.map(ITEM_TO_ROW(accountId)), { onConflict: 'id' }));
+      }
       const children = items.flatMap((i) => (i.details?.children ?? []).map((ch, position) => ({ media_id: i.id, position, media_type: ch.mediaType })));
       if (children.length > 0) check('upsertMediaChildren')(await db.from('media_children').upsert(children, { onConflict: 'media_id,position' }));
     },
     async mediaForMetrics(accountId, sinceIso) {
       const { data, error } = await db
         .from('media')
-        .select('id,posted_at,last_metrics_at,media_type')
+        .select('id,posted_at,last_metrics_at,media_type,media_product_type')
         .eq('account_id', accountId)
         .neq('media_type', 'STORY')
         .is('gone_at', null)
         .or(`posted_at.gte."${sinceIso}",last_metrics_at.is.null`);
       if (error) fail('mediaForMetrics');
-      return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, postedAt: r.posted_at as string, lastMetricsAt: (r.last_metrics_at as string | null) ?? null, kind: r.media_type as string | undefined }));
+      return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, postedAt: r.posted_at as string, lastMetricsAt: (r.last_metrics_at as string | null) ?? null, kind: r.media_type as string | undefined, productType: (r.media_product_type as string | null) ?? null }));
     },
     async insertMetrics(mediaId, capturedAt, v) {
       const row = {

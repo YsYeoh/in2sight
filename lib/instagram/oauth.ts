@@ -18,9 +18,10 @@ const MESSAGES: Record<Kind, string> = {
 /**
  * Meta's wording when a metric or field is not available for this object/product type (verified 2026-10-16: "does not
  * support the metric for this media product type"; invalid names: "must be one of the following values"; unknown
- * fields: "nonexisting field"). Matched once in call(); the text itself is discarded.
+ * fields: "nonexisting field"). Matched once in call(); the text itself is discarded. Meta's generic "…does not exist,
+ * cannot be loaded due to missing permissions, or does not support this operation" is about the object, not the metric.
  */
-const UNSUPPORTED = /does not support|must be one of the following values|nonexisting field/i;
+const UNSUPPORTED = /does not support(?! this operation)|must be one of the following values|nonexisting field/i;
 
 /**
  * Fixed message per kind: response bodies, tokens, codes and secrets never end up in an error. `unsupported` = Meta
