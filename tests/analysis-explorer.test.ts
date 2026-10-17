@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { addParts, breadcrumbs, bucketsOf, buildExplorer, byGroup, drillHref, drillTarget, explorerWindow, itemParts, settledDay, toKpi, type ExplorerInput, type ScopeAccount } from '@/lib/analysis/explorer';
 import type { ItemRow } from '@/lib/explorer/read';
 import { parseExplorerState } from '@/lib/explorer/state';
-import type { DailyParts, Parts, PostParts } from '@/lib/metrics';
+import { METRICS, type DailyParts, type Parts, type PostParts } from '@/lib/metrics';
 import { addDays } from '@/lib/sync/time';
 import { bucketStart, daysIn } from '@/lib/time-scope/range';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
@@ -53,6 +53,15 @@ describe('itemParts', () => {
     expect(itemParts(post).posts).toEqual(p({ posts: 1, measured: 1, reachSum: 200, viewsSum: null, viewsN: 0, likes: 10, comments: 5, shares: 1, erInteractions: 16, erReach: 200 }));
     expect(itemParts({ ...post, mediaType: 'STORY' }).posts).toMatchObject({ erInteractions: null, erReach: null });
     expect(itemParts({ ...post, reach: 0 }).posts).toMatchObject({ measured: 0, reachSum: null, erReach: null });
+  });
+
+  it('reach alone is not an engagement rate: every interaction part missing = no rate ("-"), as lib/analysis/posts.ts', () => {
+    const none: ItemRow = { id: 'm1', accountId: A, mediaType: 'IMAGE', postedAt: '2026-10-05T01:00:00Z', permalink: null, caption: null, reach: 200, views: null, likes: null, comments: null, saves: null, shares: null };
+    expect(itemParts(none).posts).toMatchObject({ measured: 1, reachSum: 200, erInteractions: null, erReach: null });
+    expect(METRICS.postEngagementRate.value(itemParts(none))).toBeNull();
+    // one part present (even 0) is a real rate; the missing ones count as 0
+    expect(METRICS.postEngagementRate.value(itemParts({ ...none, saves: 0 }))).toBe(0);
+    expect(METRICS.postEngagementRate.value(itemParts({ ...none, likes: 20 }))).toBe(0.1);
   });
 });
 

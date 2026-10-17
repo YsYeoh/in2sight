@@ -59,7 +59,8 @@ export function addParts(a: Parts, b: Parts): Parts {
 /** One published item as parts, so single posts use the same registry formulas (same rules as explorer_posts). */
 export function itemParts(i: ItemRow): Parts {
   const measured = (i.reach ?? 0) > 0;
-  const er = measured && i.mediaType !== 'STORY';
+  const interactions = [i.likes, i.comments, i.saves, i.shares];
+  const er = measured && i.mediaType !== 'STORY' && interactions.some((v) => v !== null); // reach alone is not a rate (as posts.ts engagementRate)
   return {
     daily: null,
     posts: {
@@ -72,7 +73,7 @@ export function itemParts(i: ItemRow): Parts {
       comments: i.comments,
       saves: i.saves,
       shares: i.shares,
-      erInteractions: er ? (i.likes ?? 0) + (i.comments ?? 0) + (i.saves ?? 0) + (i.shares ?? 0) : null,
+      erInteractions: er ? interactions.reduce<number>((a, v) => a + (v ?? 0), 0) : null,
       erReach: er ? i.reach : null,
     },
   };
