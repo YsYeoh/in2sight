@@ -89,7 +89,7 @@ Covers UI / Post Lab (Plan 13), Followers & Growth Center, comment moderation, s
 | `components/shared/useKpiDelta.ts` | accepts any `MetricId` |
 | `messages/en.json`, `messages/zh-CN.json` | `nav.explorer`, new `metrics.*`, `explorer.*` |
 | `lib/explorer/state.ts` (new) | `ExplorerState`, `parseExplorerState`, `explorerParams`, `withState`, `defaultMetrics` |
-| `lib/explorer/read.ts` (new) | owner-session RPC reader: `rollupArgs`, `loadRollup`, `loadItems`, `loadEarliest` |
+| `lib/explorer/read.ts` (new) | owner-session RPC reader: `rollupArgs`, `loadRollup`, `loadItems` |
 | `lib/analysis/explorer.ts` (new) | `toKpi`, `addParts`, `itemParts`, `byGroup`, `settledDay`, `explorerWindow`, `bucketsOf`, `buildExplorer`, `drillTarget`, `drillHref`, `breadcrumbs` |
 | `lib/explorer/load.ts`, `lib/explorer/labels.ts` (new) | the one loader of page + export; row labels shared by screen and Excel |
 | `lib/explorer/views.ts` (new), `app/(app)/explorer/actions.ts` (new), `lib/tags.ts` | saved-view validation, server actions; `normalizeTagName` gains a `max` |
@@ -98,7 +98,7 @@ Covers UI / Post Lab (Plan 13), Followers & Growth Center, comment moderation, s
 | `components/explorer/SavedViews.tsx` (new) | saved views menu, save/rename/delete dialogs |
 | `app/api/export/explorer/route.ts`, `lib/export/explorer.ts` (new), `lib/export/workbook.ts` | export of the current view (+ `Server-Timing`) |
 | `app/(app)/explorer/page.tsx`, `loading.tsx` (new), `components/explorer/ExplorerView.tsx` (new), `lib/nav.ts`, `components/shared/AppShell.tsx` | the page, nav item |
-| `components/overview/OverviewView.tsx`, `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx` | drill links into the Explorer |
+| `components/overview/OverviewView.tsx`, `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx`, `app/(app)/accounts/[id]/page.tsx` | drill links into the Explorer |
 | `docs/RUNBOOK_EXPLORER.md` (new), `docs/SPEC.md`, `docs/TODO.md` | live checks, spec sections, ticks |
 
 **Adding i18n keys:** merge the given object into the existing top-level key of the same name in BOTH files (create it if missing), keep existing entries, 2-space JSON.
@@ -120,7 +120,7 @@ Covers UI / Post Lab (Plan 13), Followers & Growth Center, comment moderation, s
 | 11 | Excel export of the current view | 6, 10 | `app/api/export/explorer/route.ts`, `lib/export/explorer.ts`, `lib/export/workbook.ts`, `tests/explorer-export.test.ts` | 13, 14 |
 | 12 | Explorer page + nav item | 7–11, 12a | `app/(app)/explorer/page.tsx`, `app/(app)/explorer/loading.tsx`, `components/explorer/ExplorerView.tsx`, `lib/nav.ts`, `components/shared/AppShell.tsx`, `tests/explorer-view.test.tsx`, `tests/nav.test.ts`, `tests/app-shell.test.tsx` | 13, 14 |
 | 13 | Drill from Overview | 3, 12a | `components/overview/OverviewView.tsx`, `tests/overview-drill.test.tsx` | 8–12, 14 |
-| 14 | Drill from account pages | 3, 7, 12a | `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx`, `tests/account-drill.test.tsx` | 8–13 |
+| 14 | Drill from account pages | 3, 7, 12a | `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx`, `app/(app)/accounts/[id]/page.tsx`, `tests/account-drill.test.tsx` | 8–13 |
 | 15 | Docs: SPEC, TODO, RUNBOOK_EXPLORER; final check | all | `docs/SPEC.md`, `docs/TODO.md`, `docs/RUNBOOK_EXPLORER.md` | — |
 
 Run order for SDD: wave A = 1, 2, 7 · wave B = 3 · wave C = 4, 6 · wave D = 5 · wave E = 8, 9, 13, 14 · wave F = 10 · wave G = 11 · wave H = 12 · wave I = 15. Tasks in one wave touch disjoint files. Every task's code was executed in the dry run in this order (see "Dry-run result"), except where that section says otherwise.
@@ -781,7 +781,6 @@ export function useKpiDelta() {
     "window": "Data from {from} to {to}",
     "windowCompare": "compared with {from} to {to}",
     "exploreMetric": "Explore {metric} in the Explorer",
-    "exploreCell": "{label}: show these posts in the Explorer",
     "openAccount": "Open {name}"
   }
 }
@@ -902,7 +901,6 @@ and into `messages/zh-CN.json`:
     "window": "数据范围：{from} 至 {to}",
     "windowCompare": "对比 {from} 至 {to}",
     "exploreMetric": "在探索中查看{metric}",
-    "exploreCell": "{label}：在探索中查看这些帖子",
     "openAccount": "打开 {name}"
   }
 }
@@ -1153,8 +1151,8 @@ git commit -m "feat(explorer): allow-listed URL state (metrics, group-by, filter
   - `ITEM_LIMIT = 500`, `type Grain = 'day' | 'week' | 'month'` (same values as 12a's `Granularity`).
   - `interface RollupQuery { accounts: string[]; from: string; to: string; tz: string; weekStart: WeekStart; grain: Grain }` — days inclusive, owner timezone.
   - `interface ItemRow { id; accountId; mediaType: MediaKind; postedAt; permalink: string | null; caption: string | null; reach; views; likes; comments; saves; shares: number | null }`.
-  - `rollupArgs(s, q): { daily: object | null; posts: object | null; media: object }` (pure, the exact RPC arguments), `loadRollup(db, s, q): Promise<Map<string, Parts>>`, `loadItems(db, s, q): Promise<{ items: ItemRow[]; truncated: boolean }>`, `loadEarliest(db, accounts): Promise<string | null>`.
-  - Errors: `explorer read: daily|posts|items|earliest failed` (fixed text).
+  - `rollupArgs(s, q): { daily: object | null; posts: object | null; media: object }` (pure, the exact RPC arguments), `loadRollup(db, s, q): Promise<Map<string, Parts>>`, `loadItems(db, s, q): Promise<{ items: ItemRow[]; truncated: boolean }>`.
+  - Errors: `explorer read: daily|posts|items failed` (fixed text). The first captured day comes from 12a's `loadFirstDay` (Task 10 uses it), not from here.
 
 How a state maps to SQL (no other path exists): metrics with source `daily` → `explorer_daily` with `p_by = 'account'` (also for groups, summed in Task 5) or `'time'`; metrics with source `posts` → `explorer_posts` with `p_by` = the dimension (`'account'` for groups); `by = 'post'` → `explorer_media` + PostgREST `order(posted_at desc).limit(501)`. Post bounds are the owner-timezone day starts (`dayStart`), so a post at 23:30 local time belongs to that local day. Stories are passed only when the format filter is Stories or the dimension is format.
 
@@ -1163,25 +1161,24 @@ How a state maps to SQL (no other path exists): metrics with source `daily` → 
 ```ts
 import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ITEM_LIMIT, loadEarliest, loadItems, loadRollup, rollupArgs, type RollupQuery } from '@/lib/explorer/read';
+import { ITEM_LIMIT, loadItems, loadRollup, rollupArgs, type RollupQuery } from '@/lib/explorer/read';
 import { parseExplorerState } from '@/lib/explorer/state';
 
 const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
 const T = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
 const Q: RollupQuery = { accounts: [A], from: '2026-10-01', to: '2026-10-31', tz: 'Asia/Kuala_Lumpur', weekStart: 'mon', grain: 'week' };
 
-/** Owner-session fake: records rpc/table calls and chained modifiers; resolves to the queued result per rpc/table name. */
+/** Owner-session fake: records rpc calls and chained modifiers; resolves to the queued result per rpc name. */
 function fakeDb(results: Record<string, { data?: unknown; error?: unknown }>) {
   const calls: unknown[][] = [];
-  const chainFor = (name: string) => {
-    const chain: Record<string, unknown> = {};
-    for (const op of ['select', 'order', 'limit', 'in']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
-    chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(results[name] ?? { data: [], error: null }).then(res, rej);
-    return chain;
-  };
   const db = {
-    rpc: (name: string, args: unknown) => (calls.push(['rpc', name, args]), chainFor(name)),
-    from: (table: string) => (calls.push(['from', table]), chainFor(table)),
+    rpc(name: string, args: unknown) {
+      calls.push(['rpc', name, args]);
+      const chain: Record<string, unknown> = {};
+      for (const op of ['select', 'order', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(results[name] ?? { data: [], error: null }).then(res, rej);
+      return chain;
+    },
   };
   return { db: db as unknown as SupabaseClient, calls };
 }
@@ -1250,17 +1247,6 @@ describe('loadItems', () => {
     expect(r.items).toHaveLength(ITEM_LIMIT);
     expect(r.items[0].permalink).toBeNull();
     expect(r.items[1].permalink).toBe('https://www.instagram.com/p/x/');
-  });
-});
-
-describe('loadEarliest', () => {
-  it('the oldest account_daily day of the accounts in scope; null without accounts or rows', async () => {
-    const { db, calls } = fakeDb({ account_daily: { data: [{ day: '2025-03-04' }], error: null } });
-    expect(await loadEarliest(db, [A])).toBe('2025-03-04');
-    expect(calls).toEqual([['from', 'account_daily'], ['select', 'day'], ['in', 'account_id', [A]], ['order', 'day', { ascending: true }], ['limit', 1]]);
-    expect(await loadEarliest(fakeDb({}).db, [A])).toBeNull();
-    expect(await loadEarliest(db, [])).toBeNull();
-    await expect(loadEarliest(fakeDb({ account_daily: { error: { message: 'x' } } }).db, [A])).rejects.toThrow('explorer read: earliest failed');
   });
 });
 ```
@@ -1408,14 +1394,6 @@ export async function loadItems(db: SupabaseClient, s: ExplorerState, q: RollupQ
     })),
   };
 }
-
-/** The first captured insight day of these accounts (the Time Scope needs it for "all" and the coverage note). */
-export async function loadEarliest(db: SupabaseClient, accounts: string[]): Promise<string | null> {
-  if (accounts.length === 0) return null;
-  const { data, error } = await db.from('account_daily').select('day').in('account_id', accounts).order('day', { ascending: true }).limit(1);
-  if (error) fail('earliest');
-  return str(((data ?? []) as Row[])[0]?.day);
-}
 ```
 
 Known limit (runbook §6): a timezone that `Intl` accepts but Postgres does not know (e.g. the deprecated `America/Argentina/ComodRivadavia`) makes the post RPCs fail with the fixed error; every zone in `lib/timezones.ts` is known to both (checked in the dry run against PostgreSQL 16).
@@ -1423,7 +1401,7 @@ Known limit (runbook §6): a timezone that `Intl` accepts but Postgres does not 
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/explorer-read.test.ts`
-Expected: PASS (9 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2954,13 +2932,13 @@ git commit -m "feat(explorer): saved views menu (save, rename, delete)" -m "Co-A
 - Test: `tests/explorer-load.test.ts` (new)
 
 **Interfaces:**
-- Consumes: Tasks 3, 4, 5, 8; `loadTags` (`lib/dashboard/detail-read.ts`), `StoredAccount`, `SyncStatus` (`lib/sync/store.ts`, `dailyDoneThrough`), 12a `parseTimeScope`, `resolveScope`, `ResolvedScope`, `DayRange`, `Granularity`; `formatDateTime`, `formatDay`, `formatHour`, `formatMonth`; `translator` (`lib/export/workbook.ts`, test only).
+- Consumes: Tasks 3, 4, 5, 8; `loadTags` (`lib/dashboard/detail-read.ts`), 12a `loadFirstDay(db, accountIds)` (`lib/dashboard/read.ts`, 12a Task 10), `StoredAccount`, `SyncStatus` (`lib/sync/store.ts`, `dailyDoneThrough`), 12a `parseTimeScope`, `resolveScope`, `ResolvedScope`, `DayRange`, `Granularity`; `formatDateTime`, `formatDay`, `formatHour`, `formatMonth`; `translator` (`lib/export/workbook.ts`, test only).
 - Produces:
   - `interface ExplorerData { state; scope: ResolvedScope; window: { current: DayRange; compare: DayRange | null }; live: ScopeAccount[]; accounts: ScopeAccount[]; groups: string[]; tags: Tag[]; model: ExplorerModel; items: ItemRow[]; truncated: boolean; item: ItemDetail | null }`
   - `loadExplorer(db, sp: Record<string, string | string[] | undefined>, o: { today; tz; weekStart; accounts: StoredAccount[]; sync: Record<string, SyncStatus> }): Promise<ExplorerData>` — the ONE loader of the page (Task 12) and the export (Task 11).
   - `type Translate = (key, values?) => string`, `interface LabelContext { accounts; tags; items; gran }`, `rowLabel(by, key, ctx, t, prefs): string` — the same row text on screen and in Excel.
 
-Flow: parse the state → live accounts (archived hidden) → accounts kept by the account/group filters → first captured day (`loadEarliest`, for 12a's "all" and coverage) + tags → `resolveScope(parseTimeScope(sp, weekStart), today, earliest)` → `explorerWindow(scope, settledDay(...))` → item level, single posts, or current + comparison rollups in parallel → `buildExplorer`.
+Flow: parse the state → live accounts (archived hidden) → accounts kept by the account/group filters → first captured day (12a `loadFirstDay`, for "all" and the coverage note) + tags → `resolveScope(parseTimeScope(sp, weekStart), today, earliest)` → `explorerWindow(scope, settledDay(...))` → item level, single posts, or current + comparison rollups in parallel → `buildExplorer`.
 
 - [ ] **Step 1: Write the failing test** — create `tests/explorer-load.test.ts`:
 
@@ -3109,8 +3087,9 @@ import type { StoredAccount } from '@/lib/accounts/types';
 import { buildExplorer, explorerWindow, settledDay, type ExplorerModel, type ScopeAccount } from '@/lib/analysis/explorer';
 import type { Tag } from '@/lib/analysis/types';
 import { loadTags } from '@/lib/dashboard/detail-read';
+import { loadFirstDay } from '@/lib/dashboard/read';
 import { loadItem, type ItemDetail } from '@/lib/explorer/item';
-import { loadEarliest, loadItems, loadRollup, type ItemRow, type RollupQuery } from '@/lib/explorer/read';
+import { loadItems, loadRollup, type ItemRow, type RollupQuery } from '@/lib/explorer/read';
 import { parseExplorerState, type ExplorerState } from '@/lib/explorer/state';
 import type { WeekStart } from '@/lib/prefs';
 import type { SyncStatus } from '@/lib/sync/store';
@@ -3141,7 +3120,7 @@ export async function loadExplorer(db: SupabaseClient, sp: Params, o: { today: s
     .map((a) => ({ id: a.id, username: a.username, groupName: a.groupName }));
   const accounts = live.filter((a) => (state.group === null || a.groupName === state.group) && (state.accounts.length === 0 || state.accounts.includes(a.id)));
   const ids = accounts.map((a) => a.id);
-  const [earliest, tags] = await Promise.all([loadEarliest(db, ids), loadTags(db)]);
+  const [earliest, tags] = await Promise.all([loadFirstDay(db, ids), loadTags(db)]);
   const scope = resolveScope(parseTimeScope(sp, o.weekStart), o.today, earliest);
   const window = explorerWindow(scope, settledDay(accounts.map((a) => o.sync[a.id]?.dailyDoneThrough), o.today));
   const q: RollupQuery = { accounts: ids, from: window.current.from, to: window.current.to, tz: o.tz, weekStart: o.weekStart, grain: scope.gran };
@@ -4426,4 +4405,267 @@ git commit -m "feat(overview): drill into the Explorer from tiles, groups, compa
 
 ---
 
-_(Tasks 14–15 pending)_
+### Task 14: Drill from the account pages (format comparison, best-time cells, Posts table)
+
+**Files:**
+- Modify: `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx` (the versions 12a's Task 10 leaves), `app/(app)/accounts/[id]/page.tsx` (two props)
+- Test: `tests/account-drill.test.tsx` (new). 12a's `tests/account-view.test.tsx` and `tests/posts-tab.test.tsx` must keep passing unchanged (the new props are optional; without them nothing links).
+
+**Interfaces:**
+- Consumes: `explorerHref`, `parseExplorerState` (Task 3), `HeatmapCell.href` (Task 7), `NavLink`, i18n `explorer.drill` (Task 2); 12a `AccountOverviewModel.scope` (`ResolvedScope`), `PostsTab` `scope` prop (`ResolvedScope.params`), `scopeQuery` (`lib/time-scope/scope.ts`).
+- Produces:
+  - `AccountOverview({ model, account?: { id: string; groupName: string | null } })` — with `account`: each format row links to `/explorer?…&by=post&acc=<id>&fmt=<format>&<page scope>`; each cell of the "your post performance" grid that has posts links to `/explorer?…&by=post&<acc=<id> | grp=<group> (pooled)>&wd=<weekday>&hr=<hour>&from=all` (the grid uses every stored post, so the list does too; "followers online" cells have nothing to list and stay plain).
+  - `PostsTab({ …, accountId?: string })` — with `accountId`: each post's title links to its single-item level `/explorer?…&by=post&acc=<id>&fmt=<format>&item=<media id>&<page scope>`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/account-drill.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { AccountOverview } from '@/components/account/AccountOverview';
+import { PostsTab } from '@/components/account/PostsTab';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { StoredAccount } from '@/lib/accounts/types';
+import type { DailyRow, Post } from '@/lib/analysis/types';
+import { buildAccountOverview } from '@/lib/dashboard/account';
+import type { PostView } from '@/lib/dashboard/content';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { addDays } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const TODAY = '2026-10-15';
+const A = 'aaaaaaaa-0000-4000-8000-000000000001';
+const account: StoredAccount = { id: A, igUserId: '1', username: 'brand', displayName: null, accountType: null, profilePictureUrl: null, groupName: 'Food', status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-01T00:00:00Z', connectedAt: '2026-09-01T00:00:00Z' };
+const days: DailyRow[] = Array.from({ length: 14 }, (_, i) => ({ day: addDays(TODAY, i - 14), followers: 1000, reach: 100, views: 200, accountsEngaged: null, interactions: 10, follows: null, unfollows: null, linkTaps: null }));
+// a Reel published Wednesday 7 Oct 2026, 20:00 in Kuala Lumpur (12:00 UTC), with engagement
+const reel: Post = { id: 'r1', accountId: A, mediaType: 'REELS', postedAt: '2026-10-07T12:00:00Z', permalink: null, reach: 500, views: null, likes: 40, comments: 5, shares: 2, saves: 3 };
+const scope = resolveScope(parseTimeScope(new URLSearchParams('from=90d')), TODAY, '2026-09-01');
+const model = buildAccountOverview({ account, sync: undefined, daily: days, posts: [reel], online: [], pooled: { accounts: 2, posts: [reel], online: [] } }, { scope, today: TODAY, now: new Date('2026-10-15T04:00:00Z'), tz: 'Asia/Kuala_Lumpur', weekStart: 'mon' });
+
+const wrap = (ui: React.ReactNode) =>
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, timezone: 'Asia/Kuala_Lumpur' }} persist={vi.fn()}>
+        {ui}
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+
+describe('account overview drill-down', () => {
+  it('a format row lists that format of this account in the Explorer, with the page scope', () => {
+    wrap(<AccountOverview model={model} account={{ id: A, groupName: 'Food' }} />);
+    const table = screen.getByRole('table', { name: en.pages.account.formatsTitle });
+    expect(within(table).getByRole('link', { name: 'Show Reel in detail' })).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&from=90d`);
+  });
+
+  it('a best-time cell (your posts) lists the posts behind it over all history; the pooled grid uses the group', async () => {
+    const user = userEvent.setup();
+    wrap(<AccountOverview model={model} account={{ id: A, groupName: 'Food' }} />);
+    expect(within(screen.getByRole('table', { name: en.pages.account.bestTimeTitle })).queryAllByRole('link')).toHaveLength(0); // followers online: nothing to list
+    await user.click(screen.getByRole('button', { name: en.pages.account.bestTimePosts }));
+    const grid = screen.getByRole('table', { name: en.pages.account.bestTimeTitle });
+    const links = within(grid).getAllByRole('link');
+    expect(links).toHaveLength(1); // only the cell that has a post
+    expect(links[0]).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&wd=3&hr=20&from=all`);
+    await user.click(screen.getByRole('button', { name: '2 accounts pooled' }));
+    expect(within(screen.getByRole('table', { name: en.pages.account.bestTimeTitle })).getByRole('link')).toHaveAttribute('href', '/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&grp=Food&wd=3&hr=20&from=all');
+  });
+
+  it('without the account prop nothing links (unchanged behaviour)', () => {
+    wrap(<AccountOverview model={model} />);
+    expect(within(screen.getByRole('table', { name: en.pages.account.formatsTitle })).queryAllByRole('link')).toHaveLength(0);
+  });
+});
+
+describe('posts tab drill-down', () => {
+  const row: PostView = { id: '42', mediaType: 'REELS', postedAt: '2026-10-07T12:00:00Z', permalink: null, caption: 'Hi', reach: 500, views: null, likes: 40, comments: 5, saves: 3, shares: 2, engagementRate: 0.1, tags: [] };
+  it('each post opens its single-item level in the Explorer, keeping the scope', () => {
+    wrap(<PostsTab posts={[row]} total={1} tags={[]} filters={{ format: null, tag: null, from: null, to: null }} scope={{ from: '90d' }} accountId={A} setPostTags={vi.fn()} />);
+    const links = screen.getAllByRole('link', { name: /^Reel · 7 Oct 2026 20:00$/ }); // table (md+) and card list (phones)
+    expect(links.length).toBeGreaterThan(0);
+    for (const l of links) expect(l).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42&from=90d`);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/account-drill.test.tsx`
+Expected: FAIL — no "Show Reel in detail" link, no heatmap links, the post title is not a link.
+
+- [ ] **Step 3: Edit the two components** — exactly this diff on top of 12a's Task 10 versions:
+
+```diff
+diff --git a/components/account/AccountOverview.tsx b/components/account/AccountOverview.tsx
+index 7d558a9..7490b33 100644
+--- a/components/account/AccountOverview.tsx
++++ b/components/account/AccountOverview.tsx
+@@ -10,14 +10,17 @@ import { useBestTimeRows } from '@/components/charts/useBestTimeRows';
+ import { usePrefs } from '@/components/providers/PrefsProvider';
+ import { ChartCard } from '@/components/shared/ChartCard';
+ import { DataTable } from '@/components/shared/DataTable';
++import { NavLink } from '@/components/shared/NavLink';
+ import { StatCard } from '@/components/shared/StatCard';
+ import { useBucketFormat, useScopeText } from '@/components/shared/TimeScopeBar';
+ import { useKpiDelta } from '@/components/shared/useKpiDelta';
+ import { Button } from '@/components/ui/button';
+ import type { KpiId } from '@/lib/analysis/growth';
+ import type { AccountOverviewModel } from '@/lib/dashboard/account';
++import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
+ import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
+ import { formatMetric } from '@/lib/metrics';
++import { scopeQuery } from '@/lib/time-scope/scope';
+ 
+ const KPI_IDS: KpiId[] = ['followers', 'reach', 'views', 'engagementRate', 'posts', 'netFollows'];
+ 
+@@ -33,19 +36,29 @@ function Toggle<T extends string>({ label, value, options, onChange }: { label:
+   );
+ }
+ 
+-export function AccountOverview({ model }: { model: AccountOverviewModel }) {
++/** `account` set: formats and best-time cells link into the Explorer (drill-down), scoped to this account. */
++export function AccountOverview({ model, account }: { model: AccountOverviewModel; account?: { id: string; groupName: string | null } }) {
+   const t = useTranslations('pages.account');
+   const to = useTranslations('pages.overview');
+   const tm = useTranslations('metrics');
+   const ta = useTranslations('analysis');
+   const ts = useTranslations('timeScope');
+   const tErr = useTranslations('accounts.errors');
++  const tx = useTranslations('explorer');
+   const { prefs } = usePrefs();
+   const delta = useKpiDelta();
+   const bestTime = useBestTimeRows();
+   const [view, setView] = useState<'online' | 'posts'>('online'); // SPEC §7: followers online is the default
+   const [scope, setScope] = useState<'account' | 'pooled'>('account');
+   const heat = model.heat[view][scope];
++  // drill-down: a cell of "your post performance" lists the posts behind it. The grid uses every stored post, so the
++  // link asks for the whole history ("all"), this account or its pool (its group, or every account when isolated).
++  const cellScope = scope === 'account' ? { acc: account?.id } : account?.groupName ? { grp: account.groupName } : {};
++  const all = scopeQuery({ range: 'all', cmp: 'none', gran: 'auto' });
++  const heatRows = bestTime.rows(heat, view).map((r, i) => ({
++    ...r,
++    cells: r.cells.map((c, hour) => ({ ...c, href: account && view === 'posts' && c.value !== null ? explorerHref(parseExplorerState({ by: 'post', ...cellScope, wd: String(heat.rows[i].weekday), hr: String(hour) }), all) : undefined })),
++  }));
+   const { vs } = useScopeText(model.scope);
+   const fmtX = useBucketFormat(model.scope.gran, model.trendPartial);
+   const gran = model.scope.gran;
+@@ -95,7 +108,18 @@ export function AccountOverview({ model }: { model: AccountOverviewModel }) {
+             empty={ta('reasons.no_data')}
+             initialSort={{ key: 'avgReach', dir: 'desc' }}
+             columns={[
+-              { key: 'format', header: t('format'), cell: (r) => ta(`format.${r.mediaType}`) },
++              {
++                key: 'format',
++                header: t('format'),
++                cell: (r) =>
++                  account ? (
++                    <NavLink href={explorerHref(parseExplorerState({ by: 'post', acc: account.id, fmt: r.mediaType }), model.scope.query)} aria-label={tx('drill', { name: ta(`format.${r.mediaType}`) })} className="underline-offset-4 hover:underline">
++                      {ta(`format.${r.mediaType}`)}
++                    </NavLink>
++                  ) : (
++                    ta(`format.${r.mediaType}`)
++                  ),
++              },
+               { key: 'posts', header: tm('posts'), cell: (r) => formatNumber(r.posts, prefs), sortValue: (r) => r.posts, align: 'right' },
+               { key: 'avgReach', header: t('avgReach'), cell: (r) => formatCompact(r.avgReach, prefs), sortValue: (r) => r.avgReach, align: 'right' },
+               { key: 'er', header: tm('engagementRate'), cell: (r) => formatPercent(r.engagementRate, prefs), sortValue: (r) => r.engagementRate, align: 'right' },
+@@ -145,7 +169,7 @@ export function AccountOverview({ model }: { model: AccountOverviewModel }) {
+           </div>
+         }
+       >
+-        <Heatmap caption={t('bestTimeTitle')} columns={bestTime.hours} rows={bestTime.rows(heat, view)} lowLabel={ta('low')} highLabel={ta('high')} />
++        <Heatmap caption={t('bestTimeTitle')} columns={bestTime.hours} rows={heatRows} lowLabel={ta('low')} highLabel={ta('high')} />
+       </ChartCard>
+     </div>
+   );
+diff --git a/components/account/PostsTab.tsx b/components/account/PostsTab.tsx
+index 44551fb..3c584bb 100644
+--- a/components/account/PostsTab.tsx
++++ b/components/account/PostsTab.tsx
+@@ -9,11 +9,13 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
+ import { DataTable, type Column } from '@/components/shared/DataTable';
+ import { FormField } from '@/components/shared/FormField';
+ import { formHref, startProgress } from '@/components/shared/NavigationProgress';
++import { NavLink } from '@/components/shared/NavLink';
+ import { TagBadge } from '@/components/shared/TagBadge';
+ import { Button } from '@/components/ui/button';
+ import { FEED_FORMATS } from '@/lib/analysis/posts';
+ import type { Tag } from '@/lib/analysis/types';
+ import type { PostFilters, PostView } from '@/lib/dashboard/content';
++import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
+ import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
+ 
+ export const POSTS_PAGE = 50;
+@@ -67,13 +69,15 @@ function Filters({ tags, filters, scope }: { tags: Tag[]; filters: PostFilters;
+ }
+ 
+ /** `scope` = the canonical Time Scope parameters of the page (ResolvedScope.params), kept by the filter form. */
+-export function PostsTab({ posts, total, tags, filters, scope = {}, setPostTags }: { posts: PostView[]; total: number; tags: Tag[]; filters: PostFilters; scope?: Record<string, string>; setPostTags: SetPostTags }) {
++/** `accountId` set: each post links to its single-item level in the Explorer (with the page's scope). */
++export function PostsTab({ posts, total, tags, filters, scope = {}, accountId, setPostTags }: { posts: PostView[]; total: number; tags: Tag[]; filters: PostFilters; scope?: Record<string, string>; accountId?: string; setPostTags: SetPostTags }) {
+   const t = useTranslations('pages.account.posts');
+   const tm = useTranslations('metrics');
+   const ta = useTranslations('analysis');
+   const { prefs } = usePrefs();
+   const count = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
+   const label = (p: PostView) => `${ta(`format.${p.mediaType}`)} · ${formatDateTime(p.postedAt, prefs)}`;
++  const query = new URLSearchParams(scope).toString();
+ 
+   const columns: Column<PostView>[] = [
+     {
+@@ -83,7 +87,13 @@ export function PostsTab({ posts, total, tags, filters, scope = {}, setPostTags
+       cell: (p) => (
+         <span className="flex min-w-0 flex-col">
+           <span className="flex min-w-0 items-center gap-1.5">
+-            <span className="truncate">{label(p)}</span>
++            {accountId ? (
++              <NavLink href={explorerHref(parseExplorerState({ by: 'post', acc: accountId, fmt: p.mediaType, item: p.id }), query)} className="truncate underline-offset-4 hover:underline">
++                {label(p)}
++              </NavLink>
++            ) : (
++              <span className="truncate">{label(p)}</span>
++            )}
+             {p.permalink ? (
+               <a href={p.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
+                 <ExternalLink aria-hidden="true" className="size-3.5" />
+```
+
+- [ ] **Step 4: Pass the account from the page** — in `app/(app)/accounts/[id]/page.tsx` (12a's Task 10 version), in `TabContent`:
+  - `return <AccountOverview model={model} />;` → `return <AccountOverview model={model} account={{ id: account.id, groupName: account.groupName }} />;`
+  - in the `<PostsTab … scope={scope.params} setPostTags={setPostTagsAction} />` element, add `accountId={account.id}` before `setPostTags` (the server action stays passed straight through).
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/account-drill.test.tsx tests/account-view.test.tsx tests/posts-tab.test.tsx tests/account-page.test.tsx tests/charts-drill.test.tsx` and `npx tsc --noEmit`
+Expected: PASS (5 files); typecheck clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add components/account/AccountOverview.tsx components/account/PostsTab.tsx "app/(app)/accounts/[id]/page.tsx" tests/account-drill.test.tsx
+git commit -m "feat(account): drill into the Explorer from formats, best-time cells and posts" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+_(Task 15 pending)_
