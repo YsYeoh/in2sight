@@ -22,6 +22,7 @@ import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { addDays, daysToIso, localDay } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -72,14 +73,15 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
   if (!isUuid(id)) notFound();
   const sp = await searchParams;
   const tab = parseTab(sp.tab);
-  const accounts = await liveAccounts();
+  const [accounts, prefs] = await Promise.all([liveAccounts(), getPrefs()]);
   const account = accounts.find((a) => a.id === id.toLowerCase());
   if (!account) notFound();
+  const today = localDay(new Date(), prefs.timezone);
   return (
     <AccountView
       account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }}
       tab={tab}
-      exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} period={parsePeriod(sp.period)} />}
+      exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} time={resolveScope(parseTimeScope(sp, prefs.weekStart), today)} />}
     >
       {/* key: a new tab, period or filter is a new boundary, so its skeleton shows instead of the stale tab */}
       <Suspense key={JSON.stringify(sp)} fallback={<TabSkeleton tab={tab} />}>

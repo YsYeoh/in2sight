@@ -1,6 +1,7 @@
 'use client';
 
-// Export dialog (SPEC §7d): format, scope, period, and for the PDF report its sections, title and note.
+// Export dialog (SPEC §7d): format, accounts, and for the PDF report its sections, title and note. The time range is the
+// page's Time Scope (shown read-only; the bar on the page changes it), so an export always matches what is on screen.
 import { useState, useTransition } from 'react';
 import { Download, ExternalLink } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -23,24 +24,24 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { PERIODS, type Period } from '@/lib/analysis/types';
+import { useScopeText } from '@/components/shared/TimeScopeBar';
 import { downloadExport, exportUrl, type ExportFormat } from '@/lib/export/download';
 import { NOTE_MAX, SECTIONS, TITLE_MAX, type ScopeOption, type Section } from '@/lib/export/params';
+import type { ResolvedScope } from '@/lib/time-scope/scope';
 
-export function ExportDialog({ scopes, defaultScope, period }: { scopes: ScopeOption[]; defaultScope: string; period: Period }) {
+export function ExportDialog({ scopes, defaultScope, time }: { scopes: ScopeOption[]; defaultScope: string; time: ResolvedScope }) {
   const t = useTranslations('export');
-  const to = useTranslations('pages.overview');
   const tc = useTranslations('common');
+  const range = useScopeText(time);
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<ExportFormat>('xlsx');
   const [scope, setScope] = useState(scopes.some((s) => s.value === defaultScope) ? defaultScope : 'all');
-  const [per, setPer] = useState<Period>(period);
   const [sections, setSections] = useState<Section[]>([...SECTIONS]);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [result, setResult] = useState<{ ok: true } | { ok: false; error: string } | null>(null);
   const [pending, start] = useTransition();
-  const request = { format, scope, period: per, sections, title, note };
+  const request = { format, scope, time: time.query, sections, title, note };
   const label = (s: ScopeOption) => (s.kind === 'all' ? t('scopeAll') : s.kind === 'account' ? `@${s.name}` : s.name);
   const toggle = (s: Section, on: boolean) => setSections((list) => SECTIONS.filter((x) => (x === s ? on : list.includes(x))));
 
@@ -100,17 +101,14 @@ export function ExportDialog({ scopes, defaultScope, period }: { scopes: ScopeOp
                 </Select>
               )}
             </FormField>
-            <fieldset className="grid gap-2">
-              <legend className="mb-1 text-sm font-medium">{t('period')}</legend>
-              <RadioGroup value={String(per)} onValueChange={(v) => setPer(Number(v) as Period)} aria-label={t('period')} className="flex flex-wrap gap-3">
-                {PERIODS.map((d) => (
-                  <div key={d} className="flex items-center gap-2">
-                    <RadioGroupItem value={String(d)} id={`export-period-${d}`} />
-                    <Label htmlFor={`export-period-${d}`}>{to('periodOption', { days: d })}</Label>
-                  </div>
-                ))}
-              </RadioGroup>
-            </fieldset>
+            <div className="grid min-w-0 content-start gap-1">
+              <p className="text-sm font-medium">{t('period')}</p>
+              <p className="min-w-0 break-words text-sm">
+                {range.label}
+                {range.vs ? <span className="text-muted-foreground"> · {range.vs}</span> : null}
+              </p>
+              <p className="text-xs text-muted-foreground">{t('periodHint')}</p>
+            </div>
           </div>
 
           {format === 'pdf' ? (

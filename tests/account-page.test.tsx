@@ -91,9 +91,9 @@ describe('account detail page', () => {
 
   it('offers the Export dialog scoped to this account, with every live account as an option', async () => {
     accounts.push(acct(ID), acct('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'archived'));
-    const el = (await run(ID, { period: '90' })) as unknown as ReactElement<{ exportButton: ReactElement<{ defaultScope: string; period: number; scopes: { value: string }[] }> }>;
+    const el = (await run(ID, { period: '90' })) as unknown as ReactElement<{ exportButton: ReactElement<{ defaultScope: string; time: { preset: string }; scopes: { value: string }[] }> }>;
     expect(el.props.exportButton.props.defaultScope).toBe(`a:${ID}`);
-    expect(el.props.exportButton.props.period).toBe(90);
+    expect(el.props.exportButton.props.time.preset).toBe('90d'); // the page's Time Scope (an old ?period=90 link)
     expect(el.props.exportButton.props.scopes.map((s) => s.value)).toEqual(['all', `a:${ID}`]); // archived accounts are not offered
   });
 

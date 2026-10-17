@@ -613,6 +613,7 @@
     "scope": "账号",
     "scopeAll": "全部账号",
     "period": "时间范围",
+    "periodHint": "即页面当前显示的范围，可在上方的时间栏中更改。",
     "sections": "报告包含的部分",
     "reportTitle": "标题",
     "reportTitleHint": "最多 120 个字符。留空则使用默认标题。",
