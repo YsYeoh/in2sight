@@ -358,7 +358,8 @@
         "tapsForward": "Taps forward",
         "liveHint": "{count, plural, one {# snapshot so far} other {# snapshots so far}}",
         "finalHint": "Final numbers · {count, plural, one {# snapshot} other {# snapshots}}",
-        "open": "Open the Story from {time} on Instagram"
+        "open": "Open the Story from {time} on Instagram",
+        "day": "{date} · {count, plural, one {# Story} other {# Stories}}"
       },
       "audience": {
         "emptyHint": "Audience data appears once the account has 100+ followers and the daily sync has run.",
@@ -415,7 +416,10 @@
         "noTags": "No tags yet.",
         "manageTags": "Create tags",
         "save": "Save",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "view": "View",
+        "grid": "Grid",
+        "table": "Table"
       }
     },
     "calendar": {
@@ -849,5 +853,18 @@
     "partialNote": "* only partly inside the range",
     "previous": "Previous period",
     "next": "Next period"
+  },
+  "media": {
+    "noCover": "{name} ({why})",
+    "cover": {
+      "pending": "cover not saved yet",
+      "unavailable": "no cover available",
+      "failed": "cover could not be saved",
+      "error": "cover could not be loaded"
+    },
+    "expired": "Expired",
+    "slides": "{count, plural, one {# slide} other {# slides}}",
+    "details": "Details of {name}",
+    "open": "Open on Instagram"
   }
 }
