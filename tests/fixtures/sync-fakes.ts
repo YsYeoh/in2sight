@@ -1,7 +1,7 @@
 // In-memory fakes for the sync runner and tick tests.
 import { vi } from 'vitest';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
-import type { IgData, MediaMetricValues } from '@/lib/instagram/data';
+import type { IgData, MediaExtras, MediaMetricValues } from '@/lib/instagram/data';
 import { emptyState, type SyncState } from '@/lib/sync/schedule';
 import type { ProgressWrite, StatePatch, SyncRun, SyncStore } from '@/lib/sync/store';
 
@@ -32,6 +32,7 @@ export function fakeIg() {
     listStories: vi.fn<IgData['listStories']>(async () => []),
     feedInsights: vi.fn<IgData['feedInsights']>(async () => METRICS),
     storyInsights: vi.fn<IgData['storyInsights']>(async () => METRICS),
+    extraInsights: vi.fn<IgData['extraInsights']>(async () => ({})),
     audience: vi.fn<IgData['audience']>(async () => ({})),
     onlineFollowers: vi.fn<IgData['onlineFollowers']>(async () => []),
     refresh: vi.fn<IgData['refresh']>(async () => ({ accessToken: 'IGQ-new', expiresAt: '2027-01-01T00:00:00.000Z' })),
@@ -51,6 +52,7 @@ export function memoryStore(init: MemoryInit = {}) {
   const daily: { accountId: string; day: string }[] = [];
   const followers: { accountId: string; day: string; followers: number }[] = [];
   const metrics: { mediaId: string; capturedAt: string }[] = [];
+  const extras: { mediaId: string; capturedAt: string; e: Partial<MediaExtras> }[] = [];
   const audience: { accountId: string; kind: string }[] = [];
   const online: { accountId: string; day: string }[] = [];
   const snapshots: { accountId: string; capturedAt: string; followers: number | null }[] = [];
@@ -83,6 +85,7 @@ export function memoryStore(init: MemoryInit = {}) {
     mediaForMetrics: async (accountId, since) =>
       [...media.values()].filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && (m.postedAt >= since || m.lastMetricsAt === null)).map(({ id, postedAt, lastMetricsAt }) => ({ id, postedAt, lastMetricsAt })),
     insertMetrics: async (mediaId, capturedAt) => void metrics.push({ mediaId, capturedAt }),
+    updateMetricExtras: async (mediaId, capturedAt, e) => void extras.push({ mediaId, capturedAt, e }),
     markCaptured: async (ids, at) => {
       for (const id of ids) {
         const m = media.get(id);
@@ -100,7 +103,7 @@ export function memoryStore(init: MemoryInit = {}) {
     recordRun: async (r) => void runs.push(r),
     writeProgress: async (accountId, p) => void progress.push({ accountId, p }),
   };
-  return { store, states, media, daily, followers, metrics, audience, online, snapshots, breakdowns, runs, saved, progress };
+  return { store, states, media, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {

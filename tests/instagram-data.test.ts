@@ -105,7 +105,7 @@ describe('igData requests', () => {
   it('storyInsights combines metrics with the navigation breakdown (case-insensitive)', async () => {
     const f = fakeFetch((u) => json(fixture(u.searchParams.get('metric') === 'navigation' ? 'story-navigation' : 'media-insights-story')));
     const v = await igData('v25.0', f.fn).storyInsights(TOKEN, '18100000000000001');
-    expect(v).toEqual({ reach: 310, views: 420, likes: null, comments: null, shares: 1, saves: null, totalInteractions: 5, replies: 2, tapsForward: 200, tapsBack: 40, exits: 60 });
+    expect(v).toEqual({ reach: 310, views: 420, likes: null, comments: null, shares: 1, saves: null, totalInteractions: 5, replies: 2, tapsForward: 200, tapsBack: 40, exits: 60, swipeForward: 50 });
     expect(f.calls[1].url.searchParams.get('breakdown')).toBe('story_navigation_action_type');
   });
 

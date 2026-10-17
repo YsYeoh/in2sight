@@ -35,7 +35,18 @@ export interface MediaMetricValues {
   tapsForward: number | null;
   tapsBack: number | null;
   exits: number | null;
+  // Plan 11b extras: optional so a snapshot without them stays valid; missing = not captured (stored as null, never 0)
+  swipeForward?: number | null;
+  follows?: number | null;
+  profileVisits?: number | null;
+  profileActivity?: Record<string, number> | null;
+  avgWatchMs?: number | null;
+  totalWatchMs?: number | null;
+  skipRate?: number | null;
 }
+
+/** The optional per-media metrics (lib/instagram/metrics.ts EXTRA_GROUPS), written onto an existing snapshot. */
+export type MediaExtras = Pick<MediaMetricValues, M.ExtraField>;
 
 const NO_METRICS: MediaMetricValues = { reach: null, views: null, likes: null, comments: null, shares: null, saves: null, totalInteractions: null, replies: null, tapsForward: null, tapsBack: null, exits: null };
 
@@ -157,7 +168,17 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
         tapsForward: navUpper.TAP_FORWARD ?? null,
         tapsBack: navUpper.TAP_BACK ?? null,
         exits: navUpper.TAP_EXIT ?? null,
+        swipeForward: navUpper.SWIPE_FORWARD ?? null,
       };
+    },
+
+    /**
+     * One optional metric group for one media item (a SEPARATE call; see EXTRA_GROUPS). Plain metrics -> { metric: n };
+     * a breakdown group -> { dimension: n } of its single metric. Empty object when Meta sends nothing.
+     */
+    async extraInsights(token: string, mediaId: string, metrics: readonly string[], breakdown?: string): Promise<Record<string, number>> {
+      const body = await get(`${mediaId}/insights`, { metric: metrics.join(','), ...(breakdown ? { breakdown } : {}) }, token);
+      return breakdown ? parseBreakdown(body, metrics[0]) : parseTotals(body);
     },
 
     async audience(token: string, kind: M.AudienceKind): Promise<Record<string, number>> {

@@ -1,7 +1,7 @@
 // Sync persistence. supabaseSyncStore takes the ADMIN client (writes bypass RLS); listSyncStatus takes the owner session.
 // Errors never include Supabase's message (it can echo values).
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AccountDayValues, BreakdownRow, MediaMetricValues } from '@/lib/instagram/data';
+import type { AccountDayValues, BreakdownRow, MediaExtras, MediaMetricValues } from '@/lib/instagram/data';
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { IgMediaItem } from '@/lib/instagram/parse';
 import { DEFAULT_PREFS, isValidTimeZone } from '@/lib/prefs';
@@ -60,6 +60,8 @@ export interface SyncStore {
   upsertMedia(accountId: string, items: IgMediaItem[]): Promise<void>;
   mediaForMetrics(accountId: string, sinceIso: string): Promise<MediaRef[]>;
   insertMetrics(mediaId: string, capturedAt: string, v: MediaMetricValues): Promise<void>;
+  /** Adds optional extras to the snapshot inserted for (mediaId, capturedAt). Only the given fields are written. */
+  updateMetricExtras(mediaId: string, capturedAt: string, e: Partial<MediaExtras>): Promise<void>;
   markCaptured(mediaIds: string[], atIso: string): Promise<void>;
   markGone(mediaId: string, atIso: string): Promise<void>;
   upsertAudience(accountId: string, day: string, kind: AudienceKind, data: Record<string, number>): Promise<void>;
@@ -89,6 +91,8 @@ export function rowToState(r: Row): SyncState {
     capabilities: parseCapabilities(r.capabilities),
   };
 }
+
+const EXTRA_COLUMNS: Record<keyof MediaExtras, string> = { follows: 'follows', profileVisits: 'profile_visits', profileActivity: 'profile_activity', avgWatchMs: 'avg_watch_ms', totalWatchMs: 'total_watch_ms', skipRate: 'skip_rate' };
 
 const ITEM_TO_ROW = (accountId: string) => (i: IgMediaItem) => ({
   id: i.id,
@@ -215,8 +219,24 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
         taps_forward: v.tapsForward,
         taps_back: v.tapsBack,
         exits: v.exits,
+        swipe_forward: v.swipeForward ?? null,
+        follows: v.follows ?? null,
+        profile_visits: v.profileVisits ?? null,
+        profile_activity: v.profileActivity ?? null,
+        avg_watch_ms: v.avgWatchMs ?? null,
+        total_watch_ms: v.totalWatchMs ?? null,
+        skip_rate: v.skipRate ?? null,
       };
       check('insertMetrics')(await db.from('media_metrics').upsert(row, { onConflict: 'media_id,captured_at', ignoreDuplicates: true }));
+    },
+    async updateMetricExtras(mediaId, capturedAt, e) {
+      const row: Row = {};
+      for (const [k, col] of Object.entries(EXTRA_COLUMNS)) {
+        const v = e[k as keyof MediaExtras];
+        if (v !== undefined) row[col] = v;
+      }
+      if (Object.keys(row).length === 0) return;
+      check('updateMetricExtras')(await db.from('media_metrics').update(row).eq('media_id', mediaId).eq('captured_at', capturedAt));
     },
     async markCaptured(mediaIds, atIso) {
       if (mediaIds.length === 0) return;
