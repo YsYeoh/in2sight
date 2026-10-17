@@ -1,5 +1,6 @@
 // Sync persistence. supabaseSyncStore takes the ADMIN client (writes bypass RLS); listSyncStatus takes the owner session.
 // Errors never include Supabase's message (it can echo values).
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AccountDayValues, BreakdownRow, MediaExtras, MediaMetricValues } from '@/lib/instagram/data';
 import type { AudienceKind } from '@/lib/instagram/metrics';
@@ -79,6 +80,8 @@ export interface SyncStore {
   /** Upsert by comment id: text/likes/last_seen_at refresh, first_seen_at stays (column default on insert). */
   upsertComments(accountId: string, mediaId: string, items: IgComment[], seenAtIso: string): Promise<void>;
   markCommentsSynced(mediaId: string, commentsCount: number): Promise<void>;
+  /** Raw JSON of one insights/audience call, deduped on (account, endpoint, sha256(body)); bodies over 64 KB are skipped. */
+  archiveSnapshot(accountId: string, endpoint: string, body: Record<string, unknown>, capturedAtIso: string): Promise<void>;
   upsertOnlineFollowers(accountId: string, day: string, hourly: number[]): Promise<void>;
   recordRun(run: SyncRun): Promise<void>;
   /** Upserts the account's live progress row. Callers treat it as best-effort (lib/sync/progress-sink.ts). */
@@ -105,6 +108,9 @@ export function rowToState(r: Row): SyncState {
     capabilities: parseCapabilities(r.capabilities),
   };
 }
+
+/** api_snapshots size guard: an insights body is ~1–3 KB; anything this big is not what we meant to keep. */
+export const SNAPSHOT_MAX_BYTES = 64 * 1024;
 
 const EXTRA_COLUMNS: Record<keyof MediaExtras, string> = { follows: 'follows', profileVisits: 'profile_visits', profileActivity: 'profile_activity', avgWatchMs: 'avg_watch_ms', totalWatchMs: 'total_watch_ms', skipRate: 'skip_rate' };
 
@@ -324,6 +330,13 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
     },
     async markCommentsSynced(mediaId, commentsCount) {
       check('markCommentsSynced')(await db.from('media').update({ comments_synced_count: commentsCount }).eq('id', mediaId));
+    },
+    async archiveSnapshot(accountId, endpoint, body, capturedAtIso) {
+      const text = JSON.stringify(body);
+      if (Buffer.byteLength(text) > SNAPSHOT_MAX_BYTES) return;
+      if (text.includes('access_token') || endpoint.includes('access_token')) return; // belt and braces: a token never lands in the archive
+      const row = { account_id: accountId, endpoint, captured_at: capturedAtIso, body, body_hash: createHash('sha256').update(text).digest('hex') };
+      check('archiveSnapshot')(await db.from('api_snapshots').upsert(row, { onConflict: 'account_id,endpoint,body_hash', ignoreDuplicates: true }));
     },
     async upsertOnlineFollowers(accountId, day, hourly) {
       check('upsertOnlineFollowers')(await db.from('online_followers').upsert({ account_id: accountId, day, hourly }, { onConflict: 'account_id,day' }));

@@ -67,6 +67,7 @@ export function memoryStore(init: MemoryInit = {}) {
   /** comments_count / comments_synced_count per media id (only media listed here have comments) */
   const commentCounts = new Map<string, { count: number; synced: number | null }>();
   const comments: { accountId: string; mediaId: string; id: string; seenAt: string }[] = [];
+  const archived: { accountId: string; endpoint: string; body: unknown; capturedAt: string }[] = [];
   const runs: SyncRun[] = [];
   const saved: { accountId: string; patch: StatePatch }[] = [];
   const progress: { accountId: string; p: ProgressWrite }[] = [];
@@ -128,6 +129,7 @@ export function memoryStore(init: MemoryInit = {}) {
         comments.push({ accountId, mediaId, id: i.id, seenAt });
       }
     },
+    archiveSnapshot: async (accountId, endpoint, body, capturedAt) => void archived.push({ accountId, endpoint, body, capturedAt }),
     markCommentsSynced: async (id, n) => void commentCounts.set(id, { count: commentCounts.get(id)?.count ?? n, synced: n }),
     uploadCover: async (path, bytes, contentType) => void uploads.push({ path, bytes: bytes.byteLength, contentType }),
     expireStoryCovers: async (accountId, nowIso) => {
@@ -142,7 +144,7 @@ export function memoryStore(init: MemoryInit = {}) {
     recordRun: async (r) => void runs.push(r),
     writeProgress: async (accountId, p) => void progress.push({ accountId, p }),
   };
-  return { store, states, media, children, covers, uploads, commentCounts, comments, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
+  return { store, states, media, children, covers, uploads, commentCounts, comments, archived, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {

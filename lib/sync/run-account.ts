@@ -3,7 +3,7 @@
 import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import { markNeedsReconnect } from '@/lib/accounts/service';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
-import { classifyIgError, isFatalIgError as fatal, isUnsupported, type IgData } from '@/lib/instagram/data';
+import { classifyIgError, isFatalIgError as fatal, isUnsupported, type Archive, type IgData } from '@/lib/instagram/data';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
 import type { IgComment, IgMediaItem } from '@/lib/instagram/parse';
@@ -43,6 +43,8 @@ export interface RunContext {
   progress?: ProgressSink;
   /** fetch for the Instagram CDN (cover images); default: global fetch. */
   cdnFetch?: typeof fetch;
+  /** Raw-response archive for account insights + audience calls; set by runAccount (best-effort). */
+  archive?: Archive;
 }
 
 /**
@@ -65,14 +67,14 @@ const outOfTime = (c: RunContext) => c.clock() >= c.deadline;
 async function fetchDay(c: RunContext, day: string): Promise<void> {
   const { since, until } = dayRangeSec(day, c.tz);
   try {
-    await c.store.upsertDaily(c.account.id, day, await c.ig.accountDay(c.token, since, until));
+    await c.store.upsertDaily(c.account.id, day, await c.ig.accountDay(c.token, since, until, c.archive));
   } catch (e) {
     // ponytail: Meta does not document how far back each metric goes; an "other" error on a day older than 30 days is
     // treated as "no data that far back" and skipped so the backfill cannot wedge. Tighten once the runbook confirms.
     if (!(classifyIgError(e) === 'other' && day < addDays(localDay(c.now, c.tz), -30))) throw e;
   }
   try {
-    await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until));
+    await c.store.upsertDailyBreakdown(c.account.id, day, await c.ig.accountDayBreakdown(c.token, since, until, c.archive));
   } catch (e) {
     if (fatal(e)) throw e; // the follower/non-follower split is an extra; an unsupported day must not wedge the backfill
   }
@@ -401,12 +403,12 @@ const audience: Job = async (c) => {
   const today = localDay(c.now, c.tz);
   for (const kind of Object.keys(DEMOGRAPHIC_BREAKDOWNS) as AudienceKind[]) {
     if (outOfTime(c)) return { done: false };
-    const data = await c.ig.audience(c.token, kind);
+    const data = await c.ig.audience(c.token, kind, c.archive);
     if (Object.keys(data).length > 0) await c.store.upsertAudience(c.account.id, today, kind, data);
   }
   const { since } = dayRangeSec(addDays(today, -1), c.tz);
   const { since: until } = dayRangeSec(today, c.tz);
-  for (const d of await c.ig.onlineFollowers(c.token, since, until)) await c.store.upsertOnlineFollowers(c.account.id, d.day, d.hourly);
+  for (const d of await c.ig.onlineFollowers(c.token, since, until, c.archive)) await c.store.upsertOnlineFollowers(c.account.id, d.day, d.hourly);
   return { done: true };
 };
 
@@ -426,6 +428,16 @@ function errorKeyFor(kind: ReturnType<typeof classifyIgError>, e: unknown): Sync
   return e instanceof InstagramApiError ? 'instagram_error' : 'unexpected';
 }
 
+/** The archive never holds up a run: pending writes get this long after the last job, then they are left behind. */
+export const ARCHIVE_WAIT_MS = 2_000;
+
+async function settle(pending: Promise<void>[]): Promise<void> {
+  if (pending.length === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([Promise.allSettled(pending), new Promise<void>((resolve) => (timer = setTimeout(resolve, ARCHIVE_WAIT_MS)))]);
+  clearTimeout(timer);
+}
+
 /**
  * Runs `jobs` in order. auth -> needs_reconnect, stop. rate limit -> stop (back-off). Any other error -> record it and
  * continue with the next job (one broken metric must not starve Stories capture). Returns the result and the state
@@ -436,6 +448,10 @@ export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ resu
   const lastRun = { ...c.state.lastRun };
   const progress: Progress = { dailyDoneThrough: c.state.dailyDoneThrough, backfilledFrom: c.state.backfilledFrom, capabilities: { ...(c.state.capabilities ?? {}) }, extraCalls: EXTRA_CALLS_PER_RUN };
   const completed: JobKind[] = [];
+  // raw insights/audience bodies -> api_snapshots; fire-and-forget per call, settled (time-capped) before returning
+  const archived: Promise<void>[] = [];
+  const archive: Archive = (endpoint, body) => void archived.push(c.store.archiveSnapshot(c.account.id, endpoint, body, nowIso).catch(() => {}));
+  const ctx: RunContext = { ...c, archive };
   let partial = false;
   let errorKey: SyncErrorKey | undefined;
   let outcome: AccountOutcome = 'ok';
@@ -447,7 +463,7 @@ export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ resu
       break;
     }
     try {
-      const r = await JOB_RUNNERS[job](c, progress);
+      const r = await JOB_RUNNERS[job](ctx, progress);
       if (!r.done) {
         partial = true;
         break;
@@ -471,6 +487,7 @@ export async function runAccount(c: RunContext, jobs: JobKind[]): Promise<{ resu
     }
   }
   if (outcome === 'ok' && partial) outcome = 'partial';
+  await settle(archived);
 
   const ok = outcome === 'ok' || outcome === 'partial';
   const patch: StatePatch = {
