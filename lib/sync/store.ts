@@ -6,6 +6,7 @@ import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { IgMediaItem } from '@/lib/instagram/parse';
 import { DEFAULT_PREFS, isValidTimeZone } from '@/lib/prefs';
 import { parseCapabilities, type Capabilities } from '@/lib/sync/capabilities';
+import { COVERS_BUCKET, type CoverRef, type CoverStatus } from '@/lib/sync/covers';
 import type { LiveState, Stage } from '@/lib/sync/progress';
 import { emptyState, isBackfilling, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
 
@@ -66,6 +67,13 @@ export interface SyncStore {
   markCaptured(mediaIds: string[], atIso: string): Promise<void>;
   markGone(mediaId: string, atIso: string): Promise<void>;
   upsertAudience(accountId: string, day: string, kind: AudienceKind, data: Record<string, number>): Promise<void>;
+  /** Media whose cover is still to do (pending/failed, not gone), newest first. ids given: only those (Stories); else feed + Reels. */
+  coverRefs(accountId: string, opts: { ids?: string[]; limit: number }): Promise<CoverRef[]>;
+  markCover(mediaId: string, r: { status: CoverStatus; attempts: number; triedAt: string; path?: string }): Promise<void>;
+  /** Private bucket "covers", never overwriting; an object that already exists counts as stored. */
+  uploadCover(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  /** Stories past expires_at whose cover never landed: 'unavailable' (the CDN link died with them). */
+  expireStoryCovers(accountId: string, nowIso: string): Promise<void>;
   upsertOnlineFollowers(accountId: string, day: string, hourly: number[]): Promise<void>;
   recordRun(run: SyncRun): Promise<void>;
   /** Upserts the account's live progress row. Callers treat it as best-effort (lib/sync/progress-sink.ts). */
@@ -254,6 +262,42 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
     },
     async upsertAudience(accountId, day, kind, data) {
       check('upsertAudience')(await db.from('audience_snapshots').upsert({ account_id: accountId, day, kind, data }, { onConflict: 'account_id,day,kind' }));
+    },
+    async coverRefs(accountId, opts) {
+      let q = db
+        .from('media')
+        .select('id,media_type,posted_at,cover_status,cover_attempts,cover_tried_at')
+        .eq('account_id', accountId)
+        .in('cover_status', ['pending', 'failed'])
+        .is('gone_at', null);
+      q = opts.ids ? q.in('id', opts.ids) : q.neq('media_type', 'STORY');
+      const { data, error } = await q.order('posted_at', { ascending: false }).limit(opts.limit);
+      if (error) fail('coverRefs');
+      return ((data ?? []) as Row[]).map((r) => ({
+        id: r.id as string,
+        kind: r.media_type as string,
+        postedAt: r.posted_at as string,
+        status: r.cover_status as CoverStatus,
+        attempts: typeof r.cover_attempts === 'number' ? r.cover_attempts : 0,
+        triedAt: (r.cover_tried_at as string | null) ?? null,
+      }));
+    },
+    async markCover(mediaId, r) {
+      const row: Row = { cover_status: r.status, cover_attempts: r.attempts, cover_tried_at: r.triedAt };
+      if (r.status === 'ok') Object.assign(row, { cover_path: r.path ?? null, cover_captured_at: r.triedAt });
+      check('markCover')(await db.from('media').update(row).eq('id', mediaId));
+    },
+    async uploadCover(path, bytes, contentType) {
+      const { error } = await db.storage.from(COVERS_BUCKET).upload(path, bytes, { contentType, upsert: false, cacheControl: '31536000' });
+      if (!error) return;
+      const e = error as { statusCode?: string; status?: number; code?: string };
+      if (e.statusCode === '409' || e.status === 409 || e.code === 'ResourceAlreadyExists' || e.code === 'Duplicate') return;
+      fail('uploadCover');
+    },
+    async expireStoryCovers(accountId, nowIso) {
+      check('expireStoryCovers')(
+        await db.from('media').update({ cover_status: 'unavailable' }).eq('account_id', accountId).eq('media_type', 'STORY').in('cover_status', ['pending', 'failed']).lt('expires_at', nowIso),
+      );
     },
     async upsertOnlineFollowers(accountId, day, hourly) {
       check('upsertOnlineFollowers')(await db.from('online_followers').upsert({ account_id: accountId, day, hourly }, { onConflict: 'account_id,day' }));

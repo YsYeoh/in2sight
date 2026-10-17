@@ -2,7 +2,7 @@
 // Errors are InstagramApiError('data' | 'network'): fixed messages, never a URL, body or token.
 import * as M from '@/lib/instagram/metrics';
 import { call, graphInit, InstagramApiError, refreshLongLived } from '@/lib/instagram/oauth';
-import { mediaDetailsById, parseBreakdown, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem } from '@/lib/instagram/parse';
+import { mediaDetailsById, parseBreakdown, parseMediaDetails, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem, type MediaDetails } from '@/lib/instagram/parse';
 
 const HOST = 'https://graph.instagram.com';
 
@@ -190,6 +190,11 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
 
     async onlineFollowers(token: string, since: number, until: number) {
       return parseOnlineFollowers(await get('me/insights', { metric: M.ONLINE_FOLLOWERS_METRIC, period: 'lifetime', since, until }, token));
+    },
+
+    /** Fresh cover URLs for one media item (they expire within days, so they are asked right before the copy). */
+    async mediaCover(token: string, mediaId: string): Promise<MediaDetails> {
+      return parseMediaDetails(await get(mediaId, { fields: M.COVER_FIELDS }, token));
     },
 
     refresh: (token: string) => refreshLongLived(token, fetchFn),

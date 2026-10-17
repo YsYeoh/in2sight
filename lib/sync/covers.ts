@@ -2,6 +2,7 @@
 // stored or put into results/errors. SSRF rules (spec §4): https only, Instagram CDN hosts only (re-checked after every
 // redirect, which is followed by hand), 10 s timeout, max 5 MB, JPEG/PNG/WebP only (never SVG: it can carry script).
 import type { MediaDetails } from '@/lib/instagram/parse';
+import type { SyncStore } from '@/lib/sync/store';
 
 export const COVERS_BUCKET = 'covers';
 export const COVER_MAX_BYTES = 5 * 1024 * 1024;
@@ -120,6 +121,26 @@ export const coverRetryMs = (attempts: number) => RETRY_BASE_MS * 2 ** Math.max(
 
 /** Status after one more failed attempt. */
 export const afterFailure = (attempts: number): { status: 'failed' | 'unavailable'; attempts: number } => ({ status: attempts + 1 >= COVER_MAX_ATTEMPTS ? 'unavailable' : 'failed', attempts: attempts + 1 });
+
+/**
+ * One attempt: fetch the image, upload it as {account}/{media}.jpg (never overwriting), record the outcome. A fetch
+ * or upload failure counts as a failed attempt (back-off, then 'unavailable'); only the status write itself can throw.
+ */
+export async function captureCover(store: SyncStore, accountId: string, ref: Pick<CoverRef, 'id' | 'attempts'>, url: string, nowIso: string, fetchFn: typeof fetch = fetch): Promise<boolean> {
+  const img = await fetchImage(url, fetchFn);
+  if (img.ok) {
+    const path = coverPath(accountId, ref.id);
+    try {
+      await store.uploadCover(path, img.bytes, img.contentType);
+      await store.markCover(ref.id, { status: 'ok', attempts: ref.attempts + 1, triedAt: nowIso, path });
+      return true;
+    } catch {
+      // Storage hiccup: counted as a failed attempt below
+    }
+  }
+  await store.markCover(ref.id, { ...afterFailure(ref.attempts), triedAt: nowIso });
+  return false;
+}
 
 /** Post covers to try now, newest first: never tried, or failed and its back-off has passed. */
 export function pickCoverDue(refs: CoverRef[], now: Date, max: number): CoverRef[] {
