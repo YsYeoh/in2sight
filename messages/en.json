@@ -709,5 +709,38 @@
       "avgExitRate": "Avg exit rate",
       "loading": "Preparing the report…"
     }
+  },
+  "timeScope": {
+    "label": "Time range",
+    "presets": "Quick ranges",
+    "preset": { "7d": "7d", "14d": "14d", "30d": "30d", "90d": "90d", "6m": "6m", "1y": "1y", "ytd": "YTD", "all": "All" },
+    "presetLong": { "7d": "Last 7 days", "14d": "Last 14 days", "30d": "Last 30 days", "90d": "Last 90 days", "6m": "Last 6 months", "1y": "Last 12 months", "ytd": "Year to date", "all": "All data" },
+    "custom": "Custom",
+    "customTitle": "Choose a time range",
+    "customHint": "Days start at midnight in your timezone ({tz}).",
+    "range": "Date range",
+    "from": "From",
+    "to": "To",
+    "week": "Week",
+    "weekDay": "Pick any day of the week",
+    "month": "Month",
+    "quarter": "Quarter",
+    "quarterOption": "Q{q} {year}",
+    "apply": "Apply",
+    "compare": "Compare",
+    "cmp": { "prev": "Previous period", "yoy": "Same period last year", "none": "No comparison", "custom": "Custom days" },
+    "compareRange": "Compare with other days",
+    "gran": "Group by",
+    "granOption": { "auto": "Auto ({gran})", "day": "Day", "week": "Week", "month": "Month" },
+    "rangeText": "{from} – {to}",
+    "vsPrevious": "vs previous {days} days",
+    "vsLastYear": "vs same period last year",
+    "vsRange": "vs {range}",
+    "partial": "Data starts {date}: earlier days in this range have no data.",
+    "comparePartial": "Data starts {date}: the comparison period is incomplete, so some changes can't be shown.",
+    "noData": "No data captured yet.",
+    "partialNote": "* only partly inside the range",
+    "previous": "Previous period",
+    "next": "Next period"
   }
 }
