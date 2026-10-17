@@ -11,6 +11,7 @@ import { SECTIONS } from '@/lib/export/params';
 import { buildReport, type ReportModel } from '@/lib/export/report';
 import { decideRoute } from '@/lib/auth/route-policy';
 import { DEFAULT_PREFS } from '@/lib/prefs';
+import { DEFAULT_SCOPE } from '@/lib/time-scope/scope';
 import { NOW, sampleData, TODAY, TZ } from './fixtures/export-data';
 
 const { calls } = vi.hoisted(() => ({ calls: [] as string[] }));
@@ -22,13 +23,14 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/lib/export/request', async () => {
   const { parseReportParams } = await import('@/lib/export/params');
+  const { scopeQuery } = await import('@/lib/time-scope/scope');
   const fx = await import('./fixtures/export-data');
   return {
     openExport: async (q: URLSearchParams) => {
       calls.push(`openExport:${q.toString()}`);
       const p = parseReportParams(q);
       if (!p.ok) return { ok: false, status: 400, error: 'bad_params' };
-      return { ok: true, ctx: { params: p.params, data: fx.sampleData(), prefs: { ...(await import('@/lib/prefs')).DEFAULT_PREFS, timezone: fx.TZ }, now: fx.NOW, today: fx.TODAY, label: 'Brand X' } };
+      return { ok: true, ctx: { params: p.params, data: fx.sampleData(scopeQuery(p.params.time)), prefs: { ...(await import('@/lib/prefs')).DEFAULT_PREFS, timezone: fx.TZ }, now: fx.NOW, today: fx.TODAY, label: 'Brand X' } };
     },
   };
 });
@@ -44,7 +46,7 @@ afterEach(() => {
   delete window.__IN2SIGHT_REPORT__;
 });
 
-const model = (): ReportModel => buildReport(sampleData(), { scope: { kind: 'all' }, period: 7, sections: [...SECTIONS], title: 'T', note: '' }, { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
+const model = (): ReportModel => buildReport(sampleData('from=7d'), { scope: { kind: 'all' }, time: DEFAULT_SCOPE, sections: [...SECTIONS], title: 'T', note: '' }, { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
 const shell = () =>
   render(
     <NextIntlClientProvider locale="en" messages={en}>

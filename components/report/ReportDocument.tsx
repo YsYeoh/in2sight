@@ -12,6 +12,7 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable } from '@/components/shared/DataTable';
 import { StatCard } from '@/components/shared/StatCard';
+import { useBucketFormat } from '@/components/shared/TimeScopeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import type { KpiId } from '@/lib/analysis/growth';
 import type { GroupStats } from '@/lib/analysis/posts';
@@ -28,10 +29,12 @@ export function ReportDocument({ model }: { model: ReportModel }) {
   const ta = useTranslations('analysis');
   const to = useTranslations('pages.overview');
   const tp = useTranslations('pages.account');
+  const ts = useTranslations('timeScope');
   const { prefs } = usePrefs();
   const delta = useKpiDelta();
   const bestTime = useBestTimeRows();
-  const vs = to('vsPrevious', { days: model.period });
+  const vs = model.compare ? ts('vsRange', { range: ts('rangeText', { from: formatDay(model.compare.from, prefs), to: formatDay(model.compare.to, prefs) }) }) : '';
+  const trendX = useBucketFormat(model.gran, model.trendPartial);
   const scope = model.scope.kind === 'all' ? t('scopeAll') : model.scope.kind === 'account' ? `@${model.scope.name}` : model.scope.name;
   const statRows = (rows: { key: string; label: string; s: GroupStats }[]) => (
     <DataTable
@@ -70,7 +73,10 @@ export function ReportDocument({ model }: { model: ReportModel }) {
       </>
     ),
     trend: () => (
-      <SeriesChart kind="line" data={model.trend} xKey="day" series={[{ key: 'reach', label: tm('reach') }, { key: 'views', label: tm('views') }]} title={t('section.trend')} formatX={(d) => formatDay(d, prefs)} formatY={(n) => formatCompact(n, prefs)} animate={false} />
+      <>
+        <SeriesChart kind="line" data={model.trend} xKey="day" series={[{ key: 'reach', label: tm('reach') }, { key: 'views', label: tm('views') }]} title={t('section.trend')} formatX={trendX} formatY={(n) => formatCompact(n, prefs)} animate={false} />
+        {model.trendPartial.length ? <p className="mt-1 text-xs text-muted-foreground">{ts('partialNote')}</p> : null}
+      </>
     ),
     topPosts: () => (
       <DataTable

@@ -2,9 +2,9 @@
 // rejected with the error key 'bad_params' (never echoed back, never "fixed up" into a different export).
 import { normalizeGroup } from '@/lib/accounts/group';
 import type { StoredAccount } from '@/lib/accounts/types';
-import { PERIODS, type Period } from '@/lib/analysis/types';
-import { addDays } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
+import { isDay } from '@/lib/time-scope/range';
+import { parseTimeScope, PRESETS, SCOPE_KEYS, type TimeScope } from '@/lib/time-scope/scope';
 
 export const SECTIONS = ['kpis', 'trend', 'topPosts', 'formats', 'tags', 'bestTime', 'audience', 'stories', 'flags'] as const;
 export type Section = (typeof SECTIONS)[number];
@@ -12,7 +12,7 @@ export type Section = (typeof SECTIONS)[number];
 export type ExportScope = { kind: 'all' } | { kind: 'group'; name: string } | { kind: 'account'; id: string };
 export interface ExportParams {
   scope: ExportScope;
-  period: Period;
+  time: TimeScope; // the page's Time Scope (Plan 12a)
 }
 export interface ReportParams extends ExportParams {
   sections: Section[];
@@ -20,11 +20,6 @@ export interface ReportParams extends ExportParams {
   note: string;
 }
 export type Parsed<T> = { ok: true; params: T } | { ok: false; error: 'bad_params' };
-
-/** The raw-data window of an export: the last `period` days including today (owner timezone days). Lives here, not in read.ts, so client code never pulls the dashboard readers. */
-export function exportWindow(period: Period, today: string): { from: string; to: string } {
-  return { from: addDays(today, -(period - 1)), to: today };
-}
 
 export const TITLE_MAX = 120;
 export const NOTE_MAX = 1000;
@@ -60,11 +55,33 @@ function text(v: string | null, max: number, multiline: boolean): string | null 
   return [...value].length <= max ? value : null;
 }
 
+/** What an export accepts per Time Scope key: the canonical form the dialog sends, plus old `period=7|30|90` links. The
+ *  picker shorthands (week/month/quarter) are for the pages only. */
+const TIME_VALUE: Partial<Record<(typeof SCOPE_KEYS)[number], (v: string) => boolean>> = {
+  from: (v) => (PRESETS as readonly string[]).includes(v) || isDay(v),
+  to: isDay,
+  cmp: (v) => v === 'prev' || v === 'yoy' || v === 'none',
+  cfrom: isDay,
+  cto: isDay,
+  gran: (v) => v === 'day' || v === 'week' || v === 'month',
+  period: (v) => v === '7' || v === '30' || v === '90',
+};
+
+/** The Time Scope of an export URL, strictly: an unknown value, a repeated key or half a pair of days is rejected. No range = the default (30 days). */
+function parseTime(q: URLSearchParams): TimeScope | null {
+  for (const k of SCOPE_KEYS) {
+    const all = q.getAll(k);
+    if (all.length > 1 || (all.length === 1 && !TIME_VALUE[k]?.(all[0]))) return null;
+  }
+  if (q.has('to') !== isDay(q.get('from')) || q.has('cfrom') !== q.has('cto')) return null;
+  return parseTimeScope(q);
+}
+
 export function parseExportParams(q: URLSearchParams): Parsed<ExportParams> {
   const scope = parseScope(single(q, 'scope'));
-  const period = Number(single(q, 'period'));
-  if (!scope || !(PERIODS as readonly number[]).includes(period)) return BAD;
-  return { ok: true, params: { scope, period: period as Period } };
+  const time = parseTime(q);
+  if (!scope || !time) return BAD;
+  return { ok: true, params: { scope, time } };
 }
 
 export function parseReportParams(q: URLSearchParams): Parsed<ReportParams> {

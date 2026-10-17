@@ -58,7 +58,7 @@ describe('GET /api/export/pdf', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/pdf');
     expect(res.headers.get('cache-control')).toBe('private, no-store');
-    expect(res.headers.get('content-disposition')).toMatch(/filename="in2sight-brand\.one-\d{4}-\d{2}-\d{2}\.pdf"/);
+    expect(res.headers.get('content-disposition')).toMatch(/filename="in2sight-brand\.one-2026-09-16_2026-10-15\.pdf"/);
     expect(new TextDecoder().decode(await res.arrayBuffer())).toBe('%PDF-1.7 fake');
     expect(s.urls).toEqual(['https://app.test/report/print']);
     expect(s.closed).toBe(1);

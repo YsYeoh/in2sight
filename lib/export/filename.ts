@@ -10,8 +10,9 @@ function clean(base: string): string {
   return s.replace(/^\.+/, '') || 'in2sight'; // never a hidden or empty name
 }
 
-export function exportBasename(label: string, today: string): string {
-  return `in2sight-${label}-${today}`;
+/** 'in2sight-<scope>-<first day>_<last day>': the file name says which days it holds. */
+export function exportBasename(label: string, range: { from: string; to: string }): string {
+  return `in2sight-${label}-${range.from}_${range.to}`;
 }
 
 export function contentDisposition(base: string, ext: 'xlsx' | 'pdf'): string {

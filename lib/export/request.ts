@@ -30,7 +30,7 @@ export async function openExport<P extends ExportParams>(q: URLSearchParams, par
   const db = await createServerSupabase({ responseHeaders: h }); // owner session: RLS applies
   const accounts = resolveScope(parsed.params.scope, await supabaseAccountsStore(db).list());
   if (!accounts) return { ok: false, status: 404, error: 'not_found' };
-  const data = await loadExportData(db, accounts, { period: parsed.params.period, today, tz: prefs.timezone });
+  const data = await loadExportData(db, accounts, { time: parsed.params.time, today, tz: prefs.timezone });
   return { ok: true, ctx: { params: parsed.params, data, prefs, now, today, label: scopeLabel(parsed.params.scope, accounts) } };
 }
 

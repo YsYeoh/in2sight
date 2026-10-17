@@ -7,7 +7,7 @@ import { openExport } from '@/lib/export/request';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-/** The owner's preview of a PDF report (/report?scope=…&period=…&sections=…&title=…&note=…): same component, no Chromium. */
+/** The owner's preview of a PDF report (/report?scope=…&<Time Scope>&sections=…&title=…&note=…): same component, no Chromium. */
 export default async function ReportPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireOwner(); // pages check the owner first, like every other page
   const q = new URLSearchParams();

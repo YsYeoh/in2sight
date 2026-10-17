@@ -26,10 +26,34 @@ describe('parseScope / parseExportParams', () => {
     for (const v of [null, '', 'ALL', 'a:', 'a:123', 'a:../../etc', 'g:', 'g: Brand X', 'g:Brand\u0000X', `g:${'x'.repeat(41)}`, 'x:all']) expect(parseScope(v), String(v)).toBeNull();
   });
 
-  it('needs exactly one scope and a known period', () => {
-    expect(parseExportParams(q('scope=all&period=30'))).toEqual({ ok: true, params: { scope: { kind: 'all' }, period: 30 } });
-    for (const s of ['scope=all', 'period=30', 'scope=all&period=31', 'scope=all&period=30.0x', 'scope=all&scope=g:Brand%20X&period=7', 'scope=all&period=7&period=90'])
+  it('needs exactly one scope; old period links and no range at all still work', () => {
+    expect(parseExportParams(q('scope=all&period=30'))).toEqual({ ok: true, params: { scope: { kind: 'all' }, time: { range: '30d', cmp: 'prev', gran: 'auto' } } });
+    expect(parseExportParams(q('scope=all&period=7'))).toMatchObject({ ok: true, params: { time: { range: '7d' } } });
+    expect(parseExportParams(q('scope=all'))).toMatchObject({ ok: true, params: { time: { range: '30d' } } });
+    for (const s of ['period=30', 'scope=all&period=31', 'scope=all&period=30.0x', 'scope=all&scope=g:Brand%20X&period=7', 'scope=all&period=7&period=90'])
       expect(parseExportParams(q(s)), s).toEqual({ ok: false, error: 'bad_params' });
+  });
+
+  it('takes the Time Scope strictly: canonical keys only, real days, pairs complete', () => {
+    expect(parseExportParams(q('scope=all&from=2026-09-01&to=2026-09-30&cmp=yoy&gran=week'))).toEqual({
+      ok: true,
+      params: { scope: { kind: 'all' }, time: { range: { from: '2026-09-01', to: '2026-09-30' }, cmp: 'yoy', gran: 'week' } },
+    });
+    expect(parseExportParams(q('scope=all&from=1y&cfrom=2024-01-01&cto=2024-12-31'))).toMatchObject({ ok: true, params: { time: { range: '1y', cmp: { from: '2024-01-01', to: '2024-12-31' } } } });
+    const bad = [
+      'scope=all&from=junk',
+      'scope=all&from=2026-09-01', // half a pair
+      'scope=all&from=30d&to=2026-09-30',
+      'scope=all&from=2026-02-30&to=2026-03-01',
+      'scope=all&from=7d&from=30d',
+      'scope=all&cmp=evil',
+      'scope=all&cfrom=2025-01-01',
+      'scope=all&gran=hour',
+      'scope=all&month=2026-09', // picker shorthands are for the pages only
+      'scope=all&week=2026-09-01',
+      'scope=all&quarter=2026-Q3',
+    ];
+    for (const s of bad) expect(parseExportParams(q(s)), s).toEqual({ ok: false, error: 'bad_params' });
   });
 });
 
@@ -90,14 +114,14 @@ describe('resolveScope / exportScopes / scopeLabel', () => {
 
 describe('Content-Disposition', () => {
   it('hostile names: ASCII fallback + exact UTF-8 filename*, no quotes, slashes or line breaks', () => {
-    const h = contentDisposition(exportBasename(`=cmd|/c calc ${GRIN} ${BRAND}/"x"\r\n`, '2026-10-15'), 'xlsx');
+    const h = contentDisposition(exportBasename(`=cmd|/c calc ${GRIN} ${BRAND}/"x"\r\n`, { from: '2026-09-16', to: '2026-10-15' }), 'xlsx');
     expect(h).not.toMatch(/[\r\n]/);
     const ascii = h.match(/filename="([^"]*)"/)![1];
     expect(ascii).toMatch(/^[A-Za-z0-9._-]+\.xlsx$/);
-    expect(ascii).toBe('in2sight-cmd-c-calc-x-2026-10-15.xlsx');
+    expect(ascii).toBe('in2sight-cmd-c-calc-x-2026-09-16_2026-10-15.xlsx');
     const star = h.match(/filename\*=UTF-8''(\S+)$/)![1];
     expect(star).toMatch(/^[A-Za-z0-9%._~!-]+$/); // RFC 5987 attr-chars only
-    expect(decodeURIComponent(star)).toBe(`in2sight-=cmd-c calc ${GRIN} ${BRAND}-x-2026-10-15.xlsx`);
+    expect(decodeURIComponent(star)).toBe(`in2sight-=cmd-c calc ${GRIN} ${BRAND}-x-2026-09-16_2026-10-15.xlsx`);
   });
 
   it('an all-unicode name still gets a usable ASCII fallback; long names are capped', () => {
@@ -107,8 +131,8 @@ describe('Content-Disposition', () => {
   });
 
   it('round-trips through the browser helper; junk headers fall back', () => {
-    const h = contentDisposition(exportBasename(`@${BRAND} ${SPARKLE}`, '2026-10-15'), 'pdf');
-    expect(filenameFromDisposition(h, 'x.pdf')).toBe(`in2sight-@${BRAND} ${SPARKLE}-2026-10-15.pdf`);
+    const h = contentDisposition(exportBasename(`@${BRAND} ${SPARKLE}`, { from: '2026-10-01', to: '2026-10-15' }), 'pdf');
+    expect(filenameFromDisposition(h, 'x.pdf')).toBe(`in2sight-@${BRAND} ${SPARKLE}-2026-10-01_2026-10-15.pdf`);
     expect(filenameFromDisposition('attachment; filename="a.xlsx"', 'x.xlsx')).toBe('a.xlsx');
     expect(filenameFromDisposition(null, 'x.pdf')).toBe('x.pdf');
     expect(filenameFromDisposition("attachment; filename*=UTF-8''..%2F..%2Fevil.exe", 'x.pdf')).toBe('x.pdf');

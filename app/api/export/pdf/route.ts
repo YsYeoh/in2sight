@@ -9,7 +9,7 @@ import { exportError, exportFile, exportHeaders, openExport } from '@/lib/export
 // Chromium cold start (unpacking to /tmp) plus rendering: SPEC §7d accepts a few seconds; renderReportPdf stops at 40 s.
 export const maxDuration = 60;
 
-/** GET /api/export/pdf?scope=…&period=…&sections=…&title=…&note=… — owner session only. */
+/** GET /api/export/pdf?scope=…&<Time Scope>&sections=…&title=…&note=… — owner session only. */
 export async function GET(request: NextRequest) {
   const h = exportHeaders();
   const origin = appOrigin(process.env.NEXT_PUBLIC_APP_URL); // the only place the headless browser may go
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   }
   try {
     const pdf = await renderReportPdf(model, { origin, prefs: ctx.prefs, launch: launchChromium });
-    return exportFile(h, pdf, 'application/pdf', contentDisposition(exportBasename(ctx.label, ctx.today), 'pdf'));
+    return exportFile(h, pdf, 'application/pdf', contentDisposition(exportBasename(ctx.label, ctx.data.scope.range), 'pdf'));
   } catch {
     console.error('pdf export: render failed');
     return exportError(h, 502, 'pdf_failed');

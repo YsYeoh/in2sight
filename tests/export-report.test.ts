@@ -1,16 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { SECTIONS, type ReportParams } from '@/lib/export/params';
 import { buildReport, isReportModel, TOP_POSTS } from '@/lib/export/report';
-import { A, NOW, post, sampleData, TODAY, TZ } from './fixtures/export-data';
+import { DEFAULT_SCOPE } from '@/lib/time-scope/scope';
+import { A, NOW, post, sampleData, scopeOf, TODAY, TZ } from './fixtures/export-data';
 
-const params = (o: Partial<ReportParams> = {}): ReportParams => ({ scope: { kind: 'group', name: 'Brand X' }, period: 30, sections: [...SECTIONS], title: 'Monthly', note: 'Hi', ...o });
+const params = (o: Partial<ReportParams> = {}): ReportParams => ({ scope: { kind: 'group', name: 'Brand X' }, time: DEFAULT_SCOPE, sections: [...SECTIONS], title: 'Monthly', note: 'Hi', ...o });
 const build = (p = params(), data = sampleData()) => buildReport(data, p, { today: TODAY, now: NOW, tz: TZ, weekStart: 'mon' });
 
 describe('buildReport', () => {
   it('header fields come from the params; the KPI window ends on the latest day with data', () => {
     const m = build();
-    expect(m).toMatchObject({ v: 1, title: 'Monthly', note: 'Hi', scope: { kind: 'group', name: 'Brand X' }, period: 30, from: '2026-09-15', to: '2026-10-14', generatedAt: NOW.toISOString(), sections: [...SECTIONS] });
+    expect(m).toMatchObject({ v: 1, title: 'Monthly', note: 'Hi', scope: { kind: 'group', name: 'Brand X' }, period: 30, from: '2026-09-15', to: '2026-10-14', compare: { from: '2026-08-16', to: '2026-09-14' }, gran: 'day', generatedAt: NOW.toISOString(), sections: [...SECTIONS] });
     expect(m.trend).toHaveLength(30);
+    expect(m.trendPartial).toEqual([]);
+  });
+
+  it('a quarter by weeks: the trend is bucketed, cut weeks are partial; top posts and formats stay inside it', () => {
+    const d = sampleData('quarter=2026-Q3&gran=week&cmp=none');
+    const m = build(params(), d);
+    expect(m).toMatchObject({ from: '2026-07-01', to: '2026-09-30', compare: null, gran: 'week' });
+    expect(m.trend[0].day).toBe('2026-06-29'); // the Monday week holding 1 July
+    expect(m.trendPartial).toEqual(['2026-06-29', '2026-09-28']);
+    expect(m.topPosts).toEqual([]); // the sample posts are from October
+    expect(m.kpis.reach).toMatchObject({ prior: null, reason: null });
   });
 
   it('a group: totals over the accounts WITH data, plus one KPI row per account (the empty one has no values)', () => {
@@ -66,7 +78,7 @@ describe('buildReport', () => {
   });
 
   it('no accounts at all: a valid, empty model', () => {
-    const m = build(params({ scope: { kind: 'all' } }), { accounts: [], sync: {}, daily: {}, posts: {}, stories: {}, audience: {}, online: {}, tags: [] });
+    const m = build(params({ scope: { kind: 'all' } }), { accounts: [], scope: scopeOf(), sync: {}, daily: {}, posts: {}, stories: {}, audience: {}, online: {}, tags: [] });
     expect(m.kpis.reach.value).toBeNull();
     expect(m.topPosts).toEqual([]);
     expect(isReportModel(JSON.parse(JSON.stringify(m)))).toBe(true); // survives the trip into the headless page

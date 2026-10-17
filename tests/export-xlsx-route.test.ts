@@ -20,10 +20,10 @@ vi.mock('@/lib/accounts/supabase-store', async () => {
 });
 vi.mock('@/lib/export/read', async (orig) => ({
   ...(await orig<object>()),
-  loadExportData: async (_db: unknown, accounts: { id: string }[]) => {
+  loadExportData: async (_db: unknown, accounts: { id: string }[], o: { time: import('@/lib/time-scope/scope').TimeScope }) => {
     state.loads++;
     if (state.failRead) throw new Error('dashboard read: posts failed secret-row-value');
-    const d = (await import('./fixtures/export-data')).sampleData();
+    const d = (await import('./fixtures/export-data')).sampleData((await import('@/lib/time-scope/scope')).scopeQuery(o.time));
     return { ...d, accounts: d.accounts.filter((a) => accounts.some((x) => x.id === a.id)) };
   },
 }));
@@ -49,7 +49,7 @@ describe('GET /api/export/xlsx', () => {
   });
 
   it('400 bad_params for anything off the allow-list, before any read', async () => {
-    for (const qs of ['', 'scope=all', 'scope=all&period=365', 'scope=a:not-a-uuid&period=7', 'scope=all&scope=all&period=7']) {
+    for (const qs of ['', 'period=30', 'scope=all&period=365', 'scope=all&from=junk', 'scope=all&month=2026-09', 'scope=a:not-a-uuid&period=7', 'scope=all&scope=all&period=7']) {
       const res = await get(qs);
       expect(res.status, qs).toBe(400);
       expect(await res.json()).toEqual({ error: 'bad_params' });
@@ -67,10 +67,16 @@ describe('GET /api/export/xlsx', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(res.headers.get('cache-control')).toBe('private, no-store');
-    expect(res.headers.get('content-disposition')).toMatch(/^attachment; filename="in2sight-brand.one-\d{4}-\d{2}-\d{2}\.xlsx"; filename\*=UTF-8''in2sight-%40brand\.one-/);
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment; filename="in2sight-brand.one-2026-09-16_2026-10-15\.xlsx"; filename\*=UTF-8''in2sight-%40brand\.one-2026-09-16_2026-10-15\.xlsx$/);
     const zip = unzipSync(new Uint8Array(await res.arrayBuffer()));
     const wb = strFromU8(zip['xl/workbook.xml']);
     for (const n of ['Summary', 'Daily', 'Posts', 'Stories', 'Audience', 'Tags']) expect(wb).toContain(`name="${n}"`);
+  });
+
+  it('the file name states the exported days of a fixed range', async () => {
+    const res = await get(`scope=a:${A}&from=2026-09-01&to=2026-09-30&cmp=yoy`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toContain('filename="in2sight-brand.one-2026-09-01_2026-09-30.xlsx"');
   });
 
   it('headers and sheet names follow the owner language', async () => {

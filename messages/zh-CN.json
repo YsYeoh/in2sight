@@ -656,6 +656,8 @@
       "group": "分组",
       "from": "开始日期",
       "to": "结束日期",
+      "compareFrom": "对比开始日期",
+      "compareTo": "对比结束日期",
       "lastSynced": "上次同步",
       "change": "{metric}变化",
       "day": "日期",
