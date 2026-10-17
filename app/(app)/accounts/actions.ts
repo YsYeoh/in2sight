@@ -9,7 +9,7 @@ import type { AccountsStore } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
 import { continueIfMore } from '@/lib/sync/connect-sync';
 import { createSyncDeps } from '@/lib/sync/deps';
-import { resetSyncProgress } from '@/lib/sync/store';
+import { removeAccountCovers, resetSyncProgress } from '@/lib/sync/store';
 import { runTick, TICK_BUDGET_MS } from '@/lib/sync/tick';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 
@@ -44,7 +44,10 @@ export async function restoreAccountAction(id: string): Promise<Result> {
 export async function deleteAccountAction(id: string): Promise<Result> {
   await requireOwner();
   if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'not_found' };
-  return guarded((s) => deleteAccountPermanently(s, id));
+  const result = await guarded((s) => deleteAccountPermanently(s, id));
+  // rows are gone (FK cascade: media, comments, snapshots…); now the cover images in Storage. Archive keeps them.
+  if (result.ok) await removeAccountCovers(createAdminSupabase(), id);
+  return result;
 }
 
 export async function setGroupAction(id: string, group: string | null): Promise<Result> {

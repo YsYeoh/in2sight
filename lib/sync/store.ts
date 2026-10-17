@@ -335,6 +335,27 @@ export async function resetSyncProgress(db: SupabaseClient, accountId: string, n
   }
 }
 
+/**
+ * Permanent account delete: removes the account's cover objects (bucket "covers", prefix "{accountId}/") after the
+ * rows are gone. Admin client; best-effort, never throws. A leftover object is unreachable (the cover route needs the
+ * media row) and the runbook lists orphans. Returns how many objects were removed.
+ */
+export async function removeAccountCovers(db: SupabaseClient, accountId: string): Promise<number> {
+  let removed = 0;
+  try {
+    for (let round = 0; round < 50; round++) {
+      const { data, error } = await db.storage.from(COVERS_BUCKET).list(accountId, { limit: 1000 });
+      if (error || !data || data.length === 0) break;
+      const { error: rmError } = await db.storage.from(COVERS_BUCKET).remove(data.map((f) => `${accountId}/${f.name}`));
+      if (rmError) break;
+      removed += data.length;
+    }
+  } catch {
+    // Storage unreachable: the objects stay private and unreferenced; RUNBOOK_CAPTURE lists them
+  }
+  return removed;
+}
+
 export interface SyncStatus {
   lastSuccessAt: string | null;
   lastErrorKey: string | null;
