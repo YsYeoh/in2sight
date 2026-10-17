@@ -87,7 +87,7 @@ describe('windows', () => {
 });
 
 describe('buildExplorer', () => {
-  it('by account: every account in scope (no data = null, never 0), ranked by the chart metric, compared by key', () => {
+  it('by account: every account in scope (no insights = null, no posts = 0), ranked by the chart metric, compared by key', () => {
     const m = buildExplorer(input({
       state: parseExplorerState({ m: 'reach,posts', by: 'account' }),
       current: new Map([[A, parts({ reach: 100 }, { posts: 3 })], [B, parts({ reach: 300 }, null)]]),
@@ -96,8 +96,26 @@ describe('buildExplorer', () => {
     expect(m.rows.map((r) => r.key)).toEqual([B, A, C]);
     expect(m.rows[1].values.reach).toMatchObject({ value: 100, prior: 80, change: 0.25 });
     expect(m.rows[0].values.reach).toMatchObject({ value: 300, prior: null });
-    expect(m.rows[0].values.posts).toMatchObject({ value: null, reason: 'no_data' });
+    expect(m.rows[0].values.posts).toMatchObject({ value: 0, reason: null }); // GROUP BY returns no row for no posts: that is 0 posts, not "no data"
     expect(m.rows[2].values.reach?.value).toBeNull();
+    expect(m.rows[2].values.posts?.value).toBe(0);
+  });
+
+  it('no posts is 0 only for the post count: the other post metrics stay empty, daily metrics are untouched, a missing comparison row counts as 0', () => {
+    const m = buildExplorer(input({
+      state: parseExplorerState({ m: 'posts,avgReach,likes,reach', by: 'account' }),
+      current: new Map([[A, parts({ reach: 10 }, { posts: 2, measured: 2, reachSum: 40, likes: 3 })]]),
+      prior: new Map([[B, parts({ reach: 5 }, { posts: 1 })]]),
+    }));
+    const b = m.rows.find((r) => r.key === B)!.values;
+    expect(b.posts).toMatchObject({ value: 0, prior: 1, diff: -1 });
+    expect(b.avgReach?.value).toBeNull();
+    expect(b.likes?.value).toBeNull();
+    const a = m.rows.find((r) => r.key === A)!.values;
+    expect(a.posts).toMatchObject({ value: 2, prior: 0, diff: 2, change: null }); // no posts before: a count of 0, nothing to divide by
+    // without a post metric nothing is filled in
+    const d = buildExplorer(input({ state: parseExplorerState({ m: 'reach', by: 'account' }), current: new Map() }));
+    expect(d.rows[0].values.posts).toBeUndefined();
   });
 
   it('by group: sums the accounts first, then computes ratios', () => {
