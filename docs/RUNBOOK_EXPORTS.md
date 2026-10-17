@@ -12,7 +12,7 @@ Never paste tokens, cookies or `SUPABASE_SECRET_KEY` into chats, screenshots or 
 
 ## 1. Excel (any machine)
 
-1. `<app-url>/overview` → **Export** → Format **Excel workbook** → Accounts **All accounts** → 30 days → **Download**. A file `in2sight-all-<date>.xlsx` is saved; the dialog says "Download started".
+1. `<app-url>/overview` (default range: last 30 days) → **Export** → Format **Excel workbook** → Accounts **All accounts** → **Download**. The dialog shows the page's time range (since Plan 12a: change it with the bar on the page). A file `in2sight-all-<first day>_<last day>.xlsx` is saved; the dialog says "Download started".
 2. Open it in **Excel** and in **LibreOffice Calc** (both must open without a repair prompt). Check:
    - Six sheets: Summary, Daily, Posts, Stories, Audience, Tags (in Chinese when the app language is 简体中文: 概要, 每日数据, 帖子, 快拍, 受众, 标签).
    - The header row is bold and stays visible when scrolling (frozen).
@@ -20,7 +20,7 @@ Never paste tokens, cookies or `SUPABASE_SECRET_KEY` into chats, screenshots or 
    - Number columns are numbers (SUM works), engagement and shares show as `%`.
    - Missing values are empty cells, not `0` (e.g. Link taps, or reach of a post Instagram never measured).
    - A caption or tag starting with `=`, `+`, `-` or `@` shows with a leading `'` and is **not** evaluated. Click into such a cell and press Enter: it must stay text.
-3. Export one account from its Account detail page (**Export** is next to Calendar; the account is preselected). File name `in2sight-@<username>-<date>.xlsx` (browsers that cannot save `@`/emoji use the ASCII fallback name).
+3. Export one account from its Account detail page (**Export** is next to Calendar; the account is preselected). File name `in2sight-@<username>-<first day>_<last day>.xlsx` (browsers that cannot save `@`/emoji use the ASCII fallback name).
 4. An account with a slash, emoji or Chinese in its group name: export the group; the file name keeps the characters (slashes become `-`).
 
 ## 2. PDF report preview (any machine, no Chromium)

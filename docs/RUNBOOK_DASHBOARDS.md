@@ -18,7 +18,7 @@ For each page below check every cell: 4 themes (Ink, Sunset, Forest, Mono) × li
 | Width | What must hold |
 |---|---|
 | 360 | No horizontal page scroll (`document.documentElement.scrollWidth <= innerWidth`). Stat cards 2 per row; account cards 1 per row; the comparison table shows as cards with a "Sort by" select; heatmap squares shrink but every row stays on screen. Long `@usernames` end in "…". |
-| 768 | Table view (not cards) for the comparison; account cards 2 per row; period selector fits next to the title or wraps under it cleanly. |
+| 768 | Table view (not cards) for the comparison; account cards 2 per row; the Time Scope bar wraps under the title cleanly (its own checks: docs/RUNBOOK_TIMESCOPE.md). |
 | 1280 | Stat cards 4 per row; account cards 3 per row; chart legends on one line for up to 4 accounts. |
 
 In every theme and mode:
@@ -35,7 +35,7 @@ In every theme and mode:
 
 ## 3. With real data (`/overview`)
 
-1. Period selector 7 / 30 / 90 days: numbers change, the URL shows `?period=…`, "vs previous N days" follows.
+1. Time Scope presets (since Plan 12a; details in docs/RUNBOOK_TIMESCOPE.md): numbers change, the URL shows `?from=…`, "vs previous N days" follows.
 2. Compare one account's 7-day reach on its card with Instagram's app (Professional dashboard → Insights → Accounts reached, last 7 days). Expect the same order of magnitude, not an exact match: we sum daily reach (SPEC §7), Instagram shows unique accounts.
 3. An account under 100 followers: Instagram returns little data, so the card shows dashes and a short reason instead of numbers (never 0, NaN or a fake change).
 4. A freshly connected account: card says "Importing history…" until the first daily sync writes a day.
@@ -57,7 +57,7 @@ Run the section 1 matrix (4 themes x light/dark x 360 / 768 / 1280) on each tab:
 
 | Tab | What must hold |
 |---|---|
-| Overview | 6 stat cards (2 per row at 360, 3 at 768, 6 at 1280) each with "vs previous N days" or a reason; period links keep you on the page (`?period=...`); reach/views and followers charts; format comparison table (cards at 360); flags list or "Nothing unusual"; best-time heatmap defaults to **Followers online**, toggles to **Your post performance** and to the pooled scope; greyed cells for < 2 posts; the reason line when data is missing. |
+| Overview | 6 stat cards (2 per row at 360, 3 at 768, 6 at 1280) each with "vs previous N days" (or the comparison days) or a reason; the Time Scope bar keeps you on the page and the tab (`?tab=…&from=…`); reach/views and followers charts; format comparison table (cards at 360); flags list or "Nothing unusual"; best-time heatmap defaults to **Followers online**, toggles to **Your post performance** and to the pooled scope; greyed cells for < 2 posts; the reason line when data is missing. |
 | Posts | Filters (format, tag, from/to) change the URL and the rows; "Reset" clears them; 50 rows then "Show more"; at 360 rows become cards with a Sort-by select; caption snippets end in "..."; the external-link icon opens Instagram in a new tab; "Edit" opens the tag dialog (a bottom sheet at 360). |
 | Stories | Captured Stories of the last 14 days, Live/Expired badge, final numbers and exit rate, a views sparkline; a Story under 5 viewers says so. Compare one expired Story's views with Instagram's Story insights (same order of magnitude). |
 | Audience | Countries (top 8 + Other, names in the UI language), cities, age x gender bars with a legend. On a desktop with motion allowed the **globe** spins next to the country list; with reduced motion, on a phone/tablet (touch emulation) or with Save-Data it is absent and only the list shows. Switch theme while the globe is visible: it recolours on the next frame. |
