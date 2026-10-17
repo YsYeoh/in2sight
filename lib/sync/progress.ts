@@ -2,6 +2,7 @@
 // Persistent truth (sync_state coverage + counts) drives the stage checklist and the percentage; the live sync_progress
 // row (written by the running sync, docs/RUNBOOK_SYNC.md) adds the current activity, start time and fresh day counts.
 import { backoffMs, BACKFILL_DAYS, isBackfilling, type SyncState } from '@/lib/sync/schedule';
+import { daysBetween } from '@/lib/time-scope/range';
 
 /** Panel order. Reserved stages (later plans: cover images, comments) are valid in the table but not shown yet. */
 export const STAGES = ['profile', 'stories', 'account_days', 'posts_list', 'post_metrics', 'audience'] as const;
@@ -68,8 +69,6 @@ const RECENT_MS = 10 * 60_000;
 /** Measured live 2026-10-16 (docs/RUNBOOK_SYNC.md): ~5 calls per day = 1.5 s, one insights call per post = 0.4 s. */
 const MS_PER_DAY = 1_500;
 const MS_PER_POST = 400;
-
-const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 
 /** Insight days of the BACKFILL_DAYS window handled so far (backfilledFrom ... dailyDoneThrough). */
 export function coveredDays(s: Pick<SyncState, 'dailyDoneThrough' | 'backfilledFrom'>): number {
