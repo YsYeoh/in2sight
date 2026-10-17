@@ -28,16 +28,17 @@ afterAll(() => {
 const TODAY = '2026-10-17';
 const scope = (q: string, earliest: string | null = '2025-01-01') => resolveScope(parseTimeScope(new URLSearchParams(q)), TODAY, earliest);
 
-function view(q = '', o: { keep?: Record<string, string>; earliest?: string | null; locale?: 'en' | 'zh-CN' } = {}) {
+function tree(q = '', o: { keep?: Record<string, string>; earliest?: string | null; locale?: 'en' | 'zh-CN' } = {}) {
   const locale = o.locale ?? 'en';
-  return render(
+  return (
     <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : deepMerge(en, zh)}>
       <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
         <TimeScopeBar scope={scope(q, o.earliest === undefined ? '2025-01-01' : o.earliest)} today={TODAY} keep={o.keep} />
       </PrefsProvider>
-    </NextIntlClientProvider>,
+    </NextIntlClientProvider>
   );
 }
+const view = (...a: Parameters<typeof tree>) => render(tree(...a));
 
 const hidden = (form: HTMLElement) => Object.fromEntries([...form.querySelectorAll<HTMLInputElement>('input[type=hidden]')].map((i) => [i.name, i.value]));
 
@@ -64,6 +65,27 @@ describe('TimeScopeBar', () => {
     expect(hidden(gran.closest('form')!)).toEqual({ tab: 'overview', from: '90d', cmp: 'yoy' });
     expect(within(gran).getByRole('option', { name: 'Auto (Day)' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Last 90 days · vs same period last year');
+  });
+
+  it('changing a select submits its form and keeps keyboard focus on it after the URL changes', async () => {
+    const keep = { tab: 'overview' };
+    const { rerender } = view('', { keep });
+    const cmp = screen.getByRole('combobox', { name: 'Compare' });
+    const submitted: string[] = [];
+    cmp.closest('form')!.addEventListener('submit', (e) => {
+      e.preventDefault(); // jsdom cannot navigate; record where the browser would go
+      submitted.push(String(new URLSearchParams(new FormData(e.currentTarget as HTMLFormElement) as unknown as Record<string, string>)));
+    });
+    cmp.focus();
+    await userEvent.selectOptions(cmp, 'none');
+    expect(submitted).toEqual(['tab=overview&cmp=none']);
+    rerender(tree('cmp=none', { keep })); // the navigation commits: a new scope reaches the bar
+    const after = screen.getByRole('combobox', { name: 'Compare' }) as HTMLSelectElement;
+    expect(after).toBe(cmp);
+    expect(after.value).toBe('none');
+    expect(document.activeElement).toBe(after);
+    rerender(tree('', { keep })); // back button: the controlled value follows the URL
+    expect((screen.getByRole('combobox', { name: 'Compare' }) as HTMLSelectElement).value).toBe('prev');
   });
 
   it('a month: its name, compared with the same days before; no preset is current', () => {

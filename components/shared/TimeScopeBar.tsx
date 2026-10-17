@@ -197,12 +197,12 @@ export function TimeScopeBar({ scope, today, keep = {} }: { scope: ResolvedScope
             <Pickers scope={scope} today={today} keep={keep} done={() => setOpen(false)} />
           </ResponsiveDialogContent>
         </ResponsiveDialog>
-        {/* key: a remount resets the uncontrolled selects after any navigation (presets, back button) */}
-        <Form key={`cmp|${scope.query}`} action="" onSubmit={go} className="flex min-w-0 items-center">
+        {/* controlled selects follow the URL (presets, back button) without a remount, so keyboard focus stays put */}
+        <Form action="" onSubmit={go} className="flex min-w-0 items-center">
           <Hidden params={{ ...keep, ...omit(scope.params, COMPARE_KEYS) }} />
           <label className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {t('compare')}
-            <select name="cmp" defaultValue={typeof s.cmp === 'object' ? 'custom' : s.cmp} disabled={scope.preset === 'all'} onChange={submitOnChange} className={SELECT}>
+            <select name="cmp" value={typeof s.cmp === 'object' ? 'custom' : s.cmp} disabled={scope.preset === 'all'} onChange={submitOnChange} className={SELECT}>
               <option value="prev">{t('cmp.prev')}</option>
               <option value="yoy">{t('cmp.yoy')}</option>
               <option value="none">{t('cmp.none')}</option>
@@ -219,11 +219,11 @@ export function TimeScopeBar({ scope, today, keep = {} }: { scope: ResolvedScope
             </Button>
           </noscript>
         </Form>
-        <Form key={`gran|${scope.query}`} action="" onSubmit={go} className="flex min-w-0 items-center">
+        <Form action="" onSubmit={go} className="flex min-w-0 items-center">
           <Hidden params={{ ...keep, ...omit(scope.params, ['gran']) }} />
           <label className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {t('gran')}
-            <select name="gran" defaultValue={s.gran} onChange={submitOnChange} className={SELECT}>
+            <select name="gran" value={s.gran} onChange={submitOnChange} className={SELECT}>
               {GRANULARITIES.map((g) => (
                 <option key={g} value={g}>
                   {g === 'auto' ? t('granOption.auto', { gran: t(`granOption.${autoGranularity(daysIn(scope.range))}`) }) : t(`granOption.${g}`)}
