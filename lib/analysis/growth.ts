@@ -1,7 +1,8 @@
-// Account growth over a period vs the immediately preceding period of equal length (SPEC §7 "Delta").
-// Pure and deterministic: "today" and the timezone are inputs, never read from the clock.
+// Account growth over a window vs a comparison window (SPEC §7 "Delta"; Time Scope: the previous period, the same
+// period last year, custom days or none). Pure and deterministic: "today" and the timezone are inputs, never the clock.
 import { addDays, localDay } from '@/lib/sync/time';
 import type { DailyRow, MissingReason, Post } from '@/lib/analysis/types';
+import { compareRange, daysBetween, daysIn, minDay, type Compare, type DayRange, type Window } from '@/lib/time-scope/range';
 
 export interface Totals {
   followers: number | null; // latest snapshot (current) / snapshot one period earlier (prior)
@@ -15,10 +16,12 @@ export interface Totals {
 }
 
 export interface Summary {
-  period: number;
+  period: number; // days in the current window
+  from: string; // first day of the current window
   endDay: string; // last day of the current window
+  compare: DayRange | null; // the comparison window; null = no comparison asked for
   current: Totals;
-  prior: Totals;
+  prior: Totals; // totals over `compare` (empty when there is none)
   coverage: { current: number; prior: number }; // share of each window's days that have reach data (0–1)
   reachByDay: { day: string; value: number | null }[]; // current window, oldest first
 }
@@ -73,35 +76,45 @@ function followersAt(sorted: DailyRow[], day: string): { day: string; value: num
   return null;
 }
 
+const NONE: Totals = { followers: null, reach: null, views: null, interactions: null, netFollows: null, rate: null, posts: 0, days: 0 };
+
 /**
- * The current window ends on the latest day with reach data before today (Instagram lags up to 48 h, so ending on
+ * The "settled" day is the latest day with reach data before today (Instagram lags up to 48 h, so ending on
  * "yesterday" would compare a short window with a full one); with no data at all, or none within MAX_LAG_DAYS of
- * yesterday, it ends yesterday.
- * Followers are a daily snapshot written on the day they were read (can be today), so they use their own latest day.
+ * yesterday, it is yesterday. A rolling window (`{ last: n }`, or a plain number) is the n days ending on the settled
+ * day; a fixed window keeps its first day and ends on its last day or the settled day, whichever comes first. The
+ * comparison window comes from compareRange (same length, aligned on its start).
+ * Followers are a daily snapshot written on the day they were read (can be today), so they use their own latest day:
+ * today for a rolling window, the window's last day (at most today) for a fixed one.
  */
-export function summarize(rows: DailyRow[], posts: Post[], period: number, today: string, tz: string): Summary {
+export function summarize(rows: DailyRow[], posts: Post[], window: number | Window, today: string, tz: string, cmp: Compare = 'prev'): Summary {
+  const w: Window = typeof window === 'number' ? { last: window } : window;
   const sorted = [...rows].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
   const yesterday = addDays(today, -1);
   const withReach = sorted.filter((r) => r.reach !== null && r.day <= yesterday);
   const latest = withReach.length ? withReach[withReach.length - 1].day : null;
   // a stale account (last reach day older than the lag allows) ends at yesterday, so its missing days count as gaps
-  const endDay = latest !== null && latest >= addDays(yesterday, -MAX_LAG_DAYS) ? latest : yesterday;
-  const curFrom = addDays(endDay, -(period - 1));
-  const priorTo = addDays(endDay, -period);
-  const priorFrom = addDays(endDay, -(2 * period - 1));
-  const curF = followersAt(sorted, today);
-  const priorF = curF ? followersAt(sorted, addDays(curF.day, -period)) : null;
+  const settled = latest !== null && latest >= addDays(yesterday, -MAX_LAG_DAYS) ? latest : yesterday;
+  const endDay = 'last' in w ? settled : minDay(w.to, settled > w.from ? settled : w.from);
+  const from = 'last' in w ? addDays(endDay, -(w.last - 1)) : w.from;
+  const period = daysIn({ from, to: endDay });
+  const compare = compareRange(w, { from, to: endDay }, cmp);
+  const curF = followersAt(sorted, 'last' in w ? today : minDay(w.to, today));
+  // the comparison's follower snapshot sits as far before the current one as the comparison window ends before this one
+  const priorF = curF && compare ? followersAt(sorted, addDays(curF.day, -daysBetween(compare.to, endDay))) : null;
   const byDay = new Map(sorted.map((r) => [r.day, r.reach]));
-  const current: Totals = { followers: curF?.value ?? null, ...totals(sorted, posts, curFrom, endDay, tz) };
-  const prior: Totals = { followers: priorF?.value ?? null, ...totals(sorted, posts, priorFrom, priorTo, tz) };
+  const current: Totals = { followers: curF?.value ?? null, ...totals(sorted, posts, from, endDay, tz) };
+  const prior: Totals = compare ? { followers: priorF?.value ?? null, ...totals(sorted, posts, compare.from, compare.to, tz) } : NONE;
   return {
     period,
+    from,
     endDay,
+    compare,
     current,
     prior,
-    coverage: { current: current.days / period, prior: prior.days / period },
+    coverage: { current: current.days / period, prior: compare ? prior.days / daysIn(compare) : 0 },
     reachByDay: Array.from({ length: period }, (_, i) => {
-      const day = addDays(curFrom, i);
+      const day = addDays(from, i);
       return { day, value: byDay.get(day) ?? null };
     }),
   };
@@ -136,28 +149,34 @@ function combineTotals(cur: Totals[], pri: Totals[]): { current: Totals; prior: 
 
 /**
  * Sums several accounts' summaries (group or all-accounts totals). Each account keeps its own window end, so the
- * daily series is merged by position (day 1 … day N of each window) and labelled with the latest end day.
+ * daily series is merged by position (day 1 … day N of each window) and labelled with the latest day at that
+ * position. A fixed window starts on the same day for everyone and only its end can differ (each account's settled
+ * day), so the longest window gives the length and position = calendar day there.
  * ponytail: positional merge; switch to calendar-day merge if accounts' lags ever differ by more than a day.
  */
 export function combine(list: Summary[]): Summary | null {
   if (list.length === 0) return null;
   const { current, prior } = combineTotals(list.map((s) => s.current), list.map((s) => s.prior));
+  const longest = list.reduce((a, s) => (s.period > a.period ? s : a));
+  const reachByDay = longest.reachByDay.map((d0, i) => ({
+    day: list.reduce((d, s) => (s.reachByDay[i] && s.reachByDay[i].day > d ? s.reachByDay[i].day : d), d0.day),
+    value: list.reduce<number | null>((v, s) => add(v, s.reachByDay[i]?.value ?? null), null),
+  }));
   return {
-    period: list[0].period,
+    period: longest.period,
+    from: reachByDay[0]?.day ?? longest.from,
     endDay: list.reduce((d, s) => (s.endDay > d ? s.endDay : d), list[0].endDay),
+    compare: longest.compare,
     current,
     prior,
-    coverage: { current: current.days / list[0].period, prior: prior.days / list[0].period },
-    reachByDay: list[0].reachByDay.map((d0, i) => ({
-      day: list.reduce((d, s) => (s.reachByDay[i] && s.reachByDay[i].day > d ? s.reachByDay[i].day : d), d0.day),
-      value: list.reduce<number | null>((v, s) => add(v, s.reachByDay[i]?.value ?? null), null),
-    })),
+    coverage: { current: current.days / longest.period, prior: longest.compare ? prior.days / daysIn(longest.compare) : 0 },
+    reachByDay,
   };
 }
 
 const er = (t: Totals) => (t.rate && t.rate.reach > 0 ? t.rate.interactions / t.rate.reach : null);
 
-function kpi(value: number | null, prior: number | null, comparable: boolean, emptyReason: MissingReason, shortReason: MissingReason = 'not_enough_history'): Kpi {
+function kpi(value: number | null, prior: number | null, comparable: boolean, emptyReason: MissingReason, shortReason: MissingReason | null = 'not_enough_history'): Kpi {
   if (value === null) return { value: null, prior, diff: null, change: null, reason: emptyReason };
   if (!comparable || prior === null) return { value, prior: null, diff: null, change: null, reason: shortReason };
   const diff = value - prior;
@@ -169,21 +188,23 @@ function kpi(value: number | null, prior: number | null, comparable: boolean, em
  * backfilling (history still importing): a window with gaps says "Importing history…" instead of "not enough history",
  * and a metric with no day yet says the same instead of "no data". The values themselves stay the real partial sums.
  * While importing, a comparison needs the whole prior window (a gap there is always the old side).
+ * No comparison asked for (compare null): values only, no delta and no reason for the missing delta.
  */
 export function kpis(s: Summary, opts: { backfilling?: boolean } = {}): Record<KpiId, Kpi> {
-  const need = Math.ceil(s.period * MIN_COVERAGE);
+  const priorDays = s.compare ? daysIn(s.compare) : 0;
   // importing runs newest-first, so a gap is always in the prior window and would bias the delta up: it must be complete then
-  const comparable = s.current.days >= need && s.prior.days >= (opts.backfilling ? s.period : need);
-  const short: MissingReason = opts.backfilling ? 'backfilling' : 'not_enough_history';
+  const comparable = s.compare !== null && s.current.days >= Math.ceil(s.period * MIN_COVERAGE) && s.prior.days >= (opts.backfilling ? priorDays : Math.ceil(priorDays * MIN_COVERAGE));
+  const short: MissingReason | null = s.compare === null ? null : opts.backfilling ? 'backfilling' : 'not_enough_history';
   const empty: MissingReason = opts.backfilling ? 'backfilling' : 'no_data';
   const fewFollowers: MissingReason = s.current.followers !== null && s.current.followers < 100 ? 'needs_100_followers' : empty;
+  const asked = <T>(v: T): T | null => (s.compare ? v : null);
   return {
-    followers: kpi(s.current.followers, s.prior.followers, true, empty, short),
+    followers: kpi(s.current.followers, asked(s.prior.followers), true, empty, short),
     reach: kpi(s.current.reach, s.prior.reach, comparable, empty, short),
     views: kpi(s.current.views, s.prior.views, comparable, empty, short),
     engagementRate: kpi(er(s.current), er(s.prior), comparable, empty, short),
-    // media history comes from the 500-post backfill, not from daily snapshots, so post counts always compare
-    posts: kpi(s.current.posts, s.prior.posts, true, 'no_data'),
+    // media history comes from the post backfill, not from daily snapshots, so post counts always compare
+    posts: kpi(s.current.posts, asked(s.prior.posts), true, 'no_data', short),
     netFollows: kpi(s.current.netFollows, s.prior.netFollows, comparable, fewFollowers, short),
   };
 }
