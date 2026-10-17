@@ -95,13 +95,17 @@ export function byGroup(rows: Map<string, Parts>, accounts: ScopeAccount[]): Map
 }
 
 /**
- * The latest settled insight day of the accounts in scope (Instagram lags up to 48 h): the newest `daily_done_through`
- * that is within MAX_LAG_DAYS of yesterday, else yesterday — the same rule as summarize() uses per account.
+ * The last day every account in scope has settled insights for (Instagram lags up to 48 h): the OLDEST
+ * `daily_done_through` among the accounts within MAX_LAG_DAYS of yesterday, else yesterday. The Explorer reads one window
+ * for all accounts, so ending it on the newest day would show the lagging accounts' missing days as a dip. Older
+ * (stale / broken sync), missing and future values are ignored so one broken account cannot pull every window back; its
+ * own gap shows, as summarize() does per account.
  */
 export function settledDay(doneThrough: (string | null | undefined)[], today: string): string {
   const yesterday = addDays(today, -1);
-  const latest = doneThrough.filter((d): d is string => typeof d === 'string' && d <= yesterday).sort().at(-1);
-  return latest !== undefined && latest >= addDays(yesterday, -MAX_LAG_DAYS) ? latest : yesterday;
+  const oldest = addDays(yesterday, -MAX_LAG_DAYS);
+  const within = doneThrough.filter((d): d is string => typeof d === 'string' && d >= oldest && d <= yesterday).sort();
+  return within[0] ?? yesterday;
 }
 
 /** The Explorer's days: like the KPI cards, a rolling preset ends on the settled day and a fixed range is cut there. */
