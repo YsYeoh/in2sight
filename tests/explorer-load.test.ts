@@ -6,7 +6,6 @@ import { rowLabel, type LabelContext } from '@/lib/explorer/labels';
 import { loadExplorer } from '@/lib/explorer/load';
 import { translator } from '@/lib/export/workbook';
 import type { FormatPrefs } from '@/lib/format';
-
 const A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const B = 'aaaaaaaa-0000-4000-8000-000000000002';
 const C = 'aaaaaaaa-0000-4000-8000-000000000003';
@@ -43,6 +42,22 @@ describe('loadExplorer', () => {
     const { db } = fakeDb();
     expect((await loadExplorer(db, { acc: `${A},${C}`, grp: 'Food' }, O)).accounts.map((a) => a.id)).toEqual([A]);
     expect((await loadExplorer(db, { grp: 'Nope' }, O)).accounts).toEqual([]);
+  });
+
+  it('daily buckets over ~2.5 years would pass the 1,000-row cap: one grain, weekly, for the query, the model and the labels', async () => {
+    const first = { account_daily: { data: [{ day: '2020-01-01' }], error: null } };
+    const long = fakeDb(first);
+    const d = await loadExplorer(long.db, { m: 'reach,posts', by: 'time', from: '2022-01-01', to: '2026-10-01', gran: 'day', cmp: 'none' }, O);
+    const grains = long.calls.filter((c) => c[0] === 'rpc').map((c) => (c[2] as { p_grain: string }).p_grain);
+    expect(grains).toEqual(['week', 'week']); // explorer_daily and explorer_posts
+    expect(d.scope.gran).toBe('week'); // ExplorerView labels and drills with this
+    expect(d.model.rows[0].key).toBe('2021-12-27'); // Monday of the first week, not a day
+    expect(d.model.rows.length).toBe(Math.ceil((Date.parse('2026-10-05') - Date.parse('2021-12-27')) / (7 * 86_400_000)));
+    const short = fakeDb(first);
+    const s = await loadExplorer(short.db, { m: 'reach', by: 'time', from: '2026-01-01', to: '2026-10-01', gran: 'day', cmp: 'none' }, O);
+    expect(short.calls.filter((c) => c[0] === 'rpc').map((c) => (c[2] as { p_grain: string }).p_grain)).toEqual(['day']);
+    expect(s.scope.gran).toBe('day');
+    expect(s.model.rows[0].key).toBe('2026-01-01');
   });
 
   it('single posts read the capped list (no rollup); the item level reads only the item', async () => {
