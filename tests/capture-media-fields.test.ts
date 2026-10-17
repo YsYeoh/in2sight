@@ -84,10 +84,16 @@ describe('store: media fields and carousel children', () => {
     const db = { from: (table: string) => ({ upsert: async (rows: Record<string, unknown>[], opts: unknown) => (calls.push({ table, rows, opts }), { error: null }) }) };
     const details = { mediaType: 'CAROUSEL_ALBUM', productType: 'FEED', likeCount: 4, commentsCount: 2, isSharedToFeed: null, mediaUrl: CDN, thumbnailUrl: null, childrenCount: 2, children: [{ mediaType: 'IMAGE', mediaUrl: CDN, thumbnailUrl: null }, { mediaType: 'VIDEO', mediaUrl: null, thumbnailUrl: CDN }] };
     await supabaseSyncStore(db as never).upsertMedia('a1', [{ id: 'c1', kind: 'CAROUSEL_ALBUM', caption: null, permalink: null, postedAt: '2026-10-10T00:00:00.000Z', details }, { id: 'p1', kind: 'IMAGE', caption: null, permalink: null, postedAt: '2026-10-09T00:00:00.000Z' }]);
-    expect(calls[0].rows[0]).toMatchObject({ id: 'c1', media_product_type: 'FEED', like_count: 4, comments_count: 2, is_shared_to_feed: null, children_count: 2 });
-    expect(calls[0].rows[1]).not.toHaveProperty('like_count'); // no details -> stored values untouched
+    // PostgREST bulk upsert writes NULL for keys only some rows carry: rows with and without details go in separate calls
+    const mediaCalls = calls.filter((x) => x.table === 'media');
+    expect(mediaCalls).toHaveLength(2);
+    for (const m of mediaCalls) for (const r of m.rows) expect(Object.keys(r).sort()).toEqual(Object.keys(m.rows[0]).sort());
+    expect(mediaCalls[0].rows[0]).toMatchObject({ id: 'c1', media_product_type: 'FEED', like_count: 4, comments_count: 2, is_shared_to_feed: null, children_count: 2 });
+    expect(mediaCalls[1].rows).toHaveLength(1);
+    expect(mediaCalls[1].rows[0]).toMatchObject({ id: 'p1' });
+    expect(mediaCalls[1].rows[0]).not.toHaveProperty('like_count'); // no details -> stored values untouched
     expect(JSON.stringify(calls)).not.toContain('cdninstagram');
-    expect(calls[0].rows[0]).not.toHaveProperty('cover_status');
-    expect(calls[1]).toEqual({ table: 'media_children', rows: [{ media_id: 'c1', position: 0, media_type: 'IMAGE' }, { media_id: 'c1', position: 1, media_type: 'VIDEO' }], opts: { onConflict: 'media_id,position' } });
+    expect(mediaCalls[0].rows[0]).not.toHaveProperty('cover_status');
+    expect(calls[2]).toEqual({ table: 'media_children', rows: [{ media_id: 'c1', position: 0, media_type: 'IMAGE' }, { media_id: 'c1', position: 1, media_type: 'VIDEO' }], opts: { onConflict: 'media_id,position' } });
   });
 });

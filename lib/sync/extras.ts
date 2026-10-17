@@ -28,7 +28,9 @@ export async function fetchExtras(ig: IgData, token: string, mediaId: string, sc
       values = await ig.extraInsights(token, mediaId, Object.keys(g.metrics), g.breakdown);
     } catch (e) {
       if (isFatalIgError(e)) throw e;
-      run.capabilities = learn(run.capabilities, key, { error: e }); // false only for "unsupported"; anything else: skip
+      // false only for "unsupported"; anything else: skip. One object's refusal (an odd old post) never switches off a
+      // metric that already worked for this account.
+      if (run.capabilities[key] !== true) run.capabilities = learn(run.capabilities, key, { error: e });
       continue;
     }
     run.capabilities = learn(run.capabilities, key, { ok: true });

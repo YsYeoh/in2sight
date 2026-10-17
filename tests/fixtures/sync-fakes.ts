@@ -46,7 +46,7 @@ export interface MemoryInit {
   states?: SyncState[];
   tokens?: Record<string, string>;
   tz?: string;
-  media?: { id: string; accountId: string; postedAt: string; lastMetricsAt: string | null }[];
+  media?: { id: string; accountId: string; postedAt: string; lastMetricsAt: string | null; productType?: string | null }[];
 }
 
 export function memoryStore(init: MemoryInit = {}) {
@@ -95,7 +95,7 @@ export function memoryStore(init: MemoryInit = {}) {
       for (const i of items) (i.details?.children ?? []).forEach((ch, position) => children.push({ mediaId: i.id, position, mediaType: ch.mediaType }));
     },
     mediaForMetrics: async (accountId, since) =>
-      [...media.values()].filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && (m.postedAt >= since || m.lastMetricsAt === null)).map(({ id, postedAt, lastMetricsAt, kind }) => ({ id, postedAt, lastMetricsAt, kind })),
+      [...media.values()].filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && (m.postedAt >= since || m.lastMetricsAt === null)).map(({ id, postedAt, lastMetricsAt, kind, productType }) => ({ id, postedAt, lastMetricsAt, kind, productType })),
     insertMetrics: async (mediaId, capturedAt) => void metrics.push({ mediaId, capturedAt }),
     updateMetricExtras: async (mediaId, capturedAt, e) => void extras.push({ mediaId, capturedAt, e }),
     markCaptured: async (ids, at) => {

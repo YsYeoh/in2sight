@@ -103,8 +103,9 @@ describe('supabaseSyncStore', () => {
   });
 
   it('mediaForMetrics: feed/reels only, not gone, recent or never captured', async () => {
-    const r = recorder([{ data: [{ id: 'p1', posted_at: NOW, last_metrics_at: null }] }]);
-    expect(await supabaseSyncStore(r.db).mediaForMetrics('a1', '2026-09-14T02:00:00.000Z')).toEqual([{ id: 'p1', postedAt: NOW, lastMetricsAt: null }]);
+    const r = recorder([{ data: [{ id: 'p1', posted_at: NOW, last_metrics_at: null, media_type: 'REELS', media_product_type: 'FEED' }] }]);
+    expect(await supabaseSyncStore(r.db).mediaForMetrics('a1', '2026-09-14T02:00:00.000Z')).toEqual([{ id: 'p1', postedAt: NOW, lastMetricsAt: null, kind: 'REELS', productType: 'FEED' }]);
+    expect(r.calls[0].args[0]).toContain('media_product_type'); // an old feed video is told apart from a Reel
     expect(r.calls[0].filters).toEqual([
       ['eq', 'account_id', 'a1'],
       ['neq', 'media_type', 'STORY'],

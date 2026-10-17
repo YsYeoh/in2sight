@@ -155,6 +155,7 @@ export interface MediaRef {
   postedAt: string;
   lastMetricsAt: string | null;
   kind?: string; // IMAGE | CAROUSEL_ALBUM | REELS: picks the extra metric group (feed vs Reels)
+  productType?: string | null; // media_product_type as listed (FEED | REELS | …); a REELS kind with another type is an old feed video
 }
 
 /**

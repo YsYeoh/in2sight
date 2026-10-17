@@ -286,8 +286,13 @@ async function captureMedia(c: RunContext, p: Progress, refs: MediaRef[], due: s
   } finally {
     await c.store.markCaptured(captured, at);
   }
-  const kinds = new Map(refs.map((r) => [r.id, r.kind ?? 'IMAGE']));
-  await captureExtras(c, p, measured.map((id) => ({ id, kind: kinds.get(id)! })), at);
+  // A pre-2022 feed video is classified REELS (parse.ts kindOf) but Meta refuses the Reels metrics for it: no extras.
+  const byId = new Map(refs.map((r) => [r.id, r]));
+  const withExtras = measured.filter((id) => {
+    const r = byId.get(id)!;
+    return !(r.kind === 'REELS' && r.productType && r.productType !== 'REELS');
+  });
+  await captureExtras(c, p, withExtras.map((id) => ({ id, kind: byId.get(id)!.kind ?? 'IMAGE' })), at);
   return { done: true };
 }
 
@@ -361,13 +366,19 @@ const comments: Job = async (c) => {
     if (calls <= 0) break; // the rest next time (stamped done: the cadence brings it back within the hour)
     await c.progress?.report('comments', i, due.length);
     const items: IgComment[] = [];
+    let cut = false; // stopped by the call budget or the clock with pages left: read again next run, not "synced"
     try {
       let next: string | undefined;
-      for (let page = 0; page < COMMENT_PAGES_PER_MEDIA && calls > 0; page++) {
+      for (let page = 0; page < COMMENT_PAGES_PER_MEDIA; page++) {
         calls -= 1;
         const r = await c.ig.commentsPage(c.token, m.id, next);
         items.push(...r.items);
-        if (!r.next || outOfTime(c)) break;
+        if (!r.next) break;
+        if (page === COMMENT_PAGES_PER_MEDIA - 1) break; // page cap: the documented ceiling per post counts as read
+        if (calls <= 0 || outOfTime(c)) {
+          cut = true;
+          break;
+        }
         next = r.next;
       }
     } catch (e) {
@@ -377,7 +388,7 @@ const comments: Job = async (c) => {
     }
     if (items.length === 0) continue;
     await c.store.upsertComments(c.account.id, m.id, items, c.now.toISOString());
-    await c.store.markCommentsSynced(m.id, m.commentsCount);
+    if (!cut) await c.store.markCommentsSynced(m.id, m.commentsCount);
   }
   return { done: true };
 };

@@ -25,6 +25,8 @@ describe('the "unsupported" flag on Meta errors', () => {
     expect(isUnsupported(await fail(metaError('(#100) Invalid parameter')))).toBe(false);
     expect(isUnsupported(await fail(metaError('does not support this operation', 100, 2108006)))).toBe(false);
     expect(isUnsupported(await fail(metaError('does not support', 100, 33)))).toBe(false);
+    // Meta's generic object error, even without a subcode, is about the object and never about the metric
+    expect(isUnsupported(await fail(metaError("Unsupported get request. Object with ID '1789' does not exist, cannot be loaded due to missing permissions, or does not support this operation.")))).toBe(false);
     expect(isUnsupported(await fail(metaError('does not support', 2)))).toBe(false);
     expect(isUnsupported(await fail(json({ error: { message: 'does not support', code: 100 } }, 500)))).toBe(true); // code wins, status does not matter
     expect(isUnsupported(await fail(metaError('does not support', 80002)))).toBe(false);
