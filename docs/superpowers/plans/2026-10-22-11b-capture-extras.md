@@ -2862,3 +2862,531 @@ git commit -m "feat(sync): safe cover fetch (CDN allowlist, manual redirects, 5 
 ```
 
 ---
+
+### Task 10: Cover persistence + capture (store, `mediaCover`, Story covers on first sight)
+
+**Files:**
+- Modify: `lib/sync/covers.ts` (`captureCover`)
+- Modify: `lib/instagram/data.ts` (`mediaCover`)
+- Modify: `lib/sync/store.ts` (`coverRefs`, `markCover`, `uploadCover`, `expireStoryCovers`)
+- Modify: `lib/sync/run-account.ts` (`RunContext.cdnFetch`, `captureStoryCovers` in the Stories job)
+- Modify: `tests/fixtures/sync-fakes.ts` (`mediaCover`, cover methods, `covers` + `uploads` logs)
+- Test: `tests/sync-covers-capture.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `fetchImage`, `coverUrl`, `coverPath`, `afterFailure`, `COVERS_BUCKET`, `CoverRef`, `CoverStatus` (Task 9); `COVER_FIELDS`, `parseMediaDetails` (Task 8).
+- Produces: `captureCover(store, accountId, ref: { id; attempts }, url, nowIso, fetchFn?): Promise<boolean>`; `IgData.mediaCover(token, mediaId): Promise<MediaDetails>`; `SyncStore.coverRefs(accountId, { ids?; limit }): Promise<CoverRef[]>`, `markCover(mediaId, { status; attempts; triedAt; path? })`, `uploadCover(path, bytes, contentType)`, `expireStoryCovers(accountId, nowIso)`; `RunContext.cdnFetch?: typeof fetch` (Task 11 passes it from the tick). Fake store: `covers: Map<id, {status, attempts, triedAt, path?}>`, `uploads: {path, bytes, contentType}[]`.
+
+Story flow inside the Stories job: core snapshots → `markCaptured` → `captureStoryCovers` (every live Story whose cover is pending/failed, URL from the listing, retried on every pass while live up to 5 attempts; expired ones → `unavailable`) → Story extras. The whole cover step is wrapped: a Storage or database failure there never changes the job outcome. Object key `{account_id}/{media_id}.jpg`, `upsert: false` (an existing object counts as stored, so a lost status write is harmless).
+
+- [ ] **Step 1: Write the failing test** — create `tests/sync-covers-capture.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { igData } from '@/lib/instagram/data';
+import type { MediaDetails } from '@/lib/instagram/parse';
+import { runAccount, type RunContext } from '@/lib/sync/run-account';
+import { emptyState } from '@/lib/sync/schedule';
+import { supabaseSyncStore } from '@/lib/sync/store';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const NOW = new Date('2026-10-14T02:00:00Z');
+const ACC = 'a1';
+const URL1 = 'https://scontent-sin6-1.cdninstagram.com/v/story1.jpg?oe=1&_nc_sig=SECRET';
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 0xff, 0xd9]);
+const details = (o: Partial<MediaDetails> = {}): MediaDetails => ({ mediaType: 'IMAGE', productType: 'STORY', likeCount: null, commentsCount: null, isSharedToFeed: null, mediaUrl: URL1, thumbnailUrl: null, childrenCount: null, children: null, ...o });
+const story = (id: string, d?: MediaDetails, ageMin = 45) => ({ id, kind: 'STORY' as const, caption: null, permalink: null, postedAt: new Date(NOW.getTime() - ageMin * 60_000).toISOString(), details: d });
+
+function ctx(cdn: (url: string) => Response | Promise<Response>) {
+  const ig = fakeIg();
+  const mem = memoryStore();
+  const acc = account({ id: ACC });
+  const seen: string[] = [];
+  const cdnFetch = (async (input: string | URL) => (seen.push(String(input)), cdn(String(input)))) as typeof fetch;
+  const c: RunContext = { ig, store: mem.store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: emptyState(ACC), tz: 'UTC', now: NOW, deadline: 1, clock: () => 0, cdnFetch };
+  return { c, ig, mem, seen };
+}
+const jpeg = () => new Response(JPEG, { headers: { 'content-type': 'image/jpeg' } });
+
+describe('Story covers on first sight', () => {
+  it('copies a live Story cover into {account}/{media}.jpg once; the next pass does not fetch it again', async () => {
+    const { c, ig, mem, seen } = ctx(jpeg);
+    ig.listStories.mockResolvedValue([story('s1', details())]);
+    const { result } = await runAccount(c, ['stories']);
+    expect(result.outcome).toBe('ok');
+    expect(mem.uploads).toEqual([{ path: 'a1/s1.jpg', bytes: JPEG.byteLength, contentType: 'image/jpeg' }]);
+    expect(mem.covers.get('s1')).toEqual({ status: 'ok', attempts: 1, triedAt: NOW.toISOString(), path: 'a1/s1.jpg' });
+    await runAccount(c, ['stories']);
+    expect(seen).toHaveLength(1);
+  });
+
+  it('video Story: the thumbnail is copied, never the video', async () => {
+    const { c, ig, seen } = ctx(jpeg);
+    ig.listStories.mockResolvedValue([story('v1', details({ mediaType: 'VIDEO', mediaUrl: 'https://scontent.cdninstagram.com/v.mp4', thumbnailUrl: URL1 }))]);
+    await runAccount(c, ['stories']);
+    expect(seen).toEqual([URL1]);
+  });
+
+  it('expired link or a redirect to a foreign host: a failed attempt, the Story snapshot is unaffected', async () => {
+    for (const cdn of [() => new Response('gone', { status: 403 }), () => new Response(null, { status: 302, headers: { location: 'https://evil.example/x.jpg' } })]) {
+      const { c, ig, mem, seen } = ctx(cdn);
+      ig.listStories.mockResolvedValue([story('s1', details())]);
+      const { result } = await runAccount(c, ['stories']);
+      expect(result.outcome).toBe('ok');
+      expect(mem.metrics).toHaveLength(1);
+      expect(mem.covers.get('s1')).toMatchObject({ status: 'failed', attempts: 1 });
+      expect(seen.some((u) => u.includes('evil.example'))).toBe(false);
+    }
+  });
+
+  it('retried on every live pass, then given up after 5 attempts', async () => {
+    const { c, ig, mem } = ctx(() => new Response('x', { status: 500 }));
+    ig.listStories.mockResolvedValue([story('s1', details())]);
+    for (let i = 0; i < 6; i++) await runAccount(c, ['stories']);
+    expect(mem.covers.get('s1')).toMatchObject({ status: 'unavailable', attempts: 5 });
+  });
+
+  it('no URL offered (Story URL fields unsupported): no attempt counted; once expired it becomes unavailable', async () => {
+    const { c, ig, mem, seen } = ctx(jpeg);
+    ig.listStories.mockResolvedValue([story('s1')]);
+    await runAccount(c, ['stories']);
+    expect(seen).toHaveLength(0);
+    expect(mem.covers.get('s1')).toBeUndefined();
+    const later: RunContext = { ...c, now: new Date(NOW.getTime() + 25 * 3_600_000) };
+    ig.listStories.mockResolvedValue([]);
+    await runAccount(later, ['stories']);
+    expect(mem.covers.get('s1')).toMatchObject({ status: 'unavailable' });
+  });
+
+  it('Storage down: a failed attempt; database down: the Story capture still succeeds', async () => {
+    const storage = ctx(jpeg);
+    storage.ig.listStories.mockResolvedValue([story('s1', details())]);
+    storage.mem.store.uploadCover = async () => {
+      throw new Error('sync store: uploadCover failed');
+    };
+    expect((await runAccount(storage.c, ['stories'])).result.outcome).toBe('ok');
+    expect(storage.mem.covers.get('s1')).toMatchObject({ status: 'failed', attempts: 1 });
+
+    const db = ctx(jpeg);
+    db.ig.listStories.mockResolvedValue([story('s1', details())]);
+    db.mem.store.coverRefs = async () => {
+      throw new Error('sync store: coverRefs failed');
+    };
+    const { result } = await runAccount(db.c, ['stories']);
+    expect(result.outcome).toBe('ok');
+    expect(db.mem.metrics).toHaveLength(1);
+  });
+});
+
+describe('cover persistence', () => {
+  type Call = { table: string; op: string; row?: unknown; filters: unknown[][] };
+  function recorder(storageError: unknown = null, data: unknown = []) {
+    const calls: Call[] = [];
+    const uploads: unknown[][] = [];
+    const db = {
+      from(table: string) {
+        const c: Call = { table, op: 'select', filters: [] };
+        calls.push(c);
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.update = (row: unknown) => ((c.op = 'update'), (c.row = row), chain);
+        for (const f of ['eq', 'in', 'is', 'neq', 'lt', 'order', 'limit']) chain[f] = (...a: unknown[]) => (c.filters.push([f, ...a]), chain);
+        chain.then = (res: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(res);
+        return chain;
+      },
+      storage: { from: (bucket: string) => ({ upload: async (...a: unknown[]) => (uploads.push([bucket, ...a]), { data: null, error: storageError }) }) },
+    };
+    return { db: db as never, calls, uploads };
+  }
+
+  it('coverRefs: pending/failed, not gone; Stories by id, otherwise feed + Reels; newest first, limited', async () => {
+    const r = recorder(null, [{ id: 'p1', media_type: 'IMAGE', posted_at: 'x', cover_status: 'failed', cover_attempts: 2, cover_tried_at: 'y' }]);
+    const s = supabaseSyncStore(r.db);
+    expect(await s.coverRefs(ACC, { limit: 25 })).toEqual([{ id: 'p1', kind: 'IMAGE', postedAt: 'x', status: 'failed', attempts: 2, triedAt: 'y' }]);
+    expect(r.calls[0].filters).toEqual([['eq', 'account_id', ACC], ['in', 'cover_status', ['pending', 'failed']], ['is', 'gone_at', null], ['neq', 'media_type', 'STORY'], ['order', 'posted_at', { ascending: false }], ['limit', 25]]);
+    await s.coverRefs(ACC, { ids: ['s1'], limit: 1 });
+    expect(r.calls[1].filters).toContainEqual(['in', 'id', ['s1']]);
+    expect(r.calls[1].filters).not.toContainEqual(['neq', 'media_type', 'STORY']);
+  });
+
+  it('markCover: ok stores path + captured time; a failure only the attempt', async () => {
+    const r = recorder();
+    const s = supabaseSyncStore(r.db);
+    await s.markCover('p1', { status: 'ok', attempts: 1, triedAt: 'T', path: 'a1/p1.jpg' });
+    await s.markCover('p2', { status: 'failed', attempts: 2, triedAt: 'T' });
+    expect(r.calls[0].row).toEqual({ cover_status: 'ok', cover_attempts: 1, cover_tried_at: 'T', cover_path: 'a1/p1.jpg', cover_captured_at: 'T' });
+    expect(r.calls[1].row).toEqual({ cover_status: 'failed', cover_attempts: 2, cover_tried_at: 'T' });
+  });
+
+  it('uploadCover: private bucket, never overwrites, an existing object counts as stored, anything else throws', async () => {
+    const ok = recorder();
+    await supabaseSyncStore(ok.db).uploadCover('a1/p1.jpg', JPEG, 'image/jpeg');
+    expect(ok.uploads[0]).toEqual(['covers', 'a1/p1.jpg', JPEG, { contentType: 'image/jpeg', upsert: false, cacheControl: '31536000' }]);
+    await expect(supabaseSyncStore(recorder({ statusCode: '409', message: 'The resource already exists' }).db).uploadCover('p', JPEG, 'image/jpeg')).resolves.toBeUndefined();
+    await expect(supabaseSyncStore(recorder({ statusCode: '500', message: 'boom' }).db).uploadCover('p', JPEG, 'image/jpeg')).rejects.toThrow('sync store: uploadCover failed');
+  });
+
+  it('expireStoryCovers only touches unfinished Stories past their expiry', async () => {
+    const r = recorder();
+    await supabaseSyncStore(r.db).expireStoryCovers(ACC, NOW.toISOString());
+    expect(r.calls[0]).toMatchObject({ op: 'update', row: { cover_status: 'unavailable' } });
+    expect(r.calls[0].filters).toEqual([['eq', 'account_id', ACC], ['eq', 'media_type', 'STORY'], ['in', 'cover_status', ['pending', 'failed']], ['lt', 'expires_at', NOW.toISOString()]]);
+  });
+
+  it('mediaCover asks the cover fields of one media item', async () => {
+    const seen: URL[] = [];
+    const fn = (async (input: string | URL) => (seen.push(new URL(String(input))), new Response(JSON.stringify({ media_type: 'VIDEO', thumbnail_url: URL1 })))) as typeof fetch;
+    expect(await igData('v25.0', fn).mediaCover('t', 'm1')).toMatchObject({ mediaType: 'VIDEO', thumbnailUrl: URL1 });
+    expect(seen[0].pathname).toBe('/v25.0/m1');
+    expect(seen[0].searchParams.get('fields')).toBe('media_type,media_url,thumbnail_url,children{media_type,media_url,thumbnail_url}');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/sync-covers-capture.test.ts`
+Expected: FAIL — no uploads recorded / `coverRefs is not a function`.
+
+- [ ] **Step 3: Implement**
+
+In `lib/sync/covers.ts` replace:
+
+```ts
+import type { MediaDetails } from '@/lib/instagram/parse';
+```
+
+with:
+
+```ts
+import type { MediaDetails } from '@/lib/instagram/parse';
+import type { SyncStore } from '@/lib/sync/store';
+```
+
+In `lib/sync/covers.ts` replace:
+
+```ts
+/** Post covers to try now, newest first: never tried, or failed and its back-off has passed. */
+```
+
+with:
+
+```ts
+/**
+ * One attempt: fetch the image, upload it as {account}/{media}.jpg (never overwriting), record the outcome. A fetch
+ * or upload failure counts as a failed attempt (back-off, then 'unavailable'); only the status write itself can throw.
+ */
+export async function captureCover(store: SyncStore, accountId: string, ref: Pick<CoverRef, 'id' | 'attempts'>, url: string, nowIso: string, fetchFn: typeof fetch = fetch): Promise<boolean> {
+  const img = await fetchImage(url, fetchFn);
+  if (img.ok) {
+    const path = coverPath(accountId, ref.id);
+    try {
+      await store.uploadCover(path, img.bytes, img.contentType);
+      await store.markCover(ref.id, { status: 'ok', attempts: ref.attempts + 1, triedAt: nowIso, path });
+      return true;
+    } catch {
+      // Storage hiccup: counted as a failed attempt below
+    }
+  }
+  await store.markCover(ref.id, { ...afterFailure(ref.attempts), triedAt: nowIso });
+  return false;
+}
+
+/** Post covers to try now, newest first: never tried, or failed and its back-off has passed. */
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+import { mediaDetailsById, parseBreakdown, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem } from '@/lib/instagram/parse';
+```
+
+with:
+
+```ts
+import { mediaDetailsById, parseBreakdown, parseMediaDetails, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem, type MediaDetails } from '@/lib/instagram/parse';
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+    refresh: (token: string) => refreshLongLived(token, fetchFn),
+```
+
+with:
+
+```ts
+    /** Fresh cover URLs for one media item (they expire within days, so they are asked right before the copy). */
+    async mediaCover(token: string, mediaId: string): Promise<MediaDetails> {
+      return parseMediaDetails(await get(mediaId, { fields: M.COVER_FIELDS }, token));
+    },
+
+    refresh: (token: string) => refreshLongLived(token, fetchFn),
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+import { parseCapabilities, type Capabilities } from '@/lib/sync/capabilities';
+```
+
+with:
+
+```ts
+import { parseCapabilities, type Capabilities } from '@/lib/sync/capabilities';
+import { COVERS_BUCKET, type CoverRef, type CoverStatus } from '@/lib/sync/covers';
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+  upsertAudience(accountId: string, day: string, kind: AudienceKind, data: Record<string, number>): Promise<void>;
+```
+
+with:
+
+```ts
+  upsertAudience(accountId: string, day: string, kind: AudienceKind, data: Record<string, number>): Promise<void>;
+  /** Media whose cover is still to do (pending/failed, not gone), newest first. ids given: only those (Stories); else feed + Reels. */
+  coverRefs(accountId: string, opts: { ids?: string[]; limit: number }): Promise<CoverRef[]>;
+  markCover(mediaId: string, r: { status: CoverStatus; attempts: number; triedAt: string; path?: string }): Promise<void>;
+  /** Private bucket "covers", never overwriting; an object that already exists counts as stored. */
+  uploadCover(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  /** Stories past expires_at whose cover never landed: 'unavailable' (the CDN link died with them). */
+  expireStoryCovers(accountId: string, nowIso: string): Promise<void>;
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+    async upsertOnlineFollowers(accountId, day, hourly) {
+```
+
+with:
+
+```ts
+    async coverRefs(accountId, opts) {
+      let q = db
+        .from('media')
+        .select('id,media_type,posted_at,cover_status,cover_attempts,cover_tried_at')
+        .eq('account_id', accountId)
+        .in('cover_status', ['pending', 'failed'])
+        .is('gone_at', null);
+      q = opts.ids ? q.in('id', opts.ids) : q.neq('media_type', 'STORY');
+      const { data, error } = await q.order('posted_at', { ascending: false }).limit(opts.limit);
+      if (error) fail('coverRefs');
+      return ((data ?? []) as Row[]).map((r) => ({
+        id: r.id as string,
+        kind: r.media_type as string,
+        postedAt: r.posted_at as string,
+        status: r.cover_status as CoverStatus,
+        attempts: typeof r.cover_attempts === 'number' ? r.cover_attempts : 0,
+        triedAt: (r.cover_tried_at as string | null) ?? null,
+      }));
+    },
+    async markCover(mediaId, r) {
+      const row: Row = { cover_status: r.status, cover_attempts: r.attempts, cover_tried_at: r.triedAt };
+      if (r.status === 'ok') Object.assign(row, { cover_path: r.path ?? null, cover_captured_at: r.triedAt });
+      check('markCover')(await db.from('media').update(row).eq('id', mediaId));
+    },
+    async uploadCover(path, bytes, contentType) {
+      const { error } = await db.storage.from(COVERS_BUCKET).upload(path, bytes, { contentType, upsert: false, cacheControl: '31536000' });
+      if (!error) return;
+      const e = error as { statusCode?: string; status?: number; code?: string };
+      if (e.statusCode === '409' || e.status === 409 || e.code === 'ResourceAlreadyExists' || e.code === 'Duplicate') return;
+      fail('uploadCover');
+    },
+    async expireStoryCovers(accountId, nowIso) {
+      check('expireStoryCovers')(
+        await db.from('media').update({ cover_status: 'unavailable' }).eq('account_id', accountId).eq('media_type', 'STORY').in('cover_status', ['pending', 'failed']).lt('expires_at', nowIso),
+      );
+    },
+    async upsertOnlineFollowers(accountId, day, hourly) {
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+  /** Live progress (only while the account is importing or on a manual run); best-effort, never throws. */
+  progress?: ProgressSink;
+}
+```
+
+with:
+
+```ts
+  /** Live progress (only while the account is importing or on a manual run); best-effort, never throws. */
+  progress?: ProgressSink;
+  /** fetch for the Instagram CDN (cover images); default: global fetch. */
+  cdnFetch?: typeof fetch;
+}
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
+```
+
+with:
+
+```ts
+import { captureCover, coverUrl } from '@/lib/sync/covers';
+import { EXTRA_CALLS_PER_RUN, fetchExtras, scopeOf } from '@/lib/sync/extras';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
+```
+
+with:
+
+```ts
+import { DEMOGRAPHIC_BREAKDOWNS, type AudienceKind } from '@/lib/instagram/metrics';
+import type { IgMediaItem } from '@/lib/instagram/parse';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+/**
+ * Live Stories with their image URLs
+```
+
+with:
+
+```ts
+/**
+ * Story covers on FIRST SIGHT (the CDN link dies with the Story): every live Story whose cover is not stored yet, with
+ * the URL from the listing; retried on every pass while it is live (up to COVER_MAX_ATTEMPTS), then expired ones are
+ * marked unavailable. Entirely best-effort: nothing here can cost the Story capture.
+ */
+async function captureStoryCovers(c: RunContext, items: IgMediaItem[]): Promise<void> {
+  try {
+    if (items.length > 0) {
+      const byId = new Map(items.map((i) => [i.id, i]));
+      for (const ref of await c.store.coverRefs(c.account.id, { ids: [...byId.keys()], limit: items.length })) {
+        if (outOfTime(c)) break;
+        const url = coverUrl(byId.get(ref.id)?.details);
+        if (url) await captureCover(c.store, c.account.id, ref, url, c.now.toISOString(), c.cdnFetch);
+        // no URL (fields not offered on Stories, or none for this Story): no attempt counted; expiry ends it
+      }
+    }
+    await c.store.expireStoryCovers(c.account.id, c.now.toISOString());
+  } catch {
+    // covers are optional; the Story snapshot is already stored
+  }
+}
+
+/**
+ * Live Stories with their image URLs
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+  const extrasDue = items.filter((s) => captured.includes(s.id) && storyExtrasDue(s.postedAt, c.now));
+```
+
+with:
+
+```ts
+  await captureStoryCovers(c, items);
+  const extrasDue = items.filter((s) => captured.includes(s.id) && storyExtrasDue(s.postedAt, c.now));
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+import { emptyState, type SyncState } from '@/lib/sync/schedule';
+```
+
+with:
+
+```ts
+import type { CoverStatus } from '@/lib/sync/covers';
+import { emptyState, type SyncState } from '@/lib/sync/schedule';
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  const children: { mediaId: string; position: number; mediaType: string | null }[] = [];
+```
+
+with:
+
+```ts
+  const children: { mediaId: string; position: number; mediaType: string | null }[] = [];
+  /** cover state per media id; a media item without an entry is 'pending' with 0 attempts (the column default) */
+  const covers = new Map<string, { status: CoverStatus; attempts: number; triedAt: string | null; path?: string }>();
+  const uploads: { path: string; bytes: number; contentType: string }[] = [];
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+    upsertAudience: async (accountId, _day, kind) => void audience.push({ accountId, kind }),
+```
+
+with:
+
+```ts
+    upsertAudience: async (accountId, _day, kind) => void audience.push({ accountId, kind }),
+    coverRefs: async (accountId, opts) =>
+      [...media.values()]
+        .filter((m) => m.accountId === accountId && !m.gone && (opts.ids ? opts.ids.includes(m.id) : m.kind !== 'STORY'))
+        .map((m) => ({ id: m.id, kind: m.kind, postedAt: m.postedAt, status: 'pending' as CoverStatus, attempts: 0, triedAt: null, ...covers.get(m.id) }))
+        .filter((r) => r.status === 'pending' || r.status === 'failed')
+        .sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1))
+        .slice(0, opts.limit),
+    markCover: async (id, r) => void covers.set(id, r),
+    uploadCover: async (path, bytes, contentType) => void uploads.push({ path, bytes: bytes.byteLength, contentType }),
+    expireStoryCovers: async (accountId, nowIso) => {
+      for (const m of media.values()) {
+        const st = covers.get(m.id)?.status ?? 'pending';
+        if (m.accountId === accountId && m.kind === 'STORY' && (st === 'pending' || st === 'failed') && Date.parse(m.postedAt) + 86_400_000 < Date.parse(nowIso)) covers.set(m.id, { status: 'unavailable', attempts: covers.get(m.id)?.attempts ?? 0, triedAt: null });
+      }
+    },
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  return { store, states, media, children,
+```
+
+with:
+
+```ts
+  return { store, states, media, children, covers, uploads,
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+    storyInsights: vi.fn<IgData['storyInsights']>(async () => METRICS),
+```
+
+with:
+
+```ts
+    storyInsights: vi.fn<IgData['storyInsights']>(async () => METRICS),
+    mediaCover: vi.fn<IgData['mediaCover']>(async () => ({ mediaType: 'IMAGE', productType: null, likeCount: null, commentsCount: null, isSharedToFeed: null, mediaUrl: null, thumbnailUrl: null, childrenCount: null, children: null })),
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/sync-covers-capture.test.ts tests/cover-fetch.test.ts tests/sync-run-account.test.ts tests/sync-story-extras.test.ts tests/capture-media-fields.test.ts tests/sync-lanes.test.ts && npx tsc --noEmit`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/sync/covers.ts lib/instagram/data.ts lib/sync/store.ts lib/sync/run-account.ts tests/fixtures/sync-fakes.ts tests/sync-covers-capture.test.ts
+git commit -m "feat(sync): copy Story covers into private Storage on first sight (retry while live, then unavailable)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
