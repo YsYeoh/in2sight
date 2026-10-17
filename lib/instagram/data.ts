@@ -81,13 +81,32 @@ export function isUnsupported(e: unknown): boolean {
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+/**
+ * Raw-response archive hook (api_snapshots): called with the request key (path + sorted params, never the token) and
+ * the parsed JSON body of account-level insights and audience calls only. Must not throw (errors are swallowed anyway).
+ */
+export type Archive = (endpoint: string, body: Record<string, unknown>) => void;
+
+/** Stable archive key: path + params sorted by name. The token is never part of it. */
+export const endpointKey = (path: string, params: Record<string, string | number>) =>
+  `${path}?${new URLSearchParams(Object.entries(params).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => [k, String(v)])).toString()}`;
+
 export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
   const getUrl = (url: string) => call('data', fetchFn, url, graphInit());
-  const get = (path: string, params: Record<string, string | number>, token: string) => {
+  const get = async (path: string, params: Record<string, string | number>, token: string, archive?: Archive) => {
     const u = new URL(`${HOST}/${apiVersion}/${path}`);
     for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
     u.searchParams.set('access_token', token);
-    return getUrl(u.toString());
+    const body = await getUrl(u.toString());
+    try {
+      // `paging` links carry the access_token (and only repeat the request window): never archived
+      const archivable = { ...body };
+      delete archivable.paging;
+      archive?.(endpointKey(path, params), archivable);
+    } catch {
+      // the archive is best-effort: never costs the call
+    }
+    return body;
   };
 
   /**
@@ -119,10 +138,10 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
     },
 
     /** One insight day of reach and views split by follower type x product type (two calls). Rows with no value are omitted. */
-    async accountDayBreakdown(token: string, since: number, until: number): Promise<BreakdownRow[]> {
+    async accountDayBreakdown(token: string, since: number, until: number, archive?: Archive): Promise<BreakdownRow[]> {
       const rows: BreakdownRow[] = [];
       for (const metric of M.BREAKDOWN_METRICS) {
-        const r = parseBreakdown(await get('me/insights', { metric_type: 'total_value', period: 'day', since, until, metric, breakdown: M.BREAKDOWN_DIMS }, token), metric);
+        const r = parseBreakdown(await get('me/insights', { metric_type: 'total_value', period: 'day', since, until, metric, breakdown: M.BREAKDOWN_DIMS }, token, archive), metric);
         for (const [key, value] of Object.entries(r)) {
           const [followType, productType] = key.split('|');
           if (followType && productType) rows.push({ metric, followType, productType, value });
@@ -132,10 +151,10 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
     },
 
     /** One insight day: since/until are unix seconds of that day's start and the next day's start. */
-    async accountDay(token: string, since: number, until: number): Promise<AccountDayValues> {
+    async accountDay(token: string, since: number, until: number, archive?: Archive): Promise<AccountDayValues> {
       const base = { metric_type: 'total_value', period: 'day', since, until };
-      const t = parseTotals(await get('me/insights', { ...base, metric: M.ACCOUNT_DAY_METRICS.join(',') }, token));
-      const f = parseBreakdown(await get('me/insights', { ...base, metric: M.FOLLOWS_METRIC, breakdown: M.FOLLOWS_BREAKDOWN }, token), M.FOLLOWS_METRIC);
+      const t = parseTotals(await get('me/insights', { ...base, metric: M.ACCOUNT_DAY_METRICS.join(',') }, token, archive));
+      const f = parseBreakdown(await get('me/insights', { ...base, metric: M.FOLLOWS_METRIC, breakdown: M.FOLLOWS_BREAKDOWN }, token, archive), M.FOLLOWS_METRIC);
       return {
         reach: t.reach ?? null,
         views: t.views ?? null,
@@ -183,13 +202,13 @@ export function igData(apiVersion: string, fetchFn: typeof fetch = fetch) {
       return breakdown ? parseBreakdown(body, metrics[0]) : parseTotals(body);
     },
 
-    async audience(token: string, kind: M.AudienceKind): Promise<Record<string, number>> {
+    async audience(token: string, kind: M.AudienceKind, archive?: Archive): Promise<Record<string, number>> {
       const params = { metric: M.DEMOGRAPHICS_METRIC, period: 'lifetime', metric_type: 'total_value', timeframe: M.DEMOGRAPHICS_TIMEFRAME, breakdown: M.DEMOGRAPHIC_BREAKDOWNS[kind] };
-      return parseBreakdown(await get('me/insights', params, token), M.DEMOGRAPHICS_METRIC);
+      return parseBreakdown(await get('me/insights', params, token, archive), M.DEMOGRAPHICS_METRIC);
     },
 
-    async onlineFollowers(token: string, since: number, until: number) {
-      return parseOnlineFollowers(await get('me/insights', { metric: M.ONLINE_FOLLOWERS_METRIC, period: 'lifetime', since, until }, token));
+    async onlineFollowers(token: string, since: number, until: number, archive?: Archive) {
+      return parseOnlineFollowers(await get('me/insights', { metric: M.ONLINE_FOLLOWERS_METRIC, period: 'lifetime', since, until }, token, archive));
     },
 
     /**
