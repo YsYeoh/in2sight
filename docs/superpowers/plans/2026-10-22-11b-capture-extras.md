@@ -777,11 +777,11 @@ describe('capability memory is persisted with the sync state', () => {
     expect(rows[1]).not.toHaveProperty('capabilities');
   });
 
-  it('runAccount carries the stored map into its patch (nothing learned = unchanged)', async () => {
+  it('runAccount carries the stored map into its patch (a remembered "unsupported" survives the run)', async () => {
     const acc = account({ id: 'a1' });
     const c: RunContext = { ig: fakeIg(), store: memoryStore().store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: { ...emptyState('a1'), capabilities: { 'story:follows': false } }, tz: 'UTC', now: new Date('2026-10-14T02:00:00Z'), deadline: 1, clock: () => 0 };
     const { patch } = await runAccount(c, ['stories']);
-    expect(patch.capabilities).toEqual({ 'story:follows': false });
+    expect(patch.capabilities).toMatchObject({ 'story:follows': false });
   });
 });
 ```
@@ -1383,6 +1383,8 @@ const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60_000).toISOString(
 const story = (id: string, ageMin = 10) => ({ id, kind: 'STORY' as const, caption: null, permalink: null, postedAt: minsAgo(ageMin) });
 const unsupported = () => new InstagramApiError('data', 400, 100, undefined, true);
 const gone = () => new InstagramApiError('data', 400, 100, 33);
+/** Only the Story-extras keys (later tasks add other capability keys, e.g. stories:url_fields). */
+const storyCaps = (caps: Record<string, boolean> | undefined) => Object.fromEntries(Object.entries(caps ?? {}).filter(([k]) => k.startsWith('story:')));
 
 function ctx(state: Partial<SyncState> = {}) {
   const ig = fakeIg();
@@ -1428,7 +1430,7 @@ describe('Story extras', () => {
       { mediaId: 's1', capturedAt: NOW.toISOString(), e: { follows: 3, profileVisits: 7, profileActivity: { BIO_LINK_CLICKED: 2 } } },
       { mediaId: 's2', capturedAt: NOW.toISOString(), e: { follows: 3, profileVisits: 7, profileActivity: { BIO_LINK_CLICKED: 2 } } },
     ]);
-    expect(patch.capabilities).toEqual({ 'story:follows': true, 'story:profile_visits': true, 'story:profile_activity': true });
+    expect(storyCaps(patch.capabilities)).toEqual({ 'story:follows': true, 'story:profile_visits': true, 'story:profile_activity': true });
   });
 
   it('an unsupported metric only drops that metric, is remembered, and is not asked on the next run', async () => {
@@ -1455,7 +1457,7 @@ describe('Story extras', () => {
     expect(result.outcome).toBe('ok');
     expect(log[0]).toBe('core:s1');
     expect(mem.extras).toEqual([]);
-    expect(patch.capabilities).toEqual({});
+    expect(storyCaps(patch.capabilities)).toEqual({});
   });
 
   it('transient errors (5xx, network, unclassified 100) never poison the capability memory', async () => {
@@ -1464,7 +1466,7 @@ describe('Story extras', () => {
     answer(ig, log, { follows: () => new InstagramApiError('data', 500, 2), profile_visits: () => new InstagramApiError('network'), profile_activity: () => new InstagramApiError('data', 400, 100) });
     const { result, patch } = await runAccount(c, ['stories']);
     expect(result.outcome).toBe('ok');
-    expect(patch.capabilities).toEqual({ 'story:profile_visits': true });
+    expect(storyCaps(patch.capabilities)).toEqual({ 'story:profile_visits': true });
   });
 
   it('a rate limit in an extra still stops the job (back-off), but only after the core snapshot was stored', async () => {
@@ -2070,6 +2072,498 @@ Expected: PASS.
 ```bash
 git add lib/sync/schedule.ts lib/sync/store.ts lib/sync/run-account.ts tests/fixtures/sync-fakes.ts tests/sync-schedule.test.ts tests/sync-media-extras.test.ts
 git commit -m "feat(sync): per-media extras (feed follows/visits/activity, Reels watch time/skip rate) + 7-day checkpoint" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: Media fields + `media_children` (listing details, Story-field fallback)
+
+**Files:**
+- Modify: `lib/instagram/metrics.ts` (`MEDIA_BASE_FIELDS`, `MEDIA_FIELDS`, `STORY_FIELDS`, `COVER_FIELDS`)
+- Modify: `lib/instagram/parse.ts` (`IgMediaItem.details`, `MediaDetails`, `MediaChild`, `parseMediaDetails`, `mediaDetailsById`)
+- Modify: `lib/instagram/data.ts` (`listPaged` takes the field list and attaches details; `listStories(token, withUrls = true)`)
+- Modify: `lib/sync/store.ts` (`upsertMedia` writes details + `media_children`)
+- Modify: `lib/sync/run-account.ts` (`listLiveStories` fallback)
+- Modify: `tests/fixtures/sync-fakes.ts` (`children` log), `tests/instagram-data.test.ts` (listing field list), `tests/sync-tick.test.ts` (`listStories` now gets `withUrls`), `scripts/record-ig-fixtures.mjs` (records Stories with `STORY_FIELDS`)
+- Test: `tests/capture-media-fields.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `learn`, `shouldAsk`, `isUnsupported` (Task 4).
+- Produces: `MEDIA_BASE_FIELDS`, `MEDIA_FIELDS` (= base + `like_count,comments_count,is_shared_to_feed,children{media_type}`), `STORY_FIELDS` (= base + `media_url,thumbnail_url`), `COVER_FIELDS` (used by Task 10); `interface MediaDetails { mediaType; productType; likeCount; commentsCount; isSharedToFeed; mediaUrl; thumbnailUrl; childrenCount; children: MediaChild[] | null }`; `parseMediaDetails(v: unknown): MediaDetails`; `IgMediaItem.details?: MediaDetails`; `IgData.listStories(token, withUrls?: boolean)`; capability key `stories:url_fields`.
+
+The original parsers keep their shapes (`parseMediaPage` output and its tests are unchanged); details ride on a separate optional property. CDN URLs are only kept in memory for the cover copy (Task 10) and never written to the database.
+
+- [ ] **Step 1: Write the failing test** — create `tests/capture-media-fields.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { igData, type IgData } from '@/lib/instagram/data';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+import { parseMediaDetails } from '@/lib/instagram/parse';
+import { runAccount, type RunContext } from '@/lib/sync/run-account';
+import { emptyState, type SyncState } from '@/lib/sync/schedule';
+import { supabaseSyncStore } from '@/lib/sync/store';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+const CDN = 'https://scontent-sin6-1.cdninstagram.com/v/t51/abc.jpg?oe=AAAA&_nc_sig=secret';
+
+describe('parseMediaDetails', () => {
+  it('reads counts, product type, Reels flag, URLs and the first 10 children; keeps the real child count', () => {
+    const children = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, media_type: i % 2 ? 'VIDEO' : 'IMAGE', media_url: `${CDN}&i=${i}` }));
+    const d = parseMediaDetails({ media_type: 'CAROUSEL_ALBUM', media_product_type: 'FEED', like_count: 12, comments_count: 0, children: { data: children } });
+    expect(d).toMatchObject({ mediaType: 'CAROUSEL_ALBUM', productType: 'FEED', likeCount: 12, commentsCount: 0, isSharedToFeed: null, childrenCount: 12 });
+    expect(d.children).toHaveLength(10);
+    expect(d.children![1]).toEqual({ mediaType: 'VIDEO', mediaUrl: `${CDN}&i=1`, thumbnailUrl: null });
+  });
+  it('missing or malformed values are null, never 0', () => {
+    expect(parseMediaDetails({ like_count: '5', is_shared_to_feed: 'yes' })).toEqual({ mediaType: null, productType: null, likeCount: null, commentsCount: null, isSharedToFeed: null, mediaUrl: null, thumbnailUrl: null, childrenCount: null, children: null });
+    expect(parseMediaDetails(null).likeCount).toBeNull();
+  });
+});
+
+describe('listing requests', () => {
+  function record(body: unknown) {
+    const seen: URL[] = [];
+    const fn = (async (input: string | URL) => (seen.push(new URL(String(input))), json(body))) as typeof fetch;
+    return { fn, seen };
+  }
+  it('listMedia asks the extended fields and attaches the details to each item', async () => {
+    const f = record({ data: [{ id: 'r1', media_type: 'VIDEO', media_product_type: 'REELS', timestamp: '2026-10-13T10:00:00+0000', like_count: 3, comments_count: 1, is_shared_to_feed: true }] });
+    const [item] = await igData('v25.0', f.fn).listMedia('t', 10);
+    expect(f.seen[0].searchParams.get('fields')).toContain('like_count,comments_count,is_shared_to_feed,children{media_type}');
+    expect(item).toMatchObject({ id: 'r1', kind: 'REELS', details: { likeCount: 3, commentsCount: 1, isSharedToFeed: true, productType: 'REELS' } });
+  });
+  it('listStories asks the URL fields by default and only the base fields when told so', async () => {
+    const f = record({ data: [] });
+    const ig = igData('v25.0', f.fn);
+    await ig.listStories('t');
+    await ig.listStories('t', false);
+    expect(f.seen[0].searchParams.get('fields')).toBe('id,caption,media_type,media_product_type,permalink,timestamp,media_url,thumbnail_url');
+    expect(f.seen[1].searchParams.get('fields')).toBe('id,caption,media_type,media_product_type,permalink,timestamp');
+  });
+});
+
+describe('Story field fallback', () => {
+  function ctx(state: Partial<SyncState> = {}) {
+    const ig = fakeIg();
+    const acc = account({ id: 'a1' });
+    const c: RunContext = { ig, store: memoryStore().store, accounts: fakeAccounts([acc]).accounts, account: acc, token: 'IGQ-secret', state: { ...emptyState('a1'), ...state }, tz: 'UTC', now: new Date('2026-10-14T02:00:00Z'), deadline: 1, clock: () => 0 };
+    return { c, ig };
+  }
+  it('"nonexisting field" on the URL fields: Stories are listed again with the base fields, and that is remembered', async () => {
+    const { c, ig } = ctx();
+    ig.listStories.mockImplementation((async (_t: string, withUrls?: boolean) => {
+      if (withUrls !== false) throw new InstagramApiError('data', 400, 100, undefined, true);
+      return [];
+    }) as IgData['listStories']);
+    const { result, patch } = await runAccount(c, ['stories']);
+    expect(result.outcome).toBe('ok');
+    expect(ig.listStories.mock.calls.map((a) => a[1])).toEqual([true, false]);
+    expect(patch.capabilities!['stories:url_fields']).toBe(false);
+
+    const next = ctx({ capabilities: patch.capabilities });
+    await runAccount(next.c, ['stories']);
+    expect(next.ig.listStories.mock.calls.map((a) => a[1])).toEqual([false]);
+  });
+  it('any other error is not a reason to retry: a rate limit still stops the job', async () => {
+    const { c, ig } = ctx();
+    ig.listStories.mockRejectedValue(new InstagramApiError('data', 400, 80002));
+    const { result, patch } = await runAccount(c, ['stories']);
+    expect(ig.listStories).toHaveBeenCalledTimes(1);
+    expect(result.errorKey).toBe('rate_limited');
+    expect(patch.capabilities).toEqual({});
+  });
+});
+
+describe('store: media fields and carousel children', () => {
+  it('upserts the listing details (never the CDN URLs) and one children row per position', async () => {
+    const calls: { table: string; rows: Record<string, unknown>[]; opts: unknown }[] = [];
+    const db = { from: (table: string) => ({ upsert: async (rows: Record<string, unknown>[], opts: unknown) => (calls.push({ table, rows, opts }), { error: null }) }) };
+    const details = { mediaType: 'CAROUSEL_ALBUM', productType: 'FEED', likeCount: 4, commentsCount: 2, isSharedToFeed: null, mediaUrl: CDN, thumbnailUrl: null, childrenCount: 2, children: [{ mediaType: 'IMAGE', mediaUrl: CDN, thumbnailUrl: null }, { mediaType: 'VIDEO', mediaUrl: null, thumbnailUrl: CDN }] };
+    await supabaseSyncStore(db as never).upsertMedia('a1', [{ id: 'c1', kind: 'CAROUSEL_ALBUM', caption: null, permalink: null, postedAt: '2026-10-10T00:00:00.000Z', details }, { id: 'p1', kind: 'IMAGE', caption: null, permalink: null, postedAt: '2026-10-09T00:00:00.000Z' }]);
+    expect(calls[0].rows[0]).toMatchObject({ id: 'c1', media_product_type: 'FEED', like_count: 4, comments_count: 2, is_shared_to_feed: null, children_count: 2 });
+    expect(calls[0].rows[1]).not.toHaveProperty('like_count'); // no details -> stored values untouched
+    expect(JSON.stringify(calls)).not.toContain('cdninstagram');
+    expect(calls[0].rows[0]).not.toHaveProperty('cover_status');
+    expect(calls[1]).toEqual({ table: 'media_children', rows: [{ media_id: 'c1', position: 0, media_type: 'IMAGE' }, { media_id: 'c1', position: 1, media_type: 'VIDEO' }], opts: { onConflict: 'media_id,position' } });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/capture-media-fields.test.ts`
+Expected: FAIL — `parseMediaDetails` is not exported.
+
+- [ ] **Step 3: Implement**
+
+In `lib/instagram/metrics.ts` replace:
+
+```ts
+/**
+ * GET /me/media and GET /me/stories fields. UNCERTAIN: the media reference marks `caption` and `media_product_type`
+ * "Facebook Login only". If the first live call fails with error code 100 (nonexisting field), delete them here: the
+ * parser already falls back (VIDEO -> REELS, caption null).
+ */
+export const MEDIA_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp';
+```
+
+with:
+
+```ts
+/**
+ * Base fields of GET /me/media and GET /me/stories. `caption` and `media_product_type` work under Instagram Login
+ * (verified live 2026-10-16, docs/META_PROBE_RESULTS.md) although the reference marks them "Facebook Login only".
+ */
+export const MEDIA_BASE_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp';
+/** GET /me/media: + counts, Reels' is_shared_to_feed and the carousel children's types (all verified live 2026-10-16). */
+export const MEDIA_FIELDS = `${MEDIA_BASE_FIELDS},like_count,comments_count,is_shared_to_feed,children{media_type}`;
+/**
+ * GET /me/stories: + the image URLs for the first-sight cover copy. UNVERIFIED on Stories (no Story was live while
+ * probing): on a "nonexisting field" answer the sync falls back to MEDIA_BASE_FIELDS and remembers it (capability
+ * "stories:url_fields"), so the Story capture itself can never break on these fields.
+ */
+export const STORY_FIELDS = `${MEDIA_BASE_FIELDS},media_url,thumbnail_url`;
+/**
+ * GET /{media-id}: fresh cover URLs (CDN links expire in ~1.4–4.5 days, so they are fetched right before the copy).
+ * thumbnail_url = videos/Reels; media_url = images (omitted for copyrighted media); children = carousels.
+ */
+export const COVER_FIELDS = 'media_type,media_url,thumbnail_url,children{media_type,media_url,thumbnail_url}';
+```
+
+In `lib/instagram/parse.ts` replace:
+
+```ts
+export type MediaKind = 'IMAGE' | 'CAROUSEL_ALBUM' | 'REELS' | 'STORY';
+export interface IgMediaItem {
+  id: string;
+  kind: MediaKind;
+  caption: string | null;
+  permalink: string | null;
+  postedAt: string; // ISO UTC
+}
+```
+
+with:
+
+```ts
+export type MediaKind = 'IMAGE' | 'CAROUSEL_ALBUM' | 'REELS' | 'STORY';
+export interface IgMediaItem {
+  id: string;
+  kind: MediaKind;
+  caption: string | null;
+  permalink: string | null;
+  postedAt: string; // ISO UTC
+  /** Extra fields from the listing (counts, product type, cover URLs, children); absent = not requested/parsed. */
+  details?: MediaDetails;
+}
+
+export interface MediaChild {
+  mediaType: string | null;
+  mediaUrl: string | null;
+  thumbnailUrl: string | null;
+}
+export interface MediaDetails {
+  mediaType: string | null;
+  productType: string | null;
+  likeCount: number | null;
+  commentsCount: number | null;
+  isSharedToFeed: boolean | null;
+  mediaUrl: string | null; // signed CDN URL: never logged, never stored
+  thumbnailUrl: string | null; // signed CDN URL: never logged, never stored
+  childrenCount: number | null;
+  children: MediaChild[] | null; // carousels: the first 10, in order
+}
+
+/** One media object's optional fields. Missing or malformed values are null (never 0). */
+export function parseMediaDetails(v: unknown): MediaDetails {
+  const m = isObj(v) ? v : {};
+  const kids = isObj(m.children) && Array.isArray(m.children.data) ? m.children.data.filter(isObj) : null;
+  return {
+    mediaType: str(m.media_type),
+    productType: str(m.media_product_type),
+    likeCount: num(m.like_count),
+    commentsCount: num(m.comments_count),
+    isSharedToFeed: typeof m.is_shared_to_feed === 'boolean' ? m.is_shared_to_feed : null,
+    mediaUrl: str(m.media_url),
+    thumbnailUrl: str(m.thumbnail_url),
+    childrenCount: kids ? kids.length : null,
+    children: kids ? kids.slice(0, 10).map((c) => ({ mediaType: str(c.media_type), mediaUrl: str(c.media_url), thumbnailUrl: str(c.thumbnail_url) })) : null,
+  };
+}
+
+/** Details of every item on a media page, by id (parseMediaPage keeps its original item shape). */
+export function mediaDetailsById(body: unknown): Map<string, MediaDetails> {
+  const out = new Map<string, MediaDetails>();
+  for (const m of entries(body)) {
+    const id = typeof m.id === 'number' ? String(m.id) : str(m.id);
+    if (id) out.set(id, parseMediaDetails(m));
+  }
+  return out;
+}
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+import { parseBreakdown, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem } from '@/lib/instagram/parse';
+```
+
+with:
+
+```ts
+import { mediaDetailsById, parseBreakdown, parseMediaPage, parseOnlineFollowers, parseTotals, type IgMediaItem } from '@/lib/instagram/parse';
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+  async function listPaged(path: string, token: string, story: boolean, maxItems: number, stopBefore?: string, timeUp?: () => boolean): Promise<IgMediaItem[]> {
+    const out: IgMediaItem[] = [];
+    const maxPages = Math.ceil(maxItems / M.MEDIA_PAGE_SIZE) + 1;
+    let body = await get(path, { fields: M.MEDIA_FIELDS, limit: M.MEDIA_PAGE_SIZE }, token);
+    for (let pages = 1; ; pages++) {
+      const page = parseMediaPage(body, story);
+      for (const item of page.items) {
+        if (out.length >= maxItems) return out;
+        out.push(item);
+      }
+```
+
+with:
+
+```ts
+  async function listPaged(path: string, token: string, story: boolean, maxItems: number, fields: string, stopBefore?: string, timeUp?: () => boolean): Promise<IgMediaItem[]> {
+    const out: IgMediaItem[] = [];
+    const maxPages = Math.ceil(maxItems / M.MEDIA_PAGE_SIZE) + 1;
+    let body = await get(path, { fields, limit: M.MEDIA_PAGE_SIZE }, token);
+    for (let pages = 1; ; pages++) {
+      const page = parseMediaPage(body, story);
+      const details = mediaDetailsById(body);
+      for (const item of page.items) {
+        if (out.length >= maxItems) return out;
+        out.push({ ...item, details: details.get(item.id) });
+      }
+```
+
+In `lib/instagram/data.ts` replace:
+
+```ts
+    listMedia: (token: string, maxItems: number, stopBefore?: string, timeUp?: () => boolean) => listPaged('me/media', token, false, maxItems, stopBefore, timeUp),
+    listStories: (token: string) => listPaged('me/stories', token, true, 100),
+```
+
+with:
+
+```ts
+    listMedia: (token: string, maxItems: number, stopBefore?: string, timeUp?: () => boolean) => listPaged('me/media', token, false, maxItems, M.MEDIA_FIELDS, stopBefore, timeUp),
+    /** withUrls=false: the base fields only (fallback when Meta rejects the URL fields on Stories). */
+    listStories: (token: string, withUrls = true) => listPaged('me/stories', token, true, 100, withUrls ? M.STORY_FIELDS : M.MEDIA_BASE_FIELDS),
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+  upsertMedia(accountId: string, items: IgMediaItem[]): Promise<void>;
+```
+
+with:
+
+```ts
+  /** Media rows (+ listing details when present) and, for carousels, their children rows. */
+  upsertMedia(accountId: string, items: IgMediaItem[]): Promise<void>;
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+  posted_at: i.postedAt,
+  expires_at: i.kind === 'STORY' ? new Date(Date.parse(i.postedAt) + 86_400_000).toISOString() : null,
+});
+```
+
+with:
+
+```ts
+  posted_at: i.postedAt,
+  expires_at: i.kind === 'STORY' ? new Date(Date.parse(i.postedAt) + 86_400_000).toISOString() : null,
+  // listing details (never the CDN URLs); cover_* and comments_synced_count are never in this payload
+  ...(i.details
+    ? { media_product_type: i.details.productType, like_count: i.details.likeCount, comments_count: i.details.commentsCount, is_shared_to_feed: i.details.isSharedToFeed, children_count: i.details.childrenCount }
+    : {}),
+});
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+      // last_metrics_at / gone_at are not in the payload, so re-listing never resets them
+      check('upsertMedia')(await db.from('media').upsert(items.map(ITEM_TO_ROW(accountId)), { onConflict: 'id' }));
+```
+
+with:
+
+```ts
+      // last_metrics_at / gone_at are not in the payload, so re-listing never resets them
+      check('upsertMedia')(await db.from('media').upsert(items.map(ITEM_TO_ROW(accountId)), { onConflict: 'id' }));
+      const children = items.flatMap((i) => (i.details?.children ?? []).map((ch, position) => ({ media_id: i.id, position, media_type: ch.mediaType })));
+      if (children.length > 0) check('upsertMediaChildren')(await db.from('media_children').upsert(children, { onConflict: 'media_id,position' }));
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import { classifyIgError, isFatalIgError as fatal, type IgData } from '@/lib/instagram/data';
+```
+
+with:
+
+```ts
+import { classifyIgError, isFatalIgError as fatal, isUnsupported, type IgData } from '@/lib/instagram/data';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+import type { Capabilities } from '@/lib/sync/capabilities';
+```
+
+with:
+
+```ts
+import { learn, shouldAsk, type Capabilities } from '@/lib/sync/capabilities';
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+/**
+ * Live stories: upsert, then one metrics snapshot each.
+```
+
+with:
+
+```ts
+/**
+ * Live Stories with their image URLs (for the first-sight cover). Story support for the URL fields is unverified: on
+ * an "unsupported field" answer the list is fetched again with the base fields and that is remembered.
+ */
+async function listLiveStories(c: RunContext, p: Progress) {
+  const key = 'stories:url_fields';
+  if (shouldAsk(p.capabilities, key)) {
+    try {
+      const items = await c.ig.listStories(c.token, true);
+      p.capabilities = learn(p.capabilities, key, { ok: true });
+      return items;
+    } catch (e) {
+      if (!isUnsupported(e)) throw e;
+      p.capabilities = learn(p.capabilities, key, { error: e });
+    }
+  }
+  return c.ig.listStories(c.token, false);
+}
+
+/**
+ * Live stories: upsert, then one metrics snapshot each.
+```
+
+In `lib/sync/run-account.ts` replace:
+
+```ts
+  const items = await c.ig.listStories(c.token);
+```
+
+with:
+
+```ts
+  const items = await listLiveStories(c, p);
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  const breakdowns: { accountId: string; day: string; rows: number }[] = [];
+```
+
+with:
+
+```ts
+  const breakdowns: { accountId: string; day: string; rows: number }[] = [];
+  const children: { mediaId: string; position: number; mediaType: string | null }[] = [];
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+      for (const i of items) media.set(i.id, { id: i.id, accountId, postedAt: i.postedAt, lastMetricsAt: media.get(i.id)?.lastMetricsAt ?? null, kind: i.kind, gone: media.get(i.id)?.gone ?? false });
+```
+
+with:
+
+```ts
+      for (const i of items) media.set(i.id, { id: i.id, accountId, postedAt: i.postedAt, lastMetricsAt: media.get(i.id)?.lastMetricsAt ?? null, kind: i.kind, gone: media.get(i.id)?.gone ?? false });
+      for (const i of items) (i.details?.children ?? []).forEach((ch, position) => children.push({ mediaId: i.id, position, mediaType: ch.mediaType }));
+```
+
+In `tests/fixtures/sync-fakes.ts` replace:
+
+```ts
+  return { store, states, media, daily, followers, metrics, extras, audience,
+```
+
+with:
+
+```ts
+  return { store, states, media, children, daily, followers, metrics, extras, audience,
+```
+
+In `tests/instagram-data.test.ts` replace:
+
+```ts
+    expect(f.calls[0].url.searchParams.get('fields')).toBe('id,caption,media_type,media_product_type,permalink,timestamp');
+```
+
+with:
+
+```ts
+    expect(f.calls[0].url.searchParams.get('fields')).toBe('id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,is_shared_to_feed,children{media_type}');
+```
+
+In `scripts/record-ig-fixtures.mjs` replace:
+
+```
+    ['stories', 'me/stories', { fields: M.MEDIA_FIELDS }],
+```
+
+with:
+
+```
+    ['stories', 'me/stories', { fields: M.STORY_FIELDS }],
+```
+
+In `tests/sync-tick.test.ts` replace:
+
+```ts
+    expect(ig.listStories).toHaveBeenCalledWith('tok-a2');
+```
+
+with:
+
+```ts
+    expect(ig.listStories).toHaveBeenCalledWith('tok-a2', true);
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/capture-media-fields.test.ts tests/instagram-data.test.ts tests/instagram-parse.test.ts tests/sync-store.test.ts tests/sync-run-account.test.ts tests/sync-lanes.test.ts tests/sync-tick.test.ts tests/sync-story-extras.test.ts tests/sync-capabilities.test.ts tests/record-ig-fixtures.test.ts && npx tsc --noEmit`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/instagram/metrics.ts lib/instagram/parse.ts lib/instagram/data.ts lib/sync/store.ts lib/sync/run-account.ts tests/fixtures/sync-fakes.ts tests/instagram-data.test.ts tests/sync-tick.test.ts scripts/record-ig-fixtures.mjs tests/capture-media-fields.test.ts
+git commit -m "feat(sync): keep media fields (counts, product type, Reels flag, carousel children); Story URL fields with fallback" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
