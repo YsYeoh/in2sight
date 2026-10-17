@@ -56,7 +56,16 @@ export async function call(kind: Kind, fetchFn: typeof fetch, url: string, init?
   return body;
 }
 
-export async function exchangeCode(cfg: IgConfig, code: string, fetchFn: typeof fetch = fetch): Promise<{ accessToken: string; userId: string }> {
+/**
+ * The scopes Meta granted, from the code exchange's `permissions` (documented as one comma-separated string; an array
+ * is accepted too). null = Meta did not say, which callers treat as "not granted" (never inferred from API answers).
+ */
+export function parseScopes(v: unknown): string[] | null {
+  const list = typeof v === 'string' ? v.split(',') : Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : null;
+  return list ? [...new Set(list.map((s) => s.trim()).filter(Boolean))] : null;
+}
+
+export async function exchangeCode(cfg: IgConfig, code: string, fetchFn: typeof fetch = fetch): Promise<{ accessToken: string; userId: string; grantedScopes: string[] | null }> {
   const body = await call('oauth', fetchFn, 'https://api.instagram.com/oauth/access_token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -66,7 +75,7 @@ export async function exchangeCode(cfg: IgConfig, code: string, fetchFn: typeof 
   const token = first.access_token;
   const user = first.user_id;
   if (typeof token !== 'string' || token === '' || (typeof user !== 'string' && typeof user !== 'number')) throw new InstagramApiError('oauth');
-  return { accessToken: token, userId: String(user) };
+  return { accessToken: token, userId: String(user), grantedScopes: parseScopes(first.permissions) };
 }
 
 function longLived(body: Record<string, unknown>, now: Date): { accessToken: string; expiresAt: string } {

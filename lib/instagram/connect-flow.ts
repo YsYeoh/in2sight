@@ -20,8 +20,10 @@ export async function processCallback(input: CallbackInput, deps: CallbackDeps):
 
   const fetchFn = deps.fetchFn ?? fetch;
   let token: { accessToken: string; expiresAt: string };
+  let grantedScopes: string[] | null;
   try {
     const short = await exchangeCode(deps.cfg, input.code, fetchFn);
+    grantedScopes = short.grantedScopes;
     token = await exchangeLongLived(deps.cfg, short.accessToken, fetchFn, deps.now);
   } catch {
     return to('exchange_failed');
@@ -46,6 +48,7 @@ export async function processCallback(input: CallbackInput, deps: CallbackDeps):
       groupName: group.ok && group.value !== null ? group.value : undefined, // undefined = keep an existing account's group
       accessToken: token.accessToken,
       expiresAt: token.expiresAt,
+      grantedScopes,
     });
     try {
       await deps.onConnected?.(account.id);

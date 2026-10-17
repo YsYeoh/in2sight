@@ -17,6 +17,7 @@ export function rowToAccount(r: Row): StoredAccount {
     lastError: (r.last_error as string | null) ?? null,
     tokenExpiresAt: (r.token_expires_at as string | null) ?? null,
     connectedAt: r.connected_at as string,
+    grantedScopes: Array.isArray(r.granted_scopes) ? r.granted_scopes.filter((s): s is string => typeof s === 'string') : null,
   };
 }
 
@@ -30,6 +31,7 @@ const PATCH_COLUMNS: Record<string, string> = {
   archivedAt: 'archived_at',
   lastError: 'last_error',
   tokenExpiresAt: 'token_expires_at',
+  grantedScopes: 'granted_scopes',
 };
 
 export function patchToRow(patch: AccountPatch): Row {
@@ -47,6 +49,7 @@ export function newToRow(a: NewAccount): Row {
     profile_picture_url: a.profilePictureUrl,
     group_name: a.groupName,
     token_expires_at: a.tokenExpiresAt,
+    granted_scopes: a.grantedScopes ?? null,
   };
 }
 

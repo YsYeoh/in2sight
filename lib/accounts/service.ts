@@ -10,6 +10,8 @@ export interface ConnectInput {
   groupName?: string | null; // undefined = keep the existing group
   accessToken: string;
   expiresAt: string;
+  /** What Meta granted with THIS token (null = not reported). Always overwritten: an old token's scopes no longer apply. */
+  grantedScopes?: string[] | null;
 }
 
 export async function connectAccount(store: AccountsStore, input: ConnectInput): Promise<{ account: StoredAccount; outcome: 'created' | 'updated' | 'restored' }> {
@@ -19,6 +21,7 @@ export async function connectAccount(store: AccountsStore, input: ConnectInput):
     accountType: input.accountType ?? null,
     profilePictureUrl: input.profilePictureUrl ?? null,
     tokenExpiresAt: input.expiresAt,
+    grantedScopes: input.grantedScopes ?? null,
   };
   const existing = await store.findByIgUserId(input.igUserId);
   let account: StoredAccount;

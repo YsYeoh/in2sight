@@ -28,7 +28,7 @@ describe('buildAuthorizeUrl', () => {
 describe('exchangeCode', () => {
   it('POSTs form-encoded credentials to the token endpoint', async () => {
     const f = fetchReturning(json({ access_token: 'short1', user_id: 1784, permissions: 'instagram_business_basic' }));
-    expect(await exchangeCode(cfg, 'CODE', f)).toEqual({ accessToken: 'short1', userId: '1784' });
+    expect(await exchangeCode(cfg, 'CODE', f)).toEqual({ accessToken: 'short1', userId: '1784', grantedScopes: ['instagram_business_basic'] });
     const [url, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
     expect(url).toBe('https://api.instagram.com/oauth/access_token');
     expect(init.method).toBe('POST');
@@ -37,7 +37,7 @@ describe('exchangeCode', () => {
   });
   it('understands the { data: [ ... ] } response shape too', async () => {
     const f = fetchReturning(json({ data: [{ access_token: 'short2', user_id: '99', permissions: 'x' }] }));
-    expect(await exchangeCode(cfg, 'C', f)).toEqual({ accessToken: 'short2', userId: '99' });
+    expect(await exchangeCode(cfg, 'C', f)).toEqual({ accessToken: 'short2', userId: '99', grantedScopes: ['x'] });
   });
   it('rejects a response without a token or user id', async () => {
     await expect(exchangeCode(cfg, 'C', fetchReturning(json({ access_token: 'only' })))).rejects.toBeInstanceOf(InstagramApiError);

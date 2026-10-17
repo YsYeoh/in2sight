@@ -13,6 +13,8 @@ export interface StoredAccount {
   lastError: string | null;
   tokenExpiresAt: string | null;
   connectedAt: string;
+  /** Scopes Meta granted at the last connect/reconnect; null/absent = unknown (treated as not granted). */
+  grantedScopes?: string[] | null;
 }
 
 export interface NewAccount {
@@ -23,6 +25,7 @@ export interface NewAccount {
   profilePictureUrl: string | null;
   groupName: string | null;
   tokenExpiresAt: string;
+  grantedScopes?: string[] | null;
 }
 
 export type AccountPatch = Partial<Omit<StoredAccount, 'id' | 'igUserId' | 'connectedAt'>>;
