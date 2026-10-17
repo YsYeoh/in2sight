@@ -31,7 +31,7 @@ const row = { id: 'a1', ig_user_id: '1784', username: 'brandx', display_name: 'B
 
 describe('mappers', () => {
   it('rowToAccount maps snake_case to the domain shape', () => {
-    expect(rowToAccount(row)).toEqual({ id: 'a1', igUserId: '1784', username: 'brandx', displayName: 'Brand X', accountType: 'Media_Creator', profilePictureUrl: null, groupName: 'G', status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-13T00:00:00Z', connectedAt: '2026-10-14T00:00:00Z' });
+    expect(rowToAccount(row)).toEqual({ id: 'a1', igUserId: '1784', username: 'brandx', displayName: 'Brand X', accountType: 'Media_Creator', profilePictureUrl: null, groupName: 'G', status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-13T00:00:00Z', connectedAt: '2026-10-14T00:00:00Z', grantedScopes: null });
   });
   it('patchToRow only emits the fields present in the patch', () => {
     expect(patchToRow({ status: 'archived', archivedAt: 'x' })).toEqual({ status: 'archived', archived_at: 'x' });
