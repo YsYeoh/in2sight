@@ -1,7 +1,7 @@
 // The Explorer model (creator-toolkit spec §0b "Drill-down & time scope"). Pure: the rollup rows (additive parts per
 // key), the window, today and the owner's week start are inputs. Metric values come from the registry (lib/metrics.ts);
 // groups are sums of their accounts' parts (never averages of averages); the comparison period is joined by key, or by
-// position for time buckets.
+// position for time buckets (whole buckets only: a bucket cut by either range has no comparison).
 import { weekOrder } from '@/lib/analysis/best-time';
 import { MAX_LAG_DAYS, type Kpi } from '@/lib/analysis/growth';
 import type { ItemRow } from '@/lib/explorer/read';
@@ -155,12 +155,17 @@ export function buildExplorer(i: ExplorerInput): ExplorerModel {
   let partial: string[] = [];
   if (s.by === 'time') {
     keys = bucketsOf(i.window.current, i.gran, i.weekStart);
-    const before = i.window.compare ? bucketsOf(i.window.compare, i.gran, i.weekStart) : [];
-    priorKeys = keys.map((_, n) => before[n] ?? null); // bucket n of the range vs bucket n of the comparison
-    partial = keys.filter((b) => {
+    const cut = (r: DayRange) => (b: string) => {
       const span = bucketRange(b, i.gran);
-      return span.from < i.window.current.from || span.to > i.window.current.to;
-    });
+      return span.from < r.from || span.to > r.to;
+    };
+    const curCut = cut(i.window.current);
+    const before = i.window.compare ? bucketsOf(i.window.compare, i.gran, i.weekStart) : [];
+    const priorCut = i.window.compare ? cut(i.window.compare) : () => true;
+    // bucket n of the range vs bucket n of the comparison, but only whole buckets: a bucket cut at either end (the ranges
+    // cut their weeks differently) would show a fake rise or drop
+    priorKeys = keys.map((k, n) => (before[n] !== undefined && !curCut(k) && !priorCut(before[n]) ? before[n] : null));
+    partial = keys.filter(curCut);
   } else {
     keys =
       s.by === 'account' ? i.accounts.map((a) => a.id)
