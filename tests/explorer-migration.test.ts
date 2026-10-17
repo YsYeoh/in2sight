@@ -48,8 +48,15 @@ describe('explorer migration', () => {
     }
   });
 
+  it('a NULL boolean filter means "no filter", never a silent filter: p_stories and p_untagged are coalesced', () => {
+    const body = fn('explorer_media')![2];
+    expect(body).toMatch(/not\s+coalesce\(p_untagged,\s*false\)/i);
+    expect(body).toMatch(/coalesce\(p_stories,\s*false\)/i);
+    expect(body).not.toMatch(/\bnot\s+p_untagged\b|\(p_stories\s+or\b/i);
+  });
+
   it('Stories are opt-in and never part of the engagement-rate parts; the latest snapshot is used', () => {
-    expect(fn('explorer_media')![2]).toMatch(/\(p_stories\s+or\s+m\.media_type\s+<>\s+'STORY'\)/i);
+    expect(fn('explorer_media')![2]).toMatch(/\(coalesce\(p_stories,\s*false\)\s+or\s+m\.media_type\s+<>\s+'STORY'\)/i);
     expect(fn('explorer_media')![2]).toMatch(/order\s+by\s+x\.captured_at\s+desc\s+limit\s+1/i);
     const parts = fn('explorer_posts')![2].match(/filter\s*\(where\s+k\.reach\s+>\s+0\s+and\s+k\.media_type\s+<>\s+'STORY'\)/gi) ?? [];
     expect(parts).toHaveLength(2);
