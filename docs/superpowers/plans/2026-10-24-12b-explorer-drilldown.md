@@ -74,10 +74,10 @@ Covers UI / Post Lab (Plan 13), Followers & Growth Center, comment moderation, s
 ## Review Focus
 
 1. **RLS through the functions:** a signed-in non-owner and `anon` get nothing (`security invoker`, no definer, execute only for `authenticated`) → Task 1 migration test + runbook §5 SQL check (verified on PostgreSQL 16 in the dry run).
-2. **Hostile URL parameters** (`?m=__proto__`, `?acc=' or 1=1`, repeated keys, `?by=drop table`) never reach SQL as text and never throw → Task 3 "hostile or malformed values", Task 4 "maps every state to fixed RPC arguments", Task 10 "rejects anything the page would only fall back on".
-3. **Numbers match the existing analyses:** engagement rate, averages and "measured" follow `lib/analysis/posts.ts`/SPEC §7; followers are a level (last value), never summed over days → Task 1 SQL checks (dry run) + Task 5 "groups sum parts, never averages of averages".
+2. **Hostile URL parameters** (`?m=__proto__`, `?acc=' or 1=1`, repeated keys, `?by=drop table`) never reach SQL as text and never throw → Task 3 "hostile or malformed values", Task 4 "rollupArgs: every state maps to fixed RPC arguments", Task 11 "400 bad_params for anything that is not the canonical query".
+3. **Numbers match the existing analyses:** engagement rate, averages and "measured" follow `lib/analysis/posts.ts`/SPEC §7; followers are a level (last value), never summed over days → Task 1 SQL checks (dry run) + Task 5 "by group: sums the accounts first, then computes ratios".
 4. **Saved views can't smuggle anything:** stored JSON is re-validated through both parsers on read; unknown keys dropped; size-capped in the DB → Task 6.
-5. **Drill keeps the scope:** every drill link and breadcrumb carries the Time Scope; a time-bucket drill becomes a fixed range → Task 5 "drill targets" + Task 11 page test + runbook §3.
+5. **Drill keeps the scope:** every drill link and breadcrumb carries the Time Scope; a time-bucket drill becomes a fixed range → Task 5 "drill-down" tests + Task 12 page test + runbook §3.
 
 ## File Structure
 
@@ -89,15 +89,16 @@ Covers UI / Post Lab (Plan 13), Followers & Growth Center, comment moderation, s
 | `components/shared/useKpiDelta.ts` | accepts any `MetricId` |
 | `messages/en.json`, `messages/zh-CN.json` | `nav.explorer`, new `metrics.*`, `explorer.*` |
 | `lib/explorer/state.ts` (new) | `ExplorerState`, `parseExplorerState`, `explorerParams`, `withState`, `defaultMetrics` |
-| `lib/explorer/read.ts` (new) | owner-session RPC reader: `loadRollup`, `loadItems`, `rollupArgs` |
-| `lib/analysis/explorer.ts` (new) | `toKpi`, `addParts`, `byGroup`, `itemParts`, `buildExplorer`, `drillTarget`, `breadcrumbs` |
+| `lib/explorer/read.ts` (new) | owner-session RPC reader: `rollupArgs`, `loadRollup`, `loadItems`, `loadEarliest` |
+| `lib/analysis/explorer.ts` (new) | `toKpi`, `addParts`, `itemParts`, `byGroup`, `settledDay`, `explorerWindow`, `bucketsOf`, `buildExplorer`, `drillTarget`, `drillHref`, `breadcrumbs` |
+| `lib/explorer/load.ts`, `lib/explorer/labels.ts` (new) | the one loader of page + export; row labels shared by screen and Excel |
 | `lib/explorer/views.ts` (new), `app/(app)/explorer/actions.ts` (new), `lib/tags.ts` | saved-view validation, server actions; `normalizeTagName` gains a `max` |
 | `components/charts/SeriesChart.tsx`, `components/charts/Heatmap.tsx` | `onPointClick` + `clickedIndex`, muted series; cell `href` |
 | `lib/explorer/item.ts` (new), `components/explorer/ItemPanel.tsx` (new) | single-item level |
 | `components/explorer/SavedViews.tsx` (new) | saved views menu, save/rename/delete dialogs |
-| `app/api/export/explorer/route.ts` (new), `lib/export/workbook.ts` | export of the current view |
+| `app/api/export/explorer/route.ts`, `lib/export/explorer.ts` (new), `lib/export/workbook.ts` | export of the current view (+ `Server-Timing`) |
 | `app/(app)/explorer/page.tsx`, `loading.tsx` (new), `components/explorer/ExplorerView.tsx` (new), `lib/nav.ts`, `components/shared/AppShell.tsx` | the page, nav item |
-| `components/overview/OverviewView.tsx`, `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx`, `app/(app)/accounts/[id]/page.tsx` | drill links into the Explorer |
+| `components/overview/OverviewView.tsx`, `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx` | drill links into the Explorer |
 | `docs/RUNBOOK_EXPLORER.md` (new), `docs/SPEC.md`, `docs/TODO.md` | live checks, spec sections, ticks |
 
 **Adding i18n keys:** merge the given object into the existing top-level key of the same name in BOTH files (create it if missing), keep existing entries, 2-space JSON.
@@ -106,22 +107,23 @@ Covers UI / Post Lab (Plan 13), Followers & Growth Center, comment moderation, s
 
 | # | Task | Depends on | Files it owns | Parallel with |
 |---|---|---|---|---|
-| 1 | Migration + migration test | — | migration, `tests/explorer-migration.test.ts` | 2, 7 |
-| 2 | Registry + all i18n keys | — | `lib/metrics.ts`, `components/shared/useKpiDelta.ts`, `messages/*.json`, `tests/explorer-registry.test.ts` | 1, 7 |
+| 1 | Migration + migration test | — | `supabase/migrations/20261024000001_explorer.sql`, `tests/explorer-migration.test.ts` | 2, 7 |
+| 2 | Registry + all i18n keys | — | `lib/metrics.ts`, `components/shared/useKpiDelta.ts`, `messages/en.json`, `messages/zh-CN.json`, `tests/explorer-registry.test.ts` | 1, 7 |
 | 3 | Explorer URL state | 2 | `lib/explorer/state.ts`, `tests/explorer-state.test.ts` | 1, 7 |
 | 4 | Rollup reader | 3 | `lib/explorer/read.ts`, `tests/explorer-read.test.ts` | 5, 6, 7 |
-| 5 | Pure model: rows, groups, comparison, drill, breadcrumbs | 3, 12a | `lib/analysis/explorer.ts`, `tests/analysis-explorer.test.ts` | 4, 6, 7 |
+| 5 | Pure model: rows, groups, comparison, drill, breadcrumbs | 3, 4 (type only), 12a | `lib/analysis/explorer.ts`, `tests/analysis-explorer.test.ts` | 6, 7 |
 | 6 | Saved views: validation + server actions | 3, 12a | `lib/explorer/views.ts`, `lib/tags.ts`, `app/(app)/explorer/actions.ts`, `tests/explorer-views.test.ts` | 4, 5, 7 |
-| 7 | Clickable charts | — | `components/charts/{SeriesChart,Heatmap}.tsx`, `tests/charts-drill.test.tsx` | 1–6 |
-| 8 | Single-item level | 4 | `lib/explorer/item.ts`, `components/explorer/ItemPanel.tsx`, `tests/explorer-item.test.tsx` | 9, 10, 12, 13 |
-| 9 | Saved views menu | 6 | `components/explorer/SavedViews.tsx`, `tests/saved-views.test.tsx` | 8, 10, 12, 13 |
-| 10 | Export of the current view | 4, 5 | `app/api/export/explorer/route.ts`, `lib/export/workbook.ts`, `tests/explorer-export.test.ts` | 8, 9, 12, 13 |
-| 11 | Explorer page + nav | 5, 7–10, 12a | `app/(app)/explorer/{page,loading}.tsx`, `components/explorer/ExplorerView.tsx`, `lib/nav.ts`, `components/shared/AppShell.tsx`, `tests/explorer-view.test.tsx`, `tests/explorer-page.test.tsx`, `tests/nav.test.ts`, `tests/app-shell.test.tsx` | 12, 13 |
-| 12 | Drill from Overview | 3, 5, 12a | `components/overview/OverviewView.tsx`, `tests/overview-drill.test.tsx` | 8–11, 13 |
-| 13 | Drill from account pages | 3, 5, 7, 12a | `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx`, `app/(app)/accounts/[id]/page.tsx`, `tests/account-drill.test.tsx` | 8–12 |
-| 14 | Docs: SPEC, TODO, RUNBOOK_EXPLORER; final check | all | `docs/*` | — |
+| 7 | Clickable charts | — | `components/charts/SeriesChart.tsx`, `components/charts/Heatmap.tsx`, `tests/charts-drill.test.tsx` | 1–6 |
+| 8 | Single-item level | 2, 4, 5 | `lib/explorer/item.ts`, `components/explorer/ItemPanel.tsx`, `tests/explorer-item.test.tsx` | 9, 10, 13, 14 |
+| 9 | Saved views menu | 2, 6 | `components/explorer/SavedViews.tsx`, `tests/saved-views.test.tsx` | 8, 10, 13, 14 |
+| 10 | Server loader + row labels | 4, 5, 8 | `lib/explorer/load.ts`, `lib/explorer/labels.ts`, `tests/explorer-load.test.ts` | 9, 13, 14 |
+| 11 | Excel export of the current view | 6, 10 | `app/api/export/explorer/route.ts`, `lib/export/explorer.ts`, `lib/export/workbook.ts`, `tests/explorer-export.test.ts` | 13, 14 |
+| 12 | Explorer page + nav item | 7–11, 12a | `app/(app)/explorer/page.tsx`, `app/(app)/explorer/loading.tsx`, `components/explorer/ExplorerView.tsx`, `lib/nav.ts`, `components/shared/AppShell.tsx`, `tests/explorer-view.test.tsx`, `tests/nav.test.ts`, `tests/app-shell.test.tsx` | 13, 14 |
+| 13 | Drill from Overview | 3, 12a | `components/overview/OverviewView.tsx`, `tests/overview-drill.test.tsx` | 8–12, 14 |
+| 14 | Drill from account pages | 3, 7, 12a | `components/account/AccountOverview.tsx`, `components/account/PostsTab.tsx`, `tests/account-drill.test.tsx` | 8–13 |
+| 15 | Docs: SPEC, TODO, RUNBOOK_EXPLORER; final check | all | `docs/SPEC.md`, `docs/TODO.md`, `docs/RUNBOOK_EXPLORER.md` | — |
 
-Run order for SDD: wave A = 1, 2, 7 · wave B = 3 · wave C = 4, 5, 6 · wave D = 8, 9, 10, 12, 13 · wave E = 11 · wave F = 14. Tasks in one wave touch disjoint files.
+Run order for SDD: wave A = 1, 2, 7 · wave B = 3 · wave C = 4, 6 · wave D = 5 · wave E = 8, 9, 13, 14 · wave F = 10 · wave G = 11 · wave H = 12 · wave I = 15. Tasks in one wave touch disjoint files. Every task's code was executed in the dry run in this order (see "Dry-run result"), except where that section says otherwise.
 
 ---
 
@@ -1880,4 +1882,1086 @@ git commit -m "feat(charts): clickable chart points, muted comparison series, he
 
 ---
 
-_(Tasks 8–14 pending)_
+### Task 8: Single-item level (`lib/explorer/item.ts`, `components/explorer/ItemPanel.tsx`)
+
+**Files:**
+- Create: `lib/explorer/item.ts`, `components/explorer/ItemPanel.tsx`
+- Test: `tests/explorer-item.test.tsx` (new)
+
+**Interfaces:**
+- Consumes: `explorer_followers` (Task 1), table `account_daily_breakdown` (migration `20261019000001`), `ItemRow` (Task 4), `itemParts` (Task 5), `METRICS`, `formatMetric`, `MetricId` (Task 2), `safeLink`, `addDays`, `dayStart`, `localDay`, `SeriesChart` (Task 7 props unchanged), `ChartCard`, `EmptyState`, i18n `explorer.item.*`, `metrics.*`, `analysis.format.*`, `pages.account.tab.*` (Task 2 / existing).
+- Produces:
+  - `PRODUCT_TYPE: Record<MediaKind, string>` (`IMAGE → POST`, `CAROUSEL_ALBUM → CAROUSEL_CONTAINER`, `REELS → REEL`, `STORY → STORY`, the breakdown values verified live).
+  - `interface ItemDetail { item: ItemRow; measuredAt: string | null; day: string; followers: { at: string; followers: number }[]; audience: { follower: number; nonFollower: number } | null }`, `loadItem(db, id, accounts, tz): Promise<ItemDetail | null>` (null when the item is not in one of `accounts`).
+  - `<ItemPanel detail={ItemDetail | null} username={string} tabHref={string} />` (client).
+
+- [ ] **Step 1: Write the failing test** — create `tests/explorer-item.test.tsx`:
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import en from '@/messages/en.json';
+import { ItemPanel } from '@/components/explorer/ItemPanel';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { loadItem, type ItemDetail } from '@/lib/explorer/item';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const TZ = 'Asia/Kuala_Lumpur';
+
+/** Owner-session fake: records table/rpc calls and modifiers; resolves each table/rpc to its queued result. */
+function fakeDb(results: Record<string, { data?: unknown; error?: unknown }>) {
+  const calls: unknown[][] = [];
+  const chainFor = (name: string) => {
+    const chain: Record<string, unknown> = {};
+    for (const op of ['select', 'eq', 'in', 'order', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+    chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(results[name] ?? { data: [], error: null }).then(res, rej);
+    return chain;
+  };
+  return { db: { from: (t: string) => (calls.push(['from', t]), chainFor(t)), rpc: (n: string, a: unknown) => (calls.push(['rpc', n, a]), chainFor(n)) } as unknown as SupabaseClient, calls };
+}
+
+const MEDIA = { id: '42', account_id: A, media_type: 'REELS', posted_at: '2026-10-05T15:30:00Z', permalink: 'https://www.instagram.com/reel/x/', caption: 'Hello', media_metrics: [{ captured_at: '2026-10-07T01:00:00Z', reach: 200, views: 900, likes: 10, comments: 5, saves: 3, shares: 2 }] };
+
+describe('loadItem', () => {
+  it('reads the item only from the given accounts, then its follower curve (owner-timezone day −1 … +2) and the reach split of that day', async () => {
+    const { db, calls } = fakeDb({
+      media: { data: [MEDIA], error: null },
+      explorer_followers: { data: [{ at: '2026-10-05T23:00', followers: 1000 }, { at: 'junk', followers: null }], error: null },
+      account_daily_breakdown: { data: [{ follow_type: 'FOLLOWER', value: 60 }, { follow_type: 'NON_FOLLOWER', value: 40 }, { follow_type: 'UNKNOWN', value: 5 }], error: null },
+    });
+    const d = await loadItem(db, '42', [A], TZ);
+    expect(calls).toContainEqual(['in', 'account_id', [A]]);
+    expect(d?.day).toBe('2026-10-05'); // 15:30 UTC = 23:30 in Kuala Lumpur
+    expect(calls).toContainEqual(['rpc', 'explorer_followers', { p_account: A, p_from: '2026-10-03T16:00:00.000Z', p_to: '2026-10-07T16:00:00.000Z', p_tz: TZ, p_hourly: true }]);
+    expect(calls).toContainEqual(['eq', 'product_type', 'REEL']);
+    expect(d).toMatchObject({ measuredAt: '2026-10-07T01:00:00Z', followers: [{ at: '2026-10-05T23:00', followers: 1000 }], audience: { follower: 60, nonFollower: 40 } });
+    expect(d?.item).toMatchObject({ id: '42', mediaType: 'REELS', reach: 200, permalink: 'https://www.instagram.com/reel/x/' });
+  });
+
+  it('an item outside the accounts (or none at all) is null; no breakdown rows = no audience slice; errors are fixed text', async () => {
+    expect(await loadItem(fakeDb({ media: { data: [], error: null } }).db, '42', [A], TZ)).toBeNull();
+    expect(await loadItem(fakeDb({}).db, '42', [], TZ)).toBeNull();
+    expect((await loadItem(fakeDb({ media: { data: [MEDIA], error: null } }).db, '42', [A], TZ))?.audience).toBeNull();
+    await expect(loadItem(fakeDb({ media: { error: { message: 'secret' } } }).db, '42', [A], TZ)).rejects.toThrow('explorer read: item failed');
+  });
+});
+
+beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
+afterEach(() => vi.unstubAllGlobals());
+
+const DETAIL: ItemDetail = {
+  item: { id: '42', accountId: A, mediaType: 'REELS', postedAt: '2026-10-05T15:30:00Z', permalink: 'https://www.instagram.com/reel/x/', caption: 'Hello', reach: 200, views: 900, likes: 10, comments: 5, saves: 3, shares: 2 },
+  measuredAt: '2026-10-07T01:00:00Z',
+  day: '2026-10-05',
+  followers: [{ at: '2026-10-05T23:00', followers: 1000 }, { at: '2026-10-06T00:00', followers: 1004 }],
+  audience: { follower: 60, nonFollower: 40 },
+};
+
+function view(detail: ItemDetail | null) {
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <ItemPanel detail={detail} username="brand" tabHref={`/accounts/${A}?tab=posts&from=90d`} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('ItemPanel', () => {
+  it('shows the latest numbers, the links, the follower curve and the audience split', () => {
+    view(DETAIL);
+    expect(screen.getByRole('heading', { name: 'Reel · @brand' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open on Instagram' })).toHaveAttribute('href', 'https://www.instagram.com/reel/x/');
+    expect(screen.getByRole('link', { name: 'Open in Posts' })).toHaveAttribute('href', `/accounts/${A}?tab=posts&from=90d`);
+    expect(screen.getByText('Post engagement').nextSibling).toHaveTextContent('10.0%'); // (10+5+3+2) / 200
+    expect(screen.getByRole('heading', { name: 'Followers around this post' })).toBeInTheDocument();
+    expect(screen.getByText(/no hourly reach/)).toBeInTheDocument();
+    expect(screen.getByText('Non-followers').nextSibling).toHaveTextContent('40 · 40%');
+  });
+
+  it('not in scope: an empty state; no snapshots / no breakdown: plain explanations', () => {
+    view(null);
+    expect(screen.getByText('This post is not in your connected accounts.')).toBeInTheDocument();
+    view({ ...DETAIL, followers: [], audience: null, item: { ...DETAIL.item, mediaType: 'STORY', permalink: null } });
+    expect(screen.getByText('No follower snapshots for these days yet.')).toBeInTheDocument();
+    expect(screen.getByText('No follower breakdown for that day yet.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open in Stories' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open on Instagram' })).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/explorer-item.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/explorer/ItemPanel"`.
+
+- [ ] **Step 3: Write `lib/explorer/item.ts`**
+
+```ts
+// The single-item level of the drill-down: one post or Story with its latest numbers, the account's follower curve
+// around the posting time (follower_snapshots, the only intraday data we have) and an audience slice (that day's
+// account-level reach of the item's format, followers vs non-followers). OWNER SESSION client only (RLS).
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { safeLink } from '@/lib/dashboard/read';
+import type { ItemRow } from '@/lib/explorer/read';
+import type { MediaKind } from '@/lib/instagram/parse';
+import { addDays, dayStart, localDay } from '@/lib/sync/time';
+
+/** media_type → the media_product_type value of account_daily_breakdown (verified live, docs/META_PROBE_RESULTS.md).
+ *  ponytail: an old feed video stored as REELS is a POST there; use media.media_product_type if that ever matters. */
+export const PRODUCT_TYPE: Record<MediaKind, string> = { IMAGE: 'POST', CAROUSEL_ALBUM: 'CAROUSEL_CONTAINER', REELS: 'REEL', STORY: 'STORY' };
+
+export interface ItemDetail {
+  item: ItemRow;
+  measuredAt: string | null; // when the latest snapshot was taken
+  day: string; // owner-timezone day it was published
+  followers: { at: string; followers: number }[]; // last value per owner-timezone hour, day −1 … day +2
+  audience: { follower: number; nonFollower: number } | null; // that day's account reach of this format
+}
+
+type Row = Record<string, unknown>;
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const KINDS: readonly string[] = ['IMAGE', 'CAROUSEL_ALBUM', 'REELS', 'STORY'];
+
+function fail(op: string): never {
+  throw new Error(`explorer read: ${op} failed`);
+}
+
+/** One media item of the given (live, in-scope) accounts; null when it is not one of them. */
+export async function loadItem(db: SupabaseClient, id: string, accounts: string[], tz: string): Promise<ItemDetail | null> {
+  if (accounts.length === 0) return null;
+  const { data, error } = await db
+    .from('media')
+    .select('id,account_id,media_type,posted_at,permalink,caption,media_metrics(captured_at,reach,views,likes,comments,saves,shares)')
+    .eq('id', id)
+    .in('account_id', accounts)
+    .order('captured_at', { ascending: false, referencedTable: 'media_metrics' })
+    .limit(1, { referencedTable: 'media_metrics' })
+    .limit(1);
+  if (error) fail('item');
+  const r = ((data ?? []) as Row[])[0];
+  if (!r || !KINDS.includes(r.media_type as string)) return null;
+  const m = (Array.isArray(r.media_metrics) ? (r.media_metrics[0] as Row | undefined) : undefined) ?? {};
+  const item: ItemRow = {
+    id: String(r.id),
+    accountId: String(r.account_id),
+    mediaType: r.media_type as MediaKind,
+    postedAt: String(r.posted_at),
+    permalink: safeLink(r.permalink),
+    caption: typeof r.caption === 'string' ? r.caption : null,
+    reach: num(m.reach),
+    views: num(m.views),
+    likes: num(m.likes),
+    comments: num(m.comments),
+    saves: num(m.saves),
+    shares: num(m.shares),
+  };
+  const day = localDay(new Date(item.postedAt), tz);
+  const [f, b] = await Promise.all([
+    db.rpc('explorer_followers', { p_account: item.accountId, p_from: dayStart(addDays(day, -1), tz).toISOString(), p_to: dayStart(addDays(day, 3), tz).toISOString(), p_tz: tz, p_hourly: true }),
+    db.from('account_daily_breakdown').select('follow_type,value').eq('account_id', item.accountId).eq('day', day).eq('metric', 'reach').eq('product_type', PRODUCT_TYPE[item.mediaType]),
+  ]);
+  if (f.error) fail('followers');
+  if (b.error) fail('audience');
+  const split = ((b.data ?? []) as Row[]).reduce<{ follower: number; nonFollower: number }>((acc, x) => {
+    const v = num(x.value) ?? 0;
+    if (x.follow_type === 'FOLLOWER') acc.follower += v;
+    else if (x.follow_type === 'NON_FOLLOWER') acc.nonFollower += v;
+    return acc;
+  }, { follower: 0, nonFollower: 0 });
+  return {
+    item,
+    measuredAt: typeof m.captured_at === 'string' ? m.captured_at : null,
+    day,
+    followers: ((f.data ?? []) as Row[]).flatMap((x) => (typeof x.at === 'string' && num(x.followers) !== null ? [{ at: x.at, followers: num(x.followers)! }] : [])),
+    audience: (b.data ?? []).length ? split : null,
+  };
+}
+```
+
+- [ ] **Step 4: Write `components/explorer/ItemPanel.tsx`**
+
+```tsx
+'use client';
+
+// The single-item level of the Explorer drill-down: latest numbers + links, the follower curve around the post and
+// the audience slice. There is no Post Lab yet (Plan 13): this links to Instagram and to the account's Posts/Stories tab.
+import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { SeriesChart } from '@/components/charts/SeriesChart';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ChartCard } from '@/components/shared/ChartCard';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { itemParts } from '@/lib/analysis/explorer';
+import type { ItemDetail } from '@/lib/explorer/item';
+import { formatCompact, formatDateTime, formatDay, formatHour, formatPercent } from '@/lib/format';
+import { formatMetric, METRICS, type MetricId } from '@/lib/metrics';
+
+const NUMBERS: MetricId[] = ['reach', 'views', 'likes', 'comments', 'saves', 'shares', 'postEngagementRate'];
+
+export function ItemPanel({ detail, username, tabHref }: { detail: ItemDetail | null; username: string; tabHref: string }) {
+  const t = useTranslations('explorer.item');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const tt = useTranslations('pages.account.tab');
+  const { prefs } = usePrefs();
+  if (!detail) return <EmptyState title={t('notFound')} />;
+  const { item, followers, audience } = detail;
+  const format = ta(`format.${item.mediaType}`);
+  const parts = itemParts(item);
+  // reach/views of one item are its own values; the registry computes the ratio the same way as everywhere else
+  const value = (id: MetricId) => (id === 'reach' ? item.reach : id === 'views' ? item.views : METRICS[id].value(parts));
+  const at = (s: string) => `${formatDay(s.slice(0, 10), prefs)} ${formatHour(Number(s.slice(11, 13)), prefs)}`;
+  const total = audience ? audience.follower + audience.nonFollower : 0;
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      <Card className="min-w-0">
+        <CardContent className="grid min-w-0 gap-3">
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="truncate font-medium">
+                {format} · @{username}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {t('posted', { time: formatDateTime(item.postedAt, prefs) })} · {detail.measuredAt ? t('measured', { time: formatDateTime(detail.measuredAt, prefs) }) : t('notMeasured')}
+              </p>
+              {item.caption ? (
+                <p className="mt-1 line-clamp-2 text-xs break-words text-muted-foreground" dir="auto">
+                  {item.caption}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {item.permalink ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={item.permalink} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink aria-hidden="true" />
+                    {t('openInstagram')}
+                  </a>
+                </Button>
+              ) : null}
+              <Button asChild variant="ghost" size="sm">
+                <Link href={tabHref}>{t('openTab', { tab: tt(item.mediaType === 'STORY' ? 'stories' : 'posts') })}</Link>
+              </Button>
+            </div>
+          </div>
+          <dl aria-label={t('numbers')} className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-4 xl:grid-cols-7">
+            {NUMBERS.map((id) => (
+              <div key={id} className="min-w-0">
+                <dt className="truncate text-xs text-muted-foreground">{tm(id)}</dt>
+                <dd className="truncate font-medium tabular-nums">{formatMetric(id, value(id), prefs, { full: true })}</dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
+      </Card>
+
+      <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-3">
+        <div className="min-w-0 lg:col-span-2">
+          <ChartCard title={t('followersTitle')} subtitle={t('followersHint')} summary={followers.length ? t('followersSummary', { from: at(followers[0].at), to: at(followers[followers.length - 1].at) }) : undefined}>
+            {followers.length ? (
+              <SeriesChart kind="line" data={followers} xKey="at" series={[{ key: 'followers', label: tm('followers') }]} title={t('followersTitle')} formatX={at} formatY={(n) => formatCompact(n, prefs)} />
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('followersEmpty')}</p>
+            )}
+          </ChartCard>
+        </div>
+        <ChartCard title={t('audienceTitle', { format })} subtitle={t('audienceHint', { format, username, day: formatDay(detail.day, prefs) })}>
+          {audience && total > 0 ? (
+            <dl className="grid gap-2 text-sm">
+              {([['follower', audience.follower], ['nonFollower', audience.nonFollower]] as const).map(([k, v]) => (
+                <div key={k} className="grid gap-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">{t(k)}</dt>
+                    <dd className="font-medium tabular-nums">
+                      {formatCompact(v, prefs)} · {formatPercent(v / total, prefs, 0)}
+                    </dd>
+                  </div>
+                  <div aria-hidden="true" className="h-1.5 rounded-full bg-muted">
+                    <div className={k === 'follower' ? 'h-full rounded-full bg-chart-1' : 'h-full rounded-full bg-chart-2'} style={{ width: `${Math.round((v / total) * 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('audienceEmpty')}</p>
+          )}
+        </ChartCard>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/explorer-item.test.tsx` and `npx tsc --noEmit`
+Expected: PASS (4 tests); typecheck clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/explorer/item.ts components/explorer/ItemPanel.tsx tests/explorer-item.test.tsx
+git commit -m "feat(explorer): single-item level (latest numbers, follower curve, audience slice)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 9: Saved views menu (`components/explorer/SavedViews.tsx`)
+
+**Files:**
+- Create: `components/explorer/SavedViews.tsx`
+- Test: `tests/saved-views.test.tsx` (new)
+
+**Interfaces:**
+- Consumes: `SavedView` (Task 6, type only), `ViewResult` (Task 6, type only), `ConfirmDialog`, `FormField`, `LoadingButton`, `NavLink`, `ResponsiveDialog*`, i18n `explorer.views.*` (Task 2).
+- Produces: `interface SavedViewsProps { views: SavedView[]; query: string; save(name, query); rename(id, name); remove(id) }`, `<SavedViews {...props} />` (client). The page passes the imported server actions straight through (never wrapped in a closure), like the Tags page.
+
+- [ ] **Step 1: Write the failing test** — create `tests/saved-views.test.tsx`:
+
+```tsx
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { SavedViews, type SavedViewsProps } from '@/components/explorer/SavedViews';
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const V1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const ok = async () => ({ ok: true as const });
+
+function view(o: Partial<SavedViewsProps> = {}) {
+  const props: SavedViewsProps = { views: [{ id: V1, name: 'Reels by hour', href: '/explorer?m=likes&by=hour' }], query: 'm=posts&by=format&from=90d', save: vi.fn(ok), rename: vi.fn(ok), remove: vi.fn(ok), ...o };
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <SavedViews {...props} />
+    </NextIntlClientProvider>,
+  );
+  return props;
+}
+
+describe('SavedViews', () => {
+  it('lists the views as links; empty list explains what a view is', () => {
+    view();
+    expect(screen.getByRole('link', { name: 'Reels by hour' })).toHaveAttribute('href', '/explorer?m=likes&by=hour');
+    expect(screen.getByRole('button', { name: 'Rename Reels by hour' })).toBeInTheDocument();
+    view({ views: [] });
+    expect(screen.getByText(/No saved views yet/)).toBeInTheDocument();
+  });
+
+  it('save: asks for a name and sends it with the current query; an error key is shown translated', async () => {
+    const user = userEvent.setup();
+    const save = vi.fn().mockResolvedValueOnce({ ok: false, error: 'duplicate' }).mockResolvedValueOnce({ ok: true });
+    view({ save });
+    await user.click(screen.getByRole('button', { name: 'Save view' }));
+    const dialog = screen.getByRole('dialog', { name: 'Save this view' });
+    await user.type(within(dialog).getByLabelText('Name'), 'Top formats');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(save).toHaveBeenCalledWith('Top formats', 'm=posts&by=format&from=90d');
+    expect(await within(dialog).findByText('A view with this name already exists.')).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Save' })).toBeEnabled()); // the transition has ended
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(save).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('rename starts from the current name; delete asks first and sends the id', async () => {
+    const user = userEvent.setup();
+    const p = view();
+    await user.click(screen.getByRole('button', { name: 'Rename Reels by hour' }));
+    const dialog = screen.getByRole('dialog', { name: 'Rename view' });
+    const input = within(dialog).getByLabelText('Name');
+    expect(input).toHaveValue('Reels by hour');
+    await user.clear(input);
+    await user.type(input, 'Reels per hour');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(p.rename).toHaveBeenCalledWith(V1, 'Reels per hour');
+    await user.click(screen.getByRole('button', { name: 'Delete Reels by hour' }));
+    const confirm = screen.getByRole('alertdialog');
+    expect(confirm).toHaveTextContent('Delete “Reels by hour”?');
+    await user.click(within(confirm).getByRole('button', { name: 'Delete' }));
+    expect(p.remove).toHaveBeenCalledWith(V1);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/saved-views.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/explorer/SavedViews"`.
+
+- [ ] **Step 3: Write `components/explorer/SavedViews.tsx`**
+
+```tsx
+'use client';
+
+// Saved Explorer views: links to the stored views, "Save view" (name dialog), rename and delete (confirmed).
+// The current query is saved as is; the server re-validates it (lib/explorer/views.ts) and answers with error keys.
+import { useState, useTransition } from 'react';
+import { Bookmark, Pencil, Trash2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import { NavLink } from '@/components/shared/NavLink';
+import { ResponsiveDialog, ResponsiveDialogClose, ResponsiveDialogContent, ResponsiveDialogDescription, ResponsiveDialogFooter, ResponsiveDialogHeader, ResponsiveDialogTitle } from '@/components/shared/ResponsiveDialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import type { SavedView } from '@/lib/explorer/views';
+import type { ViewResult } from '@/app/(app)/explorer/actions';
+
+export interface SavedViewsProps {
+  views: SavedView[];
+  query: string; // the current canonical query (Explorer + Time Scope)
+  save: (name: string, query: string) => Promise<ViewResult>;
+  rename: (id: string, name: string) => Promise<ViewResult>;
+  remove: (id: string) => Promise<ViewResult>;
+}
+
+/** One name dialog for "save" and "rename": open while `initial` is a string. */
+function NameDialog({ title, hint, initial, submit, onClose }: { title: string; hint?: string; initial: string | null; submit: (name: string) => Promise<ViewResult>; onClose: () => void }) {
+  const t = useTranslations('explorer.views');
+  const tErr = useTranslations('explorer.views.errors');
+  const [name, setName] = useState(initial ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <ResponsiveDialog open={initial !== null} onOpenChange={(o) => !o && onClose()}>
+      <ResponsiveDialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            start(async () => {
+              const r = await submit(name);
+              if (r.ok) onClose();
+              else setError(tErr(r.error));
+            });
+          }}
+        >
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{title}</ResponsiveDialogTitle>
+            {hint ? <ResponsiveDialogDescription>{hint}</ResponsiveDialogDescription> : null}
+          </ResponsiveDialogHeader>
+          {/* no maxLength: it counts UTF-16 units; the server checks 60 characters */}
+          <FormField id="view-name" label={t('name')} error={error ?? undefined}>
+            {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" dir="auto" />}
+          </FormField>
+          <ResponsiveDialogFooter>
+            <ResponsiveDialogClose asChild>
+              <Button type="button" variant="outline">
+                {t('cancel')}
+              </Button>
+            </ResponsiveDialogClose>
+            <LoadingButton type="submit" pending={pending} disabled={name.trim() === ''}>
+              {t('confirm')}
+            </LoadingButton>
+          </ResponsiveDialogFooter>
+        </form>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
+  );
+}
+
+export function SavedViews({ views, query, save, rename, remove }: SavedViewsProps) {
+  const t = useTranslations('explorer.views');
+  const tErr = useTranslations('explorer.views.errors');
+  const [saving, setSaving] = useState(false);
+  const [renaming, setRenaming] = useState<SavedView | null>(null);
+  const [deleting, setDeleting] = useState<SavedView | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <section aria-labelledby="saved-views" className="grid min-w-0 gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <h2 id="saved-views" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('title')}
+        </h2>
+        <Button type="button" variant="outline" size="sm" onClick={() => setSaving(true)}>
+          <Bookmark aria-hidden="true" />
+          {t('save')}
+        </Button>
+      </div>
+      {views.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('empty')}</p>
+      ) : (
+        <ul className="grid max-h-64 gap-0.5 overflow-y-auto">
+          {views.map((v) => (
+            <li key={v.id} className="flex min-w-0 items-center gap-1">
+              <NavLink href={v.href} className="min-w-0 flex-1 truncate rounded-sm px-1 py-0.5 text-sm underline-offset-4 hover:underline" dir="auto">
+                {v.name}
+              </NavLink>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label={t('renameNamed', { name: v.name })} onClick={() => setRenaming(v)}>
+                <Pencil aria-hidden="true" />
+              </Button>
+              <Button type="button" variant="ghost" size="icon-sm" className="text-destructive" aria-label={t('deleteNamed', { name: v.name })} onClick={() => setDeleting(v)}>
+                <Trash2 aria-hidden="true" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <NameDialog key={saving ? 'save' : 'save-closed'} title={t('saveTitle')} hint={t('saveHint')} initial={saving ? '' : null} submit={(name) => save(name, query)} onClose={() => setSaving(false)} />
+      <NameDialog key={renaming?.id ?? 'rename-closed'} title={t('renameTitle')} initial={renaming?.name ?? null} submit={(name) => rename(renaming!.id, name)} onClose={() => setRenaming(null)} />
+      <ConfirmDialog
+        open={deleting !== null}
+        title={t('deleteTitle', { name: deleting?.name ?? '' })}
+        body={t('deleteBody')}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        busy={pending}
+        error={deleteError}
+        onClose={() => {
+          setDeleting(null);
+          setDeleteError(null);
+        }}
+        onConfirm={() =>
+          deleting &&
+          start(async () => {
+            const r = await remove(deleting.id);
+            if (r.ok) setDeleting(null);
+            else setDeleteError(tErr(r.error));
+          })
+        }
+      />
+    </section>
+  );
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/saved-views.test.tsx`
+Expected: PASS (3 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/explorer/SavedViews.tsx tests/saved-views.test.tsx
+git commit -m "feat(explorer): saved views menu (save, rename, delete)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 10: Server loader + row labels (`lib/explorer/load.ts`, `lib/explorer/labels.ts`)
+
+**Files:**
+- Create: `lib/explorer/load.ts`, `lib/explorer/labels.ts`
+- Test: `tests/explorer-load.test.ts` (new)
+
+**Interfaces:**
+- Consumes: Tasks 3, 4, 5, 8; `loadTags` (`lib/dashboard/detail-read.ts`), `StoredAccount`, `SyncStatus` (`lib/sync/store.ts`, `dailyDoneThrough`), 12a `parseTimeScope`, `resolveScope`, `ResolvedScope`, `DayRange`, `Granularity`; `formatDateTime`, `formatDay`, `formatHour`, `formatMonth`; `translator` (`lib/export/workbook.ts`, test only).
+- Produces:
+  - `interface ExplorerData { state; scope: ResolvedScope; window: { current: DayRange; compare: DayRange | null }; live: ScopeAccount[]; accounts: ScopeAccount[]; groups: string[]; tags: Tag[]; model: ExplorerModel; items: ItemRow[]; truncated: boolean; item: ItemDetail | null }`
+  - `loadExplorer(db, sp: Record<string, string | string[] | undefined>, o: { today; tz; weekStart; accounts: StoredAccount[]; sync: Record<string, SyncStatus> }): Promise<ExplorerData>` — the ONE loader of the page (Task 12) and the export (Task 11).
+  - `type Translate = (key, values?) => string`, `interface LabelContext { accounts; tags; items; gran }`, `rowLabel(by, key, ctx, t, prefs): string` — the same row text on screen and in Excel.
+
+Flow: parse the state → live accounts (archived hidden) → accounts kept by the account/group filters → first captured day (`loadEarliest`, for 12a's "all" and coverage) + tags → `resolveScope(parseTimeScope(sp, weekStart), today, earliest)` → `explorerWindow(scope, settledDay(...))` → item level, single posts, or current + comparison rollups in parallel → `buildExplorer`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/explorer-load.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import en from '@/messages/en.json';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { rowLabel, type LabelContext } from '@/lib/explorer/labels';
+import { loadExplorer } from '@/lib/explorer/load';
+import { translator } from '@/lib/export/workbook';
+import type { FormatPrefs } from '@/lib/format';
+
+const A = 'aaaaaaaa-0000-4000-8000-000000000001';
+const B = 'aaaaaaaa-0000-4000-8000-000000000002';
+const C = 'aaaaaaaa-0000-4000-8000-000000000003';
+const acct = (id: string, username: string, groupName: string | null, status: StoredAccount['status'] = 'active'): StoredAccount => ({ id, igUserId: id, username, displayName: null, accountType: null, profilePictureUrl: null, groupName, status, archivedAt: status === 'archived' ? '2026-01-01T00:00:00Z' : null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-01-01T00:00:00Z' });
+const ACCOUNTS = [acct(B, 'beta', 'Food'), acct(A, 'alpha', 'Food'), acct(C, 'gamma', null, 'archived')];
+const SYNC = { [A]: { lastSuccessAt: null, lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-15' } };
+const O = { today: '2026-10-17', tz: 'UTC', weekStart: 'mon' as const, accounts: ACCOUNTS, sync: SYNC };
+
+/** Owner-session fake: records table/rpc calls; resolves each name to its result. */
+function fakeDb(results: Record<string, { data?: unknown; error?: unknown }> = {}) {
+  const calls: unknown[][] = [];
+  const chainFor = (name: string) => {
+    const chain: Record<string, unknown> = {};
+    for (const op of ['select', 'eq', 'in', 'order', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+    chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(results[name] ?? { data: [], error: null }).then(res, rej);
+    return chain;
+  };
+  return { db: { from: (t: string) => (calls.push(['from', t]), chainFor(t)), rpc: (n: string, a: unknown) => (calls.push(['rpc', n, a]), chainFor(n)) } as unknown as SupabaseClient, calls };
+}
+const rpcs = (calls: unknown[][]) => calls.filter((c) => c[0] === 'rpc').map((c) => [c[1], (c[2] as { p_from: string }).p_from, (c[2] as { p_to: string }).p_to]);
+
+describe('loadExplorer', () => {
+  it('archived accounts are hidden; the window ends on the settled day; the comparison is a second rollup', async () => {
+    const { db, calls } = fakeDb({ explorer_daily: { data: [{ key: A, reach: 10 }], error: null }, account_daily: { data: [{ day: '2026-01-01' }], error: null } });
+    const d = await loadExplorer(db, { m: 'reach' }, O);
+    expect(d.live.map((a) => a.username)).toEqual(['alpha', 'beta']);
+    expect(d.groups).toEqual(['Food']);
+    expect(d.window).toEqual({ current: { from: '2026-09-16', to: '2026-10-15' }, compare: { from: '2026-08-17', to: '2026-09-15' } });
+    expect(rpcs(calls)).toEqual([['explorer_daily', '2026-09-16', '2026-10-15'], ['explorer_daily', '2026-08-17', '2026-09-15']]);
+    expect(d.model.rows.map((r) => [r.key, r.values.reach?.value])).toEqual([[A, 10], [B, null]]);
+  });
+
+  it('account and group filters intersect; an unknown or archived id is simply not in scope', async () => {
+    const { db } = fakeDb();
+    expect((await loadExplorer(db, { acc: `${A},${C}`, grp: 'Food' }, O)).accounts.map((a) => a.id)).toEqual([A]);
+    expect((await loadExplorer(db, { grp: 'Nope' }, O)).accounts).toEqual([]);
+  });
+
+  it('single posts read the capped list (no rollup); the item level reads only the item', async () => {
+    const posts = fakeDb({ explorer_media: { data: [{ id: 'm1', account_id: A, media_type: 'IMAGE', posted_at: '2026-10-01T00:00:00Z', permalink: null, caption: null, reach: 5, views: null, likes: 1, comments: 0, saves: 0, shares: 0 }], error: null } });
+    const d = await loadExplorer(posts.db, { by: 'post', from: '7d', cmp: 'none' }, O);
+    expect(rpcs(posts.calls).map((c) => c[0])).toEqual(['explorer_media']);
+    expect(d.model.rows.map((r) => r.key)).toEqual(['m1']);
+    const item = fakeDb();
+    const i = await loadExplorer(item.db, { item: '42' }, O);
+    expect(i.item).toBeNull(); // not found in the fake: the page shows "not in your accounts"
+    expect(rpcs(item.calls)).toEqual([]);
+    expect(item.calls).toContainEqual(['eq', 'id', '42']);
+  });
+});
+
+describe('rowLabel', () => {
+  const t = translator('en');
+  const P: FormatPrefs = { locale: 'en', dateFormat: 'D MMM YYYY', timeFormat: '24h', numberFormat: '1,234.5', timezone: 'UTC' };
+  const c: LabelContext = { accounts: [{ id: A, username: 'alpha', groupName: 'Food' }], tags: [{ id: 't1', name: 'Promo', color: 'chart-1' }], items: [{ id: 'm1', accountId: A, mediaType: 'REELS', postedAt: '2026-10-05T09:30:00Z', permalink: null, caption: null, reach: null, views: null, likes: null, comments: null, saves: null, shares: null }], gran: 'week' };
+
+  it('reads the same on screen and in the file', () => {
+    expect(rowLabel('account', A, c, t, P)).toBe('@alpha');
+    expect(rowLabel('group', 'g:Food', c, t, P)).toBe('Food');
+    expect(rowLabel('group', `a:${A}`, c, t, P)).toBe('@alpha');
+    expect(rowLabel('format', 'CAROUSEL_ALBUM', c, t, P)).toBe(en.analysis.format.CAROUSEL_ALBUM);
+    expect(rowLabel('tag', 't1', c, t, P)).toBe('Promo');
+    expect(rowLabel('tag', 'untagged', c, t, P)).toBe(en.explorer.untagged);
+    expect(rowLabel('tag', 'gone', c, t, P)).toBe(en.explorer.deletedTag);
+    expect(rowLabel('weekday', '0', c, t, P)).toBe('Sun');
+    expect(rowLabel('hour', '9', c, t, P)).toBe('09:00');
+    expect(rowLabel('time', '2026-10-05', c, t, P)).toBe('Week of 5 Oct 2026');
+    expect(rowLabel('time', '2026-10-01', { ...c, gran: 'month' }, t, P)).toBe('October 2026');
+    expect(rowLabel('post', 'm1', c, t, P)).toBe('Reel · 5 Oct 2026 09:30');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/explorer-load.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/explorer/labels"`.
+
+- [ ] **Step 3: Write `lib/explorer/labels.ts`**
+
+```ts
+// Row labels of the Explorer, shared by the page (useTranslations) and the Excel export (server translator), so a
+// row reads the same on screen and in the file. Pure: the translator and the format preferences are inputs.
+import type { ScopeAccount } from '@/lib/analysis/explorer';
+import type { Tag } from '@/lib/analysis/types';
+import type { ItemRow } from '@/lib/explorer/read';
+import { formatDateTime, formatDay, formatHour, formatMonth, type FormatPrefs } from '@/lib/format';
+import type { DimensionId } from '@/lib/metrics';
+import type { Granularity } from '@/lib/time-scope/range';
+
+export type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+export interface LabelContext {
+  accounts: ScopeAccount[];
+  tags: Tag[];
+  items: ItemRow[];
+  gran: Granularity;
+}
+
+const user = (c: LabelContext, id: string) => `@${c.accounts.find((a) => a.id === id)?.username ?? '?'}`;
+
+export function rowLabel(by: DimensionId, key: string, c: LabelContext, t: Translate, p: FormatPrefs): string {
+  switch (by) {
+    case 'account':
+      return user(c, key);
+    case 'group':
+      return key.startsWith('g:') ? key.slice(2) : user(c, key.slice(2));
+    case 'format':
+      return t(`analysis.format.${key}`);
+    case 'tag':
+      return key === 'untagged' ? t('explorer.untagged') : (c.tags.find((x) => x.id === key)?.name ?? t('explorer.deletedTag'));
+    case 'weekday':
+      return t(`analysis.weekday.${key}`);
+    case 'hour':
+      return formatHour(Number(key), p);
+    case 'time':
+      return c.gran === 'month' ? formatMonth(key.slice(0, 7), p) : c.gran === 'week' ? t('explorer.weekOf', { day: formatDay(key, p) }) : formatDay(key, p);
+    case 'post': {
+      const it = c.items.find((x) => x.id === key);
+      return it ? `${t(`analysis.format.${it.mediaType}`)} · ${formatDateTime(it.postedAt, p)}` : key;
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Write `lib/explorer/load.ts`**
+
+```ts
+// Everything one Explorer view needs, for the page AND the Excel export (two callers, one loader): URL → state and
+// Time Scope → accounts in scope → window → the fixed RPCs → the model. OWNER SESSION client only (RLS).
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { buildExplorer, explorerWindow, settledDay, type ExplorerModel, type ScopeAccount } from '@/lib/analysis/explorer';
+import type { Tag } from '@/lib/analysis/types';
+import { loadTags } from '@/lib/dashboard/detail-read';
+import { loadItem, type ItemDetail } from '@/lib/explorer/item';
+import { loadEarliest, loadItems, loadRollup, type ItemRow, type RollupQuery } from '@/lib/explorer/read';
+import { parseExplorerState, type ExplorerState } from '@/lib/explorer/state';
+import type { WeekStart } from '@/lib/prefs';
+import type { SyncStatus } from '@/lib/sync/store';
+import type { DayRange } from '@/lib/time-scope/range';
+import { parseTimeScope, resolveScope, type ResolvedScope } from '@/lib/time-scope/scope';
+
+export interface ExplorerData {
+  state: ExplorerState;
+  scope: ResolvedScope;
+  window: { current: DayRange; compare: DayRange | null };
+  live: ScopeAccount[]; // every live account, by username (filter choices)
+  accounts: ScopeAccount[]; // the ones the filters keep
+  groups: string[]; // named groups A→Z
+  tags: Tag[];
+  model: ExplorerModel;
+  items: ItemRow[]; // single posts (by = 'post')
+  truncated: boolean;
+  item: ItemDetail | null; // the single-item level (state.item)
+}
+
+type Params = Record<string, string | string[] | undefined>;
+
+export async function loadExplorer(db: SupabaseClient, sp: Params, o: { today: string; tz: string; weekStart: WeekStart; accounts: StoredAccount[]; sync: Record<string, SyncStatus> }): Promise<ExplorerData> {
+  const state = parseExplorerState(sp);
+  const live: ScopeAccount[] = o.accounts
+    .filter((a) => a.status !== 'archived') // archived = hidden from every view (SPEC §7c)
+    .sort((a, b) => a.username.localeCompare(b.username))
+    .map((a) => ({ id: a.id, username: a.username, groupName: a.groupName }));
+  const accounts = live.filter((a) => (state.group === null || a.groupName === state.group) && (state.accounts.length === 0 || state.accounts.includes(a.id)));
+  const ids = accounts.map((a) => a.id);
+  const [earliest, tags] = await Promise.all([loadEarliest(db, ids), loadTags(db)]);
+  const scope = resolveScope(parseTimeScope(sp, o.weekStart), o.today, earliest);
+  const window = explorerWindow(scope, settledDay(accounts.map((a) => o.sync[a.id]?.dailyDoneThrough), o.today));
+  const q: RollupQuery = { accounts: ids, from: window.current.from, to: window.current.to, tz: o.tz, weekStart: o.weekStart, grain: scope.gran };
+  const base = { state, scope, window, live, accounts, groups: [...new Set(live.flatMap((a) => (a.groupName ? [a.groupName] : [])))].sort((a, b) => a.localeCompare(b)), tags };
+  const empty: ExplorerModel = { rows: [], partial: [] };
+  if (state.item !== null) return { ...base, model: empty, items: [], truncated: false, item: await loadItem(db, state.item, ids, o.tz) };
+  if (state.by === 'post') {
+    const { items, truncated } = await loadItems(db, state, q);
+    return { ...base, items, truncated, item: null, model: buildExplorer({ state, window, current: new Map(), prior: null, accounts, items, gran: scope.gran, weekStart: o.weekStart }) };
+  }
+  const [current, prior] = await Promise.all([loadRollup(db, state, q), window.compare ? loadRollup(db, state, { ...q, from: window.compare.from, to: window.compare.to }) : null]);
+  return { ...base, items: [], truncated: false, item: null, model: buildExplorer({ state, window, current, prior, accounts, items: [], gran: scope.gran, weekStart: o.weekStart }) };
+}
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/explorer-load.test.ts` and `npx tsc --noEmit`
+Expected: PASS (4 tests); typecheck clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/explorer/load.ts lib/explorer/labels.ts tests/explorer-load.test.ts
+git commit -m "feat(explorer): one server loader for page and export; shared row labels" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 11: Excel export of the current view (`GET /api/export/explorer`)
+
+**Files:**
+- Create: `app/api/export/explorer/route.ts`, `lib/export/explorer.ts`
+- Modify: `lib/export/workbook.ts` (export `Kind`, `Col`, `sheet`; `cellOf`/`sheet` take only `Pick<WorkbookOptions, 'prefs'>` — the only field they read)
+- Test: `tests/explorer-export.test.ts` (new). `tests/export-workbook.test.ts` and `tests/export-xlsx-route.test.ts` must keep passing unchanged.
+
+**Interfaces:**
+- Consumes: `loadExplorer`, `ExplorerData`, `rowLabel` (Task 10), `viewState` (Task 6), `assertOwner`, `supabaseAccountsStore`, `listSyncStatus`, `getPrefs`, `createServerSupabase({ responseHeaders })`, `exportHeaders`/`exportError`/`exportFile` (`lib/export/request.ts`), `contentDisposition` (`lib/export/filename.ts`), `translator`, `writeWorkbook`, `sheetNames`, `serverTiming`/`timed` (`lib/server-timing.ts`); i18n `explorer.title`, `explorer.previous`, `explorer.by.*`, `export.cols.*`.
+- Produces: `GET /api/export/explorer?<canonical query>` → `.xlsx` attachment named `in2sight-explorer-<from>_<to>.xlsx`, header `Server-Timing: explorer;dur=…`; errors `{ error: 'unauthorized' | 'bad_params' | 'unexpected' }` (the export dialog's existing keys). `buildExplorerSheet(d, t, prefs): WorkbookSheet[]`.
+
+Strictness: the route recomputes the canonical query (`viewState`) and answers `bad_params` unless the request is EXACTLY that query — no extra, repeated, reordered or shorthand keys — before any read. The page builds the link from the same canonical parts, so a real click always matches.
+
+- [ ] **Step 1: Write the failing test** — create `tests/explorer-export.test.ts`:
+
+```ts
+// @vitest-environment node
+import { strFromU8, unzipSync } from 'fflate';
+import { NextRequest } from 'next/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_PREFS, type Prefs } from '@/lib/prefs';
+
+const A = 'aaaaaaaa-0000-4000-8000-000000000001';
+const state = vi.hoisted(() => ({ owner: true, prefs: null as Prefs | null, rpcs: [] as string[], fail: false }));
+vi.mock('@/lib/auth/assert-owner', () => ({
+  assertOwner: async (h?: Headers) => {
+    h?.set('cache-control', 'private, no-store');
+    return state.owner;
+  },
+}));
+vi.mock('@/lib/prefs.server', () => ({ getPrefs: async () => state.prefs }));
+vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => ({}) }));
+vi.mock('@/lib/accounts/supabase-store', () => ({
+  supabaseAccountsStore: () => ({ list: async () => [{ id: A, igUserId: '1', username: 'brand=one', displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-01-01T00:00:00Z' }] }),
+}));
+vi.mock('@/lib/supabase/server', () => ({
+  createServerSupabase: async () => {
+    const chain = (name: string) => {
+      const c: Record<string, unknown> = {};
+      for (const op of ['select', 'eq', 'in', 'order', 'limit']) c[op] = () => c;
+      const data: Record<string, unknown[]> = {
+        explorer_daily: [{ key: A, reach: 1200, views: 3000, interactions: 90, er_interactions: 90, er_reach: 1200, net_follows: 4, followers: 900 }],
+        explorer_posts: [{ key: A, posts: 3, measured: 3, reach_sum: 600, views_sum: 900, views_n: 3, likes: 30, comments: 3, saves: 2, shares: 1, er_interactions: 36, er_reach: 600 }],
+      };
+      c.then = (res: (v: unknown) => unknown) => Promise.resolve(state.fail ? { data: null, error: { message: 'secret-row' } } : { data: data[name] ?? [], error: null }).then(res);
+      return c;
+    };
+    return { from: (t: string) => chain(t), rpc: (n: string) => (state.rpcs.push(n), chain(n)) };
+  },
+}));
+
+import { GET } from '@/app/api/export/explorer/route';
+
+const get = (qs: string) => GET(new NextRequest(new URL(`/api/export/explorer?${qs}`, 'https://app.test')));
+beforeEach(() => {
+  state.owner = true;
+  state.prefs = { ...DEFAULT_PREFS, timezone: 'UTC' };
+  state.rpcs = [];
+  state.fail = false;
+});
+
+describe('GET /api/export/explorer', () => {
+  it('401 for anyone but the owner, uncached, nothing read', async () => {
+    state.owner = false;
+    const res = await get('m=reach&by=account');
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'unauthorized' });
+    expect(res.headers.get('cache-control')).toContain('no-store');
+    expect(state.rpcs).toEqual([]);
+  });
+
+  it('400 bad_params for anything that is not the canonical query, before any read', async () => {
+    for (const qs of ['', 'by=account', 'm=reach&by=account&m=reach', 'm=reach&by=drop', 'm=reach&by=account&x=1', 'm=reach&by=account&month=2026-09', 'by=account&m=reach', 'm=reach&by=account&acc=nope']) {
+      const res = await get(qs);
+      expect(res.status, qs).toBe(400);
+      expect(await res.json()).toEqual({ error: 'bad_params' });
+    }
+    expect(state.rpcs).toEqual([]);
+  });
+
+  it('200: one sheet with the view, previous + change columns when comparing, Server-Timing, private + no-store', async () => {
+    const res = await get('m=reach%2CengagementRate%2Cposts&by=account&from=90d');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('server-timing')).toMatch(/^explorer;dur=\d+\.\d$/);
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment; filename="in2sight-explorer-\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.xlsx"/);
+    const zip = unzipSync(new Uint8Array(await res.arrayBuffer()));
+    expect(strFromU8(zip['xl/workbook.xml'])).toContain('name="Explorer"');
+    const strings = strFromU8(zip['xl/sharedStrings.xml']);
+    for (const s of ['Account', 'Reach', 'Reach (previous)', 'Reach change', 'Posts', '@brand=one']) expect(strings).toContain(s);
+    expect(state.rpcs).toEqual(['explorer_daily', 'explorer_posts', 'explorer_daily', 'explorer_posts']); // current + comparison
+  });
+
+  it('no comparison: no previous/change columns; zh-CN headers', async () => {
+    state.prefs = { ...DEFAULT_PREFS, locale: 'zh-CN', timezone: 'UTC' };
+    const zip = unzipSync(new Uint8Array(await (await get('m=reach&by=account&cmp=none')).arrayBuffer()));
+    const strings = strFromU8(zip['xl/sharedStrings.xml']);
+    expect(strings).toContain('触达');
+    expect(strings).not.toContain('之前');
+  });
+
+  it('a failed read is 500 unexpected with a fixed log line, never the database text', async () => {
+    state.fail = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await get('m=reach&by=account');
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'unexpected' });
+    expect(JSON.stringify(err.mock.calls)).not.toContain('secret-row');
+    err.mockRestore();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/explorer-export.test.ts`
+Expected: FAIL — `Failed to resolve import "@/app/api/export/explorer/route"`.
+
+- [ ] **Step 3: Edit `lib/export/workbook.ts`** — exactly this diff (12a edits other parts of the file; apply by hand if the context lines moved):
+
+```diff
+diff --git a/lib/export/workbook.ts b/lib/export/workbook.ts
+index db93009..50693a8 100644
+--- a/lib/export/workbook.ts
++++ b/lib/export/workbook.ts
+@@ -35,9 +35,9 @@ export interface WorkbookSheet {
+   stickyRowsCount: number; // the header row stays visible ("frozen")
+ }
+ 
+-type Kind = 'text' | 'count' | 'avg' | 'percent' | 'date' | 'datetime';
++export type Kind = 'text' | 'count' | 'avg' | 'percent' | 'date' | 'datetime';
+ type Value = string | number | null | undefined;
+-interface Col<R> {
++export interface Col<R> {
+   header: string;
+   kind: Kind;
+   width: number;
+@@ -55,7 +55,7 @@ export interface WorkbookOptions {
+ const KPI_IDS: KpiId[] = ['followers', 'reach', 'views', 'engagementRate', 'posts', 'netFollows'];
+ const num = (v: Value) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+ 
+-function cellOf(kind: Kind, v: Value, o: WorkbookOptions): Cell {
++function cellOf(kind: Kind, v: Value, o: Pick<WorkbookOptions, 'prefs'>): Cell {
+   if (kind === 'text') {
+     const s = safeText(typeof v === 'string' ? v : null);
+     return s === null ? null : { value: s, type: String };
+@@ -72,7 +72,7 @@ function cellOf(kind: Kind, v: Value, o: WorkbookOptions): Cell {
+   return { value: n, type: Number, format: kind === 'percent' ? PERCENT_FORMAT : kind === 'avg' ? AVG_FORMAT : COUNT_FORMAT };
+ }
+ 
+-function sheet<R>(name: string, cols: Col<R>[], rows: R[], o: WorkbookOptions): Omit<WorkbookSheet, 'sheet'> & { name: string } {
++export function sheet<R>(name: string, cols: Col<R>[], rows: R[], o: Pick<WorkbookOptions, 'prefs'>): Omit<WorkbookSheet, 'sheet'> & { name: string } {
+   return {
+     name,
+     data: [cols.map((c) => ({ value: c.header, type: String, fontWeight: 'bold' as const })), ...rows.map((r) => cols.map((c) => cellOf(c.kind, c.get(r), o)))],
+```
+
+- [ ] **Step 4: Write `lib/export/explorer.ts`**
+
+```ts
+// The Excel export of the current Explorer view: one sheet = the table on screen (dimension, the selected metrics, and
+// "previous" + change columns when comparing). Same cell rules as every export sheet (lib/export/workbook.ts): numbers
+// are number cells, time buckets are real date cells, missing values are EMPTY cells, user text goes through safeText.
+import type { ExplorerRow } from '@/lib/analysis/explorer';
+import type { ExplorerData } from '@/lib/explorer/load';
+import { rowLabel } from '@/lib/explorer/labels';
+import { sheetNames } from '@/lib/export/cells';
+import { sheet, type Col, type Kind, type Translate, type WorkbookSheet } from '@/lib/export/workbook';
+import type { FormatPrefs } from '@/lib/format';
+import { METRICS, type MetricId } from '@/lib/metrics';
+
+type Data = Pick<ExplorerData, 'state' | 'model' | 'accounts' | 'tags' | 'items' | 'scope' | 'window'>;
+
+const kindOf = (m: MetricId): Kind => (METRICS[m].kind === 'percent' ? 'percent' : m === 'avgReach' || m === 'avgViews' ? 'avg' : 'count');
+
+export function buildExplorerSheet(d: Data, t: Translate, prefs: FormatPrefs): WorkbookSheet[] {
+  const { state: s } = d;
+  const ctx = { accounts: d.accounts, tags: d.tags, items: d.items, gran: d.scope.gran };
+  const item = new Map(d.items.map((i) => [i.id, i]));
+  const user = new Map(d.accounts.map((a) => [a.id, a.username]));
+  const compare = d.window.compare !== null && s.by !== 'post';
+  const lead: Col<ExplorerRow>[] =
+    s.by === 'time'
+      ? [{ header: t('explorer.by.time'), kind: 'date', width: 13, get: (r) => r.key }]
+      : s.by === 'post'
+        ? [
+            { header: t('export.cols.account'), kind: 'text', width: 24, get: (r) => user.get(item.get(r.key)?.accountId ?? '') },
+            { header: t('export.cols.postedAt'), kind: 'datetime', width: 18, get: (r) => item.get(r.key)?.postedAt },
+            { header: t('export.cols.type'), kind: 'text', width: 11, get: (r) => (item.get(r.key) ? t(`analysis.format.${item.get(r.key)!.mediaType}`) : null) },
+            { header: t('export.cols.caption'), kind: 'text', width: 50, get: (r) => item.get(r.key)?.caption },
+            { header: t('export.cols.permalink'), kind: 'text', width: 34, get: (r) => item.get(r.key)?.permalink },
+          ]
+        : [{ header: t(`explorer.by.${s.by}`), kind: 'text', width: 24, get: (r) => rowLabel(s.by, r.key, ctx, t, prefs) }];
+  const metrics = s.metrics.flatMap((m): Col<ExplorerRow>[] => {
+    const metric = t(`metrics.${m}`);
+    const value: Col<ExplorerRow> = { header: metric, kind: kindOf(m), width: 13, get: (r) => r.values[m]?.value };
+    if (!compare) return [value];
+    return [
+      value,
+      { header: t('explorer.previous', { metric }), kind: kindOf(m), width: 13, get: (r) => r.values[m]?.prior },
+      { header: t('export.cols.change', { metric }), kind: 'percent', width: 13, get: (r) => r.values[m]?.change },
+    ];
+  });
+  const built = sheet(t('explorer.title'), [...lead, ...metrics], d.model.rows, { prefs });
+  return [{ sheet: sheetNames([built.name])[0], data: built.data, columns: built.columns, stickyRowsCount: built.stickyRowsCount }];
+}
+```
+
+- [ ] **Step 5: Write `app/api/export/explorer/route.ts`**
+
+```ts
+import type { NextRequest } from 'next/server';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import { assertOwner } from '@/lib/auth/assert-owner';
+import { loadExplorer } from '@/lib/explorer/load';
+import { viewState } from '@/lib/explorer/views';
+import { buildExplorerSheet } from '@/lib/export/explorer';
+import { contentDisposition } from '@/lib/export/filename';
+import { exportError, exportFile, exportHeaders } from '@/lib/export/request';
+import { translator, writeWorkbook } from '@/lib/export/workbook';
+import { getPrefs } from '@/lib/prefs.server';
+import { serverTiming, timed, type Span } from '@/lib/server-timing';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { listSyncStatus } from '@/lib/sync/store';
+import { localDay } from '@/lib/sync/time';
+
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/**
+ * GET /api/export/explorer?<the Explorer's canonical query> — owner session only. The query must be exactly what the
+ * page links to (canonical Explorer + Time Scope parameters); anything else, repeated or extra is `bad_params`.
+ * `Server-Timing: explorer;dur=…` = the same loader as the page (docs/RUNBOOK_EXPLORER.md §4).
+ */
+export async function GET(request: NextRequest) {
+  const h = exportHeaders();
+  try {
+    if (!(await assertOwner(h))) return exportError(h, 401, 'unauthorized');
+    const q = request.nextUrl.searchParams;
+    const prefs = await getPrefs(); // timezone + formats: the owner's; the sync writes days in it too
+    if (q.size === 0 || new URLSearchParams(viewState(q.toString(), prefs.weekStart)).toString() !== q.toString()) return exportError(h, 400, 'bad_params');
+    const db = await createServerSupabase({ responseHeaders: h }); // owner session: RLS applies
+    const today = localDay(new Date(), prefs.timezone);
+    const spans: Span[] = [];
+    const d = await timed(spans, 'explorer', async () => {
+      const [accounts, sync] = await Promise.all([supabaseAccountsStore(db).list(), listSyncStatus(db)]);
+      return loadExplorer(db, Object.fromEntries(q), { today, tz: prefs.timezone, weekStart: prefs.weekStart, accounts, sync });
+    });
+    h.set('server-timing', serverTiming(spans));
+    const file = await writeWorkbook(buildExplorerSheet(d, translator(prefs.locale), prefs));
+    return exportFile(h, file, XLSX, contentDisposition(`in2sight-explorer-${d.window.current.from}_${d.window.current.to}`, 'xlsx'));
+  } catch {
+    console.error('explorer export failed'); // fixed text: never log error objects (they can carry row values)
+    return exportError(h, 500, 'unexpected');
+  }
+}
+```
+
+The route is NOT added to `lib/auth/route-policy.ts` (no public exemption): the proxy already requires a session, and `assertOwner` runs first.
+
+- [ ] **Step 6: Run the tests**
+
+Run: `npx vitest run tests/explorer-export.test.ts tests/export-workbook.test.ts tests/export-xlsx-route.test.ts` and `npx tsc --noEmit`
+Expected: PASS (3 files); typecheck clean.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add app/api/export/explorer/route.ts lib/export/explorer.ts lib/export/workbook.ts tests/explorer-export.test.ts
+git commit -m "feat(export): Excel export of the current Explorer view with Server-Timing" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+_(Tasks 12–15 pending)_
