@@ -3794,3 +3794,315 @@ git commit -m "feat(sync): post/Reel cover backfill as a lane-2 job after the im
 ```
 
 ---
+
+### Task 12: Cover route `GET /api/media/[id]/cover` + Storage cleanup on permanent delete
+
+**Files:**
+- Create: `app/api/media/[id]/cover/route.ts`
+- Modify: `lib/sync/store.ts` (`removeAccountCovers`)
+- Modify: `app/(app)/accounts/actions.ts` (`deleteAccountAction` removes the objects after a successful delete)
+- Test: `tests/cover-route.test.ts`, `tests/cover-delete.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `assertOwner(h)`, `createServerSupabase({ responseHeaders })` (owner session, RLS), `createAdminSupabase()`; `COVERS_BUCKET`, `COVER_TYPES`, `coverPath` (Task 9).
+- Produces: route `GET /api/media/{numeric id}/cover` → 200 image (private, 1-year immutable cache, `nosniff`) | 401 | 404 | 500 (fixed JSON bodies); `removeAccountCovers(db, accountId): Promise<number>` (best-effort, never throws). `MediaThumb` (Plan 12/13) will use `<img src="/api/media/{id}/cover">`.
+
+Security notes: `assertOwner` first, its headers object `h` is passed to every `NextResponse` (401/404/500/200); the media row is read with the OWNER session (RLS), the stored path must equal `coverPath(row.account_id, id)` — so neither the request nor a tampered row can steer the Storage read elsewhere; content type comes from our own upload (allowlist re-checked, anything else served as JPEG); `lib/auth/route-policy.ts` is unchanged (the proxy sends signed-out visitors to `/login`). The service worker already never caches `/api/*`. Archive keeps covers; only the permanent delete removes them (rows go by FK cascade).
+
+- [ ] **Step 1: Write the failing tests** — create `tests/cover-route.test.ts`:
+
+```ts
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { decideRoute } from '@/lib/auth/route-policy';
+
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+const state = vi.hoisted(() => ({
+  owner: true,
+  row: null as Record<string, unknown> | null,
+  readError: null as unknown,
+  blob: null as Blob | null,
+  downloads: [] as string[],
+  queries: [] as unknown[][],
+  order: [] as string[],
+}));
+vi.mock('@/lib/auth/assert-owner', () => ({
+  assertOwner: async (h?: Headers) => {
+    state.order.push('assertOwner');
+    h?.set('x-from-supabase', 'kept');
+    return state.owner;
+  },
+}));
+vi.mock('@/lib/supabase/server', () => ({
+  createServerSupabase: async () => {
+    state.order.push('ownerSession');
+    return {
+      from: (t: string) => ({
+        select: (cols: string) => ({ eq: (c: string, v: string) => ({ maybeSingle: async () => (state.queries.push([t, cols, c, v]), { data: state.row, error: state.readError }) }) }),
+      }),
+    };
+  },
+}));
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminSupabase: () => {
+    state.order.push('admin');
+    return { storage: { from: (b: string) => ({ download: async (p: string) => (state.downloads.push(`${b}:${p}`), state.blob ? { data: state.blob, error: null } : { data: null, error: { message: 'Object not found' } }) }) } };
+  },
+}));
+
+import { GET } from '@/app/api/media/[id]/cover/route';
+
+const call = (id: string) => GET(new Request(`https://app.test/api/media/${id}/cover`), { params: Promise.resolve({ id }) });
+
+beforeEach(() => {
+  state.owner = true;
+  state.row = { account_id: ACC, cover_status: 'ok', cover_path: `${ACC}/17900000000000001.jpg` };
+  state.readError = null;
+  state.blob = new Blob([JPEG], { type: 'image/jpeg' });
+  state.downloads = [];
+  state.queries = [];
+  state.order = [];
+});
+
+describe('GET /api/media/[id]/cover', () => {
+  it('streams the owner\'s stored cover: private immutable cache, nosniff, our content type; auth headers kept', async () => {
+    const res = await call('17900000000000001');
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(JPEG);
+    expect(res.headers.get('content-type')).toBe('image/jpeg');
+    expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('x-from-supabase')).toBe('kept');
+    expect(state.order).toEqual(['assertOwner', 'ownerSession', 'admin']); // owner check, then the RLS read, only then Storage
+    expect(state.queries[0]).toEqual(['media', 'account_id,cover_status,cover_path', 'id', '17900000000000001']);
+    expect(state.downloads).toEqual([`covers:${ACC}/17900000000000001.jpg`]);
+  });
+
+  it('401 for anyone but the owner; nothing read; headers kept on that response too', async () => {
+    state.owner = false;
+    const res = await call('17900000000000001');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('x-from-supabase')).toBe('kept');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(state.order).toEqual(['assertOwner']);
+  });
+
+  it('404 without touching Storage: bad id, media not visible to the owner, no cover yet, or a stored path that is not ours', async () => {
+    for (const id of ['abc', '../../etc/passwd', '1'.repeat(40), '17900000000000001.jpg']) {
+      const res = await call(id);
+      expect(res.status, id).toBe(404);
+    }
+    for (const row of [null, { account_id: ACC, cover_status: 'pending', cover_path: null }, { account_id: ACC, cover_status: 'ok', cover_path: 'other-account/17900000000000001.jpg' }]) {
+      state.row = row;
+      const res = await call('17900000000000001');
+      expect(res.status).toBe(404);
+      expect(res.headers.get('x-from-supabase')).toBe('kept');
+    }
+    expect(state.downloads).toEqual([]);
+  });
+
+  it('object missing in Storage -> 404; a stored type outside the image allowlist is served as JPEG (never sniffed, never SVG)', async () => {
+    state.blob = null;
+    expect((await call('17900000000000001')).status).toBe(404);
+    state.blob = new Blob(['<svg/>'], { type: 'image/svg+xml' });
+    const res = await call('17900000000000001');
+    expect(res.headers.get('content-type')).toBe('image/jpeg');
+  });
+
+  it('a read error -> 500 with a fixed message, still uncached and with the auth headers', async () => {
+    state.readError = { message: 'secret detail' };
+    const res = await call('17900000000000001');
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'unexpected' });
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('x-from-supabase')).toBe('kept');
+  });
+
+  it('is session-protected by the proxy (no public exemption)', () => {
+    expect(decideRoute({ pathname: '/api/media/17900000000000001/cover', configured: true, signedIn: false, aal: null, mfaRequired: false })).toEqual({ type: 'redirect', to: '/login' });
+  });
+});
+```
+
+and `tests/cover-delete.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const state = vi.hoisted(() => ({ deleted: { ok: true } as { ok: boolean; error?: string }, removed: [] as string[] }));
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => undefined }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => ({ __admin: true }) }));
+vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({}) }));
+vi.mock('@/lib/accounts/service', () => ({ deleteAccountPermanently: async () => state.deleted, archiveAccount: vi.fn(), restoreAccount: vi.fn(), setAccountGroup: vi.fn() }));
+vi.mock('next/cache', () => ({ revalidatePath: () => undefined }));
+vi.mock('@/lib/sync/store', async (orig) => ({ ...(await orig<typeof import('@/lib/sync/store')>()), removeAccountCovers: async (_db: unknown, id: string) => (state.removed.push(id), 0) }));
+
+import { deleteAccountAction } from '@/app/(app)/accounts/actions';
+
+beforeEach(() => {
+  state.deleted = { ok: true };
+  state.removed = [];
+});
+
+describe('permanent delete removes the account\'s cover objects', () => {
+  it('after a successful delete only (archive keeps them; a refused delete removes nothing)', async () => {
+    expect(await deleteAccountAction(ID)).toEqual({ ok: true });
+    expect(state.removed).toEqual([ID]);
+    state.deleted = { ok: false, error: 'not_archived' };
+    state.removed = [];
+    expect(await deleteAccountAction(ID)).toEqual({ ok: false, error: 'not_archived' });
+    expect(state.removed).toEqual([]);
+  });
+});
+
+describe('removeAccountCovers', () => {
+  it('lists the account prefix and removes in batches until empty; never throws', async () => {
+    const { removeAccountCovers: real } = await vi.importActual<typeof import('@/lib/sync/store')>('@/lib/sync/store');
+    const pages = [[{ name: '1.jpg' }, { name: '2.jpg' }], [{ name: '3.jpg' }], []];
+    const removed: string[][] = [];
+    const lists: unknown[][] = [];
+    const db = { storage: { from: (b: string) => ({ list: async (...a: unknown[]) => (lists.push([b, ...a]), { data: pages.shift(), error: null }), remove: async (paths: string[]) => (removed.push(paths), { data: [], error: null }) }) } };
+    expect(await real(db as never, ID)).toBe(3);
+    expect(lists[0]).toEqual(['covers', ID, { limit: 1000 }]);
+    expect(removed).toEqual([[`${ID}/1.jpg`, `${ID}/2.jpg`], [`${ID}/3.jpg`]]);
+    const broken = { storage: { from: () => ({ list: async () => Promise.reject(new Error('storage down')) }) } };
+    expect(await real(broken as never, ID)).toBe(0);
+    const failing = { storage: { from: () => ({ list: async () => ({ data: [{ name: 'x.jpg' }], error: null }), remove: async () => ({ data: null, error: { message: 'no' } }) }) } };
+    expect(await real(failing as never, ID)).toBe(0); // stops instead of looping forever
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/cover-route.test.ts tests/cover-delete.test.ts`
+Expected: FAIL — the route module does not exist; `removeAccountCovers` is not exported.
+
+- [ ] **Step 3: Implement**
+
+Create `app/api/media/[id]/cover/route.ts`:
+
+```ts
+import { NextResponse } from 'next/server';
+import { assertOwner } from '@/lib/auth/assert-owner';
+import { createAdminSupabase } from '@/lib/supabase/admin';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { COVER_TYPES, COVERS_BUCKET, coverPath } from '@/lib/sync/covers';
+
+const MEDIA_ID = /^\d{1,32}$/; // Instagram media ids are numeric
+
+/**
+ * GET /api/media/[id]/cover — the stored cover image of one post/Reel/Story. Owner session only (proxy + assertOwner;
+ * NOT a public exemption in lib/auth/route-policy.ts). The media row is read with the OWNER session (RLS decides it
+ * exists for this owner); only then is the private object streamed with the admin client. The object key is recomputed
+ * from our own ids and must equal the stored one, so no request value ever reaches Storage. Immutable once stored
+ * (covers are never overwritten), cached privately for a year; the service worker never caches /api/*.
+ */
+export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const h = new Headers({ 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' });
+  if (!(await assertOwner(h))) return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: h });
+  const notFound = () => NextResponse.json({ error: 'not_found' }, { status: 404, headers: h });
+  const { id } = await ctx.params;
+  if (!MEDIA_ID.test(id)) return notFound();
+  try {
+    const db = await createServerSupabase({ responseHeaders: h });
+    const { data, error } = await db.from('media').select('account_id,cover_status,cover_path').eq('id', id).maybeSingle();
+    if (error) throw new Error('cover lookup failed');
+    const row = data as { account_id: string; cover_status: string; cover_path: string | null } | null;
+    if (!row || row.cover_status !== 'ok' || row.cover_path !== coverPath(row.account_id, id)) return notFound();
+    const file = await createAdminSupabase().storage.from(COVERS_BUCKET).download(row.cover_path);
+    if (file.error || !file.data) return notFound();
+    // our own upload type (Task 10 only stores JPEG/PNG/WebP); anything else is served as JPEG, never sniffed
+    h.set('content-type', (COVER_TYPES as readonly string[]).includes(file.data.type) ? file.data.type : 'image/jpeg');
+    h.set('cache-control', 'private, max-age=31536000, immutable');
+    return new NextResponse(file.data.stream(), { status: 200, headers: h });
+  } catch {
+    console.error('cover read failed'); // fixed text: never log error objects, ids or paths
+    return NextResponse.json({ error: 'unexpected' }, { status: 500, headers: h });
+  }
+}
+```
+
+In `lib/sync/store.ts` replace:
+
+```ts
+export interface SyncStatus {
+```
+
+with:
+
+```ts
+/**
+ * Permanent account delete: removes the account's cover objects (bucket "covers", prefix "{accountId}/") after the
+ * rows are gone. Admin client; best-effort, never throws. A leftover object is unreachable (the cover route needs the
+ * media row) and the runbook lists orphans. Returns how many objects were removed.
+ */
+export async function removeAccountCovers(db: SupabaseClient, accountId: string): Promise<number> {
+  let removed = 0;
+  try {
+    for (let round = 0; round < 50; round++) {
+      const { data, error } = await db.storage.from(COVERS_BUCKET).list(accountId, { limit: 1000 });
+      if (error || !data || data.length === 0) break;
+      const { error: rmError } = await db.storage.from(COVERS_BUCKET).remove(data.map((f) => `${accountId}/${f.name}`));
+      if (rmError) break;
+      removed += data.length;
+    }
+  } catch {
+    // Storage unreachable: the objects stay private and unreferenced; RUNBOOK_CAPTURE lists them
+  }
+  return removed;
+}
+
+export interface SyncStatus {
+```
+
+In `app/(app)/accounts/actions.ts` replace:
+
+```ts
+import { resetSyncProgress } from '@/lib/sync/store';
+```
+
+with:
+
+```ts
+import { removeAccountCovers, resetSyncProgress } from '@/lib/sync/store';
+```
+
+In `app/(app)/accounts/actions.ts` replace:
+
+```ts
+export async function deleteAccountAction(id: string): Promise<Result> {
+  await requireOwner();
+  if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'not_found' };
+  return guarded((s) => deleteAccountPermanently(s, id));
+}
+```
+
+with:
+
+```ts
+export async function deleteAccountAction(id: string): Promise<Result> {
+  await requireOwner();
+  if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'not_found' };
+  const result = await guarded((s) => deleteAccountPermanently(s, id));
+  // rows are gone (FK cascade: media, comments, snapshots…); now the cover images in Storage. Archive keeps them.
+  if (result.ok) await removeAccountCovers(createAdminSupabase(), id);
+  return result;
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/cover-route.test.ts tests/cover-delete.test.ts tests/account-actions.test.ts tests/route-policy.test.ts tests/proxy.test.ts tests/admin-guard.test.ts && npx tsc --noEmit`
+Expected: PASS (the existing action test's mocked admin client has no `storage`; `removeAccountCovers` swallows that, as it would a Storage outage).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add "app/api/media/[id]/cover/route.ts" lib/sync/store.ts "app/(app)/accounts/actions.ts" tests/cover-route.test.ts tests/cover-delete.test.ts
+git commit -m "feat(covers): owner-only cover route; permanent delete removes the account's Storage objects" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
