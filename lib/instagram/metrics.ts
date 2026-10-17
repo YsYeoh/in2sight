@@ -44,11 +44,23 @@ export type AudienceKind = keyof typeof DEMOGRAPHIC_BREAKDOWNS;
 export const ONLINE_FOLLOWERS_METRIC = 'online_followers';
 
 /**
- * GET /me/media and GET /me/stories fields. UNCERTAIN: the media reference marks `caption` and `media_product_type`
- * "Facebook Login only". If the first live call fails with error code 100 (nonexisting field), delete them here: the
- * parser already falls back (VIDEO -> REELS, caption null).
+ * Base fields of GET /me/media and GET /me/stories. `caption` and `media_product_type` work under Instagram Login
+ * (verified live 2026-10-16, docs/META_PROBE_RESULTS.md) although the reference marks them "Facebook Login only".
  */
-export const MEDIA_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp';
+export const MEDIA_BASE_FIELDS = 'id,caption,media_type,media_product_type,permalink,timestamp';
+/** GET /me/media: + counts, Reels' is_shared_to_feed and the carousel children's types (all verified live 2026-10-16). */
+export const MEDIA_FIELDS = `${MEDIA_BASE_FIELDS},like_count,comments_count,is_shared_to_feed,children{media_type}`;
+/**
+ * GET /me/stories: + the image URLs for the first-sight cover copy. UNVERIFIED on Stories (no Story was live while
+ * probing): on a "nonexisting field" answer the sync falls back to MEDIA_BASE_FIELDS and remembers it (capability
+ * "stories:url_fields"), so the Story capture itself can never break on these fields.
+ */
+export const STORY_FIELDS = `${MEDIA_BASE_FIELDS},media_url,thumbnail_url`;
+/**
+ * GET /{media-id}: fresh cover URLs (CDN links expire in ~1.4–4.5 days, so they are fetched right before the copy).
+ * thumbnail_url = videos/Reels; media_url = images (omitted for copyrighted media); children = carousels.
+ */
+export const COVER_FIELDS = 'media_type,media_url,thumbnail_url,children{media_type,media_url,thumbnail_url}';
 /** UNCERTAIN: page-size maximum is not documented; 50 is conservative. */
 export const MEDIA_PAGE_SIZE = 50;
 

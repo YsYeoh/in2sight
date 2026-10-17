@@ -57,6 +57,7 @@ export function memoryStore(init: MemoryInit = {}) {
   const online: { accountId: string; day: string }[] = [];
   const snapshots: { accountId: string; capturedAt: string; followers: number | null }[] = [];
   const breakdowns: { accountId: string; day: string; rows: number }[] = [];
+  const children: { mediaId: string; position: number; mediaType: string | null }[] = [];
   const runs: SyncRun[] = [];
   const saved: { accountId: string; patch: StatePatch }[] = [];
   const progress: { accountId: string; p: ProgressWrite }[] = [];
@@ -81,6 +82,7 @@ export function memoryStore(init: MemoryInit = {}) {
     upsertFollowers: async (accountId, day, n) => void followers.push({ accountId, day, followers: n }),
     upsertMedia: async (accountId, items) => {
       for (const i of items) media.set(i.id, { id: i.id, accountId, postedAt: i.postedAt, lastMetricsAt: media.get(i.id)?.lastMetricsAt ?? null, kind: i.kind, gone: media.get(i.id)?.gone ?? false });
+      for (const i of items) (i.details?.children ?? []).forEach((ch, position) => children.push({ mediaId: i.id, position, mediaType: ch.mediaType }));
     },
     mediaForMetrics: async (accountId, since) =>
       [...media.values()].filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && (m.postedAt >= since || m.lastMetricsAt === null)).map(({ id, postedAt, lastMetricsAt, kind }) => ({ id, postedAt, lastMetricsAt, kind })),
@@ -103,7 +105,7 @@ export function memoryStore(init: MemoryInit = {}) {
     recordRun: async (r) => void runs.push(r),
     writeProgress: async (accountId, p) => void progress.push({ accountId, p }),
   };
-  return { store, states, media, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
+  return { store, states, media, children, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {

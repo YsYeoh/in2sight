@@ -60,7 +60,7 @@ export function plan(ids, since, until) {
     ['demographics-age-gender', 'me/insights', { metric: M.DEMOGRAPHICS_METRIC, period: 'lifetime', metric_type: 'total_value', timeframe: M.DEMOGRAPHICS_TIMEFRAME, breakdown: M.DEMOGRAPHIC_BREAKDOWNS.age_gender }],
     ['online-followers', 'me/insights', { metric: M.ONLINE_FOLLOWERS_METRIC, period: 'lifetime', since, until }],
     ['media-page-1', 'me/media', { fields: M.MEDIA_FIELDS, limit: 2 }],
-    ['stories', 'me/stories', { fields: M.MEDIA_FIELDS }],
+    ['stories', 'me/stories', { fields: M.STORY_FIELDS }],
   ];
   if (ids.media) calls.push(['media-insights-feed', `${ids.media}/insights`, { metric: M.FEED_METRICS.join(',') }]);
   if (ids.story) {
