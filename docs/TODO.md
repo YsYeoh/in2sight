@@ -142,6 +142,13 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] Owner: run docs/RUNBOOK_COVERS.md; confirm the plan's open questions (automatic view, 4:5 tiles, 80-character drawer caption, 200-Stories cap, no Calendar drawer)
 - [ ] Later: lift the 200-Stories cap with a `story_finals` SQL function (applied before the code that calls it); carousel child covers; the Tags page and audience history on the Time Scope
 
+## 6g. Post Lab (Plan 13b)
+- [x] SQL `post_lab_latest` + `post_lab_points` (security invoker) _(code done; migration `20261026000001_post_lab.sql` applied to the live project 2026-10-19; owner-path live verification pending — docs/RUNBOOK_POSTLAB.md §0, §6)_
+- [x] `/accounts/[id]/media/[mediaId]`: header with cover and editable tags, scorecard with percentiles and verdict (sample guard 5), velocity vs the median curve, Reels watch time, Story funnel + day sequence, caption lab (20-post guard), similar posts _(code done; live verification pending — RUNBOOK_POSTLAB §1–§5, §7)_
+- [x] Links in: Posts grid/table + drawer, Stories filmstrip + drawer, Calendar day list, Explorer item level _(code done; live verification pending — RUNBOOK_POSTLAB §1)_
+- [ ] Owner: confirm the plan's open questions (peers = 30/90 earlier posts of the format, guard 5, verdict on reach, "too early" before day 7, caption lab per format)
+- [ ] Later: lift the Stories tab's 200 cap with `post_lab_latest` (each Story's final numbers per id); a per-followers engagement rate in the Explorer registry
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
