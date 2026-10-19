@@ -6,6 +6,8 @@ verified on a local PostgreSQL 16 with the repo's real migrations, a stand-in fo
 
 ## 0. Apply the migration BEFORE deploying the code
 
+**Status: applied to the live project on 2026-10-19** (`supabase migration list` shows it on both sides; as anon, `explorer_views` and the four functions answer 401 `42501`, i.e. they exist and are owner-only). The checks below that need a signed-in owner session are still to do. The text of this section stays valid for any other environment (a new Supabase project, a restore).
+
 The new code calls four SQL functions and a table that exist only after `supabase/migrations/20261024000001_explorer.sql`.
 Deploying first breaks `/explorer` (the page shows the error screen) — nothing else depends on them.
 

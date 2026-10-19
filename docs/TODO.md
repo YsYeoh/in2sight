@@ -124,7 +124,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 - [ ] Plan 12b: rollups, Explorer, drill-down, saved views; a Stories "final numbers" rollup lifts the 200-per-range cap
 
 ## 6e. Explorer, rollups, drill-down (Plan 12b)
-- [x] SQL rollups (`explorer_daily`, `explorer_media`, `explorer_posts`, `explorer_followers`; security invoker; InitPlan owner check) + `explorer_views` _(code done; **apply migration `20261024000001_explorer.sql` before deploying**; live verification pending — docs/RUNBOOK_EXPLORER.md §0, §5)_
+- [x] SQL rollups (`explorer_daily`, `explorer_media`, `explorer_posts`, `explorer_followers`; security invoker; InitPlan owner check) + `explorer_views` _(code done; migration `20261024000001_explorer.sql` applied to the live project 2026-10-19 (anon probe: objects exist, EXECUTE revoked from anon); owner-path live verification pending — docs/RUNBOOK_EXPLORER.md §0, §5)_
 - [x] Metric/dimension registry, `/explorer` (linked chart + table, comparison, filters, breadcrumbs, item level, saved views, Excel export) _(code done; live verification pending — RUNBOOK_EXPLORER §1–§4, §6)_
 - [x] Drill-down from Overview (tiles, groups, comparison rows/chart) and account pages (formats, best-time cells, Posts) _(code done; live verification pending — RUNBOOK_EXPLORER §3)_
 - [ ] Owner: fill the 1-year Server-Timing numbers in RUNBOOK_EXPLORER §4; confirm the open questions in the plan (Stories opt-in, 500-post cap, 6-tab phone bar)
