@@ -33,7 +33,7 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
   loadAudience: async () => (calls.push('audience'), { age_gender: null, country: null, city: null }),
 }));
 
-import AccountPage from '@/app/(app)/accounts/[id]/page';
+import AccountPage from '@/app/(app)/accounts/[id]/(tabs)/page';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { dayStart } from '@/lib/sync/time';
 
