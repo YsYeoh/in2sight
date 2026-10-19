@@ -215,7 +215,7 @@ export function verdictOf(item: LabItem, reach: ScoreRow | undefined, now: Date)
   if (!story && age < MIN_AGE_HOURS * HOUR) return 'too_early';
   if (reach.median > 0 && reach.value >= TAKING_OFF_RATIO * reach.median) return 'breakout';
   if (reach.percentile >= 75) return 'above';
-  const final = story ? now.getTime() >= expiryOf(item) : age >= CHECKPOINT_DAYS * DAY;
+  const final = story ? now.getTime() >= Math.min(expiryOf(item), item.goneAt ? Date.parse(item.goneAt) : Infinity) : age >= CHECKPOINT_DAYS * DAY;
   if (!final) return 'too_early';
   return reach.percentile < 25 ? 'below' : 'typical';
 }
@@ -241,7 +241,7 @@ export function velocity(item: LabItem, peers: LabItem[], now: Date): Velocity {
   const age = (now.getTime() - Date.parse(item.postedAt)) / MIN;
   const points = ids.map((id): VelocityPoint => {
     const c = CHECKPOINTS.find((x) => x.id === id)!;
-    const own = item.points[id];
+    const own = age >= c.min ? item.points[id] : undefined; // a snapshot taken before the mark is not that checkpoint's value
     const of = (k: keyof LabPoint) => peers.map((p) => p.points[id]?.[k] ?? null).filter(num);
     const r = of('reach');
     const w = of('views');

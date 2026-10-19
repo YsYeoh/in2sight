@@ -105,6 +105,14 @@ describe('velocity', () => {
     expect(vel.lead).toEqual({ at: '24h', metric: 'reach', ratio: 3, n: 5 });
   });
 
+  it('a snapshot taken before the mark is not shown as that checkpoint (a young post is not slow)', () => {
+    const young = item('y', { points: { '1h': { reach: 4, views: 5 } } }); // posted 02:00, snapshot ~35 min in
+    const ps = peers(6, () => ({ points: { '1h': { reach: 40, views: 50 } } }));
+    const vel = velocity(young, ps, new Date('2026-10-01T02:40:00Z'));
+    expect(vel.points[0]).toMatchObject({ id: '1h', due: false, reach: null, medianReach: 40 });
+    expect(vel.lead).toBeNull();
+  });
+
   it('Stories use 1 h, 6 h and 24 h; no lead below the guard', () => {
     const vel = velocity(item('s', { mediaType: 'STORY', points: { '1h': { reach: 5, views: 6 } } }), peers(3, () => ({ points: { '1h': { reach: 4, views: 5 } } })), new Date('2026-10-01T05:00:00Z'));
     expect(vel.points.map((p) => p.id)).toEqual(['1h', '6h', '24h']);

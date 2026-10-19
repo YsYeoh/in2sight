@@ -70,7 +70,8 @@ describe('Stories filmstrip', () => {
   it('a Story Instagram never measured: the drawer explains why and shows no numbers', async () => {
     const user = userEvent.setup();
     strip();
-    await user.click(screen.getByRole('button', { name: 'Details of Story · 12 Oct 2026 10:00' }));
+    // the expired state is part of the button's accessible name
+    await user.click(screen.getByRole('button', { name: 'Details of Story · 12 Oct 2026 10:00 · Expired' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveAccessibleDescription(en.analysis.reasons.needs_5_viewers);
     expect(dialog.querySelector('dl')).toBeNull();
