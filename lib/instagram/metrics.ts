@@ -88,6 +88,12 @@ export const STORY_METRICS = ['reach', 'views', 'replies', 'shares', 'total_inte
 export const STORY_NAVIGATION_METRIC = 'navigation';
 export const STORY_NAVIGATION_BREAKDOWN = 'story_navigation_action_type';
 
+/**
+ * The `profile_activity` breakdown value (action_type) the Post Lab shows as "link taps" (documented values:
+ * BIO_LINK_CLICKED, CALL, DIRECTION, EMAIL, OTHER, TEXT). Stored as Meta returns the keys; compare upper-cased.
+ */
+export const LINK_TAP_ACTION = 'BIO_LINK_CLICKED';
+
 export type ExtraScope = 'story' | 'feed' | 'reels';
 /** MediaMetricValues fields an extra metric lands in (lib/instagram/data.ts). */
 export type ExtraField = 'follows' | 'profileVisits' | 'profileActivity' | 'avgWatchMs' | 'totalWatchMs' | 'skipRate';
