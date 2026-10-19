@@ -19,6 +19,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { weekdayOf } from '@/lib/analysis/best-time';
 import type { CalendarDay, CalendarModel } from '@/lib/dashboard/calendar';
 import { formatDay, formatNumber, formatTime } from '@/lib/format';
+import { postLabHref } from '@/lib/post-lab/params';
 import { scopeHref, stepScope, type ResolvedScope } from '@/lib/time-scope/scope';
 import { cn } from '@/lib/utils';
 
@@ -30,11 +31,14 @@ interface CalendarAccount {
   username: string;
 }
 
-function DayItems({ day, accounts, showAccount }: { day: CalendarDay; accounts: CalendarAccount[]; showAccount: boolean }) {
+/** Each item's name links to its Post Lab (with the page's scope `query`). */
+function DayItems({ day, accounts, showAccount, query }: { day: CalendarDay; accounts: CalendarAccount[]; showAccount: boolean; query: string }) {
   const t = useTranslations('pages.calendar');
   const ta = useTranslations('analysis');
+  const tl = useTranslations('postLab');
   const { prefs } = usePrefs();
   if (day.items.length === 0) return <p className="text-sm text-muted-foreground">{t('nothing')}</p>;
+  const name = (i: CalendarDay['items'][number]) => `${ta(`format.${i.mediaType}`)}${showAccount ? ` · @${accounts.find((a) => a.id === i.accountId)?.username ?? '?'}` : ''}`;
   return (
     <ul className="grid gap-2 text-sm">
       {day.items.map((i) => (
@@ -46,10 +50,13 @@ function DayItems({ day, accounts, showAccount }: { day: CalendarDay; accounts: 
           <span className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground">{formatTime(i.postedAt, prefs)}</span>
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate font-medium">
-                {ta(`format.${i.mediaType}`)}
-                {showAccount ? ` · @${accounts.find((a) => a.id === i.accountId)?.username ?? '?'}` : ''}
-              </span>
+              <Link
+                href={postLabHref(i.accountId, i.id, query)}
+                aria-label={tl('openFor', { post: `${name(i)} · ${formatTime(i.postedAt, prefs)}` })}
+                className="truncate font-medium underline-offset-4 hover:underline"
+              >
+                {name(i)}
+              </Link>
               {i.permalink ? (
                 <a href={i.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open')} className="shrink-0 text-muted-foreground hover:text-foreground">
                   <ExternalLink aria-hidden="true" className="size-3.5" />
@@ -202,7 +209,7 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
           <Card className="mt-[var(--gp)]">
             <CardContent className="grid gap-2">
               <h3 className="font-medium">{formatDay(current.day, prefs)}</h3>
-              <DayItems day={current} accounts={accounts} showAccount={!account} />
+              <DayItems day={current} accounts={accounts} showAccount={!account} query={scope.query} />
             </CardContent>
           </Card>
         ) : null}
@@ -216,7 +223,7 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
             .map((d) => (
               <section key={d.day} aria-label={label(d)} className="rounded-lg border bg-card p-[var(--pc)]">
                 <h3 className={cn('mb-2 text-sm font-medium', d.isToday && 'text-primary')}>{formatDay(d.day, prefs)}</h3>
-                <DayItems day={d} accounts={accounts} showAccount={!account} />
+                <DayItems day={d} accounts={accounts} showAccount={!account} query={scope.query} />
               </section>
             ))
         ) : (

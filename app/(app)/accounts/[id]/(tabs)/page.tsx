@@ -44,7 +44,7 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
     case 'stories': {
       const { fromIso, toIso } = daysToIso(scope.range.from, scope.range.to, tz);
       const { stories, truncated } = await loadStories(db, account.id, fromIso, toIso);
-      return <StoriesTab stories={buildStories(stories, now)} truncated={truncated} />;
+      return <StoriesTab stories={buildStories(stories, now)} truncated={truncated} accountId={account.id} scope={scope.params} />;
     }
     case 'audience':
       return <AudienceTab model={buildAudience(await loadAudience(db, account.id))} />;

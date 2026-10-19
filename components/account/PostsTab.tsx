@@ -3,7 +3,7 @@
 import type { ReactElement } from 'react';
 import Form from 'next/form';
 import Link from 'next/link';
-import { ExternalLink, LayoutGrid, Table2 } from 'lucide-react';
+import { ExternalLink, FlaskConical, LayoutGrid, Table2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { TagPicker, type SetPostTags } from '@/components/account/TagPicker';
 import { usePrefs } from '@/components/providers/PrefsProvider';
@@ -20,6 +20,7 @@ import type { Tag } from '@/lib/analysis/types';
 import type { PostFilters, PostsView, PostView } from '@/lib/dashboard/content';
 import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
 import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
+import { postLabHref } from '@/lib/post-lab/params';
 import { cn } from '@/lib/utils';
 
 export const POSTS_PAGE = 50;
@@ -94,7 +95,7 @@ function ViewToggle({ current, href, className }: { current: PostsView; href: (v
 }
 
 /** `scope` = the canonical Time Scope parameters of the page (ResolvedScope.params), kept by the filter form.
- *  `accountId` set: each post links to its single-item level in the Explorer (with the page's scope).
+ *  `accountId` set: each post links to its single-item level in the Explorer and to its Post Lab (both with the page's scope).
  *  `view`: grid or table from `?view=`; null = automatic (grid below md, table from md). Every cover opens the post's drawer. */
 export function PostsTab({
   posts,
@@ -119,6 +120,7 @@ export function PostsTab({
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
   const tx = useTranslations('media');
+  const tl = useTranslations('postLab');
   const { prefs } = usePrefs();
   const count = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
   const label = (p: PostView) => `${ta(`format.${p.mediaType}`)} · ${formatDateTime(p.postedAt, prefs)}`;
@@ -126,6 +128,13 @@ export function PostsTab({
   const keep = view ? { ...scope, view } : scope;
   const viewHref = (v: PostsView) => `?${new URLSearchParams({ tab: 'posts', ...(filters.format ? { format: filters.format } : {}), ...(filters.tag ? { tag: filters.tag } : {}), ...scope, view: v })}`;
   const explorer = (p: PostView) => explorerHref(parseExplorerState({ by: 'post', acc: accountId, fmt: p.mediaType, item: p.id }), query);
+  /** The post's Post Lab: a small flask link next to the title / date (accessible name = "Open the Post Lab of …"). */
+  const labLink = (p: PostView) =>
+    accountId ? (
+      <Link href={postLabHref(accountId, p.id, query)} aria-label={tl('openFor', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
+        <FlaskConical aria-hidden="true" className="size-3.5" />
+      </Link>
+    ) : null;
 
   // one drawer per post (content mounts only while open), opened by the cover button of a tile or a table row
   const detail = (p: PostView, trigger: ReactElement) => (
@@ -144,6 +153,16 @@ export function PostsTab({
         { label: t('shares'), value: count(p.shares) },
       ]}
       trigger={trigger}
+      action={
+        accountId ? (
+          <Button asChild size="sm">
+            <Link href={postLabHref(accountId, p.id, query)}>
+              <FlaskConical aria-hidden="true" />
+              {tl('open')}
+            </Link>
+          </Button>
+        ) : undefined
+      }
     >
       <div className="flex min-w-0 flex-wrap items-center gap-1">
         <span className="mr-1 text-xs text-muted-foreground">{t('tags')}</span>
@@ -164,9 +183,12 @@ export function PostsTab({
         </button>,
       )}
       {accountId ? (
-        <NavLink href={explorer(p)} className="truncate text-xs font-medium underline-offset-4 hover:underline">
-          {formatDateTime(p.postedAt, prefs)}
-        </NavLink>
+        <span className="flex min-w-0 items-center justify-between gap-1">
+          <NavLink href={explorer(p)} className="truncate text-xs font-medium underline-offset-4 hover:underline">
+            {formatDateTime(p.postedAt, prefs)}
+          </NavLink>
+          {labLink(p)}
+        </span>
       ) : (
         <span className="truncate text-xs font-medium">{formatDateTime(p.postedAt, prefs)}</span>
       )}
@@ -210,6 +232,7 @@ export function PostsTab({
                   <ExternalLink aria-hidden="true" className="size-3.5" />
                 </a>
               ) : null}
+              {labLink(p)}
             </span>
             <span className="truncate text-xs font-normal text-muted-foreground" dir="auto">
               {p.caption ?? t('noCaption')}

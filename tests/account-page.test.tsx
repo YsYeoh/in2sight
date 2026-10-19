@@ -158,6 +158,12 @@ describe('account detail page', () => {
     }
   });
 
+  it('the Stories tab gets the account id and the scope (its Post Lab links)', async () => {
+    accounts.push(acct(ID));
+    const el = await run(ID, { tab: 'stories', from: '90d' });
+    expect(((await streamTab(el)) as ReactElement<{ accountId: string; scope: Record<string, string> }>).props).toMatchObject({ accountId: ID, scope: { from: '90d' } });
+  });
+
   it.each([
     ['stories', 'stories'],
     ['audience', 'audience'],
