@@ -1,9 +1,9 @@
 'use client';
 
-// The single-item level of the Explorer drill-down: latest numbers + links, the follower curve around the post and
-// the audience slice. There is no Post Lab yet (Plan 13): this links to Instagram and to the account's Posts/Stories tab.
+// The single-item level of the Explorer drill-down: latest numbers + links (the item's Post Lab, Instagram, the account's
+// Posts/Stories tab), the follower curve around the post and the audience slice.
 import Link from 'next/link';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, FlaskConical } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { SeriesChart } from '@/components/charts/SeriesChart';
 import { usePrefs } from '@/components/providers/PrefsProvider';
@@ -18,8 +18,10 @@ import { formatMetric, METRICS, type MetricId } from '@/lib/metrics';
 
 const NUMBERS: MetricId[] = ['reach', 'views', 'likes', 'comments', 'saves', 'shares', 'postEngagementRate'];
 
-export function ItemPanel({ detail, username, tabHref }: { detail: ItemDetail | null; username: string; tabHref: string }) {
+/** `labHref`: the item's Post Lab (with the Explorer's scope). */
+export function ItemPanel({ detail, username, tabHref, labHref }: { detail: ItemDetail | null; username: string; tabHref: string; labHref?: string }) {
   const t = useTranslations('explorer.item');
+  const tl = useTranslations('postLab');
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
   const tt = useTranslations('pages.account.tab');
@@ -52,6 +54,14 @@ export function ItemPanel({ detail, username, tabHref }: { detail: ItemDetail | 
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
+              {labHref ? (
+                <Button asChild size="sm">
+                  <Link href={labHref}>
+                    <FlaskConical aria-hidden="true" />
+                    {tl('open')}
+                  </Link>
+                </Button>
+              ) : null}
               {item.permalink ? (
                 <Button asChild variant="outline" size="sm">
                   <a href={item.permalink} target="_blank" rel="noopener noreferrer">

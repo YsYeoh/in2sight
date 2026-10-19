@@ -31,6 +31,7 @@ import type { ExplorerData } from '@/lib/explorer/load';
 import { rowLabel } from '@/lib/explorer/labels';
 import { explorerHref, explorerParams, FORMATS, MAX_METRICS, usable, withState, type ExplorerState } from '@/lib/explorer/state';
 import { formatDay, formatHour } from '@/lib/format';
+import { postLabHref } from '@/lib/post-lab/params';
 import { DIMENSIONS, formatMetric, METRIC_IDS, type MetricId } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
 
@@ -377,7 +378,12 @@ export function ExplorerView({ data, today, views, save, rename, remove }: { dat
               {data.window.compare && s.by !== 'post' ? ` · ${t('windowCompare', { from: formatDay(data.window.compare.from, prefs), to: formatDay(data.window.compare.to, prefs) })}` : null}
             </p>
             {s.item !== null ? (
-              <ItemPanel detail={data.item} username={item?.username ?? '?'} tabHref={`/accounts/${data.item?.item.accountId ?? ''}?${new URLSearchParams({ tab: data.item?.item.mediaType === 'STORY' ? 'stories' : 'posts', ...data.scope.params })}`} />
+              <ItemPanel
+                detail={data.item}
+                username={item?.username ?? '?'}
+                tabHref={`/accounts/${data.item?.item.accountId ?? ''}?${new URLSearchParams({ tab: data.item?.item.mediaType === 'STORY' ? 'stories' : 'posts', ...data.scope.params })}`}
+                labHref={data.item ? postLabHref(data.item.item.accountId, data.item.item.id, data.scope.query) : undefined}
+              />
             ) : (
               <Results data={data} />
             )}
