@@ -21,7 +21,7 @@ const loaders = dirsWith('loading.tsx');
 
 describe('every route segment has its own page-shaped loading.tsx', () => {
   it('finds the app pages (sanity)', () => {
-    expect(pages).toEqual(expect.arrayContaining(['(app)/overview', '(app)/accounts/(list)', '(app)/accounts/[id]', '(app)/calendar', '(app)/tags', '(app)/settings', 'report']));
+    expect(pages).toEqual(expect.arrayContaining(['(app)/overview', '(app)/accounts/(list)', '(app)/accounts/[id]/(tabs)','(app)/calendar', '(app)/tags', '(app)/settings', 'report']));
   });
 
   it.each(pages.filter((p) => !NO_SKELETON.has(p)))('%s has a loading.tsx next to its page', (dir) => {
