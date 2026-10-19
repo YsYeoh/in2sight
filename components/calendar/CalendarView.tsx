@@ -2,6 +2,8 @@
 
 // Grid of whole weeks on md+, agenda list on phones (CSS breakpoints only: both are rendered, never matchMedia). The days
 // are the Time Scope's (a month picker gives the classic month view); the arrows step one period of the same kind.
+// Covers: every item of the day list / agenda; inside grid cells only for a month-sized grid (COVER_WEEKS), so a 1y or
+// "all" grid adds no images or DOM per cell.
 import { useState } from 'react';
 import Form from 'next/form';
 import Link from 'next/link';
@@ -9,6 +11,7 @@ import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { formHref, startProgress } from '@/components/shared/NavigationProgress';
+import { MediaThumb } from '@/components/shared/MediaThumb';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { TimeScopeBar, useScopeText } from '@/components/shared/TimeScopeBar';
 import { Button } from '@/components/ui/button';
@@ -18,6 +21,9 @@ import type { CalendarDay, CalendarModel } from '@/lib/dashboard/calendar';
 import { formatDay, formatNumber, formatTime } from '@/lib/format';
 import { scopeHref, stepScope, type ResolvedScope } from '@/lib/time-scope/scope';
 import { cn } from '@/lib/utils';
+
+/** Grids up to this many weeks (a month view) show up to 3 covers per day cell. */
+export const COVER_WEEKS = 6;
 
 interface CalendarAccount {
   id: string;
@@ -33,6 +39,10 @@ function DayItems({ day, accounts, showAccount }: { day: CalendarDay; accounts: 
     <ul className="grid gap-2 text-sm">
       {day.items.map((i) => (
         <li key={i.id} className="flex min-w-0 items-start gap-2">
+          {/* decorative here: the text next to it names the item */}
+          <span aria-hidden="true" className="w-10 shrink-0">
+            <MediaThumb media={i} className="aspect-square" badges={false} />
+          </span>
           <span className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground">{formatTime(i.postedAt, prefs)}</span>
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
@@ -72,6 +82,7 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
   const prev = stepScope(scope, -1, today);
   const next = stepScope(scope, 1, today); // null: it would start after today
   const label = (d: CalendarDay) => t('dayLabel', { date: formatDay(d.day, prefs), posts: d.posts, stories: d.stories });
+  const covers = model.weeks.length <= COVER_WEEKS;
 
   return (
     <>
@@ -164,7 +175,8 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
                       aria-pressed={d.day === selected}
                       onClick={() => setSelected(d.day)}
                       className={cn(
-                        'flex h-20 w-full flex-col gap-1 rounded-md border bg-card p-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring',
+                        'flex w-full flex-col gap-1 rounded-md border bg-card p-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring',
+                        covers ? 'h-28' : 'h-20',
                         !d.inRange && 'opacity-40',
                         d.day === selected && 'border-primary',
                       )}
@@ -172,6 +184,13 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
                       <span className={cn('text-xs tabular-nums', d.isToday && 'font-semibold text-primary')}>{formatNumber(Number(d.day.slice(8)), prefs)}</span>
                       {d.posts ? <span className="truncate rounded-sm bg-chart-1/15 px-1 text-[10px] text-foreground">{t('posts', { count: d.posts })}</span> : null}
                       {d.stories ? <span className="truncate rounded-sm bg-chart-2/15 px-1 text-[10px] text-foreground">{t('stories', { count: d.stories })}</span> : null}
+                      {covers && d.items.length ? (
+                        <span className="mt-auto flex gap-0.5">
+                          {d.items.slice(0, 3).map((i) => (
+                            <MediaThumb key={i.id} media={i} className="aspect-square w-1/3 max-w-10 rounded-sm" badges={false} />
+                          ))}
+                        </span>
+                      ) : null}
                     </button>
                   </td>
                 ))}
