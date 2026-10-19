@@ -87,6 +87,20 @@ describe('account detail page', () => {
     expect(new Set([a.props.children.key, b.props.children.key, c.props.children.key]).size).toBe(3);
   });
 
+  it('posts view: ?view=grid|table is kept by the bar and passed to the tab; the Suspense key ignores it (the shown view stays until the other one streams in)', async () => {
+    accounts.push(acct(ID));
+    const plain = await run(ID, { tab: 'posts' });
+    const grid = await run(ID, { tab: 'posts', view: 'grid' });
+    expect(grid.props.children.key).toBe(plain.props.children.key);
+    expect((grid.props as unknown as { keep: Record<string, string> }).keep).toEqual({ tab: 'posts', view: 'grid' });
+    expect(((await streamTab(grid)) as ReactElement<{ view: string | null }>).props.view).toBe('grid');
+    const junk = await run(ID, { tab: 'posts', view: '<x>' });
+    expect((junk.props as unknown as { keep: Record<string, string> }).keep).toEqual({ tab: 'posts' });
+    expect(((await streamTab(junk)) as ReactElement<{ view: string | null }>).props.view).toBeNull();
+    const stories = await run(ID, { tab: 'stories', view: 'grid' });
+    expect((stories.props as unknown as { keep: Record<string, string> }).keep).toEqual({ tab: 'stories' }); // only the Posts tab has views
+  });
+
   it('renders the overview tab by default (and for an injected tab) with the owner session only', async () => {
     accounts.push(acct(ID));
     const el = await run(ID.toUpperCase(), { tab: '<script>' });

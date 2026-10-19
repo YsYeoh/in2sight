@@ -13,7 +13,7 @@ import { requireOwner } from '@/lib/auth/require-owner';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
 import { buildAudience } from '@/lib/dashboard/audience';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
-import { buildPosts, buildStories, parsePostFilters } from '@/lib/dashboard/content';
+import { buildPosts, buildStories, parsePostFilters, parsePostsView } from '@/lib/dashboard/content';
 import { loadAudience, loadOnline, loadPostRows, loadStories, loadTags } from '@/lib/dashboard/detail-read';
 import { exportScopes } from '@/lib/export/params';
 import { loadDaily, loadFirstDay, loadPosts, MEDIA_LIMIT } from '@/lib/dashboard/read';
@@ -39,7 +39,7 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       const [rows, tags] = await Promise.all([loadPostRows(db, account.id, dayStart(scope.listRange.from, tz).toISOString()), loadTags(db)]);
       const filters = { ...parsePostFilters(sp), from: scope.listRange.from, to: scope.listRange.to }; // the dates come from the scope ("all" lists every stored post)
       // the imported server action is passed straight to the client component (never wrapped in a closure here)
-      return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} accountId={account.id} setPostTags={setPostTagsAction} />;
+      return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} accountId={account.id} view={parsePostsView(sp.view)} setPostTags={setPostTagsAction} />;
     }
     case 'stories': {
       const { fromIso, toIso } = daysToIso(scope.range.from, scope.range.to, tz);
@@ -81,8 +81,9 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
   const today = localDay(new Date(), prefs.timezone);
   const scope = resolveScope(parseTimeScope(sp, prefs.weekStart), today, first);
   const filters = parsePostFilters(sp);
+  const view = tab === 'posts' ? parsePostsView(sp.view) : null;
   // the page's own parameters every scope link keeps (validated values only, never echoed raw)
-  const keep: Record<string, string> = { tab, ...(tab === 'posts' && filters.format ? { format: filters.format } : {}), ...(tab === 'posts' && filters.tag ? { tag: filters.tag } : {}) };
+  const keep: Record<string, string> = { tab, ...(tab === 'posts' && filters.format ? { format: filters.format } : {}), ...(tab === 'posts' && filters.tag ? { tag: filters.tag } : {}), ...(view ? { view } : {}) };
   return (
     <AccountView
       account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }}
@@ -92,8 +93,9 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
       keep={keep}
       exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} time={scope} />}
     >
-      {/* key: a new tab, scope or filter is a new boundary, so its skeleton shows instead of the stale tab */}
-      <Suspense key={JSON.stringify(sp)} fallback={<TabSkeleton tab={tab} />}>
+      {/* key: a new tab, scope or filter is a new boundary, so its skeleton shows instead of the stale tab. Not the
+          Grid/Table view: the same posts stay on screen until the other view streams in. */}
+      <Suspense key={JSON.stringify({ ...sp, view: undefined })} fallback={<TabSkeleton tab={tab} />}>
         <TabContent tab={tab} account={account} sp={sp} scope={scope} />
       </Suspense>
     </AccountView>
