@@ -46,7 +46,7 @@ function Frame({ s, lab }: { s: StoryView; lab: string | null }) {
         permalink={s.permalink}
         stats={s.reason ? [] : all.map(([label, value]) => ({ label, value }))}
         trigger={
-          <button type="button" aria-label={tx('details', { name: title })} className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <button type="button" aria-label={tx('details', { name: s.live ? title : `${title} · ${t('expired')}` })} className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <MediaThumb media={media} />
           </button>
         }
