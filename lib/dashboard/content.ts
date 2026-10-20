@@ -1,10 +1,9 @@
 // Posts tab, Stories tab and Tags page models. Pure: now/tz are inputs.
-import { engagementRate, FEED_FORMATS, groupStats, tagPerformance, type GroupStats } from '@/lib/analysis/posts';
+import { engagementRate, groupStats, tagPerformance, type GroupStats } from '@/lib/analysis/posts';
 import type { MissingReason, Tag } from '@/lib/analysis/types';
 import type { CoverFields, PostRow, StoryRow, StorySnapshot } from '@/lib/dashboard/detail-read';
 import type { MediaKind } from '@/lib/instagram/parse';
 import { localDay } from '@/lib/sync/time';
-import { isUuid } from '@/lib/tags';
 
 export type FeedFormat = Exclude<MediaKind, 'STORY'>;
 export interface PostFilters {
@@ -15,28 +14,11 @@ export interface PostFilters {
   q?: string; // search: a case-insensitive substring of the caption or of a tag name ('' or absent = none)
 }
 
-type Params = Record<string, string | string[] | undefined>;
-const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : null);
 /** A real calendar day 'YYYY-MM-DD' or null: '2026-02-31' and '2026-13-01' are rejected (they do not round-trip). */
 export function parseDay(v: unknown): string | null {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
   const t = Date.parse(`${v}T00:00:00Z`);
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v ? v : null;
-}
-
-/** Posts-tab filters from the URL. Invalid values are dropped (no filter), never echoed back. */
-export function parsePostFilters(sp: Params): PostFilters {
-  const format = one(sp.format);
-  const tag = one(sp.tag);
-  let from = parseDay(sp.from);
-  let to = parseDay(sp.to);
-  if (from && to && from > to) [from, to] = [to, from];
-  return {
-    format: format && (FEED_FORMATS as string[]).includes(format) ? (format as FeedFormat) : null,
-    tag: tag === 'untagged' ? 'untagged' : isUuid(tag) ? tag.toLowerCase() : null,
-    from,
-    to,
-  };
 }
 
 /** Posts tab layout from `?view=`: an explicit grid or table; null = automatic (grid below md, table from md; CSS only). */

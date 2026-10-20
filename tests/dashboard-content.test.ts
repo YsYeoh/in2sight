@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Tag } from '@/lib/analysis/types';
-import { buildPosts, buildStories, buildTagStats, MIN_TAG_POSTS, parsePostFilters, snippet, storyView } from '@/lib/dashboard/content';
+import { buildPosts, buildStories, buildTagStats, MIN_TAG_POSTS, snippet, storyView } from '@/lib/dashboard/content';
 import type { PostRow, StoryRow, StorySnapshot } from '@/lib/dashboard/detail-read';
 
 const KL = 'Asia/Kuala_Lumpur';
@@ -12,22 +12,6 @@ const TAGS: Tag[] = [
 ];
 const row = (id: string, o: Partial<PostRow> = {}): PostRow => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt: '2026-10-10T02:00:00Z', permalink: null, reach: 100, views: null, likes: 5, comments: null, shares: null, saves: null, caption: null, tagIds: [], ...o });
 const snap = (capturedAt: string, o: Partial<StorySnapshot> = {}): StorySnapshot => ({ capturedAt, reach: null, views: null, replies: null, shares: null, interactions: null, tapsForward: null, tapsBack: null, exits: null, ...o });
-
-describe('parsePostFilters', () => {
-  it('keeps valid filters', () => {
-    expect(parsePostFilters({ format: 'REELS', tag: T1.toUpperCase(), from: '2026-10-01', to: '2026-10-31' })).toEqual({ format: 'REELS', tag: T1, from: '2026-10-01', to: '2026-10-31' });
-    expect(parsePostFilters({ tag: 'untagged' }).tag).toBe('untagged');
-  });
-
-  it('filters ignore invalid values: unknown format, STORY, non-uuid tag, impossible dates, arrays', () => {
-    expect(parsePostFilters({ format: 'STORY', tag: "x' or 1=1", from: '2026-02-31', to: '2026-13-01' })).toEqual({ format: null, tag: null, from: null, to: null });
-    expect(parsePostFilters({ format: ['REELS', 'IMAGE'], from: '20261001' })).toEqual({ format: null, tag: null, from: null, to: null });
-  });
-
-  it('swaps a reversed date range', () => {
-    expect(parsePostFilters({ from: '2026-10-31', to: '2026-10-01' })).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
-  });
-});
 
 describe('snippet', () => {
   it('one line, at most 80 code points, never splits an emoji; null/blank gives null', () => {

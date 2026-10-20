@@ -157,9 +157,16 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Account page: Overview / Posts / Stories, Audience inside Overview (`?tab=audience` redirects), range bar on Overview only; Posts and Stories read All time until Plan 14b
 - [x] Explorer toolbar (apply as you pick, Advanced, chips, Clear all); `docs/UI_STANDARDS.md`, CLAUDE.md "UI standards", guard tests
 - [ ] Owner: live check (RUNBOOK_TIMESCOPE §"Plan 14a"); confirm the plan's open questions (dialog/sheet panels, "Last 12 months", interim All time on Posts/Stories, title case on the three presets, Clear all vs Reset)
-- [ ] Plan 14b: Posts and Stories filters + pagination (replaces the interim All time lists)
+- [x] Plan 14b: Posts and Stories filters + pagination (replaces the interim All time lists) _(Plan 14b, see §6i)_
 
 - [ ] Known, left from the Plan 14a review (Minor): removing a filter chip drops keyboard focus to the page (move it to the next chip or the toolbar group); the underline tabs' fade mask always covers the last 1.5 rem even when nothing overflows, and the underline may sit about half a pixel above the rule (check visually in /styleguide); the guard test for one control height only covers the account page, export dialog and Explorer (Calendar's period arrows and Overview's account chips are small controls in rows of their own)
+
+## 6i. Posts and Stories lists (Plan 14b)
+- [x] Migration `20261027000001_post_story_lists.sql`: `post_list`, `story_list` (security invoker; filter, sort, page, count; Story final numbers) _(written and tested; NOT applied — owner go-ahead, docs/RUNBOOK_LISTS.md §0)_
+- [x] Posts: search, posted date, Format, Tag, Sort, chips, Clear all, server pages (24 grid / 50 table), table headers on the server sort
+- [x] Stories: posted date, Sort, measured; 7 days per page for Newest, 48 per page for the other sorts; no 200 cap (once the migration is applied)
+- [x] Fallback to the capped reads while the migration is missing; `Pagination`, `PostedFilter`, `DataTable` server sort; `docs/UI_STANDARDS.md` rules 12–13
+- [ ] Owner: apply the migration (runbook §0), live checks (RUNBOOK_LISTS §1–§6), confirm the plan's open questions (eight sort orders, 50 per page in the automatic view, 7 days / 48 Stories per page, fallback before the migration, plain substring search)
 
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
