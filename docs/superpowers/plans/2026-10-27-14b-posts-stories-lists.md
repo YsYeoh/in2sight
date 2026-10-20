@@ -3187,3 +3187,189 @@ git commit -m "feat(posts): own filters and search, server sort and pages from p
 ```
 
 ---
+
+### Task 10: Clean-up, docs, final check
+
+**Files:**
+- Modify: `lib/dashboard/content.ts`, `tests/dashboard-content.test.ts` (remove `parsePostFilters`), `messages/en.json`, `messages/zh-CN.json` (three dead keys), `docs/UI_STANDARDS.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`
+- Create: `docs/RUNBOOK_LISTS.md`
+
+**Interfaces:**
+- Consumes: everything above. Produces: no code API; the docs below.
+
+- [ ] **Step 1: Prove the leftovers are unused, then delete them**
+  - `grep -rn "parsePostFilters" app components lib tests` → only `lib/dashboard/content.ts` (the definition) and `tests/dashboard-content.test.ts`. Delete the function (with its doc comment `/** Posts-tab filters from the URL. … */`) from `content.ts` and the whole `describe('parsePostFilters', …)` block plus `parsePostFilters` in the import of `tests/dashboard-content.test.ts`. Keep `PostFilters` (used by `buildPosts`) and `parseDay` (used by `lists.ts`).
+  - `grep -n "t('count'\|t('apply'\|t('reset'" components/account/PostsTab.tsx` → nothing (the old form is gone; `pages.account.posts` is only read through `useTranslations('pages.account.posts')` there). Then delete these whole lines (text edits): `messages/en.json` — `        "count": "Showing {shown} of {total} posts",`, `        "apply": "Apply",`, `        "reset": "Reset",`; `messages/zh-CN.json` — `        "count": "显示 {shown} / {total} 篇帖子",`, `        "apply": "应用",`, `        "reset": "重置",` (each occurs once with this 8-space indentation; neighbours keep their commas).
+  - Run `npx vitest run tests/messages.test.ts tests/dashboard-content.test.ts tests/ui-standards.test.ts` → PASS.
+
+- [ ] **Step 2: `docs/RUNBOOK_LISTS.md`** — create with exactly this content:
+
+````markdown
+# Runbook — Posts and Stories lists (Plan 14b)
+
+Live checks for the owner (with the assistant). The SQL was verified on a throwaway PostgreSQL (PGlite = PostgreSQL 18 in
+WASM; see the plan's "Dry-run result"); the UI only in jsdom tests. Never paste tokens, CDN URLs or captions of other
+people into chats or issues.
+
+## 0. The migration (apply BEFORE or right after deploying; the owner says go)
+
+`supabase/migrations/20261027000001_post_story_lists.sql` adds two `security invoker` functions, `post_list` and
+`story_list`. Until it is applied, the Posts and Stories tabs fall back to the old capped reads (Posts: every post of
+the chosen dates; Stories: the newest 200 of the chosen dates, with "Showing the newest 200 Stories.") and apply the
+same filters, sort and pages in TypeScript, so the order of deploy and migration does not break anything. Apply:
+
+```bash
+# with .env.local loaded into the shell environment (never print the values; see docs/HANDOVER.md §0 "How it was applied")
+npx supabase migration list            # expect only 20261027000001 pending, nothing remote-only
+npx supabase db push --dry-run --password "$SUPABASE_DB_PASSWORD"   # expect exactly that file
+npx supabase db push --yes --password "$SUPABASE_DB_PASSWORD"
+```
+
+Confirm in the Supabase SQL editor:
+
+```sql
+select proname, prosecdef from pg_proc where proname in ('post_list', 'story_list') order by 1;
+-- 2 rows, prosecdef = false (security invoker)
+```
+
+Then Supabase dashboard → Advisors → Security and Performance: no new warning for the two functions (both pin `search_path`).
+After the push, the Stories tab no longer says "Showing the newest 200 Stories." for an account with more.
+
+## 1. Layout: 360 / 768 / 1280 × themes, keyboard
+
+Account page → Posts, then Stories, in each width (DevTools device toolbar) and each theme in light and dark:
+
+| Check | 360 | 768 | 1280 |
+|---|---|---|---|
+| The toolbar wraps, every control the same height, no sideways page scroll | | | |
+| "Posted" opens as a bottom sheet (phone) / a centred dialog (wider), Esc and Done close it, focus returns | | | |
+| Chips and Clear all wrap under the toolbar; the page navigation wraps and stays centred | | | |
+| No range bar (Last 7 / 14 / 30 Days) on Posts or Stories | | | |
+
+Keyboard only: Tab through search → Posted → Format → Tag → Sort → Grid | Table → the table headers → the page buttons;
+arrow keys change a select and the list follows at once; the search box keeps focus while you type (the list updates
+after a short pause, the top bar runs, the box is never reset).
+
+## 2. Posts
+
+1. Opens on All time, newest first, page 1: "1–50 of N posts" (table) and "Page 1 of …" when there are more than 50.
+2. Type part of a caption, then part of a tag name: both find posts (upper/lower case does not matter); `50%` or `_` find
+   only posts that really contain them.
+3. Posted: Last 7 days / Last 30 days / Last 90 days / This year / All time, and custom dates (from–to): the button names
+   the window; a chip appears; the posts outside the window disappear. An old link with `?from=2026-09-01&to=2026-09-30`
+   is ignored here (the list stays All time) but going back to Overview keeps that range.
+4. Format and Tag (incl. Untagged) combine with the search and the dates; each change goes back to page 1; each chip
+   removes only its own filter; Clear all keeps Sort, Grid/Table and the Overview range.
+5. Sort: all eight orders; in the table, click Reach, Views, Engagement rate, Post: first click = most / newest, second
+   click = the other way; the arrow and the Sort select agree. Posts without numbers are always at the end.
+6. Pages: Next / Previous / First / Last keep every filter; Grid shows 24 per page, Table 50; switching Grid ↔ Table
+   keeps roughly the same posts on screen. Change the URL to `page=999` → page 1 is shown.
+7. A post's title / date still opens the Explorer item level and its flask the Post Lab — both without `from=` in the URL.
+
+## 3. Stories
+
+1. Opens on All time, newest first: day strips, 7 days per page; a day is never split between pages.
+2. Sort "Most views" / "Highest exit rate": one flat list, 48 per page, each frame with its date and time; Stories
+   without numbers at the end.
+3. Numbers: Measured / Not measured (under 5 viewers) — the not-measured ones say so in their frame.
+4. An account with more than 200 Stories: every page is reachable (the 200 cap is gone once the migration is applied).
+5. Spot-check one Story: its views and exit rate in the frame equal the drawer and the Post Lab.
+
+## 4. The SQL order equals the screen's numbers
+
+On Posts sorted by Best engagement, the Engagement rate column must never go up while you scroll down (page 1 → 2 → …);
+the same for Reach and Views, and for Stories' exit rate. A post whose rate is "—" sits after every post with a number.
+
+## 5. Speed (big accounts)
+
+The dry run measured, on 5,000 posts × 20 snapshots and 3,000 Stories × 48 snapshots for one account (PGlite, slower than
+Supabase): a Posts page 130–160 ms whatever the sort, a search 40 ms, a Stories page 150–250 ms. Live:
+
+- DevTools → Network on a Posts and a Stories page change: "Waiting for server response" within the 1.2 s budget of
+  docs/RUNBOOK_PERF.md. Note here: Posts ____ ms, Stories ____ ms.
+- SQL editor, with the account that has the most posts (`select account_id, count(*) from public.media group by 1 order by 2 desc limit 1;`):
+
+```sql
+explain (analyze, buffers) select * from public.post_list('<account id>', now() - interval '5 years', now() + interval '1 day', null, null, null, false, 'engagement', false, 0, 50);
+explain (analyze, buffers) select * from public.story_list('<account id>', now() - interval '5 years', now() + interval '1 day', 'Asia/Kuala_Lumpur', null, 'newest', 0, 7);
+```
+
+  Both should finish in well under 500 ms. If `post_list` grows past that on a very big account (tens of thousands of
+  posts), the upgrade is a newest-first shortcut (no window count for the default sort) or a materialised latest-snapshot
+  column; note the numbers and tell the assistant.
+
+## 6. Security: nobody but the owner gets rows
+
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000000","aal":"aal1"}', true);
+select count(*) from public.post_list('<account id>', now() - interval '5 years', now(), null, null, null, false, 'date', false, 0, 50);   -- 0
+select count(*) from public.story_list('<account id>', now() - interval '5 years', now(), 'UTC', null, 'newest', 0, 7);                   -- 0
+rollback;
+
+begin;
+set local role anon;
+select * from public.post_list('<account id>', now(), now(), null, null, null, false, 'date', false, 0, 1); -- ERROR: permission denied for function post_list
+rollback;
+```
+
+Changing the account id in the URL to an archived or unknown account → 404 (unchanged).
+
+## 7. Known limits (by design)
+
+- Search is a plain substring (no accent folding: "cafe" does not find "café"); at most 100 characters.
+- "All time" reaches back 5 years (the app-wide floor, `MAX_DAYS`).
+- The exports still read the newest 200 Stories per account per range (`STORY_LIMIT`); `story_list` is their upgrade path.
+
+## What to send if it fails
+
+The URL (without tokens), the width and theme, the numbers you expected and saw, and for SQL checks the full output.
+````
+
+- [ ] **Step 3: `docs/UI_STANDARDS.md`** — insert before the line that starts with `**A new list page:**` (14a's closing paragraph):
+
+```markdown
+12. **Lists page on the server.** A list that can grow (Posts, Stories) reads one page at a time: `Pagination` (First / Previous / "Page X of Y" / Next / Last, every link from `hrefFor(page)` so all other params stay), a count line ("51–100 of 1,234 posts"), no "Show more". Sorting is the server's: the Sort select and the sortable table headers set the same `sort` (`DataTable` `serverSort`); a column without a server sort is not sortable. Any filter or sort change goes back to page 1; a stale page shows page 1. → `components/shared/Pagination.tsx`, `lib/dashboard/lists.ts`.
+13. **Lists have their own date filter.** `PostedFilter` (quick dates + custom dates, URL `pr` / `pfrom` / `pto`), never the Time Scope; the page's Time Scope params ride along in every list link untouched. The list's Suspense boundary is not keyed by list params, so the toolbar never remounts while results stream.
+```
+
+and change the closing paragraph's first sentence from `**A new list page:** a \`FilterToolbar\` with the 3–5 filters people use most, the rest in \`advanced\`, chips and Clear all, every parameter validated on the server.` to `**A new list page:** a \`FilterToolbar\` with the 3–5 filters people use most, the rest in \`advanced\`, chips and Clear all, every parameter validated on the server (parse/serialise helpers like \`lib/dashboard/lists.ts\`), server pages with \`Pagination\`.`
+
+- [ ] **Step 4: SPEC, TODO, HANDOVER**
+
+`docs/SPEC.md` §8: append after 14a's "**UI standard (Plan 14a; …)**" paragraph:
+
+```markdown
+**Posts and Stories lists (Plan 14b; ux-polish design §4.2, §8 calls 1–3, 7):** both tabs have their own filters (never the range bar) and open on All time, newest first. Posts: search (caption or tag name, case-insensitive substring), posted date (Last 7 / 30 / 90 days, This year, All time, custom), Format, Tag (incl. Untagged), Sort (newest/oldest, most/least reach, most/fewest views, best/lowest engagement; the table headers Post, Reach, Views, Engagement rate use the same sort), Grid (24 per page) | Table (50 per page; also the automatic view). Stories: posted date, Sort (newest = 7 owner-timezone days per page, a day never split; most views / highest exit rate = a flat list of 48 per page), measured / not measured. URL: `pr` | `pfrom`/`pto`, `q`, `format`, `tag`, `sort`, `page`, `measured`, `view`; the Time Scope params are carried but never filter these lists; links from a list to the Explorer or Post Lab carry no range. Pages come from two `security invoker` SQL functions (`post_list`, `story_list`, migration `20261027000001`) that filter, sort, page and count; the numbers shown are computed by the TypeScript (`engagementRate`, `storyView`) and the SQL sort keys are the same formulas (pinned by tests). Without the migration the tabs fall back to the capped reads (Stories: newest 200 of the chosen dates). The 200-Stories cap of the Stories tab is gone; the exports keep it.
+```
+
+`docs/TODO.md`: in 14a's section `## 6h. UI foundation (Plan 14a)`, tick the line `- [ ] Plan 14b: Posts and Stories filters + pagination (replaces the interim All time lists)` (→ `- [x] … _(Plan 14b, see §6i)_`), and insert after that section:
+
+```markdown
+## 6i. Posts and Stories lists (Plan 14b)
+- [x] Migration `20261027000001_post_story_lists.sql`: `post_list`, `story_list` (security invoker; filter, sort, page, count; Story final numbers) _(written and tested; NOT applied — owner go-ahead, docs/RUNBOOK_LISTS.md §0)_
+- [x] Posts: search, posted date, Format, Tag, Sort, chips, Clear all, server pages (24 grid / 50 table), table headers on the server sort
+- [x] Stories: posted date, Sort, measured; 7 days per page for Newest, 48 per page for the other sorts; no 200 cap
+- [x] Fallback to the capped reads while the migration is missing; `Pagination`, `PostedFilter`, `DataTable` server sort; `docs/UI_STANDARDS.md` rules 12–13
+- [ ] Owner: apply the migration (runbook §0), live checks (RUNBOOK_LISTS §1–§6), confirm the plan's open questions (eight sort orders, 50 per page in the automatic view, 7 days / 48 Stories per page, fallback before the migration, plain substring search)
+```
+
+`docs/HANDOVER.md` §0: after 14a's "**Plan 14a (UI foundation) — lessons …**" paragraph add:
+
+```markdown
+**Plan 14b (Posts and Stories lists) — lessons:** server-paged lists = a SQL function that filters, sorts, numbers and counts (`row_number() over`, `count(*) over ()` on every row, the page as `n in (offset, offset + limit]`), with the DISPLAYED numbers still computed in TypeScript and the sort keys pinned to the same formulas by tests (a TypeScript mirror on the dry-run fixture). Keep the list's Suspense boundary un-keyed by its own params so the toolbar (and a focused search box) survives a navigation. A new SQL function must never break a page before it is applied: return `null` on `PGRST202`/`42883` (`MISSING_FUNCTION` in `lib/dashboard/read.ts`) and fall back. Migration `20261027000001` is written but NOT applied (owner go-ahead; RUNBOOK_LISTS §0).
+```
+
+and update the "**Where we stopped:**" sentence to say Plan 14b is implemented on local `main` (not pushed) and its migration is not applied — check `git log` for the real state before writing it.
+
+- [ ] **Step 5: Final check** — remove finished worktrees first (implementer rules, orchestrator checklist), then `rm -rf .next` and run `npm run check > check.log 2>&1; echo "CHECK_EXIT=$?" >> check.log` and read the log. Expected: lint, typecheck, every test file and the build pass (`CHECK_EXIT=0`). Also `git diff --stat <base> -- app/globals.css components/ui` → empty, and `grep -rn "TimeScopeBar\|<RangeBar" components/account/PostsTab.tsx components/account/StoriesTab.tsx` → nothing.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/dashboard/content.ts tests/dashboard-content.test.ts messages/en.json messages/zh-CN.json docs/RUNBOOK_LISTS.md docs/UI_STANDARDS.md docs/SPEC.md docs/TODO.md docs/HANDOVER.md
+git commit -m "docs(lists): runbook, UI standard rules 12-13, SPEC, TODO, lessons; drop parsePostFilters and dead messages" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
