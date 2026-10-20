@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-20-ux-polish-and-tabs-design.md` (approved): §3 (owner decisions: Posts/Stories filters, All time newest first, pagination not "Show more", the cap lift), §4.2 "Posts tab" and "Stories tab", §5 (constraints: a NEW migration applied on the owner's go-ahead before the code that uses it), §6 step 3, §8 calls 1 (own date params, old `?from&to` ignored, links to Explorer/Post Lab carry no range), 2 (Stories sort and paging), 3 (server paging SQL, formulas not duplicated in the UI), 7 (table headers use the server sort). Plan 14a (`docs/superpowers/plans/2026-10-27-14a-ui-foundation.md`) is executed BEFORE this plan (see "Assumptions about Plan 14a"). Plan 14c (shell tabs) is independent. Project rules: `CLAUDE.md` (binding).
 
-**Dry run:** the SQL was run on a throwaway PostgreSQL (PGlite 0.3, WASM PostgreSQL 17, outside the repo) — see "Dry-run result" at the end. The TypeScript was not dry-run in a clone (Plan 14a is not on `main` yet); every name was checked against `main` and against Plan 14a's "What Plan 14b consumes".
+**Dry run:** the SQL was run on a throwaway PostgreSQL (PGlite 0.5.10 = PostgreSQL 18.6 in WASM, in a scratch folder outside the repo) — see "Dry-run result" at the end. The TypeScript was not dry-run in a clone (Plan 14a is not on `main` yet); every name was checked against `main` and against Plan 14a's "What Plan 14b consumes".
 
 ## Decisions taken in this plan (owner: please confirm the ones marked ⚠)
 
@@ -57,7 +57,71 @@
 ## Assumptions about Plan 14a (executed before this plan; names from its "What Plan 14b consumes")
 
 - `components/shared/FilterToolbar.tsx` exports `FilterToolbar({ label, children, advanced?, advancedCount?, end?, chips?, clearHref? })`, `interface FilterChip { id; label; href }`, `FilterPanel({ label, title, description?, active?, badge?, open?, onOpenChange?, children })`, `FilterOptions({ label, options: { href; label; current? }[] })` (inside a `FilterPanel` only), `FilterSelect({ id, label, value, options: FilterOption[], hrefFor })`, `interface FilterOption { value; label }`, `FilterSearch({ id, label, value, placeholder?, hrefFor })` (navigates with `replace` after `SEARCH_DEBOUNCE_MS` = 400 or Enter; blank or unchanged text never navigates — so `hrefFor('')` is reached only through a chip or Clear all), `useApply()`. They navigate with `useRouter` from `next/navigation`, so component tests mock it (copy 14a's mock line).
-- i18n `filters.{advanced,advancedTitle,withCount,active,remove,clearAll,done}` exist (14a Task 1). `pages.account.stories.{empty,summary,truncated}` read "No Stories captured yet", "{count} Stories", "Showing the newest {count} Stories." (14a Task 6). `pages.account.posts.apply`/`reset`/`count` are still in the files (14a Task 9 keeps `posts.apply` because the old form uses it; this plan's Task 11 deletes the three).
-- The account page after 14a Task 6: `app/(app)/accounts/[id]/(tabs)/page.tsx` has no top-level `filters`/`view`/`keep`; `TabContent`'s `case 'posts'` and `case 'stories'` read `allTime = resolveScope({ range: 'all', cmp: 'none', gran: 'auto' }, today, scope.earliest).listRange` with `loadPostRows(db, account.id, dayStart(allTime.from, tz).toISOString())` + `buildPosts(rows, tags, { ...parsePostFilters(sp), from: allTime.from, to: allTime.to }, tz)` and `daysToIso(allTime.from, allTime.to, tz)` + `loadStories`; both tabs get `scope={scope.params}`; the Suspense key is `JSON.stringify({ ...sp, view: undefined })`; `AccountView` has no `keep` prop. `tests/account-page.test.tsx` holds 14a's "Posts and Stories read All time, newest first, whatever the scope (…Plan 14b)" test, a `storiesFrom` hoisted array and a `redirect` mock. Task 10 replaces the two `case` blocks wholesale, so small drifts in 14a's text do not matter.
+- i18n `filters.{advanced,advancedTitle,withCount,active,remove,clearAll,done}` exist (14a Task 1). `pages.account.stories.{empty,summary,truncated}` read "No Stories captured yet", "{count} Stories", "Showing the newest {count} Stories." (14a Task 6). `pages.account.posts.apply`/`reset`/`count` are still in the files (14a Task 9 keeps `posts.apply` because the old form uses it; this plan's Task 10 deletes the three).
+- The account page after 14a Task 6: `app/(app)/accounts/[id]/(tabs)/page.tsx` has no top-level `filters`/`view`/`keep`; `TabContent`'s `case 'posts'` and `case 'stories'` read `allTime = resolveScope({ range: 'all', cmp: 'none', gran: 'auto' }, today, scope.earliest).listRange` with `loadPostRows(db, account.id, dayStart(allTime.from, tz).toISOString())` + `buildPosts(rows, tags, { ...parsePostFilters(sp), from: allTime.from, to: allTime.to }, tz)` and `daysToIso(allTime.from, allTime.to, tz)` + `loadStories`; both tabs get `scope={scope.params}`; the Suspense key is `JSON.stringify({ ...sp, view: undefined })`; `AccountView` has no `keep` prop. `tests/account-page.test.tsx` holds 14a's "Posts and Stories read All time, newest first, whatever the scope (…Plan 14b)" test, a `storiesFrom` hoisted array and a `redirect` mock. Tasks 8 and 9 replace the two `case` blocks wholesale, so small drifts in 14a's text do not matter.
 - `docs/UI_STANDARDS.md` (14a Task 9) exists with rules 1–11 and the closing "**A new list page:** …" paragraph; `tests/ui-standards.test.ts` guards abbreviations in messages (values only: `Last 7 days` passes; URL values such as `pr=7d` are not messages), `<RangeBar` users (none added here), `TabsList variant="line"`, no `size="sm"` in four named files (none of them changed here), no per-component scrollbar CSS.
 - **14a gap to check:** 14a Task 6 drops `AccountView`'s `keep` prop but does not list `tests/navigation-start.test.tsx`, which passes `keep={{ tab: 'overview' }}` (a type error). If it is still there when Task 9 runs, Task 9 removes that prop in the same file (listed as a deviation).
+
+## Out of scope
+
+The range bar, `FilterToolbar` itself and the account page restructure (Plan 14a); the shell tabs (Plan 14c); the Stories cap of the exports (`lib/export/*` keep `loadStories` and `STORY_LIMIT`; `story_list` is their upgrade path, not wired here); the Tags page; anything in the sync, the analysis formulas, the Explorer, the Post Lab (except one import line), the Time Scope URL contract; an `unaccent` search; new indexes.
+
+## Global Constraints
+
+- Ponytail: smallest thing that works. New shared pieces have two users each (`Pagination`: Posts + Stories; `PostedFilter`: Posts + Stories; `MISSING_FUNCTION`: Post Lab + lists). The TypeScript fallback (`pagePosts`/`pageStories`) is the tested mirror of the SQL order as well as the missing-migration path. **No new dependencies.** No new design tokens.
+- TypeScript strict. No Meta metric names touched.
+- DB: ONE new migration `supabase/migrations/20261027000001_post_story_lists.sql` (named after `20261026000001`; never edit applied migrations). Functions: `language sql stable security invoker set search_path = ''`, typed parameters, no dynamic SQL, text inputs only compared or passed to `strpos`/`at time zone`; `revoke execute … from public, anon; grant execute … to authenticated`. No table, policy or index change. **Implementers never apply it** (no `supabase`, `psql`, `db push`); it is applied later on the owner's go-ahead (runbook §0), and the code works before and after.
+- Reads: OWNER SESSION client (`createServerSupabase`) only, under RLS; never the admin client, never `account_tokens`. Fixed error messages (`dashboard read: <op> failed`) that never echo Supabase errors. Every list read is filtered by the URL's account id (`p_account`).
+- Every UI string via next-intl; ALL new keys are added by Task 2 in BOTH `messages/en.json` and `messages/zh-CN.json` (real Simplified Chinese, full-width punctuation); Task 10 deletes the three keys nobody uses any more. `tests/messages.test.ts` enforces parity and placeholders; `tests/ui-standards.test.ts` (14a) forbids `7d`-style labels in message VALUES (URL values are not messages).
+- UI standard (`docs/UI_STANDARDS.md`, 14a): list pages use `FilterToolbar` (never the range bar); one control height per row (`size="default"`, `h-[var(--ctl)]` selects; `size="sm"` only inside the Grid | Table segmented frame); the URL is the state and picks apply at once (text after 400 ms); panels are `ResponsiveDialog`s. Theming: semantic tokens only. Responsive 360 / 768 / 1280: toolbars and pagination wrap, no sideways page scroll, CSS breakpoints only.
+- Dates and numbers only via `lib/format.ts` (`formatDay`, `formatNumber`, `formatDateTime`, `formatTime`, …). Pure list logic in `lib/dashboard/lists.ts` takes `today`/`tz` as inputs (no `new Date()` there).
+- Tests: Vitest timeout 20 s; jsdom 29; components that use 14a's pieces mock `next/navigation`'s `useRouter` and copy the Radix stubs block (pointer capture, `scrollIntoView`, `ResizeObserver`) from `tests/posts-tab.test.tsx`; rerun a file alone on "worker start timeout" (`tests/posts-tab.test.tsx` is known slow); never chain a commit after a piped command.
+- `npm run check` passes after every wave. Commits: conventional, `git add` specific paths, `git commit -m "<msg>" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"`. Don't push.
+
+## Review Focus
+
+1. **SQL order = TypeScript formulas, and RLS holds:** the sort keys (engagement, latest reach/views, final Story views and exit rate, nulls last, ties newest first) and the filters (search in caption or tag names with `%`/`_` literal, format, tag/untagged, measured, the `[from, to)` window, owner-timezone days) → Task 1 migration test (text) + the dry-run assertions (runbook §6), Task 3 "the TypeScript mirror orders the dry-run fixture exactly as the SQL did".
+2. **A filter change never silently resets another filter, and nothing is hidden:** every href keeps the other list params and the scope; a filter change drops only `page`; chips remove one filter; Clear all keeps sort, view and the scope; a non-default posted window names the Posted button → Task 3 href tests, Tasks 7, 8, 9 chip / Clear all tests.
+3. **Paging is honest:** "Page X of Y" and "1–50 of 1,234 posts" from the count; a day is never split across Stories pages; a stale page shows page 1; first/prev/next/last keep every param and are disabled at the edges → Tasks 3, 4, 5, 8, 9.
+4. **Missing migration ≠ broken tab:** `PGRST202`/`42883` → `null` → the capped fallback with the same state applied in TypeScript; any other error → the normal error screen with fixed text → Task 4 reader tests, Tasks 8 and 9 page tests.
+5. **The search box keeps focus while results stream:** the Suspense key ignores list params (the toolbar is not remounted); a tab change still shows the skeleton → Task 8 "the Suspense key ignores the list params".
+
+## File Structure
+
+| File | Responsibility |
+|---|---|
+| `supabase/migrations/20261027000001_post_story_lists.sql` (new), `tests/lists-migration.test.ts` (new) | `post_list`, `story_list`; migration lint |
+| `messages/en.json`, `messages/zh-CN.json` | new keys (Task 2), three dead keys removed (Task 10) |
+| `lib/dashboard/lists.ts` (new), `tests/lists.test.ts` (new) | list URL state (parse/serialise), date window, page sizes, sort mapping, the TypeScript mirror (`sortPosts`, `sortStories`, `pagePosts`, `pageStories`) |
+| `lib/dashboard/content.ts`, `tests/dashboard-content.test.ts` | `parseDay` exported, `PostFilters.q`, `StoryFinal` + `storyView` (shared by `buildStories`); later `parsePostFilters` removed |
+| `lib/dashboard/detail-read.ts`, `lib/dashboard/read.ts`, `lib/post-lab/read.ts`, `tests/detail-read.test.ts` | `loadPostPage`, `loadStoryPage`; `MISSING_FUNCTION` shared |
+| `components/shared/Pagination.tsx` (new), `tests/pagination.test.tsx` (new) | page navigation |
+| `components/shared/DataTable.tsx`, `tests/data-table-server-sort.test.tsx` (new) | server-sort mode |
+| `components/account/PostedFilter.tsx` (new), `tests/posted-filter.test.tsx` (new) | the posted-date panel |
+| `components/account/StoriesTab.tsx`, `tests/stories-list.test.tsx` (new), `tests/stories-filmstrip.test.tsx`, `tests/stories-audience.test.tsx`, `tests/post-lab-links.test.tsx` (Stories describe) | Stories toolbar, day pages, flat list |
+| `components/account/PostsTab.tsx`, `tests/posts-tab.test.tsx`, `tests/posts-grid.test.tsx`, `tests/account-drill.test.tsx`, `tests/navigation-start.test.tsx`, `tests/post-lab-links.test.tsx` (Posts describe) | Posts toolbar, server sort and pages |
+| `app/(app)/accounts/[id]/(tabs)/page.tsx`, `tests/account-page.test.tsx` | wiring (Task 8 Stories + Suspense key, Task 9 Posts): parse, read (or fall back), render |
+| `docs/RUNBOOK_LISTS.md` (new), `docs/UI_STANDARDS.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md` | live checks, the list rules, spec section, ticks, lessons |
+
+**Adding i18n keys:** by TEXT INSERTION only (Edit tool: replace the exact anchor line shown with the lines shown), never by loading and re-serialising the JSON (both files are hand-formatted and carry one stray `\r`). Keep every other line byte-identical; both locales get the same keys; zh-CN uses full-width punctuation (`，：（）。`).
+
+**Mocking the router in component tests** (14a's pieces call `useRouter`): `const { push, replace } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));` and `vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace, prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) }));`.
+
+## Tasks
+
+| # | Task | Depends on | Files it owns | Parallel with |
+|---|---|---|---|---|
+| 1 | Migration + migration test | — | `supabase/migrations/20261027000001_post_story_lists.sql`, `tests/lists-migration.test.ts` | 2, 3, 6 |
+| 2 | i18n: every new key (additions only) | 14a (same files, merged before) | `messages/en.json`, `messages/zh-CN.json` | 1, 3, 6 |
+| 3 | List state + TypeScript mirror; `storyView` | — | `lib/dashboard/lists.ts`, `lib/dashboard/content.ts`, `tests/lists.test.ts`, `tests/dashboard-content.test.ts` | 1, 2, 6 |
+| 4 | Readers `loadPostPage` / `loadStoryPage`; shared `MISSING_FUNCTION` | 1 (names), 3 | `lib/dashboard/detail-read.ts`, `lib/dashboard/read.ts`, `lib/post-lab/read.ts`, `tests/detail-read.test.ts` | 5, 7 |
+| 5 | `Pagination` | 2 | `components/shared/Pagination.tsx`, `tests/pagination.test.tsx` | 4, 7 |
+| 6 | `DataTable` server-sort mode | — | `components/shared/DataTable.tsx`, `tests/data-table-server-sort.test.tsx` | 1, 2, 3 |
+| 7 | `PostedFilter` | 2, 3, 14a Task 3 | `components/account/PostedFilter.tsx`, `tests/posted-filter.test.tsx` | 4, 5 |
+| 8 | Stories tab end to end (component, page `case 'stories'`, Suspense key) | 2–5, 7 | `components/account/StoriesTab.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `tests/stories-list.test.tsx` (new), `tests/stories-filmstrip.test.tsx`, `tests/stories-audience.test.tsx`, `tests/post-lab-links.test.tsx` (Stories describe), `tests/account-page.test.tsx` | — (wave C alone) |
+| 9 | Posts tab end to end (component, page `case 'posts'`) | 2–7, 8 | `components/account/PostsTab.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `tests/posts-tab.test.tsx`, `tests/posts-grid.test.tsx`, `tests/account-drill.test.tsx`, `tests/navigation-start.test.tsx`, `tests/post-lab-links.test.tsx` (Posts describe), `tests/account-page.test.tsx` | — (wave D alone) |
+| 10 | Clean-up, docs, final check | all | `lib/dashboard/content.ts`, `tests/dashboard-content.test.ts`, `messages/en.json`, `messages/zh-CN.json`, `docs/RUNBOOK_LISTS.md`, `docs/UI_STANDARDS.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md` | — |
+
+Run order: wave A = 1, 2, 3, 6 · wave B = 4, 5, 7 · wave C = 8 · wave D = 9 · wave E = 10. Tasks in one wave touch disjoint files. Tasks 8 and 9 each change a tab's props AND its one caller (the account page) AND the page test in the same commit, so `tsc` and the suite stay green after each wave; they share `page.tsx`, `tests/account-page.test.tsx` and `tests/post-lab-links.test.tsx` (different `case` blocks / tests / describes), hence two waves. The messages are edited by Task 2 and Task 10 only; `lib/dashboard/content.ts` and `tests/dashboard-content.test.ts` by Task 3 and Task 10.
+
+---
