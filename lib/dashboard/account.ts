@@ -12,7 +12,8 @@ import type { SyncStatus } from '@/lib/sync/store';
 import { localDay } from '@/lib/sync/time';
 import type { ResolvedScope } from '@/lib/time-scope/scope';
 
-export const TABS = ['overview', 'posts', 'stories', 'audience'] as const;
+// Audience is the last section of Overview (ux-polish design §4.2); ?tab=audience redirects there
+export const TABS = ['overview', 'posts', 'stories'] as const;
 export type Tab = (typeof TABS)[number];
 
 /** ?tab= from the URL. Allow-list only: arrays (?tab=a&tab=b), unknown or hostile values fall back to overview. */

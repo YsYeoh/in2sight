@@ -1,12 +1,15 @@
 import { Suspense, isValidElement, type ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { calls, accounts, fail, since } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[] }));
+const { calls, accounts, fail, since, storiesFrom } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[] }));
 
 vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push('requireOwner') }));
 vi.mock('next/navigation', () => ({
   notFound: () => {
     throw new Error('NEXT_NOT_FOUND');
+  },
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT ${url}`);
   },
   useRouter: () => ({ push: vi.fn() }),
 }));
@@ -29,13 +32,13 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
     return calls.push('postRows'), [];
   },
   loadTags: async () => (calls.push('tags'), []),
-  loadStories: async () => (calls.push('stories'), { stories: [], truncated: false }),
+  loadStories: async (_db: unknown, _id: string, fromIso: string) => (calls.push('stories'), storiesFrom.push(fromIso), { stories: [], truncated: false }),
   loadAudience: async () => (calls.push('audience'), { age_gender: null, country: null, city: null }),
 }));
 
 import AccountPage from '@/app/(app)/accounts/[id]/(tabs)/page';
 import { DEFAULT_PREFS } from '@/lib/prefs';
-import { dayStart } from '@/lib/sync/time';
+import { dayStart, daysToIso } from '@/lib/sync/time';
 
 const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
 const acct = (id: string, status = 'active', o: Record<string, unknown> = {}) => ({ id, igUserId: id, username: `u${id.slice(0, 4)}`, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status, archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-09-01T00:00:00Z', ...o });
@@ -51,6 +54,7 @@ const streamTab = async (el: Page) => {
 beforeEach(() => {
   calls.length = 0;
   since.length = 0;
+  storiesFrom.length = 0;
   accounts.length = 0;
   fail.postRows = false;
 });
@@ -87,18 +91,14 @@ describe('account detail page', () => {
     expect(new Set([a.props.children.key, b.props.children.key, c.props.children.key]).size).toBe(3);
   });
 
-  it('posts view: ?view=grid|table is kept by the bar and passed to the tab; the Suspense key ignores it (the shown view stays until the other one streams in)', async () => {
+  it('posts view: ?view=grid|table is passed to the tab; the Suspense key ignores it (the shown view stays until the other one streams in)', async () => {
     accounts.push(acct(ID));
     const plain = await run(ID, { tab: 'posts' });
     const grid = await run(ID, { tab: 'posts', view: 'grid' });
     expect(grid.props.children.key).toBe(plain.props.children.key);
-    expect((grid.props as unknown as { keep: Record<string, string> }).keep).toEqual({ tab: 'posts', view: 'grid' });
     expect(((await streamTab(grid)) as ReactElement<{ view: string | null }>).props.view).toBe('grid');
     const junk = await run(ID, { tab: 'posts', view: '<x>' });
-    expect((junk.props as unknown as { keep: Record<string, string> }).keep).toEqual({ tab: 'posts' });
     expect(((await streamTab(junk)) as ReactElement<{ view: string | null }>).props.view).toBeNull();
-    const stories = await run(ID, { tab: 'stories', view: 'grid' });
-    expect((stories.props as unknown as { keep: Record<string, string> }).keep).toEqual({ tab: 'stories' }); // only the Posts tab has views
   });
 
   it('renders the overview tab by default (and for an injected tab) with the owner session only', async () => {
@@ -121,12 +121,11 @@ describe('account detail page', () => {
     expect(el.props.exportButton.props.scopes.map((s) => s.value)).toEqual(['all', `a:${ID}`]); // archived accounts are not offered
   });
 
-  it('the scope is resolved once with the first captured day and kept by the bar; Posts filters are kept (validated)', async () => {
+  it('the scope is resolved once with the first captured day', async () => {
     accounts.push(acct(ID));
-    const el = (await run(ID, { tab: 'posts', from: 'all', format: 'REELS', tag: 'not-a-uuid' })) as unknown as ReactElement<{ scope: { window: unknown; query: string }; keep: Record<string, string> }>;
+    const el = (await run(ID, { tab: 'posts', from: 'all', format: 'REELS', tag: 'not-a-uuid' })) as unknown as ReactElement<{ scope: { window: unknown; query: string } }>;
     expect(el.props.scope.window).toEqual({ from: '2026-07-01', to: expect.any(String) });
     expect(el.props.scope.query).toBe('from=all');
-    expect(el.props.keep).toEqual({ tab: 'posts', format: 'REELS' });
   });
 
   it('posts tab loads only its own data (posts with tags + tag list)', async () => {
@@ -138,21 +137,20 @@ describe('account detail page', () => {
     expect(calls).not.toContain('daily');
   });
 
-  it('posts tab: "all" lists every stored post (back to the MAX_DAYS floor), not only those since the first captured day; other scopes keep their range', async () => {
+  it('Posts and Stories read All time, newest first, whatever the scope (they get their own filters in Plan 14b)', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
     try {
       accounts.push(acct(ID));
-      const posts = async (sp: Record<string, string>) => {
-        const el = (await streamTab(await run(ID, { tab: 'posts', ...sp }))) as ReactElement<{ filters: { from: string; to: string } }>;
-        return { filters: el.props.filters, since: since.at(-1) };
-      };
-      const all = await posts({ from: 'all' }); // the first captured day (mock) is 2026-07-01
-      expect(all.filters).toMatchObject({ from: '2021-10-14', to: '2026-10-17' });
-      expect(all.since).toBe(dayStart('2021-10-14', DEFAULT_PREFS.timezone).toISOString());
-      const month = await posts({ from: '2026-09-01', to: '2026-09-30' });
-      expect(month.filters).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
-      expect(month.since).toBe(dayStart('2026-09-01', DEFAULT_PREFS.timezone).toISOString());
+      const tz = DEFAULT_PREFS.timezone;
+      const scopes: Record<string, string>[] = [{}, { from: '2026-09-01', to: '2026-09-30' }, { from: '7d' }];
+      for (const sp of scopes) {
+        const posts = (await streamTab(await run(ID, { tab: 'posts', ...sp }))) as ReactElement<{ filters: { from: string; to: string } }>;
+        expect(posts.props.filters).toMatchObject({ from: '2021-10-14', to: '2026-10-17' }); // MAX_DAYS back
+        expect(since.at(-1)).toBe(dayStart('2021-10-14', tz).toISOString());
+        await streamTab(await run(ID, { tab: 'stories', ...sp }));
+        expect(storiesFrom.at(-1)).toBe(daysToIso('2021-10-14', '2026-10-17', tz).fromIso);
+      }
     } finally {
       vi.useRealTimers();
     }
@@ -164,10 +162,7 @@ describe('account detail page', () => {
     expect(((await streamTab(el)) as ReactElement<{ accountId: string; scope: Record<string, string> }>).props).toMatchObject({ accountId: ID, scope: { from: '90d' } });
   });
 
-  it.each([
-    ['stories', 'stories'],
-    ['audience', 'audience'],
-  ])('%s tab loads only its own data', async (tab, call) => {
+  it.each([['stories', 'stories']])('%s tab loads only its own data', async (tab, call) => {
     accounts.push(acct(ID));
     const el = await run(ID, { tab });
     await streamTab(el);
@@ -175,6 +170,20 @@ describe('account detail page', () => {
     expect(calls).toContain(call);
     expect(calls).not.toContain('daily');
     expect(calls).not.toContain('postRows');
+  });
+
+  it('the Overview also loads the audience snapshots and hands them to the page', async () => {
+    accounts.push(acct(ID));
+    const tab = (await streamTab(await run(ID))) as ReactElement<{ audience: { reason: string | null } }>;
+    expect(calls).toContain('audience');
+    expect(tab.props.audience).toMatchObject({ reason: 'needs_100_followers' }); // the mock has no snapshot
+  });
+
+  it('?tab=audience (old links) redirects to the Audience section of Overview, keeping the scope; unknown accounts still 404', async () => {
+    await expect(run(ID, { tab: 'audience' })).rejects.toThrow('NEXT_NOT_FOUND');
+    accounts.push(acct(ID));
+    await expect(run(ID, { tab: 'audience', from: '90d' })).rejects.toThrow(`NEXT_REDIRECT /accounts/${ID}?from=90d#audience`);
+    await expect(run(ID, { tab: 'audience' })).rejects.toThrow(`NEXT_REDIRECT /accounts/${ID}#audience`);
   });
 
   it('a failing tab query rejects inside the boundary, after the header rendered (app/(app)/error.tsx catches it)', async () => {

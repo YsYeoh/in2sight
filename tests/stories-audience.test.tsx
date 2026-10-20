@@ -54,14 +54,14 @@ describe('StoriesTab', () => {
     expect(within(cards[0]).getByRole('link')).toHaveAttribute('rel', 'noopener noreferrer');
     expect(within(cards[1]).getByText(en.pages.account.stories.expired)).toBeInTheDocument();
     expect(within(cards[2]).getByText(en.analysis.reasons.needs_5_viewers)).toBeInTheDocument();
-    expect(screen.getByText('3 Stories in this range')).toBeInTheDocument();
+    expect(screen.getByText('3 Stories')).toBeInTheDocument();
     expect(screen.queryByText(/Showing the newest/)).toBeNull();
   });
 
   it('a capped range says so', () => {
     const stories = buildStories([story('s9', '2026-10-15T01:00:00Z', [])], NOW);
     wrap(<StoriesTab stories={stories} truncated />);
-    expect(screen.getByRole('status')).toHaveTextContent('Showing the newest 1 Stories of this range. Pick a shorter range to see older ones.');
+    expect(screen.getByRole('status')).toHaveTextContent('Showing the newest 1 Stories.');
   });
 });
 
@@ -90,6 +90,7 @@ describe('AudienceTab', () => {
     expect(container.querySelector('canvas')).toBeNull(); // the accessible list is the baseline
     expect(screen.getByText('Kuala Lumpur, Federal Territory of Kuala Lumpur')).toBeInTheDocument();
     expect(screen.getByText('18-24')).toBeInTheDocument();
+    expect(screen.getAllByText('Latest snapshot, 14 Oct 2026')).toHaveLength(3); // countries, cities, age and gender
   });
 
   it('the globe renders only when the motion gate allows it, and is hidden from assistive tech', async () => {

@@ -1,9 +1,8 @@
 import { Suspense } from 'react';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
-import { AudienceTab } from '@/components/account/AudienceTab';
 import { PostsTab } from '@/components/account/PostsTab';
 import { StoriesTab } from '@/components/account/StoriesTab';
 import { TabSkeleton } from '@/components/account/TabSkeleton';
@@ -34,36 +33,37 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
   const now = new Date();
   const today = localDay(now, prefs.timezone);
   const tz = prefs.timezone;
+  // Posts and Stories have no range of their own until Plan 14b: All time, newest first (the "all" list range, MAX_DAYS back)
+  const allTime = resolveScope({ range: 'all', cmp: 'none', gran: 'auto' }, today, scope.earliest).listRange;
   switch (tab) {
     case 'posts': {
-      const [rows, tags] = await Promise.all([loadPostRows(db, account.id, dayStart(scope.listRange.from, tz).toISOString()), loadTags(db)]);
-      const filters = { ...parsePostFilters(sp), from: scope.listRange.from, to: scope.listRange.to }; // the dates come from the scope ("all" lists every stored post)
+      const [rows, tags] = await Promise.all([loadPostRows(db, account.id, dayStart(allTime.from, tz).toISOString()), loadTags(db)]);
+      const filters = { ...parsePostFilters(sp), from: allTime.from, to: allTime.to };
       // the imported server action is passed straight to the client component (never wrapped in a closure here)
       return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} accountId={account.id} view={parsePostsView(sp.view)} setPostTags={setPostTagsAction} />;
     }
     case 'stories': {
-      const { fromIso, toIso } = daysToIso(scope.range.from, scope.range.to, tz);
+      const { fromIso, toIso } = daysToIso(allTime.from, allTime.to, tz);
       const { stories, truncated } = await loadStories(db, account.id, fromIso, toIso);
       return <StoriesTab stories={buildStories(stories, now)} truncated={truncated} accountId={account.id} scope={scope.params} />;
     }
-    case 'audience':
-      return <AudienceTab model={buildAudience(await loadAudience(db, account.id))} />;
     default: {
       const fromDay = readFrom(scope.scope, today);
       const pool = poolFor(account, await liveAccounts());
       const others = pool.filter((a) => a.id !== account.id);
-      const [daily, posts, sync, online, otherPosts] = await Promise.all([
+      const [daily, posts, sync, online, otherPosts, audience] = await Promise.all([
         loadDaily(db, account.id, fromDay),
         loadPosts(db, account.id, MEDIA_LIMIT, dayStart(fromDay, tz).toISOString()),
         loadSyncStatus(),
         loadOnline(db, pool.map((a) => a.id), addDays(today, -30)), // Instagram keeps 30 days of online_followers
         Promise.all(others.map((a) => loadPosts(db, a.id))), // best time pools the newest posts, whatever the scope
+        loadAudience(db, account.id),
       ]);
       const model = buildAccountOverview(
         { account, sync: sync[account.id], daily, posts, online: online[account.id] ?? [], pooled: { accounts: pool.length, posts: [...posts, ...otherPosts.flat()], online: Object.values(online).flat() } },
         { scope, today, now, tz, weekStart: prefs.weekStart },
       );
-      return <AccountOverview model={model} account={{ id: account.id, groupName: account.groupName }} />;
+      return <AccountOverview model={model} account={{ id: account.id, groupName: account.groupName }} audience={buildAudience(audience)} />;
     }
   }
 }
@@ -80,17 +80,14 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
   if (!account) notFound();
   const today = localDay(new Date(), prefs.timezone);
   const scope = resolveScope(parseTimeScope(sp, prefs.weekStart), today, first);
-  const filters = parsePostFilters(sp);
-  const view = tab === 'posts' ? parsePostsView(sp.view) : null;
-  // the page's own parameters every scope link keeps (validated values only, never echoed raw)
-  const keep: Record<string, string> = { tab, ...(tab === 'posts' && filters.format ? { format: filters.format } : {}), ...(tab === 'posts' && filters.tag ? { tag: filters.tag } : {}), ...(view ? { view } : {}) };
+  // old ?tab=audience links: Audience is the last section of Overview now (the scope rides along)
+  if (sp.tab === 'audience') redirect(`/accounts/${account.id}${scope.query ? `?${scope.query}` : ''}#audience`);
   return (
     <AccountView
       account={{ id: account.id, username: account.username, displayName: account.displayName, groupName: account.groupName }}
       tab={tab}
       scope={scope}
       today={today}
-      keep={keep}
       exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} time={scope} />}
     >
       {/* key: a new tab, scope or filter is a new boundary, so its skeleton shows instead of the stale tab. Not the
