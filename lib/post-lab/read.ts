@@ -4,7 +4,7 @@
 // supabase/migrations/20261026000001_post_lab.sql. Fixed error messages only (Supabase messages can echo values).
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CHECKPOINTS, PEER_MAX, type CheckpointId, type LabInput, type LabItem, type LabValues } from '@/lib/analysis/post-lab';
-import { safeLink } from '@/lib/dashboard/read';
+import { MISSING_FUNCTION, safeLink } from '@/lib/dashboard/read';
 import { LINK_TAP_ACTION } from '@/lib/instagram/metrics';
 import type { MediaKind } from '@/lib/instagram/parse';
 import type { CoverStatus } from '@/lib/sync/covers';
@@ -15,8 +15,6 @@ export const DAY_STORIES_MAX = 100;
 const MEDIA_COLUMNS = 'id,account_id,media_type,posted_at,expires_at,gone_at,permalink,caption,cover_status,children_count,media_tags(tag_id)';
 const COVERS: readonly string[] = ['pending', 'ok', 'unavailable', 'failed'];
 const KINDS: readonly string[] = ['IMAGE', 'CAROUSEL_ALBUM', 'REELS', 'STORY'];
-/** PostgREST "function not found" / Postgres undefined_function: the Post Lab migration is not applied yet. */
-const MISSING_FUNCTION = ['PGRST202', '42883'];
 
 export type PostLabRead = { kind: 'ok'; input: LabInput } | { kind: 'not_found' } | { kind: 'needs_migration' };
 

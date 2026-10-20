@@ -2,7 +2,9 @@
 // limits, fixed error messages (Supabase messages can echo values). Never the admin client, never account_tokens.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { OnlineFollowersRow, Post, Tag } from '@/lib/analysis/types';
-import { MEDIA_LIMIT, PAGE, reaches, readPages, rowToPost, safeLink } from '@/lib/dashboard/read';
+import type { FeedFormat, StoryFinal } from '@/lib/dashboard/content';
+import type { PostSortKey, StorySort } from '@/lib/dashboard/lists';
+import { MEDIA_LIMIT, MISSING_FUNCTION, PAGE, reaches, readPages, rowToPost, safeLink } from '@/lib/dashboard/read';
 import type { AudienceKind } from '@/lib/instagram/metrics';
 import type { MediaKind } from '@/lib/instagram/parse';
 import type { CoverStatus } from '@/lib/sync/covers';
@@ -95,9 +97,9 @@ export async function loadPostRows(db: SupabaseClient, accountId: string, since:
 }
 
 /** Stories posted in [fromIso, toIso), newest first, with every snapshot (oldest first); at most STORY_LIMIT, `truncated` when there are more.
- *  ponytail: snapshots are embedded without a per-story cap, so 200 stories x 30-minute snapshots is the ceiling;
- *  lifting it needs a `story_finals` SQL function (final snapshot + count + views series per Story, security invoker),
- *  applied BEFORE the code that calls it (Plan 13a kept the cap: see its Decisions). */
+ *  ponytail: snapshots are embedded without a per-story cap, so 200 stories x 30-minute snapshots is the ceiling. The
+ *  Stories TAB reads loadStoryPage (story_list, no cap, Plan 14b); this capped read remains for the exports and as the
+ *  tab's fallback until migration 20261027000001 is applied. */
 export async function loadStories(db: SupabaseClient, accountId: string, fromIso: string, toIso: string): Promise<{ stories: StoryRow[]; truncated: boolean }> {
   const { data, error } = await db
     .from('media')
@@ -114,6 +116,18 @@ export async function loadStories(db: SupabaseClient, accountId: string, fromIso
   return { stories: rows.slice(0, STORY_LIMIT).map(rowToStory), truncated: rows.length > STORY_LIMIT };
 }
 
+const snapshotOf = (m: Row): StorySnapshot => ({
+  capturedAt: String(m.captured_at),
+  reach: num(m.reach),
+  views: num(m.views),
+  replies: num(m.replies),
+  shares: num(m.shares),
+  interactions: num(m.total_interactions),
+  tapsForward: num(m.taps_forward),
+  tapsBack: num(m.taps_back),
+  exits: num(m.exits),
+});
+
 function rowToStory(r: Row): StoryRow {
   return {
     id: String(r.id),
@@ -121,17 +135,85 @@ function rowToStory(r: Row): StoryRow {
     expiresAt: str(r.expires_at),
     permalink: safeLink(r.permalink),
     cover: coverOf(r.cover_status),
-    snapshots: (Array.isArray(r.media_metrics) ? (r.media_metrics as Row[]) : []).map((m) => ({
-      capturedAt: String(m.captured_at),
-      reach: num(m.reach),
-      views: num(m.views),
-      replies: num(m.replies),
-      shares: num(m.shares),
-      interactions: num(m.total_interactions),
-      tapsForward: num(m.taps_forward),
-      tapsBack: num(m.taps_back),
-      exits: num(m.exits),
+    snapshots: (Array.isArray(r.media_metrics) ? (r.media_metrics as Row[]) : []).map(snapshotOf),
+  };
+}
+
+const missing = (e: unknown) => MISSING_FUNCTION.includes(String((e as { code?: unknown }).code));
+
+export interface PostPageArgs {
+  fromIso: string;
+  toIso: string;
+  q: string; // '' = no search
+  format: FeedFormat | null;
+  tag: string | null; // a tag id, 'untagged', or no filter
+  sort: { key: PostSortKey; asc: boolean };
+  page: number; // 1-based
+  size: number;
+}
+
+/** One page of an account's feed posts, filtered, sorted and counted by `post_list` (migration 20261027000001), each with
+ *  its latest snapshot and tag ids. A page past the end (a stale link) is read again as page 1.
+ *  null = the function does not exist yet: the caller falls back to loadPostRows. */
+export async function loadPostPage(db: SupabaseClient, accountId: string, a: PostPageArgs): Promise<{ rows: PostRow[]; total: number; page: number } | null> {
+  const { data, error } = await db.rpc('post_list', {
+    p_account: accountId,
+    p_from: a.fromIso,
+    p_to: a.toIso,
+    p_q: a.q || null,
+    p_format: a.format,
+    p_tag: a.tag && a.tag !== 'untagged' ? a.tag : null,
+    p_untagged: a.tag === 'untagged',
+    p_sort: a.sort.key,
+    p_asc: a.sort.asc,
+    p_offset: (a.page - 1) * a.size,
+    p_limit: a.size,
+  });
+  if (error) return missing(error) ? null : fail('post page');
+  const rows = (data ?? []) as Row[];
+  if (rows.length === 0 && a.page > 1) return loadPostPage(db, accountId, { ...a, page: 1 });
+  return {
+    rows: rows.flatMap((r) => {
+      const p = rowToPost({ ...r, account_id: accountId, media_metrics: [r] }); // the row carries the latest snapshot's columns
+      return p ? [{ ...p, caption: str(r.caption), tagIds: Array.isArray(r.tag_ids) ? r.tag_ids.map(String) : [], cover: coverOf(r.cover_status), slides: num(r.children_count) }] : [];
+    }),
+    total: Number(rows[0]?.total ?? 0),
+    page: a.page,
+  };
+}
+
+export interface StoryPageArgs {
+  fromIso: string;
+  toIso: string;
+  tz: string; // owner timezone: the days of the "newest" pages
+  measured: boolean | null;
+  sort: StorySort;
+  page: number; // 1-based: days (newest) or Stories
+  size: number;
+}
+
+/** One page of an account's Stories with their final numbers, by `story_list` (migration 20261027000001): whole
+ *  owner-timezone days for "newest", Stories for the other sorts. A page past the end is read again as page 1.
+ *  null = the function does not exist yet: the caller falls back to loadStories (capped). */
+export async function loadStoryPage(db: SupabaseClient, accountId: string, a: StoryPageArgs): Promise<{ stories: StoryFinal[]; items: number; days: number; page: number } | null> {
+  const { data, error } = await db.rpc('story_list', { p_account: accountId, p_from: a.fromIso, p_to: a.toIso, p_tz: a.tz, p_measured: a.measured, p_sort: a.sort, p_offset: (a.page - 1) * a.size, p_limit: a.size });
+  if (error) return missing(error) ? null : fail('story page');
+  const rows = (data ?? []) as Row[];
+  if (rows.length === 0 && a.page > 1) return loadStoryPage(db, accountId, { ...a, page: 1 });
+  return {
+    stories: rows.map((r) => ({
+      id: String(r.id),
+      postedAt: String(r.posted_at),
+      expiresAt: str(r.expires_at),
+      permalink: safeLink(r.permalink),
+      cover: coverOf(r.cover_status),
+      final: r.captured_at ? snapshotOf(r) : null, // no snapshot: Instagram never shared numbers
+      snapshots: num(r.snapshots) ?? 0,
+      progression: Array.isArray(r.progression) ? r.progression.map(num) : [],
     })),
+    items: Number(rows[0]?.items ?? 0),
+    days: Number(rows[0]?.days ?? 0),
+    page: a.page,
   };
 }
 
