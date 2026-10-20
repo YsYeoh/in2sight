@@ -29,7 +29,7 @@ describe('underline tabs (variant="line")', () => {
     tabs('line');
     const active = screen.getByRole('tab', { name: 'Overview' });
     expect(active).toHaveAttribute('data-state', 'active');
-    expect(active.className).toMatch(/after:bg-primary/);
+    expect(active.className).toMatch(/(^|\s)after:bg-primary(\s|$)/); // a whole class token, not a prefix of a merged one
     expect(active.className).toMatch(/after:bottom-0/);
   });
 
