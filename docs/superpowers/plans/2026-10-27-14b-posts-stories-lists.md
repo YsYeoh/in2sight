@@ -1583,3 +1583,179 @@ git commit -m "feat(ui): Pagination (first/previous/page X of Y/next/last, keeps
 ```
 
 ---
+
+### Task 6: `DataTable` server-sort mode
+
+**Files:**
+- Modify: `components/shared/DataTable.tsx`
+- Create: `tests/data-table-server-sort.test.tsx`
+- Existing: `tests/data-table.test.tsx`, `tests/data-table-grid.test.tsx`, `tests/posts-tab.test.tsx` pass unchanged (client mode untouched).
+
+**Interfaces:**
+- Produces: `export interface ServerSort { current: { key: string; dir: 'asc' | 'desc' } | null; href: (key: string) => string | null }`; `DataTable` gains `serverSort?: ServerSort`. With it: rows are rendered as given (no `sortRows`, `pageSize` ignored, no "Show more"), no phone "Sort by" select, a header whose `href(key)` is a string renders a `Link` (`scroll={false}`) with the arrow icon, `aria-sort` follows `current`; `href(key) === null` = a plain header (even with `sortValue`).
+
+- [ ] **Step 1: Write the failing test** — create `tests/data-table-server-sort.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it } from 'vitest';
+import en from '@/messages/en.json';
+import { DataTable, type Column, type ServerSort } from '@/components/shared/DataTable';
+
+type Row = { id: string; reach: number; likes: number };
+const ROWS: Row[] = [
+  { id: 'b', reach: 5, likes: 9 },
+  { id: 'a', reach: 50, likes: 1 },
+];
+const columns: Column<Row>[] = [
+  { key: 'post', header: 'Post', cell: (r) => r.id },
+  { key: 'reach', header: 'Reach', cell: (r) => r.reach, align: 'right' },
+  { key: 'likes', header: 'Likes', cell: (r) => r.likes, sortValue: (r) => r.likes }, // client-sortable, but not on the server
+];
+const server: ServerSort = { current: { key: 'reach', dir: 'asc' }, href: (key) => (key === 'likes' ? null : `?sort=${key}`) };
+const wrap = (serverSort?: ServerSort) =>
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <DataTable rows={ROWS} columns={columns} rowKey={(r) => r.id} caption="Posts" pageSize={1} serverSort={serverSort} />
+    </NextIntlClientProvider>,
+  );
+
+describe('DataTable: server sort', () => {
+  it('rows stay in the server order, all of them (no client sort, no "Show more", no phone sort select)', () => {
+    wrap(server);
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell')[0].textContent)).toEqual(['b', 'a']);
+    expect(screen.queryByRole('button', { name: en.table.showMore })).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  it('headers with a server sort are links; the active one carries aria-sort; others are plain text', () => {
+    wrap(server);
+    const heads = within(screen.getByRole('table')).getAllByRole('columnheader');
+    expect(within(heads[0]).getByRole('link', { name: 'Post' })).toHaveAttribute('href', '?sort=post');
+    expect(within(heads[1]).getByRole('link', { name: 'Reach' })).toHaveAttribute('href', '?sort=reach');
+    expect(heads[1]).toHaveAttribute('aria-sort', 'ascending');
+    expect(heads[0]).not.toHaveAttribute('aria-sort');
+    expect(within(heads[2]).queryByRole('link')).toBeNull();
+    expect(within(heads[2]).queryByRole('button')).toBeNull();
+  });
+
+  it('without serverSort nothing changes: client sort buttons and "Show more"', () => {
+    wrap();
+    expect(within(screen.getByRole('table')).getByRole('button', { name: 'Likes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: en.table.showMore })).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/data-table-server-sort.test.tsx`
+Expected: FAIL — `ServerSort` is not exported (tsc) and the headers render client sort buttons / one row with "Show more".
+
+- [ ] **Step 3: Implement** — apply this patch:
+
+```diff
+diff --git a/components/shared/DataTable.tsx b/components/shared/DataTable.tsx
+index 505fe53..96ec8bc 100644
+--- a/components/shared/DataTable.tsx
++++ b/components/shared/DataTable.tsx
+@@ -3,8 +3,10 @@
+ // Sortable table on md+, card list on phones (CSS breakpoints only, both rendered; never matchMedia). With `tile`, a
+ // grid of tiles replaces the phone cards ('auto') or the whole table ('grid'), sharing the sort and "Show more".
+ // ponytail: client-side sort of already-loaded rows (≤ 500) + an optional "Show more" page; TanStack Table (SPEC §2)
+-// comes in when server-side paging or column visibility is needed.
++// comes in when column visibility is needed. `serverSort`: the rows arrive sorted and paged by the server (Posts tab,
++// Plan 14b); the sortable headers are links to the server sort and the client sort, phone sort select and "Show more" are off.
+ import { useState, type ReactNode } from 'react';
++import Link from 'next/link';
+ import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+ import { useTranslations } from 'next-intl';
+ import { Button } from '@/components/ui/button';
+@@ -21,6 +23,11 @@ export interface Column<T> {
+ }
+ 
+ type Sort = { key: string; dir: 'asc' | 'desc' } | null;
++/** Server-sorted rows: `current` marks the active header; `href(key)` = the link for that header (null = not sortable). */
++export interface ServerSort {
++  current: Sort;
++  href: (key: string) => string | null;
++}
+ 
+ export function sortRows<T>(rows: T[], columns: Column<T>[], sort: Sort): T[] {
+   const col = sort && columns.find((c) => c.key === sort.key);
+@@ -38,12 +45,13 @@ export function sortRows<T>(rows: T[], columns: Column<T>[], sort: Sort): T[] {
+ }
+ 
+ /** `view` (with `tile` only): 'table' = table + phone cards (default), 'grid' = tiles at every width, 'auto' = tiles below md, the table from md. */
+-export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null, pageSize, tile, view = 'table' }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort; pageSize?: number; tile?: (row: T) => ReactNode; view?: 'table' | 'grid' | 'auto' }) {
++export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null, pageSize, tile, view = 'table', serverSort }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort; pageSize?: number; tile?: (row: T) => ReactNode; view?: 'table' | 'grid' | 'auto'; serverSort?: ServerSort }) {
+   const t = useTranslations('table');
+   const [sort, setSort] = useState<Sort>(initialSort);
+   const [shown, setShown] = useState(pageSize ?? Number.POSITIVE_INFINITY);
+-  const all = sortRows(rows, columns, sort);
+-  const sorted = all.slice(0, shown); // sort everything, then show the first page: "Show more" never reorders
++  const all = serverSort ? rows : sortRows(rows, columns, sort);
++  const shownSort = serverSort ? serverSort.current : sort;
++  const sorted = serverSort ? all : all.slice(0, shown); // sort everything, then show the first page: "Show more" never reorders
+   const [first, ...rest] = columns;
+   const toggle = (key: string) => setSort((s) => (s?.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }));
+   const sortable = columns.filter((c) => c.sortValue);
+@@ -61,14 +69,25 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading =
+             <TableHeader>
+               <TableRow>
+                 {columns.map((c) => {
+-                  const active = sort?.key === c.key;
+-                  const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
++                  const active = shownSort?.key === c.key;
++                  const Icon = active ? (shownSort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
++                  const href = serverSort ? serverSort.href(c.key) : null;
++                  const head = cn('inline-flex items-center gap-1 rounded-sm text-xs font-medium outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active ? 'text-foreground' : 'text-muted-foreground');
++                  const label = (
++                    <>
++                      {c.header}
++                      <Icon aria-hidden="true" className={cn('size-3', !active && 'opacity-50')} />
++                    </>
++                  );
+                   return (
+-                    <TableHead key={c.key} aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn(c.align === 'right' && 'text-right')}>
+-                      {c.sortValue ? (
+-                        <button type="button" onClick={() => toggle(c.key)} className={cn('inline-flex items-center gap-1 rounded-sm text-xs font-medium outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active ? 'text-foreground' : 'text-muted-foreground')}>
+-                          {c.header}
+-                          <Icon aria-hidden="true" className={cn('size-3', !active && 'opacity-50')} />
++                    <TableHead key={c.key} aria-sort={active ? (shownSort.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn(c.align === 'right' && 'text-right')}>
++                      {href ? (
++                        <Link href={href} scroll={false} className={head}>
++                          {label}
++                        </Link>
++                      ) : !serverSort && c.sortValue ? (
++                        <button type="button" onClick={() => toggle(c.key)} className={head}>
++                          {label}
+                         </button>
+                       ) : (
+                         <span className="text-xs font-medium text-muted-foreground">{c.header}</span>
+@@ -102,7 +121,7 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading =
+       )}
+ 
+       <div className={cn('grid gap-[var(--gp)]', !gridOnly && 'md:hidden')}>
+-        {sortable.length > 0 ? (
++        {sortable.length > 0 && !serverSort ? (
+           <div className="flex items-center justify-end gap-2">
+             <label className="flex items-center gap-2 text-xs text-muted-foreground">
+               {t('sortBy')}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/data-table-server-sort.test.tsx tests/data-table.test.tsx tests/data-table-grid.test.tsx tests/posts-tab.test.tsx` and `npx tsc --noEmit` and `npx eslint components/shared/DataTable.tsx tests/data-table-server-sort.test.tsx`
+Expected: PASS (3 new tests; the others unchanged); typecheck and eslint clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/shared/DataTable.tsx tests/data-table-server-sort.test.tsx
+git commit -m "feat(ui): DataTable server-sort mode (header links, rows as given)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
