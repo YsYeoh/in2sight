@@ -14,6 +14,8 @@ export const MEDIA_LIMIT = 500;
 export const PAGE = 1000;
 /** Safety stop for one paged read. ponytail: 10,000 posts per account in one scope is far beyond any real account; raise it if one ever gets close. */
 export const MAX_ROWS = 10_000;
+/** PostgREST / Postgres codes for "this SQL function does not exist": a migration that is not applied yet (callers degrade, never crash). */
+export const MISSING_FUNCTION: readonly string[] = ['PGRST202', '42883'];
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CALENDAR_LIMIT, loadAudience, loadMonthMedia, loadOnline, loadPostRows, loadStories, loadTags, STORY_LIMIT } from '@/lib/dashboard/detail-read';
+import { CALENDAR_LIMIT, loadAudience, loadMonthMedia, loadOnline, loadPostPage, loadPostRows, loadStories, loadStoryPage, loadTags, STORY_LIMIT, type PostPageArgs, type StoryPageArgs } from '@/lib/dashboard/detail-read';
 import { MEDIA_LIMIT } from '@/lib/dashboard/read';
 
 type Call = { table: string; select: string; ops: unknown[][] };
@@ -153,5 +153,67 @@ describe('loadOnline, loadTags, loadMonthMedia', () => {
     const story = (id: string, permalink: string) => ({ id, posted_at: '2026-10-14T08:00:00Z', expires_at: null, permalink, media_metrics: [] });
     const s = fakeDb({ media: [{ data: [story('s1', 'javascript:alert(1)'), story('s2', 'https://www.instagram.com/stories/x/')] }] });
     expect((await loadStories(s.db, 'a1', 'x', 'y')).stories.map((r) => r.permalink)).toEqual([null, 'https://www.instagram.com/stories/x/']);
+  });
+});
+
+/** Fake owner-session client for the list functions: each rpc takes the next result queued for its name; calls recorded. */
+function rpcDb(results: Record<string, { data?: unknown; error?: unknown }[]>) {
+  const calls: [string, Record<string, unknown>][] = [];
+  const db = { rpc: (name: string, args: Record<string, unknown>) => (calls.push([name, args]), Promise.resolve(results[name]?.shift() ?? { data: [], error: null })) };
+  return { db: db as never, calls };
+}
+
+describe('loadPostPage', () => {
+  const T1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+  const args: PostPageArgs = { fromIso: '2021-10-13T16:00:00.000Z', toIso: '2026-10-17T16:00:00.000Z', q: '', format: null, tag: null, sort: { key: 'date', asc: false }, page: 1, size: 50 };
+  const post = (id: string, o: Record<string, unknown> = {}) => ({ id, media_type: 'REELS', posted_at: '2026-10-10T10:00:00Z', permalink: 'https://www.instagram.com/reel/x/', caption: 'Hi', cover_status: 'ok', children_count: null, reach: 50, views: 70, likes: 3, comments: null, saves: 1, shares: null, tag_ids: [T1], n: 51, total: 120, ...o });
+
+  it('calls post_list with this account, the window, the filters, the sort and the page; maps rows like loadPostRows', async () => {
+    const f = rpcDb({ post_list: [{ data: [post('m1'), post('m2', { media_type: 'IMAGE', permalink: 'javascript:x', caption: null, cover_status: 'weird', tag_ids: null, reach: null })], error: null }] });
+    const r = await loadPostPage(f.db, 'a1', { ...args, q: '50% off', format: 'REELS', tag: T1, sort: { key: 'engagement', asc: true }, page: 2 });
+    expect(f.calls).toEqual([['post_list', { p_account: 'a1', p_from: args.fromIso, p_to: args.toIso, p_q: '50% off', p_format: 'REELS', p_tag: T1, p_untagged: false, p_sort: 'engagement', p_asc: true, p_offset: 50, p_limit: 50 }]]);
+    expect(r).toMatchObject({ total: 120, page: 2 });
+    expect(r!.rows[0]).toEqual({ id: 'm1', accountId: 'a1', mediaType: 'REELS', postedAt: '2026-10-10T10:00:00Z', permalink: 'https://www.instagram.com/reel/x/', reach: 50, views: 70, likes: 3, comments: null, shares: null, saves: 1, caption: 'Hi', tagIds: [T1], cover: 'ok', slides: null });
+    expect(r!.rows[1]).toMatchObject({ id: 'm2', permalink: null, caption: null, tagIds: [], cover: 'pending', reach: null });
+  });
+
+  it('no search = null; untagged is its own flag; an empty first page is a total of 0', async () => {
+    const f = rpcDb({});
+    expect(await loadPostPage(f.db, 'a1', { ...args, tag: 'untagged' })).toEqual({ rows: [], total: 0, page: 1 });
+    expect(f.calls[0][1]).toMatchObject({ p_q: null, p_tag: null, p_untagged: true });
+  });
+
+  it('a page past the end (stale link) is read again as page 1', async () => {
+    const f = rpcDb({ post_list: [{ data: [], error: null }, { data: [post('m1', { n: 1, total: 1 })], error: null }] });
+    const r = await loadPostPage(f.db, 'a1', { ...args, page: 9 });
+    expect(f.calls.map(([, a]) => a.p_offset)).toEqual([400, 0]);
+    expect(r).toMatchObject({ total: 1, page: 1 });
+  });
+
+  it('a missing function (migration not applied) is null; any other error is a fixed message', async () => {
+    for (const code of ['PGRST202', '42883']) expect(await loadPostPage(rpcDb({ post_list: [{ error: { code, message: 'x' } }] }).db, 'a1', args)).toBeNull();
+    await expect(loadPostPage(rpcDb({ post_list: [{ error: { code: '42501', message: 'secret detail' } }] }).db, 'a1', args)).rejects.toThrow(/^dashboard read: post page failed$/);
+  });
+});
+
+describe('loadStoryPage', () => {
+  const args: StoryPageArgs = { fromIso: 'a', toIso: 'b', tz: 'Asia/Kuala_Lumpur', measured: null, sort: 'newest', page: 1, size: 7 };
+  const row = (id: string, o: Record<string, unknown> = {}) => ({ id, posted_at: '2026-10-15T01:00:00Z', expires_at: '2026-10-16T01:00:00Z', permalink: null, cover_status: 'ok', captured_at: '2026-10-15T20:00:00Z', reach: 39, views: 40, replies: 1, shares: 0, total_interactions: 2, taps_forward: 7, taps_back: 0, exits: 2, snapshots: 2, progression: [10, 40], n: 1, items: 12, days: 5, ...o });
+
+  it('calls story_list with this account, the window, the timezone, the filter, the sort and the page; final numbers, count and series', async () => {
+    const f = rpcDb({ story_list: [{ data: [row('s1'), row('s2', { captured_at: null, reach: null, views: null, exits: null, snapshots: 0, progression: [] })], error: null }] });
+    const r = await loadStoryPage(f.db, 'a1', { ...args, measured: false, sort: 'exit', page: 3, size: 48 });
+    expect(f.calls).toEqual([['story_list', { p_account: 'a1', p_from: 'a', p_to: 'b', p_tz: 'Asia/Kuala_Lumpur', p_measured: false, p_sort: 'exit', p_offset: 96, p_limit: 48 }]]);
+    expect(r).toMatchObject({ items: 12, days: 5, page: 3 });
+    expect(r!.stories[0]).toEqual({ id: 's1', postedAt: '2026-10-15T01:00:00Z', expiresAt: '2026-10-16T01:00:00Z', permalink: null, cover: 'ok', final: { capturedAt: '2026-10-15T20:00:00Z', reach: 39, views: 40, replies: 1, shares: 0, interactions: 2, tapsForward: 7, tapsBack: 0, exits: 2 }, snapshots: 2, progression: [10, 40] });
+    expect(r!.stories[1]).toMatchObject({ final: null, snapshots: 0, progression: [] });
+  });
+
+  it('a stale page is read again as page 1; a missing function is null; other errors are fixed text', async () => {
+    const f = rpcDb({ story_list: [{ data: [] }, { data: [row('s1')] }] });
+    expect(await loadStoryPage(f.db, 'a1', { ...args, page: 4 })).toMatchObject({ page: 1, days: 5 });
+    expect(f.calls.map(([, a]) => a.p_offset)).toEqual([21, 0]);
+    expect(await loadStoryPage(rpcDb({ story_list: [{ error: { code: 'PGRST202' } }] }).db, 'a1', args)).toBeNull();
+    await expect(loadStoryPage(rpcDb({ story_list: [{ error: { code: 'XX000', message: 'secret' } }] }).db, 'a1', args)).rejects.toThrow(/^dashboard read: story page failed$/);
   });
 });
