@@ -22,6 +22,14 @@
     "ascending": "升序",
     "showMore": "显示更多"
   },
+  "pagination": {
+    "label": "分页",
+    "first": "第一页",
+    "previous": "上一页",
+    "next": "下一页",
+    "last": "最后一页",
+    "status": "第 {page} 页，共 {pages} 页"
+  },
   "nav": {
     "overview": "总览",
     "accounts": "账号",
@@ -373,7 +381,14 @@
         "liveHint": "{count, plural, other {目前已采集 # 次}}",
         "finalHint": "最终数据 · {count, plural, other {共采集 # 次}}",
         "open": "在 Instagram 中打开 {time} 的快拍",
-        "day": "{date} · {count, plural, other {# 条快拍}}"
+        "day": "{date} · {count, plural, other {# 条快拍}}",
+        "filters": "快拍筛选",
+        "sort": "排序",
+        "sorts": { "newest": "最新优先", "views": "浏览最多", "exit": "退出率最高" },
+        "measured": "数据",
+        "measuredOptions": { "all": "全部快拍", "yes": "有数据", "no": "无数据（观看不足 5 人）" },
+        "emptyFiltered": "没有符合筛选条件的快拍",
+        "list": "快拍"
       },
       "audience": {
         "title": "受众",
@@ -434,7 +449,34 @@
         "cancel": "取消",
         "view": "视图",
         "grid": "网格",
-        "table": "表格"
+        "table": "表格",
+        "filters": "帖子筛选",
+        "search": "搜索文案和标签",
+        "searchChip": "搜索：{q}",
+        "sort": "排序",
+        "sorts": {
+          "newest": "最新优先",
+          "oldest": "最早优先",
+          "reach": "覆盖最多",
+          "reach_asc": "覆盖最少",
+          "views": "浏览最多",
+          "views_asc": "浏览最少",
+          "engagement": "互动率最高",
+          "engagement_asc": "互动率最低"
+        },
+        "range": "第 {first}–{last} 篇，共 {total} 篇帖子"
+      },
+      "lists": {
+        "posted": "发布时间",
+        "postedWith": "发布时间：{range}",
+        "postedTitle": "发布日期",
+        "quick": "快捷日期",
+        "presets": { "7d": "最近 7 天", "30d": "最近 30 天", "90d": "最近 90 天", "year": "今年", "all": "全部时间" },
+        "custom": "自定义日期",
+        "from": "开始日期",
+        "to": "结束日期",
+        "show": "显示这些日期",
+        "between": "{from} 至 {to}"
       }
     },
     "calendar": {

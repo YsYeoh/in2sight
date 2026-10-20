@@ -22,6 +22,14 @@
     "ascending": "Ascending",
     "showMore": "Show more"
   },
+  "pagination": {
+    "label": "Pages",
+    "first": "First page",
+    "previous": "Previous page",
+    "next": "Next page",
+    "last": "Last page",
+    "status": "Page {page} of {pages}"
+  },
   "nav": {
     "overview": "Overview",
     "accounts": "Accounts",
@@ -373,7 +381,14 @@
         "liveHint": "{count, plural, one {# snapshot so far} other {# snapshots so far}}",
         "finalHint": "Final numbers · {count, plural, one {# snapshot} other {# snapshots}}",
         "open": "Open the Story from {time} on Instagram",
-        "day": "{date} · {count, plural, one {# Story} other {# Stories}}"
+        "day": "{date} · {count, plural, one {# Story} other {# Stories}}",
+        "filters": "Story filters",
+        "sort": "Sort",
+        "sorts": { "newest": "Newest first", "views": "Most views", "exit": "Highest exit rate" },
+        "measured": "Numbers",
+        "measuredOptions": { "all": "All Stories", "yes": "Measured", "no": "Not measured (under 5 viewers)" },
+        "emptyFiltered": "No Stories match these filters",
+        "list": "Stories"
       },
       "audience": {
         "title": "Audience",
@@ -434,7 +449,34 @@
         "cancel": "Cancel",
         "view": "View",
         "grid": "Grid",
-        "table": "Table"
+        "table": "Table",
+        "filters": "Post filters",
+        "search": "Search captions and tags",
+        "searchChip": "Search: {q}",
+        "sort": "Sort",
+        "sorts": {
+          "newest": "Newest first",
+          "oldest": "Oldest first",
+          "reach": "Most reach",
+          "reach_asc": "Least reach",
+          "views": "Most views",
+          "views_asc": "Fewest views",
+          "engagement": "Best engagement",
+          "engagement_asc": "Lowest engagement"
+        },
+        "range": "{first}–{last} of {total} posts"
+      },
+      "lists": {
+        "posted": "Posted",
+        "postedWith": "Posted: {range}",
+        "postedTitle": "Posted date",
+        "quick": "Quick dates",
+        "presets": { "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", "year": "This year", "all": "All time" },
+        "custom": "Custom dates",
+        "from": "From",
+        "to": "To",
+        "show": "Show these dates",
+        "between": "{from} – {to}"
       }
     },
     "calendar": {
