@@ -1154,3 +1154,299 @@ git commit -m "feat(lists): Posts/Stories list URL state, date window, TypeScrip
 ```
 
 ---
+
+### Task 4: Readers `loadPostPage` / `loadStoryPage`; shared `MISSING_FUNCTION`
+
+**Files:**
+- Modify: `lib/dashboard/detail-read.ts`, `lib/dashboard/read.ts`, `lib/post-lab/read.ts` (one import, the local constant removed)
+- Test: `tests/detail-read.test.ts` (6 new tests); `tests/post-lab-read.test.ts`, `tests/post-lab-page.test.tsx` pass unchanged.
+
+**Interfaces:**
+- Consumes: Task 1's function and argument names; Task 3's `StoryFinal`, `FeedFormat` (types from `content.ts`), `PostSortKey`, `StorySort` (types from `lists.ts`); `rowToPost`, `safeLink` (`read.ts`).
+- Produces:
+  - `lib/dashboard/read.ts`: `export const MISSING_FUNCTION: readonly string[] = ['PGRST202', '42883'];` (the Post Lab imports it).
+  - `lib/dashboard/detail-read.ts`: `interface PostPageArgs { fromIso; toIso; q: string; format: FeedFormat | null; tag: string | null; sort: { key: PostSortKey; asc: boolean }; page: number; size: number }`, `loadPostPage(db, accountId, a): Promise<{ rows: PostRow[]; total: number; page: number } | null>`; `interface StoryPageArgs { fromIso; toIso; tz: string; measured: boolean | null; sort: StorySort; page: number; size: number }`, `loadStoryPage(db, accountId, a): Promise<{ stories: StoryFinal[]; items: number; days: number; page: number } | null>`. `null` = the SQL function is missing. `loadStories`/`loadPostRows` unchanged (exports, Tags page, fallback); `rowToStory` now uses a shared `snapshotOf(row)`.
+
+- [ ] **Step 1: Write the failing tests** — apply this patch to `tests/detail-read.test.ts`:
+
+```diff
+diff --git a/tests/detail-read.test.ts b/tests/detail-read.test.ts
+index ef68919..2deba5c 100644
+--- a/tests/detail-read.test.ts
++++ b/tests/detail-read.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from 'vitest';
+-import { CALENDAR_LIMIT, loadAudience, loadMonthMedia, loadOnline, loadPostRows, loadStories, loadTags, STORY_LIMIT } from '@/lib/dashboard/detail-read';
++import { CALENDAR_LIMIT, loadAudience, loadMonthMedia, loadOnline, loadPostPage, loadPostRows, loadStories, loadStoryPage, loadTags, STORY_LIMIT, type PostPageArgs, type StoryPageArgs } from '@/lib/dashboard/detail-read';
+ import { MEDIA_LIMIT } from '@/lib/dashboard/read';
+ 
+ type Call = { table: string; select: string; ops: unknown[][] };
+@@ -155,3 +155,65 @@ describe('loadOnline, loadTags, loadMonthMedia', () => {
+     expect((await loadStories(s.db, 'a1', 'x', 'y')).stories.map((r) => r.permalink)).toEqual([null, 'https://www.instagram.com/stories/x/']);
+   });
+ });
++
++/** Fake owner-session client for the list functions: each rpc takes the next result queued for its name; calls recorded. */
++function rpcDb(results: Record<string, { data?: unknown; error?: unknown }[]>) {
++  const calls: [string, Record<string, unknown>][] = [];
++  const db = { rpc: (name: string, args: Record<string, unknown>) => (calls.push([name, args]), Promise.resolve(results[name]?.shift() ?? { data: [], error: null })) };
++  return { db: db as never, calls };
++}
++
++describe('loadPostPage', () => {
++  const T1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
++  const args: PostPageArgs = { fromIso: '2021-10-13T16:00:00.000Z', toIso: '2026-10-17T16:00:00.000Z', q: '', format: null, tag: null, sort: { key: 'date', asc: false }, page: 1, size: 50 };
++  const post = (id: string, o: Record<string, unknown> = {}) => ({ id, media_type: 'REELS', posted_at: '2026-10-10T10:00:00Z', permalink: 'https://www.instagram.com/reel/x/', caption: 'Hi', cover_status: 'ok', children_count: null, reach: 50, views: 70, likes: 3, comments: null, saves: 1, shares: null, tag_ids: [T1], n: 51, total: 120, ...o });
++
++  it('calls post_list with this account, the window, the filters, the sort and the page; maps rows like loadPostRows', async () => {
++    const f = rpcDb({ post_list: [{ data: [post('m1'), post('m2', { media_type: 'IMAGE', permalink: 'javascript:x', caption: null, cover_status: 'weird', tag_ids: null, reach: null })], error: null }] });
++    const r = await loadPostPage(f.db, 'a1', { ...args, q: '50% off', format: 'REELS', tag: T1, sort: { key: 'engagement', asc: true }, page: 2 });
++    expect(f.calls).toEqual([['post_list', { p_account: 'a1', p_from: args.fromIso, p_to: args.toIso, p_q: '50% off', p_format: 'REELS', p_tag: T1, p_untagged: false, p_sort: 'engagement', p_asc: true, p_offset: 50, p_limit: 50 }]]);
++    expect(r).toMatchObject({ total: 120, page: 2 });
++    expect(r!.rows[0]).toEqual({ id: 'm1', accountId: 'a1', mediaType: 'REELS', postedAt: '2026-10-10T10:00:00Z', permalink: 'https://www.instagram.com/reel/x/', reach: 50, views: 70, likes: 3, comments: null, shares: null, saves: 1, caption: 'Hi', tagIds: [T1], cover: 'ok', slides: null });
++    expect(r!.rows[1]).toMatchObject({ id: 'm2', permalink: null, caption: null, tagIds: [], cover: 'pending', reach: null });
++  });
++
++  it('no search = null; untagged is its own flag; an empty first page is a total of 0', async () => {
++    const f = rpcDb({});
++    expect(await loadPostPage(f.db, 'a1', { ...args, tag: 'untagged' })).toEqual({ rows: [], total: 0, page: 1 });
++    expect(f.calls[0][1]).toMatchObject({ p_q: null, p_tag: null, p_untagged: true });
++  });
++
++  it('a page past the end (stale link) is read again as page 1', async () => {
++    const f = rpcDb({ post_list: [{ data: [], error: null }, { data: [post('m1', { n: 1, total: 1 })], error: null }] });
++    const r = await loadPostPage(f.db, 'a1', { ...args, page: 9 });
++    expect(f.calls.map(([, a]) => a.p_offset)).toEqual([400, 0]);
++    expect(r).toMatchObject({ total: 1, page: 1 });
++  });
++
++  it('a missing function (migration not applied) is null; any other error is a fixed message', async () => {
++    for (const code of ['PGRST202', '42883']) expect(await loadPostPage(rpcDb({ post_list: [{ error: { code, message: 'x' } }] }).db, 'a1', args)).toBeNull();
++    await expect(loadPostPage(rpcDb({ post_list: [{ error: { code: '42501', message: 'secret detail' } }] }).db, 'a1', args)).rejects.toThrow(/^dashboard read: post page failed$/);
++  });
++});
++
++describe('loadStoryPage', () => {
++  const args: StoryPageArgs = { fromIso: 'a', toIso: 'b', tz: 'Asia/Kuala_Lumpur', measured: null, sort: 'newest', page: 1, size: 7 };
++  const row = (id: string, o: Record<string, unknown> = {}) => ({ id, posted_at: '2026-10-15T01:00:00Z', expires_at: '2026-10-16T01:00:00Z', permalink: null, cover_status: 'ok', captured_at: '2026-10-15T20:00:00Z', reach: 39, views: 40, replies: 1, shares: 0, total_interactions: 2, taps_forward: 7, taps_back: 0, exits: 2, snapshots: 2, progression: [10, 40], n: 1, items: 12, days: 5, ...o });
++
++  it('calls story_list with this account, the window, the timezone, the filter, the sort and the page; final numbers, count and series', async () => {
++    const f = rpcDb({ story_list: [{ data: [row('s1'), row('s2', { captured_at: null, reach: null, views: null, exits: null, snapshots: 0, progression: [] })], error: null }] });
++    const r = await loadStoryPage(f.db, 'a1', { ...args, measured: false, sort: 'exit', page: 3, size: 48 });
++    expect(f.calls).toEqual([['story_list', { p_account: 'a1', p_from: 'a', p_to: 'b', p_tz: 'Asia/Kuala_Lumpur', p_measured: false, p_sort: 'exit', p_offset: 96, p_limit: 48 }]]);
++    expect(r).toMatchObject({ items: 12, days: 5, page: 3 });
++    expect(r!.stories[0]).toEqual({ id: 's1', postedAt: '2026-10-15T01:00:00Z', expiresAt: '2026-10-16T01:00:00Z', permalink: null, cover: 'ok', final: { capturedAt: '2026-10-15T20:00:00Z', reach: 39, views: 40, replies: 1, shares: 0, interactions: 2, tapsForward: 7, tapsBack: 0, exits: 2 }, snapshots: 2, progression: [10, 40] });
++    expect(r!.stories[1]).toMatchObject({ final: null, snapshots: 0, progression: [] });
++  });
++
++  it('a stale page is read again as page 1; a missing function is null; other errors are fixed text', async () => {
++    const f = rpcDb({ story_list: [{ data: [] }, { data: [row('s1')] }] });
++    expect(await loadStoryPage(f.db, 'a1', { ...args, page: 4 })).toMatchObject({ page: 1, days: 5 });
++    expect(f.calls.map(([, a]) => a.p_offset)).toEqual([21, 0]);
++    expect(await loadStoryPage(rpcDb({ story_list: [{ error: { code: 'PGRST202' } }] }).db, 'a1', args)).toBeNull();
++    await expect(loadStoryPage(rpcDb({ story_list: [{ error: { code: 'XX000', message: 'secret' } }] }).db, 'a1', args)).rejects.toThrow(/^dashboard read: story page failed$/);
++  });
++});
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npx vitest run tests/detail-read.test.ts`
+Expected: FAIL — `loadPostPage is not a function` (and the `PostPageArgs`/`StoryPageArgs` type imports do not resolve for `tsc`).
+
+- [ ] **Step 3: Implement** — apply this patch (three files):
+
+```diff
+diff --git a/lib/dashboard/detail-read.ts b/lib/dashboard/detail-read.ts
+index d13486a..4d19872 100644
+--- a/lib/dashboard/detail-read.ts
++++ b/lib/dashboard/detail-read.ts
+@@ -2,7 +2,9 @@
+ // limits, fixed error messages (Supabase messages can echo values). Never the admin client, never account_tokens.
+ import type { SupabaseClient } from '@supabase/supabase-js';
+ import type { OnlineFollowersRow, Post, Tag } from '@/lib/analysis/types';
+-import { MEDIA_LIMIT, PAGE, reaches, readPages, rowToPost, safeLink } from '@/lib/dashboard/read';
++import type { FeedFormat, StoryFinal } from '@/lib/dashboard/content';
++import type { PostSortKey, StorySort } from '@/lib/dashboard/lists';
++import { MEDIA_LIMIT, MISSING_FUNCTION, PAGE, reaches, readPages, rowToPost, safeLink } from '@/lib/dashboard/read';
+ import type { AudienceKind } from '@/lib/instagram/metrics';
+ import type { MediaKind } from '@/lib/instagram/parse';
+ import type { CoverStatus } from '@/lib/sync/covers';
+@@ -95,9 +97,9 @@ export async function loadPostRows(db: SupabaseClient, accountId: string, since:
+ }
+ 
+ /** Stories posted in [fromIso, toIso), newest first, with every snapshot (oldest first); at most STORY_LIMIT, `truncated` when there are more.
+- *  ponytail: snapshots are embedded without a per-story cap, so 200 stories x 30-minute snapshots is the ceiling;
+- *  lifting it needs a `story_finals` SQL function (final snapshot + count + views series per Story, security invoker),
+- *  applied BEFORE the code that calls it (Plan 13a kept the cap: see its Decisions). */
++ *  ponytail: snapshots are embedded without a per-story cap, so 200 stories x 30-minute snapshots is the ceiling. The
++ *  Stories TAB reads loadStoryPage (story_list, no cap, Plan 14b); this capped read remains for the exports and as the
++ *  tab's fallback until migration 20261027000001 is applied. */
+ export async function loadStories(db: SupabaseClient, accountId: string, fromIso: string, toIso: string): Promise<{ stories: StoryRow[]; truncated: boolean }> {
+   const { data, error } = await db
+     .from('media')
+@@ -114,6 +116,18 @@ export async function loadStories(db: SupabaseClient, accountId: string, fromIso
+   return { stories: rows.slice(0, STORY_LIMIT).map(rowToStory), truncated: rows.length > STORY_LIMIT };
+ }
+ 
++const snapshotOf = (m: Row): StorySnapshot => ({
++  capturedAt: String(m.captured_at),
++  reach: num(m.reach),
++  views: num(m.views),
++  replies: num(m.replies),
++  shares: num(m.shares),
++  interactions: num(m.total_interactions),
++  tapsForward: num(m.taps_forward),
++  tapsBack: num(m.taps_back),
++  exits: num(m.exits),
++});
++
+ function rowToStory(r: Row): StoryRow {
+   return {
+     id: String(r.id),
+@@ -121,17 +135,85 @@ function rowToStory(r: Row): StoryRow {
+     expiresAt: str(r.expires_at),
+     permalink: safeLink(r.permalink),
+     cover: coverOf(r.cover_status),
+-    snapshots: (Array.isArray(r.media_metrics) ? (r.media_metrics as Row[]) : []).map((m) => ({
+-      capturedAt: String(m.captured_at),
+-      reach: num(m.reach),
+-      views: num(m.views),
+-      replies: num(m.replies),
+-      shares: num(m.shares),
+-      interactions: num(m.total_interactions),
+-      tapsForward: num(m.taps_forward),
+-      tapsBack: num(m.taps_back),
+-      exits: num(m.exits),
++    snapshots: (Array.isArray(r.media_metrics) ? (r.media_metrics as Row[]) : []).map(snapshotOf),
++  };
++}
++
++const missing = (e: unknown) => MISSING_FUNCTION.includes(String((e as { code?: unknown }).code));
++
++export interface PostPageArgs {
++  fromIso: string;
++  toIso: string;
++  q: string; // '' = no search
++  format: FeedFormat | null;
++  tag: string | null; // a tag id, 'untagged', or no filter
++  sort: { key: PostSortKey; asc: boolean };
++  page: number; // 1-based
++  size: number;
++}
++
++/** One page of an account's feed posts, filtered, sorted and counted by `post_list` (migration 20261027000001), each with
++ *  its latest snapshot and tag ids. A page past the end (a stale link) is read again as page 1.
++ *  null = the function does not exist yet: the caller falls back to loadPostRows. */
++export async function loadPostPage(db: SupabaseClient, accountId: string, a: PostPageArgs): Promise<{ rows: PostRow[]; total: number; page: number } | null> {
++  const { data, error } = await db.rpc('post_list', {
++    p_account: accountId,
++    p_from: a.fromIso,
++    p_to: a.toIso,
++    p_q: a.q || null,
++    p_format: a.format,
++    p_tag: a.tag && a.tag !== 'untagged' ? a.tag : null,
++    p_untagged: a.tag === 'untagged',
++    p_sort: a.sort.key,
++    p_asc: a.sort.asc,
++    p_offset: (a.page - 1) * a.size,
++    p_limit: a.size,
++  });
++  if (error) return missing(error) ? null : fail('post page');
++  const rows = (data ?? []) as Row[];
++  if (rows.length === 0 && a.page > 1) return loadPostPage(db, accountId, { ...a, page: 1 });
++  return {
++    rows: rows.flatMap((r) => {
++      const p = rowToPost({ ...r, account_id: accountId, media_metrics: [r] }); // the row carries the latest snapshot's columns
++      return p ? [{ ...p, caption: str(r.caption), tagIds: Array.isArray(r.tag_ids) ? r.tag_ids.map(String) : [], cover: coverOf(r.cover_status), slides: num(r.children_count) }] : [];
++    }),
++    total: Number(rows[0]?.total ?? 0),
++    page: a.page,
++  };
++}
++
++export interface StoryPageArgs {
++  fromIso: string;
++  toIso: string;
++  tz: string; // owner timezone: the days of the "newest" pages
++  measured: boolean | null;
++  sort: StorySort;
++  page: number; // 1-based: days (newest) or Stories
++  size: number;
++}
++
++/** One page of an account's Stories with their final numbers, by `story_list` (migration 20261027000001): whole
++ *  owner-timezone days for "newest", Stories for the other sorts. A page past the end is read again as page 1.
++ *  null = the function does not exist yet: the caller falls back to loadStories (capped). */
++export async function loadStoryPage(db: SupabaseClient, accountId: string, a: StoryPageArgs): Promise<{ stories: StoryFinal[]; items: number; days: number; page: number } | null> {
++  const { data, error } = await db.rpc('story_list', { p_account: accountId, p_from: a.fromIso, p_to: a.toIso, p_tz: a.tz, p_measured: a.measured, p_sort: a.sort, p_offset: (a.page - 1) * a.size, p_limit: a.size });
++  if (error) return missing(error) ? null : fail('story page');
++  const rows = (data ?? []) as Row[];
++  if (rows.length === 0 && a.page > 1) return loadStoryPage(db, accountId, { ...a, page: 1 });
++  return {
++    stories: rows.map((r) => ({
++      id: String(r.id),
++      postedAt: String(r.posted_at),
++      expiresAt: str(r.expires_at),
++      permalink: safeLink(r.permalink),
++      cover: coverOf(r.cover_status),
++      final: r.captured_at ? snapshotOf(r) : null, // no snapshot: Instagram never shared numbers
++      snapshots: num(r.snapshots) ?? 0,
++      progression: Array.isArray(r.progression) ? r.progression.map(num) : [],
+     })),
++    items: Number(rows[0]?.items ?? 0),
++    days: Number(rows[0]?.days ?? 0),
++    page: a.page,
+   };
+ }
+ 
+diff --git a/lib/dashboard/read.ts b/lib/dashboard/read.ts
+index d83dcbe..8584950 100644
+--- a/lib/dashboard/read.ts
++++ b/lib/dashboard/read.ts
+@@ -14,6 +14,8 @@ export const MEDIA_LIMIT = 500;
+ export const PAGE = 1000;
+ /** Safety stop for one paged read. ponytail: 10,000 posts per account in one scope is far beyond any real account; raise it if one ever gets close. */
+ export const MAX_ROWS = 10_000;
++/** PostgREST / Postgres codes for "this SQL function does not exist": a migration that is not applied yet (callers degrade, never crash). */
++export const MISSING_FUNCTION: readonly string[] = ['PGRST202', '42883'];
+ 
+ type Row = Record<string, unknown>;
+ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+diff --git a/lib/post-lab/read.ts b/lib/post-lab/read.ts
+index 2012dc5..cc86406 100644
+--- a/lib/post-lab/read.ts
++++ b/lib/post-lab/read.ts
+@@ -4,7 +4,7 @@
+ // supabase/migrations/20261026000001_post_lab.sql. Fixed error messages only (Supabase messages can echo values).
+ import type { SupabaseClient } from '@supabase/supabase-js';
+ import { CHECKPOINTS, PEER_MAX, type CheckpointId, type LabInput, type LabItem, type LabValues } from '@/lib/analysis/post-lab';
+-import { safeLink } from '@/lib/dashboard/read';
++import { MISSING_FUNCTION, safeLink } from '@/lib/dashboard/read';
+ import { LINK_TAP_ACTION } from '@/lib/instagram/metrics';
+ import type { MediaKind } from '@/lib/instagram/parse';
+ import type { CoverStatus } from '@/lib/sync/covers';
+@@ -15,8 +15,6 @@ export const DAY_STORIES_MAX = 100;
+ const MEDIA_COLUMNS = 'id,account_id,media_type,posted_at,expires_at,gone_at,permalink,caption,cover_status,children_count,media_tags(tag_id)';
+ const COVERS: readonly string[] = ['pending', 'ok', 'unavailable', 'failed'];
+ const KINDS: readonly string[] = ['IMAGE', 'CAROUSEL_ALBUM', 'REELS', 'STORY'];
+-/** PostgREST "function not found" / Postgres undefined_function: the Post Lab migration is not applied yet. */
+-const MISSING_FUNCTION = ['PGRST202', '42883'];
+ 
+ export type PostLabRead = { kind: 'ok'; input: LabInput } | { kind: 'not_found' } | { kind: 'needs_migration' };
+ 
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/detail-read.test.ts tests/post-lab-read.test.ts tests/post-lab-page.test.tsx tests/export-read.test.ts` and `npx tsc --noEmit` and `npx eslint lib/dashboard/detail-read.ts lib/dashboard/read.ts lib/post-lab/read.ts tests/detail-read.test.ts`
+Expected: PASS; typecheck and eslint clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/dashboard/detail-read.ts lib/dashboard/read.ts lib/post-lab/read.ts tests/detail-read.test.ts
+git commit -m "feat(lists): page readers over post_list/story_list (null when the migration is missing)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
