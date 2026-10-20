@@ -51,6 +51,11 @@ function view(account: string | null = null, locale: 'en' | 'zh-CN' = 'en', mdl 
 describe('CalendarView', () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it('header: the account select is a full-height control (one control height per row)', () => {
+    view(A1);
+    expect(screen.getByRole('combobox', { name: en.pages.calendar.account })).toHaveClass('h-[var(--ctl)]', 'text-sm');
+  });
+
   it('month title; the arrows step whole months and keep the account; no step into the future', () => {
     view(A1);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('October 2026');

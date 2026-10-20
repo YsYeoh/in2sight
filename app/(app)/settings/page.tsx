@@ -24,7 +24,7 @@ export default async function SettingsPage() {
     <>
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
       <Tabs defaultValue="general">
-        <TabsList>
+        <TabsList variant="line">
           <TabsTrigger value="general">{t('tabs.general')}</TabsTrigger>
           <TabsTrigger value="notifications">{t('tabs.notifications')}</TabsTrigger>
           <TabsTrigger value="account">{t('tabs.account')}</TabsTrigger>

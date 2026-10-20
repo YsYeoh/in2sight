@@ -61,7 +61,7 @@ export function ExportDialog({ scopes, defaultScope, time }: { scopes: ScopeOpti
       }}
     >
       <ResponsiveDialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button variant="outline">
           <Download aria-hidden="true" />
           {t('button')}
         </Button>
