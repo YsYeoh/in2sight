@@ -1450,3 +1450,136 @@ git commit -m "feat(lists): page readers over post_list/story_list (null when th
 ```
 
 ---
+
+### Task 5: `Pagination`
+
+**Files:**
+- Create: `components/shared/Pagination.tsx`, `tests/pagination.test.tsx`
+
+**Interfaces:**
+- Consumes: i18n `pagination.*` (Task 2), `Button`, `usePrefs`, `formatNumber`, lucide `ChevronsLeft`/`ChevronLeft`/`ChevronRight`/`ChevronsRight`.
+- Produces: `Pagination({ page, pages, hrefFor }: { page: number; pages: number; hrefFor: (page: number) => string })` — `nav[aria-label=pagination.label]`; renders nothing when `pages <= 1`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/pagination.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { Pagination } from '@/components/shared/Pagination';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const hrefFor = (p: number) => `?tab=posts&q=cat${p > 1 ? `&page=${p}` : ''}&from=90d`;
+function view(page: number, pages: number, locale: 'en' | 'zh-CN' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        <Pagination page={page} pages={pages} hrefFor={hrefFor} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('Pagination', () => {
+  it('a named nav: first / previous / "Page X of Y" / next / last, links keep every other parameter', () => {
+    view(3, 12);
+    const nav = screen.getByRole('navigation', { name: en.pagination.label });
+    expect(within(nav).getAllByRole('link').map((a) => [a.getAttribute('aria-label'), a.getAttribute('href')])).toEqual([
+      [en.pagination.first, '?tab=posts&q=cat&from=90d'],
+      [en.pagination.previous, '?tab=posts&q=cat&page=2&from=90d'],
+      [en.pagination.next, '?tab=posts&q=cat&page=4&from=90d'],
+      [en.pagination.last, '?tab=posts&q=cat&page=12&from=90d'],
+    ]);
+    expect(nav).toHaveTextContent('Page 3 of 12');
+    for (const a of within(nav).getAllByRole('link')) expect(a).toHaveAttribute('data-size', 'icon'); // --ctl high, like every control in the row
+  });
+
+  it('at the edges the buttons are disabled, not links', () => {
+    const { unmount } = view(1, 4);
+    expect(screen.getByRole('button', { name: en.pagination.first })).toBeDisabled();
+    expect(screen.getByRole('button', { name: en.pagination.previous })).toBeDisabled();
+    expect(screen.getByRole('link', { name: en.pagination.last })).toHaveAttribute('href', '?tab=posts&q=cat&page=4&from=90d');
+    unmount();
+    view(4, 4);
+    expect(screen.getByRole('button', { name: en.pagination.next })).toBeDisabled();
+    expect(screen.getByRole('button', { name: en.pagination.last })).toBeDisabled();
+  });
+
+  it('one page: nothing at all', () => {
+    const { container } = view(1, 1);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('big numbers go through the format settings; zh-CN reads in Chinese', () => {
+    view(1200, 3400, 'zh-CN');
+    expect(screen.getByRole('navigation', { name: zh.pagination.label })).toHaveTextContent('第 1,200 页，共 3,400 页');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/pagination.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/shared/Pagination"`.
+
+- [ ] **Step 3: Implement** — create `components/shared/Pagination.tsx`:
+
+```tsx
+'use client';
+
+// Page navigation for server-paged lists (Posts, Stories; docs/UI_STANDARDS.md): First / Previous / "Page 3 of 12" /
+// Next / Last. Every link comes from the caller's hrefFor(page), so every other URL parameter is kept. At an edge the
+// button is disabled (not a link). One control height: default-size icon buttons. Nothing for a single page.
+import type { ComponentType } from 'react';
+import Link from 'next/link';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { Button } from '@/components/ui/button';
+import { formatNumber } from '@/lib/format';
+
+export function Pagination({ page, pages, hrefFor }: { page: number; pages: number; hrefFor: (page: number) => string }) {
+  const t = useTranslations('pagination');
+  const { prefs } = usePrefs();
+  if (pages <= 1) return null;
+  const n = (v: number) => formatNumber(v, prefs, { maximumFractionDigits: 0 });
+  const step = (to: number, label: string, Icon: ComponentType<{ 'aria-hidden'?: boolean | 'true' }>) =>
+    to < 1 || to > pages || to === page ? (
+      <Button type="button" variant="outline" size="icon" disabled aria-label={label}>
+        <Icon aria-hidden="true" />
+      </Button>
+    ) : (
+      <Button asChild variant="outline" size="icon">
+        <Link href={hrefFor(to)} aria-label={label}>
+          <Icon aria-hidden="true" />
+        </Link>
+      </Button>
+    );
+  return (
+    <nav aria-label={t('label')} className="flex flex-wrap items-center justify-center gap-2">
+      {step(1, t('first'), ChevronsLeft)}
+      {step(page - 1, t('previous'), ChevronLeft)}
+      <span className="px-2 text-sm tabular-nums">{t('status', { page: n(page), pages: n(pages) })}</span>
+      {step(page + 1, t('next'), ChevronRight)}
+      {step(pages, t('last'), ChevronsRight)}
+    </nav>
+  );
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/pagination.test.tsx` and `npx tsc --noEmit` and `npx eslint components/shared/Pagination.tsx tests/pagination.test.tsx`
+Expected: PASS (4 tests); typecheck and eslint clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/shared/Pagination.tsx tests/pagination.test.tsx
+git commit -m "feat(ui): Pagination (first/previous/page X of Y/next/last, keeps every other param)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
