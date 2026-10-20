@@ -11,12 +11,14 @@ import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import type { StoredAccount } from '@/lib/accounts/types';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 import { buildAccountOverview, type AccountOverviewInput } from '@/lib/dashboard/account';
+import { buildAudience } from '@/lib/dashboard/audience';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { addDays } from '@/lib/sync/time';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
 const push = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
+vi.mock('@/lib/motion', async (orig) => ({ ...(await orig<object>()), useHeavyMotion: () => false }));
 
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
@@ -56,8 +58,8 @@ function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
 
 describe('AccountView', () => {
   const head = { id: ID, username: 'brand.one', displayName: 'Brand One', groupName: 'Brand X' };
-  const frame = (tab: 'overview' | 'posts' | 'audience', q = '', children = <p>panel</p>) => (
-    <AccountView account={head} tab={tab} scope={scopeOf(q)} today={TODAY} keep={{ tab }}>
+  const frame = (tab: 'overview' | 'posts' | 'stories', q = '', children = <p>panel</p>) => (
+    <AccountView account={head} tab={tab} scope={scopeOf(q)} today={TODAY}>
       {children}
     </AccountView>
   );
@@ -72,13 +74,15 @@ describe('AccountView', () => {
     expect(ig).toHaveAttribute('href', 'https://www.instagram.com/brand.one/');
     expect(ig).toHaveAttribute('rel', 'noopener noreferrer');
     expect(ig).toHaveAttribute('target', '_blank');
+    for (const name of [en.pages.account.calendar, en.pages.account.instagram]) expect(screen.getByRole('link', { name })).toHaveAttribute('data-size', 'default'); // one size in the header row
   });
 
   it('tabs have tablist/tab/tabpanel roles; only the active panel holds the content', () => {
     wrap(frame('posts', '', <p>posts panel</p>));
     const list = screen.getByRole('tablist', { name: en.pages.account.tabs });
     const tabs = within(list).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Posts', 'Stories', 'Audience']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Posts', 'Stories']);
+    expect(list).toHaveAttribute('data-variant', 'line');
     expect(within(list).getByRole('tab', { name: 'Posts' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel')).toHaveTextContent('posts panel');
   });
@@ -86,8 +90,8 @@ describe('AccountView', () => {
   it('choosing a tab (click or keyboard) navigates to ?tab=…', async () => {
     const user = userEvent.setup();
     wrap(frame('overview'));
-    await user.click(screen.getByRole('tab', { name: 'Audience' }));
-    expect(push).toHaveBeenCalledWith('?tab=audience', { scroll: false });
+    await user.click(screen.getByRole('tab', { name: 'Stories' }));
+    expect(push).toHaveBeenCalledWith('?tab=stories', { scroll: false });
     screen.getByRole('tab', { name: 'Overview' }).focus();
     await user.keyboard('{ArrowRight}'); // manual activation: arrows move focus only
     expect(screen.getByRole('tab', { name: 'Posts' })).toHaveFocus();
@@ -96,18 +100,21 @@ describe('AccountView', () => {
     expect(push).toHaveBeenLastCalledWith('?tab=posts', { scroll: false });
   });
 
-  it('the time scope travels: tabs, back link, calendar link and the bar keep it; Audience has no bar', async () => {
+  it('the time scope travels (tabs, back link, calendar link); the range bar shows on Overview only, inside its panel', async () => {
     const user = userEvent.setup();
-    wrap(frame('overview', 'from=2026-09-01&to=2026-09-30&cmp=yoy'));
     const q = 'from=2026-09-01&to=2026-09-30&cmp=yoy';
+    wrap(frame('overview', q));
     expect(screen.getByRole('link', { name: en.pages.account.back })).toHaveAttribute('href', `/overview?${q}`);
     expect(screen.getByRole('link', { name: en.pages.account.calendar })).toHaveAttribute('href', `/calendar?account=${ID}&${q}`);
-    expect(screen.getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?tab=overview&from=7d&cmp=yoy');
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?from=7d&cmp=yoy');
     await user.click(screen.getByRole('tab', { name: 'Posts' }));
     expect(push).toHaveBeenCalledWith(`?tab=posts&${q}`, { scroll: false });
-    cleanup();
-    wrap(frame('audience', 'from=90d'));
-    expect(screen.queryByRole('navigation', { name: en.timeScope.presets })).toBeNull();
+    for (const tab of ['posts', 'stories'] as const) {
+      cleanup();
+      wrap(frame(tab, 'from=90d'));
+      expect(screen.queryByRole('navigation', { name: en.timeScope.presets })).toBeNull();
+    }
   });
 });
 
@@ -129,6 +136,16 @@ describe('AccountOverview', () => {
     expect(screen.getByText(en.analysis.reasons.not_enough_posts)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '3 accounts pooled' }));
     expect(screen.getByRole('button', { name: '3 accounts pooled' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Audience is the last section of Overview (#audience); its snapshots say they are the latest snapshot', () => {
+    const audience = buildAudience({ age_gender: null, country: { day: '2026-10-14', data: { MY: 60, SG: 40 } }, city: null });
+    wrap(<AccountOverview model={buildAccountOverview(empty, opts)} audience={audience} />);
+    const section = screen.getByRole('region', { name: en.pages.account.audience.title });
+    expect(section).toHaveAttribute('id', 'audience');
+    expect(within(section).getByText('Latest snapshot, 14 Oct 2026')).toBeInTheDocument();
+    expect(within(section).getByText('Malaysia')).toBeInTheDocument();
+    expect(section.parentElement?.lastElementChild).toBe(section); // the last section of the page
   });
 
   it('account with no data renders every reason and no NaN (zh-CN)', () => {

@@ -360,10 +360,10 @@
       "tabs": "账号分区",
       "tab": { "overview": "概览", "posts": "帖子", "stories": "快拍", "audience": "受众" },
       "stories": {
-        "empty": "此范围内没有采集到快拍",
+        "empty": "还没有采集到快拍",
         "emptyHint": "快拍在发布期间每 30 分钟采集一次。连接账号之前的快拍无法获取。",
-        "summary": "此范围内共 {count} 条快拍",
-        "truncated": "仅显示此范围内最新的 {count} 条快拍。选择更短的范围可查看更早的快拍。",
+        "summary": "共 {count} 条快拍",
+        "truncated": "仅显示最新的 {count} 条快拍。",
         "live": "进行中",
         "expired": "已过期",
         "replies": "回复",
@@ -378,7 +378,7 @@
       "audience": {
         "title": "受众",
         "emptyHint": "账号粉丝达到 100 人且每日同步运行后，这里会显示受众数据。",
-        "asOf": "数据日期：{date}",
+        "asOf": "最新快照：{date}",
         "countries": "主要国家/地区",
         "cities": "主要城市",
         "ageGender": "年龄与性别",

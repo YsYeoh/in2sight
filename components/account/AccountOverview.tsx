@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { AudienceTab } from '@/components/account/AudienceTab';
 import { Heatmap } from '@/components/charts/Heatmap';
 import { SeriesChart } from '@/components/charts/SeriesChart';
 import { useBestTimeRows } from '@/components/charts/useBestTimeRows';
@@ -17,6 +18,7 @@ import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Button } from '@/components/ui/button';
 import type { KpiId } from '@/lib/analysis/growth';
 import type { AccountOverviewModel } from '@/lib/dashboard/account';
+import type { AudienceModel } from '@/lib/dashboard/audience';
 import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
 import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
@@ -37,7 +39,7 @@ function Toggle<T extends string>({ label, value, options, onChange }: { label: 
 }
 
 /** `account` set: formats and best-time cells link into the Explorer (drill-down), scoped to this account. */
-export function AccountOverview({ model, account }: { model: AccountOverviewModel; account?: { id: string; groupName: string | null } }) {
+export function AccountOverview({ model, account, audience }: { model: AccountOverviewModel; account?: { id: string; groupName: string | null }; audience?: AudienceModel }) {
   const t = useTranslations('pages.account');
   const to = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
@@ -171,6 +173,15 @@ export function AccountOverview({ model, account }: { model: AccountOverviewMode
       >
         <Heatmap caption={t('bestTimeTitle')} columns={bestTime.hours} rows={heatRows} lowLabel={ta('low')} highLabel={ta('high')} />
       </ChartCard>
+
+      {audience ? (
+        <section id="audience" aria-labelledby="audience-title" className="grid min-w-0 scroll-mt-[var(--pg)] gap-[var(--gp)]">
+          <h2 id="audience-title" className="text-base font-semibold">
+            {t('audience.title')}
+          </h2>
+          <AudienceTab model={audience} />
+        </section>
+      ) : null}
     </div>
   );
 }

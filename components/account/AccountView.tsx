@@ -1,9 +1,10 @@
 'use client';
 
-// Account detail frame: back link, header, the Time Scope bar and the four tabs. The tab is URL state (?tab=…): choosing
-// one navigates (keeping the scope) and the server renders ONLY that tab's data as `children`. Radix Tabs gives
-// tablist/tab/tabpanel roles + arrow keys; activationMode="manual" so arrowing between tabs does not fire a navigation
-// per key press. The bar sits outside the tab's Suspense boundary, so it stays usable while a tab loads.
+// Account detail frame: back link, header and the three underline tabs (Overview / Posts / Stories). The tab is URL state
+// (?tab=…): choosing one navigates (keeping the scope) and the server renders ONLY that tab's data as `children`. Radix
+// Tabs gives tablist/tab/tabpanel roles + arrow keys; activationMode="manual" so arrowing between tabs does not fire a
+// navigation per key press. The range bar lives in the Overview panel only, outside the tab's Suspense boundary, so it
+// stays usable while the tab streams.
 import { useTransition, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -25,8 +26,7 @@ interface AccountHead {
   groupName: string | null;
 }
 
-/** `keep` = the page's own parameters (tab, Posts filters) that a scope change keeps; the Audience tab has no time range. */
-export function AccountView({ account, tab, scope, today, keep, exportButton, children }: { account: AccountHead; tab: Tab; scope: ResolvedScope; today: string; keep: Record<string, string>; exportButton?: ReactNode; children: ReactNode }) {
+export function AccountView({ account, tab, scope, today, exportButton, children }: { account: AccountHead; tab: Tab; scope: ResolvedScope; today: string; exportButton?: ReactNode; children: ReactNode }) {
   const t = useTranslations('pages.account');
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -49,13 +49,13 @@ export function AccountView({ account, tab, scope, today, keep, exportButton, ch
         actions={
           <>
             {exportButton}
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline">
               <Link href={`/calendar?account=${account.id}${q}`}>
                 <CalendarDays aria-hidden="true" />
                 {t('calendar')}
               </Link>
             </Button>
-            <Button asChild variant="ghost" size="sm">
+            <Button asChild variant="ghost">
               <a href={`https://www.instagram.com/${encodeURIComponent(account.username)}/`} target="_blank" rel="noopener noreferrer">
                 <ExternalLink aria-hidden="true" />
                 {t('instagram')}
@@ -64,9 +64,8 @@ export function AccountView({ account, tab, scope, today, keep, exportButton, ch
           </>
         }
       />
-      {tab === 'audience' ? null : <RangeBar scope={scope} today={today} keep={keep} />}
       <Tabs value={tab} activationMode="manual" onValueChange={choose} className="min-w-0">
-        <TabsList aria-label={t('tabs')} className="max-w-full justify-start overflow-x-auto">
+        <TabsList variant="line" aria-label={t('tabs')}>
           {TABS.map((v) => (
             <TabsTrigger key={v} value={v} className="flex-none">
               {t(`tab.${v}`)}
@@ -75,7 +74,12 @@ export function AccountView({ account, tab, scope, today, keep, exportButton, ch
         </TabsList>
         {TABS.map((v) => (
           <TabsContent key={v} value={v} aria-busy={pending || undefined} className={cn('min-w-0 pt-[var(--gp)] transition-opacity', pending && 'opacity-60')}>
-            {v === tab ? children : null}
+            {v === tab ? (
+              <>
+                {v === 'overview' ? <RangeBar scope={scope} today={today} /> : null}
+                {children}
+              </>
+            ) : null}
           </TabsContent>
         ))}
       </Tabs>

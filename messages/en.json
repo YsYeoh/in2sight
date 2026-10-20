@@ -360,10 +360,10 @@
       "tabs": "Account sections",
       "tab": { "overview": "Overview", "posts": "Posts", "stories": "Stories", "audience": "Audience" },
       "stories": {
-        "empty": "No Stories captured in this range",
+        "empty": "No Stories captured yet",
         "emptyHint": "Stories are captured every 30 minutes while they are live. Stories from before the account was connected can't be retrieved.",
-        "summary": "{count} Stories in this range",
-        "truncated": "Showing the newest {count} Stories of this range. Pick a shorter range to see older ones.",
+        "summary": "{count} Stories",
+        "truncated": "Showing the newest {count} Stories.",
         "live": "Live",
         "expired": "Expired",
         "replies": "Replies",
@@ -378,7 +378,7 @@
       "audience": {
         "title": "Audience",
         "emptyHint": "Audience data appears once the account has 100+ followers and the daily sync has run.",
-        "asOf": "As of {date}",
+        "asOf": "Latest snapshot, {date}",
         "countries": "Top countries",
         "cities": "Top cities",
         "ageGender": "Age and gender",

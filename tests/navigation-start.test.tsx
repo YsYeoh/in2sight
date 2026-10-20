@@ -51,7 +51,7 @@ describe('client navigations that are not link clicks start the top bar', () => 
   it('choosing an account tab starts the bar, then pushes ?tab=… with the time scope', async () => {
     const scope = resolveScope(parseTimeScope({ from: '90d' }), '2026-10-15', '2026-01-01');
     wrap(
-      <AccountView account={{ id: A1, username: 'brand.one', displayName: null, groupName: null }} tab="overview" scope={scope} today="2026-10-15" keep={{ tab: 'overview' }}>
+      <AccountView account={{ id: A1, username: 'brand.one', displayName: null, groupName: null }} tab="overview" scope={scope} today="2026-10-15">
         <p>x</p>
       </AccountView>,
     );

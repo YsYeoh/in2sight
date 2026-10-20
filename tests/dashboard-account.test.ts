@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StoredAccount } from '@/lib/accounts/types';
 import type { DailyRow, Post } from '@/lib/analysis/types';
-import { buildAccountOverview, parseTab, poolFor, type AccountOverviewInput } from '@/lib/dashboard/account';
+import { buildAccountOverview, parseTab, poolFor, TABS, type AccountOverviewInput } from '@/lib/dashboard/account';
 import { addDays } from '@/lib/sync/time';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
@@ -16,8 +16,9 @@ const optsOf = (q: string) => ({ scope: resolveScope(parseTimeScope(new URLSearc
 const opts = optsOf('from=7d');
 
 describe('parseTab', () => {
-  it('accepts the four tabs only (tab param injection falls back to overview)', () => {
-    expect(['overview', 'posts', 'stories', 'audience'].map(parseTab)).toEqual(['overview', 'posts', 'stories', 'audience']);
+  it('accepts the three tabs only; the old Audience tab and injections fall back to overview', () => {
+    expect(TABS).toEqual(['overview', 'posts', 'stories']);
+    expect(['overview', 'posts', 'stories', 'audience'].map(parseTab)).toEqual(['overview', 'posts', 'stories', 'overview']);
     for (const bad of [undefined, '', 'POSTS', 'settings', '<script>alert(1)</script>', 'posts ', ['posts', 'audience'], 42, '__proto__', 'constructor']) expect(parseTab(bad)).toBe('overview');
   });
 });
