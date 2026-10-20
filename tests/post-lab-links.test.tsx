@@ -10,8 +10,11 @@ import { CalendarView } from '@/components/calendar/CalendarView';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { buildCalendar } from '@/lib/dashboard/calendar';
 import { buildStories, type PostView } from '@/lib/dashboard/content';
+import { ALL_TIME } from '@/lib/dashboard/lists';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
+
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) })); // the toolbar's selects navigate
 
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
@@ -61,15 +64,15 @@ describe('Posts tab → Post Lab', () => {
 });
 
 describe('Stories tab → Post Lab', () => {
-  it('each frame links to its Post Lab, and so does its drawer', async () => {
+  it('each frame links to its Post Lab, and so does its drawer; no range rides along (ux-polish §8 call 1)', async () => {
     const user = userEvent.setup();
     const stories = buildStories([{ id: '9', postedAt: '2026-10-15T01:00:00Z', expiresAt: '2026-10-16T01:00:00Z', permalink: null, snapshots: [], cover: 'ok' }], new Date('2026-10-15T04:00:00Z'));
-    wrap(<StoriesTab stories={stories} accountId={A} scope={{ from: '7d' }} />);
+    wrap(<StoriesTab stories={stories} items={1} days={1} page={1} state={{ dates: ALL_TIME, measured: null, sort: 'newest', page: 1 }} today="2026-10-15" accountId={A} scope={{ from: '7d' }} />);
     const title = 'Story · 15 Oct 2026 09:00';
-    expect(screen.getByRole('link', { name: `Open the Post Lab of ${title}` })).toHaveAttribute('href', `/accounts/${A}/media/9?from=7d`);
+    expect(screen.getByRole('link', { name: `Open the Post Lab of ${title}` })).toHaveAttribute('href', `/accounts/${A}/media/9`);
     await user.click(screen.getByRole('button', { name: `Details of ${title}` }));
     const dialog = await screen.findByRole('dialog', { name: title });
-    expect(within(dialog).getByRole('link', { name: 'Open Post Lab' })).toHaveAttribute('href', `/accounts/${A}/media/9?from=7d`);
+    expect(within(dialog).getByRole('link', { name: 'Open Post Lab' })).toHaveAttribute('href', `/accounts/${A}/media/9`);
   });
 });
 

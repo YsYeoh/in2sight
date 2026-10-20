@@ -1,7 +1,7 @@
 import { Suspense, isValidElement, type ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { calls, accounts, fail, since, storiesFrom } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[] }));
+const { calls, accounts, fail, since, storiesFrom, storyArgs, migrated } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[], storyArgs: [] as Record<string, unknown>[], migrated: { stories: true } }));
 
 vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push('requireOwner') }));
 vi.mock('next/navigation', () => ({
@@ -33,6 +33,7 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
   },
   loadTags: async () => (calls.push('tags'), []),
   loadStories: async (_db: unknown, _id: string, fromIso: string) => (calls.push('stories'), storiesFrom.push(fromIso), { stories: [], truncated: false }),
+  loadStoryPage: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('storyPage'), storyArgs.push(a), migrated.stories ? { stories: [], items: 0, days: 0, page: 1 } : null),
   loadAudience: async () => (calls.push('audience'), { age_gender: null, country: null, city: null }),
 }));
 
@@ -55,6 +56,8 @@ beforeEach(() => {
   calls.length = 0;
   since.length = 0;
   storiesFrom.length = 0;
+  storyArgs.length = 0;
+  migrated.stories = true;
   accounts.length = 0;
   fail.postRows = false;
 });
@@ -83,12 +86,14 @@ describe('account detail page', () => {
     expect([...calls].sort()).toEqual(['accounts', 'firstDay', 'requireOwner', 'session', 'session']); // the accounts list and the first captured day only; no tab query yet
   });
 
-  it('the Suspense key changes with the query, so a new tab/period/filter shows its skeleton instead of the stale tab', async () => {
+  it('the Suspense key ignores the list params (the toolbar stays mounted, the search box keeps focus); a tab or Time Scope change re-keys', async () => {
     accounts.push(acct(ID));
-    const a = await run(ID, { tab: 'posts' });
-    const b = await run(ID, { tab: 'posts', format: 'REELS' });
-    const c = await run(ID, { tab: 'stories' });
-    expect(new Set([a.props.children.key, b.props.children.key, c.props.children.key]).size).toBe(3);
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    const stories = await key({ tab: 'stories' });
+    expect(await key({ tab: 'stories', pr: '7d', pfrom: '2026-10-01', pto: '2026-10-09', sort: 'views', measured: 'yes', page: '2' })).toBe(stories);
+    const posts = await key({ tab: 'posts' });
+    expect(await key({ tab: 'posts', q: 'cat', format: 'REELS', tag: 'untagged', sort: 'reach', page: '3', view: 'grid' })).toBe(posts);
+    expect(new Set([stories, posts, await key({ tab: 'stories', from: '90d' })]).size).toBe(3);
   });
 
   it('posts view: ?view=grid|table is passed to the tab; the Suspense key ignores it (the shown view stays until the other one streams in)', async () => {
@@ -137,7 +142,7 @@ describe('account detail page', () => {
     expect(calls).not.toContain('daily');
   });
 
-  it('Posts and Stories read All time, newest first, whatever the scope (they get their own filters in Plan 14b)', async () => {
+  it('Posts read All time, newest first, whatever the scope (until Task 9)', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
     try {
@@ -148,8 +153,6 @@ describe('account detail page', () => {
         const posts = (await streamTab(await run(ID, { tab: 'posts', ...sp }))) as ReactElement<{ filters: { from: string; to: string } }>;
         expect(posts.props.filters).toMatchObject({ from: '2021-10-14', to: '2026-10-17' }); // MAX_DAYS back
         expect(since.at(-1)).toBe(dayStart('2021-10-14', tz).toISOString());
-        await streamTab(await run(ID, { tab: 'stories', ...sp }));
-        expect(storiesFrom.at(-1)).toBe(daysToIso('2021-10-14', '2026-10-17', tz).fromIso);
       }
     } finally {
       vi.useRealTimers();
@@ -162,7 +165,7 @@ describe('account detail page', () => {
     expect(((await streamTab(el)) as ReactElement<{ accountId: string; scope: Record<string, string> }>).props).toMatchObject({ accountId: ID, scope: { from: '90d' } });
   });
 
-  it.each([['stories', 'stories']])('%s tab loads only its own data', async (tab, call) => {
+  it.each([['stories', 'storyPage']])('%s tab loads only its own data', async (tab, call) => {
     accounts.push(acct(ID));
     const el = await run(ID, { tab });
     await streamTab(el);
@@ -192,5 +195,40 @@ describe('account detail page', () => {
     const el = await run(ID, { tab: 'posts' });
     expect(el.props.tab).toBe('posts');
     await expect(streamTab(el)).rejects.toThrow('db down');
+  });
+});
+
+describe('account page: Stories list (Plan 14b)', () => {
+  type StoriesEl = ReactElement<{ state: unknown; page: number; items: number; days: number; today: string; truncated?: boolean; scope: Record<string, string> }>;
+  it('own list params, never the Time Scope: the posted window in the owner timezone, one page of story_list', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
+    try {
+      accounts.push(acct(ID));
+      const tz = DEFAULT_PREFS.timezone;
+      const el = (await streamTab(await run(ID, { tab: 'stories', pr: '7d', sort: 'exit', measured: 'no', page: '2', from: '2026-09-01', to: '2026-09-30' }))) as StoriesEl;
+      expect(storyArgs).toEqual([{ ...daysToIso('2026-10-11', '2026-10-17', tz), tz, measured: false, sort: 'exit', page: 2, size: 48 }]);
+      expect(el.props).toMatchObject({ state: { dates: { pr: '7d', from: null, to: null }, measured: false, sort: 'exit', page: 2 }, page: 1, items: 0, days: 0, today: '2026-10-17', scope: { from: '2026-09-01', to: '2026-09-30' } });
+      expect(calls).not.toContain('stories'); // no capped read once the migration is applied
+      await streamTab(await run(ID, { tab: 'stories' })); // All time = the MAX_DAYS floor, newest pages by 7 days
+      expect(storyArgs.at(-1)).toMatchObject({ ...daysToIso('2021-10-14', '2026-10-17', tz), sort: 'newest', page: 1, size: 7, measured: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('before the migration (function missing): the capped read of the same window, the state applied in TypeScript', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z'));
+    try {
+      accounts.push(acct(ID));
+      migrated.stories = false;
+      const el = (await streamTab(await run(ID, { tab: 'stories', pr: '30d', page: '4' }))) as StoriesEl;
+      expect(calls).toContain('storyPage');
+      expect(storiesFrom).toEqual([daysToIso('2026-09-18', '2026-10-17', DEFAULT_PREFS.timezone).fromIso]);
+      expect(el.props).toMatchObject({ items: 0, days: 0, page: 1, truncated: false }); // page 4 of nothing = page 1
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
