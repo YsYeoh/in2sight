@@ -125,3 +125,279 @@ The range bar, `FilterToolbar` itself and the account page restructure (Plan 14a
 Run order: wave A = 1, 2, 3, 6 · wave B = 4, 5, 7 · wave C = 8 · wave D = 9 · wave E = 10. Tasks in one wave touch disjoint files. Tasks 8 and 9 each change a tab's props AND its one caller (the account page) AND the page test in the same commit, so `tsc` and the suite stay green after each wave; they share `page.tsx`, `tests/account-page.test.tsx` and `tests/post-lab-links.test.tsx` (different `case` blocks / tests / describes), hence two waves. The messages are edited by Task 2 and Task 10 only; `lib/dashboard/content.ts` and `tests/dashboard-content.test.ts` by Task 3 and Task 10.
 
 ---
+
+### Task 1: Migration `20261027000001_post_story_lists.sql` + migration test
+
+**Files:**
+- Create: `supabase/migrations/20261027000001_post_story_lists.sql`
+- Test: `tests/lists-migration.test.ts` (new). `tests/migrations.test.ts` (generic rules for every migration) must keep passing.
+
+**Interfaces:**
+- Consumes: tables `media` (`id`, `account_id`, `media_type`, `permalink`, `caption`, `posted_at`, `expires_at`, `cover_status`, `children_count`), `media_metrics` (`media_id`, `captured_at`, `reach`, `views`, `likes`, `comments`, `saves`, `shares`, `total_interactions`, `replies`, `taps_forward`, `taps_back`, `exits`), `media_tags` (`media_id`, `tag_id`), `tags` (`id`, `name`) and their owner-only policies.
+- Produces (exact names, argument names and columns Task 4 calls through `db.rpc`):
+  - `public.post_list(p_account uuid, p_from timestamptz, p_to timestamptz, p_q text, p_format text, p_tag uuid, p_untagged boolean, p_sort text, p_asc boolean, p_offset int, p_limit int)` → `(id text, media_type text, posted_at timestamptz, permalink text, caption text, cover_status text, children_count int, reach int, views int, likes int, comments int, saves int, shares int, tag_ids uuid[], n bigint, total bigint)` — `p_sort` ∈ `date` | `reach` | `views` | `engagement` (anything else = date), `p_asc` true = ascending; `n` = position 1..total; rows `n ∈ (p_offset, p_offset + p_limit]`, ordered by `n`.
+  - `public.story_list(p_account uuid, p_from timestamptz, p_to timestamptz, p_tz text, p_measured boolean, p_sort text, p_offset int, p_limit int)` → `(id text, posted_at timestamptz, expires_at timestamptz, permalink text, cover_status text, captured_at timestamptz, reach int, views int, replies int, shares int, total_interactions int, taps_forward int, taps_back int, exits int, snapshots int, progression int[], n bigint, items bigint, days bigint)` — `p_sort` ∈ `newest` (page = days ranked `(p_offset, p_offset + p_limit]`) | `views` | `exit` (page = Stories `n ∈ (p_offset, p_offset + p_limit]`); `captured_at` … `exits` = the final snapshot (all null when the Story has none); `items` = Stories matching, `days` = owner-timezone days holding them.
+
+- [ ] **Step 1: Write the failing test** — create `tests/lists-migration.test.ts`:
+
+```ts
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+// comments stripped so the assertions see only SQL
+const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20261027000001_post_story_lists.sql'), 'utf8').replace(/--.*$/gm, '');
+const fn = (name: string) => sql.match(new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${name}\\(([\\s\\S]*?)\\$\\$([\\s\\S]*?)\\$\\$;`, 'i'));
+const FUNCTIONS = { post_list: 'uuid, timestamptz, timestamptz, text, text, uuid, boolean, text, boolean, int, int', story_list: 'uuid, timestamptz, timestamptz, text, boolean, text, int, int' };
+const esc = (s: string) => s.replace(/[[\]()]/g, '\\$&').replace(/,\s*/g, ',\\s*');
+/** The given SQL exactly, with any whitespace between tokens. */
+const exact = (s: string) => new RegExp(s.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'i');
+
+describe('post/story list migration', () => {
+  it('is additive: two functions, no tables, indexes, policies or column changes, never account_tokens', () => {
+    expect(sql).not.toMatch(/\b(drop|alter|create\s+table|create\s+index|create\s+policy|insert|update|delete)\b/i);
+    expect(sql).not.toMatch(/account_tokens/i);
+    expect([...sql.matchAll(/create\s+or\s+replace\s+function/gi)]).toHaveLength(2);
+  });
+
+  it.each(Object.keys(FUNCTIONS))('%s: security invoker, stable, pinned search_path, no dynamic SQL, one account and one window', (name) => {
+    const m = fn(name);
+    expect(m, name).not.toBeNull();
+    const [, head, body] = m!;
+    expect(head).toMatch(/language\s+sql/i);
+    expect(head).toMatch(/\bstable\b/i);
+    expect(head).toMatch(/security\s+invoker/i);
+    expect(head).not.toMatch(/security\s+definer/i);
+    expect(head).toMatch(/set\s+search_path\s*=\s*''/i);
+    expect(body).not.toMatch(/\bexecute\b|format\s*\(|quote_ident|\|\||\blike\b/i); // nothing spliced into SQL text; no LIKE patterns
+    expect(body).toMatch(exact('where m.account_id = p_account'));
+    expect(body).toMatch(exact('and m.posted_at >= p_from and m.posted_at < p_to'));
+    expect(body).toMatch(/count\(\*\)\s+over\s+\(\)/i); // the total rides on every row
+  });
+
+  it.each(Object.entries(FUNCTIONS))('%s: execute revoked from public and anon, granted to authenticated only', (name, args) => {
+    expect(sql).toMatch(new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${name}\\(${esc(args)}\\)\\s+from\\s+public\\s*,\\s*anon\\s*;`, 'i'));
+    expect(sql).toMatch(new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${name}\\(${esc(args)}\\)\\s+to\\s+authenticated\\s*;`, 'i'));
+    expect(sql).not.toMatch(new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${name}[^;]*\\bto\\s+[^;]*\\b(anon|public)\\b`, 'i'));
+  });
+
+  it('post_list: feed posts only, the LATEST snapshot, search in caption or tag names without patterns, format/tag/untagged', () => {
+    const body = fn('post_list')![2];
+    expect(body).toMatch(exact("and m.media_type <> 'STORY'"));
+    expect(body).toMatch(exact('where x.media_id = m.id order by x.captured_at desc limit 1')); // as loadPostRows / the tab
+    expect(body).toMatch(exact("strpos(lower(coalesce(m.caption, '')), lower(p_q)) > 0"));
+    expect(body).toMatch(exact('join public.tags g on g.id = t.tag_id where t.media_id = m.id and strpos(lower(g.name), lower(p_q)) > 0'));
+    expect(body).toMatch(exact('(p_format is null or m.media_type = p_format)'));
+    expect(body).toMatch(exact('(p_tag is null or exists (select 1 from public.media_tags t where t.media_id = m.id and t.tag_id = p_tag))'));
+    expect(body).toMatch(exact('(p_untagged is not true or not exists (select 1 from public.media_tags t where t.media_id = m.id))'));
+  });
+
+  it('post_list: the engagement sort key is engagementRate (lib/analysis/posts.ts); nulls last both ways; ties newest first; the page', () => {
+    const body = fn('post_list')![2];
+    expect(body).toMatch(
+      exact(`case when s.reach > 0 and num_nonnulls(s.likes, s.comments, s.saves, s.shares) > 0
+             then (coalesce(s.likes, 0) + coalesce(s.comments, 0) + coalesce(s.saves, 0) + coalesce(s.shares, 0))::numeric / s.reach
+        end as er`),
+    );
+    for (const [key, col] of [['reach', 'reach'], ['views', 'views'], ['engagement', 'er']]) {
+      expect(body, key).toMatch(exact(`case when p_sort = '${key}' and p_asc is not true then f.${col} end desc nulls last`));
+      expect(body, key).toMatch(exact(`case when p_sort = '${key}' and p_asc then f.${col} end asc nulls last`));
+    }
+    expect(body).toMatch(exact("case when p_sort = 'date' and p_asc then f.posted_at end asc, case when p_sort = 'date' and p_asc then f.id end asc, f.posted_at desc, f.id desc) as n"));
+    expect(body).toMatch(exact('where r.n > p_offset and r.n <= p_offset + p_limit order by r.n'));
+    expect(body).toMatch(exact('array(select t.tag_id from public.media_tags t where t.media_id = r.id order by t.tag_id)')); // tags for the page only
+  });
+
+  it('story_list: Stories only; FINAL numbers = newest snapshot before expiry, else the newest (buildStories); exit rate; measured', () => {
+    const body = fn('story_list')![2];
+    expect(body).toMatch(exact("and m.media_type = 'STORY'"));
+    expect(body).toMatch(exact("where x.media_id = m.id and x.captured_at <= coalesce(m.expires_at, m.posted_at + interval '1 day') order by x.captured_at desc limit 1)"));
+    expect(body).toMatch(exact('where x.media_id = m.id order by x.captured_at desc limit 1)) u order by u.k limit 1'));
+    expect(body).toMatch(exact('case when s.exits is not null and s.views > 0 then s.exits::numeric / s.views end as exit_rate'));
+    expect(body).toMatch(exact('(p_measured is null or (s.captured_at is not null) = p_measured)'));
+  });
+
+  it('story_list: owner-timezone days, newest pages by whole days, other sorts by Story; nulls last, ties newest first; series for the page only', () => {
+    const body = fn('story_list')![2];
+    expect(body).toMatch(exact('(m.posted_at at time zone p_tz)::date as day'));
+    expect(body).toMatch(exact('dense_rank() over (order by f.day desc) as day_n'));
+    expect(body).toMatch(exact("case when p_sort = 'views' then f.views end desc nulls last, case when p_sort = 'exit' then f.exit_rate end desc nulls last, f.posted_at desc, f.id desc) as n"));
+    expect(body).toMatch(exact("where case when p_sort = 'newest' then r.day_n > p_offset and r.day_n <= p_offset + p_limit else r.n > p_offset and r.n <= p_offset + p_limit end"));
+    expect(body).toMatch(exact('(select coalesce(max(r2.day_n), 0) from r r2) as days'));
+    const [, after] = body.split(/\)\s+select\s+p\.id/i); // the final select, after the page was cut
+    expect(after).toMatch(exact('array_agg(x.views order by x.captured_at) as progression'));
+    expect(body.split(/\)\s+select\s+p\.id/i)[0]).not.toMatch(/array_agg/i);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/lists-migration.test.ts`
+Expected: FAIL — `ENOENT: no such file or directory … 20261027000001_post_story_lists.sql`.
+
+- [ ] **Step 3: Write the migration** — create `supabase/migrations/20261027000001_post_story_lists.sql` (exactly this; it is the text the plan's dry run executed):
+
+```sql
+-- Plan 14b: one page of an account's Posts or Stories, filtered and sorted in the database. Additive (two functions,
+-- nothing else). Apply BEFORE deploying the code that calls them; until then the Posts and Stories tabs fall back to
+-- their capped reads (docs/RUNBOOK_LISTS.md §0), so the order is safe either way.
+--
+-- Both functions are `security invoker`: they run with the caller's rights, so the owner-only RLS policies of media,
+-- media_metrics, media_tags and tags still apply (any other session gets no rows). Execute is revoked from public/anon
+-- and granted to `authenticated` only. Inputs are typed; the text inputs are only compared (p_sort, p_format) or
+-- searched with strpos (p_q: no pattern, so % and _ are plain characters), never concatenated into SQL.
+-- The SQL decides filter, order and page only. The numbers shown are computed by the TypeScript from the returned
+-- columns (lib/analysis/posts.ts engagementRate, lib/dashboard/content.ts storyView); the sort keys below are the same
+-- formulas and are pinned by tests/lists-migration.test.ts and tests/lists.test.ts.
+-- Rows are numbered 1..total in the chosen order (n); the page is n in (p_offset, p_offset + p_limit]; every row
+-- carries the total, so one call returns the page and the count.
+
+-- 1. Feed posts and Reels (no Stories) of one account posted in [p_from, p_to), each with its LATEST snapshot (as the
+-- Posts tab shows it). Filters: p_q in the caption or a tag name (case-insensitive), format, tag or untagged (null /
+-- false = no filter). Sort p_sort 'date' | 'reach' | 'views' | 'engagement', p_asc = ascending; nulls always last;
+-- ties newest first. engagement = (likes + comments + saves + shares) / reach, missing parts as 0, null without reach
+-- or when all four parts are missing (= engagementRate in lib/analysis/posts.ts).
+create or replace function public.post_list(p_account uuid, p_from timestamptz, p_to timestamptz, p_q text, p_format text, p_tag uuid, p_untagged boolean, p_sort text, p_asc boolean, p_offset int, p_limit int)
+returns table (id text, media_type text, posted_at timestamptz, permalink text, caption text, cover_status text, children_count int, reach int, views int, likes int, comments int, saves int, shares int, tag_ids uuid[], n bigint, total bigint)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  with f as (
+    select m.id, m.media_type, m.posted_at, m.permalink, m.caption, m.cover_status, m.children_count,
+           s.reach, s.views, s.likes, s.comments, s.saves, s.shares,
+           case when s.reach > 0 and num_nonnulls(s.likes, s.comments, s.saves, s.shares) > 0
+                then (coalesce(s.likes, 0) + coalesce(s.comments, 0) + coalesce(s.saves, 0) + coalesce(s.shares, 0))::numeric / s.reach
+           end as er
+      from public.media m
+      left join lateral (
+        select x.reach, x.views, x.likes, x.comments, x.saves, x.shares
+          from public.media_metrics x
+         where x.media_id = m.id
+         order by x.captured_at desc
+         limit 1
+      ) s on true
+     where m.account_id = p_account
+       and m.media_type <> 'STORY'
+       and m.posted_at >= p_from and m.posted_at < p_to
+       and (p_format is null or m.media_type = p_format)
+       and (p_tag is null or exists (select 1 from public.media_tags t where t.media_id = m.id and t.tag_id = p_tag))
+       and (p_untagged is not true or not exists (select 1 from public.media_tags t where t.media_id = m.id))
+       and (p_q is null
+            or strpos(lower(coalesce(m.caption, '')), lower(p_q)) > 0
+            or exists (select 1 from public.media_tags t join public.tags g on g.id = t.tag_id where t.media_id = m.id and strpos(lower(g.name), lower(p_q)) > 0))
+  ),
+  r as (
+    select f.*,
+           row_number() over (order by
+             case when p_sort = 'reach' and p_asc is not true then f.reach end desc nulls last,
+             case when p_sort = 'reach' and p_asc then f.reach end asc nulls last,
+             case when p_sort = 'views' and p_asc is not true then f.views end desc nulls last,
+             case when p_sort = 'views' and p_asc then f.views end asc nulls last,
+             case when p_sort = 'engagement' and p_asc is not true then f.er end desc nulls last,
+             case when p_sort = 'engagement' and p_asc then f.er end asc nulls last,
+             case when p_sort = 'date' and p_asc then f.posted_at end asc,
+             case when p_sort = 'date' and p_asc then f.id end asc,
+             f.posted_at desc, f.id desc) as n,
+           count(*) over () as total
+      from f
+  )
+  select r.id, r.media_type, r.posted_at, r.permalink, r.caption, r.cover_status, r.children_count,
+         r.reach, r.views, r.likes, r.comments, r.saves, r.shares,
+         array(select t.tag_id from public.media_tags t where t.media_id = r.id order by t.tag_id),
+         r.n, r.total
+    from r
+   where r.n > p_offset and r.n <= p_offset + p_limit
+   order by r.n
+$$;
+
+-- 2. Stories of one account posted in [p_from, p_to) with their FINAL numbers: the newest snapshot taken before the
+-- Story expired (expires_at, else posted_at + 1 day), else the newest one (= buildStories in lib/dashboard/content.ts);
+-- "measured" = it has a snapshot (Instagram shares no numbers under 5 viewers). p_measured null = all.
+-- p_sort 'newest' pages by owner-timezone DAYS (p_tz): the page is the days ranked (p_offset, p_offset + p_limit],
+-- newest day first, with every Story of those days, so a day is never split. 'views' (final views) and 'exit' (final
+-- exits / final views, null without views) page by Story; nulls last, ties newest first.
+-- The snapshot count and the views series (oldest first) are read for the returned page only.
+create or replace function public.story_list(p_account uuid, p_from timestamptz, p_to timestamptz, p_tz text, p_measured boolean, p_sort text, p_offset int, p_limit int)
+returns table (id text, posted_at timestamptz, expires_at timestamptz, permalink text, cover_status text, captured_at timestamptz, reach int, views int, replies int, shares int, total_interactions int, taps_forward int, taps_back int, exits int, snapshots int, progression int[], n bigint, items bigint, days bigint)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  with f as (
+    select m.id, m.posted_at, m.expires_at, m.permalink, m.cover_status,
+           (m.posted_at at time zone p_tz)::date as day,
+           s.captured_at, s.reach, s.views, s.replies, s.shares, s.total_interactions, s.taps_forward, s.taps_back, s.exits,
+           case when s.exits is not null and s.views > 0 then s.exits::numeric / s.views end as exit_rate
+      from public.media m
+      left join lateral (
+        select u.captured_at, u.reach, u.views, u.replies, u.shares, u.total_interactions, u.taps_forward, u.taps_back, u.exits
+          from ((select 1 as k, x.captured_at, x.reach, x.views, x.replies, x.shares, x.total_interactions, x.taps_forward, x.taps_back, x.exits
+                   from public.media_metrics x
+                  where x.media_id = m.id and x.captured_at <= coalesce(m.expires_at, m.posted_at + interval '1 day')
+                  order by x.captured_at desc
+                  limit 1)
+                union all
+                (select 2, x.captured_at, x.reach, x.views, x.replies, x.shares, x.total_interactions, x.taps_forward, x.taps_back, x.exits
+                   from public.media_metrics x
+                  where x.media_id = m.id
+                  order by x.captured_at desc
+                  limit 1)) u
+         order by u.k
+         limit 1
+      ) s on true
+     where m.account_id = p_account
+       and m.media_type = 'STORY'
+       and m.posted_at >= p_from and m.posted_at < p_to
+       and (p_measured is null or (s.captured_at is not null) = p_measured)
+  ),
+  r as (
+    select f.*,
+           dense_rank() over (order by f.day desc) as day_n,
+           row_number() over (order by
+             case when p_sort = 'views' then f.views end desc nulls last,
+             case when p_sort = 'exit' then f.exit_rate end desc nulls last,
+             f.posted_at desc, f.id desc) as n,
+           count(*) over () as items
+      from f
+  ),
+  p as (
+    select r.*, (select coalesce(max(r2.day_n), 0) from r r2) as days
+      from r
+     where case when p_sort = 'newest' then r.day_n > p_offset and r.day_n <= p_offset + p_limit
+                else r.n > p_offset and r.n <= p_offset + p_limit end
+  )
+  select p.id, p.posted_at, p.expires_at, p.permalink, p.cover_status, p.captured_at, p.reach, p.views, p.replies,
+         p.shares, p.total_interactions, p.taps_forward, p.taps_back, p.exits,
+         coalesce(c.snapshots, 0), coalesce(c.progression, '{}'), p.n, p.items, p.days
+    from p
+    left join lateral (
+      select count(*)::int as snapshots, array_agg(x.views order by x.captured_at) as progression
+        from public.media_metrics x
+       where x.media_id = p.id
+    ) c on true
+   order by p.n
+$$;
+
+revoke execute on function public.post_list(uuid, timestamptz, timestamptz, text, text, uuid, boolean, text, boolean, int, int) from public, anon;
+revoke execute on function public.story_list(uuid, timestamptz, timestamptz, text, boolean, text, int, int) from public, anon;
+grant execute on function public.post_list(uuid, timestamptz, timestamptz, text, text, uuid, boolean, text, boolean, int, int) to authenticated;
+grant execute on function public.story_list(uuid, timestamptz, timestamptz, text, boolean, text, int, int) to authenticated;
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/lists-migration.test.ts tests/migrations.test.ts`
+Expected: PASS (9 tests in the new file; the generic suite unchanged). Do NOT apply the migration anywhere (implementer rules §7); the owner applies it later (runbook §0).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/20261027000001_post_story_lists.sql tests/lists-migration.test.ts
+git commit -m "feat(db): post_list and story_list (filter, sort, page and count in SQL; Story final numbers)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
