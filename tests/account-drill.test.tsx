@@ -10,6 +10,7 @@ import type { StoredAccount } from '@/lib/accounts/types';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 import { buildAccountOverview } from '@/lib/dashboard/account';
 import type { PostView } from '@/lib/dashboard/content';
+import { ALL_TIME } from '@/lib/dashboard/lists';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { addDays } from '@/lib/sync/time';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
@@ -77,10 +78,10 @@ describe('account overview drill-down', () => {
 
 describe('posts tab drill-down', () => {
   const row: PostView = { id: '42', mediaType: 'REELS', postedAt: '2026-10-07T12:00:00Z', permalink: null, caption: 'Hi', reach: 500, views: null, likes: 40, comments: 5, saves: 3, shares: 2, engagementRate: 0.1, tags: [] };
-  it('each post opens its single-item level in the Explorer, keeping the scope', () => {
-    wrap(<PostsTab posts={[row]} total={1} tags={[]} filters={{ format: null, tag: null, from: null, to: null }} scope={{ from: '90d' }} accountId={A} setPostTags={vi.fn()} />);
+  it('each post opens its single-item level in the Explorer, with no range (ux-polish §8 call 1)', () => {
+    wrap(<PostsTab posts={[row]} total={1} page={1} state={{ dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null }} tags={[]} today="2026-10-17" scope={{ from: '90d' }} accountId={A} setPostTags={vi.fn()} />);
     const links = screen.getAllByRole('link', { name: /^Reel · 7 Oct 2026 20:00$/ }); // table (md+) and card list (phones)
     expect(links.length).toBeGreaterThan(0);
-    for (const l of links) expect(l).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42&from=90d`);
+    for (const l of links) expect(l).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42`);
   });
 });

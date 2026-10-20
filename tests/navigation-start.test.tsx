@@ -9,6 +9,7 @@ import { CalendarView } from '@/components/calendar/CalendarView';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { PROGRESS_START_EVENT } from '@/components/shared/NavigationProgress';
 import { buildCalendar } from '@/lib/dashboard/calendar';
+import { ALL_TIME } from '@/lib/dashboard/lists';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
 
@@ -60,12 +61,11 @@ describe('client navigations that are not link clicks start the top bar', () => 
     expect(push).toHaveBeenCalledWith('?tab=stories&from=90d', { scroll: false });
   });
 
-  it('submitting the Posts filters starts the bar (next/form GET, no method attribute needed)', () => {
-    const { container } = wrap(<PostsTab posts={[]} total={0} tags={[]} filters={{ format: 'REELS', tag: null, from: null, to: null }} setPostTags={vi.fn()} />);
-    const form = container.querySelector('form')!;
-    expect(form.method).toBe('get');
-    fireEvent.submit(form);
+  it('picking a Posts filter starts the bar, then pushes the list URL', () => {
+    wrap(<PostsTab posts={[]} total={0} page={1} state={{ dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null }} tags={[]} today="2026-10-15" setPostTags={vi.fn()} />);
+    fireEvent.change(screen.getByRole('combobox', { name: en.pages.account.posts.format }), { target: { value: 'REELS' } });
     expect(started).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledWith('?tab=posts&format=REELS', { scroll: false });
   });
 
   it('picking an account in the Calendar submits the GET form and starts the bar', () => {

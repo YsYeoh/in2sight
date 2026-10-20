@@ -1,7 +1,7 @@
 import { Suspense, isValidElement, type ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { calls, accounts, fail, since, storiesFrom, storyArgs, migrated } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[], storyArgs: [] as Record<string, unknown>[], migrated: { stories: true } }));
+const { calls, accounts, fail, since, storiesFrom, storyArgs, postArgs, migrated } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[], storyArgs: [] as Record<string, unknown>[], postArgs: [] as Record<string, unknown>[], migrated: { stories: true, posts: true } }));
 
 vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push('requireOwner') }));
 vi.mock('next/navigation', () => ({
@@ -31,6 +31,10 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
     since.push(from);
     return calls.push('postRows'), [];
   },
+  loadPostPage: async (_db: unknown, _id: string, a: Record<string, unknown>) => {
+    if (fail.postRows) throw new Error('db down');
+    return calls.push('postPage'), postArgs.push(a), migrated.posts ? { rows: [], total: 0, page: 1 } : null;
+  },
   loadTags: async () => (calls.push('tags'), []),
   loadStories: async (_db: unknown, _id: string, fromIso: string) => (calls.push('stories'), storiesFrom.push(fromIso), { stories: [], truncated: false }),
   loadStoryPage: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('storyPage'), storyArgs.push(a), migrated.stories ? { stories: [], items: 0, days: 0, page: 1 } : null),
@@ -39,7 +43,7 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
 
 import AccountPage from '@/app/(app)/accounts/[id]/(tabs)/page';
 import { DEFAULT_PREFS } from '@/lib/prefs';
-import { dayStart, daysToIso } from '@/lib/sync/time';
+import { daysToIso } from '@/lib/sync/time';
 
 const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
 const acct = (id: string, status = 'active', o: Record<string, unknown> = {}) => ({ id, igUserId: id, username: `u${id.slice(0, 4)}`, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status, archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-09-01T00:00:00Z', ...o });
@@ -57,7 +61,9 @@ beforeEach(() => {
   since.length = 0;
   storiesFrom.length = 0;
   storyArgs.length = 0;
+  postArgs.length = 0;
   migrated.stories = true;
+  migrated.posts = true;
   accounts.length = 0;
   fail.postRows = false;
 });
@@ -101,9 +107,9 @@ describe('account detail page', () => {
     const plain = await run(ID, { tab: 'posts' });
     const grid = await run(ID, { tab: 'posts', view: 'grid' });
     expect(grid.props.children.key).toBe(plain.props.children.key);
-    expect(((await streamTab(grid)) as ReactElement<{ view: string | null }>).props.view).toBe('grid');
+    expect(((await streamTab(grid)) as ReactElement<{ state: { view: string | null } }>).props.state.view).toBe('grid');
     const junk = await run(ID, { tab: 'posts', view: '<x>' });
-    expect(((await streamTab(junk)) as ReactElement<{ view: string | null }>).props.view).toBeNull();
+    expect(((await streamTab(junk)) as ReactElement<{ state: { view: string | null } }>).props.state.view).toBeNull();
   });
 
   it('renders the overview tab by default (and for an injected tab) with the owner session only', async () => {
@@ -138,25 +144,8 @@ describe('account detail page', () => {
     const el = await run(ID, { tab: 'posts', format: 'REELS' });
     await streamTab(el);
     expect(el.props.tab).toBe('posts');
-    expect(calls).toEqual(expect.arrayContaining(['postRows', 'tags']));
+    expect(calls).toEqual(expect.arrayContaining(['postPage', 'tags']));
     expect(calls).not.toContain('daily');
-  });
-
-  it('Posts read All time, newest first, whatever the scope (until Task 9)', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
-    try {
-      accounts.push(acct(ID));
-      const tz = DEFAULT_PREFS.timezone;
-      const scopes: Record<string, string>[] = [{}, { from: '2026-09-01', to: '2026-09-30' }, { from: '7d' }];
-      for (const sp of scopes) {
-        const posts = (await streamTab(await run(ID, { tab: 'posts', ...sp }))) as ReactElement<{ filters: { from: string; to: string } }>;
-        expect(posts.props.filters).toMatchObject({ from: '2021-10-14', to: '2026-10-17' }); // MAX_DAYS back
-        expect(since.at(-1)).toBe(dayStart('2021-10-14', tz).toISOString());
-      }
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('the Stories tab gets the account id and the scope (its Post Lab links)', async () => {
@@ -227,6 +216,41 @@ describe('account page: Stories list (Plan 14b)', () => {
       expect(calls).toContain('storyPage');
       expect(storiesFrom).toEqual([daysToIso('2026-09-18', '2026-10-17', DEFAULT_PREFS.timezone).fromIso]);
       expect(el.props).toMatchObject({ items: 0, days: 0, page: 1, truncated: false }); // page 4 of nothing = page 1
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('account page: Posts list (Plan 14b)', () => {
+  type PostsEl = ReactElement<{ state: unknown; page: number; total: number; today: string; scope: Record<string, string> }>;
+  it('own list params, never the Time Scope: the posted window in the owner timezone, one page of post_list', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
+    try {
+      accounts.push(acct(ID));
+      const tz = DEFAULT_PREFS.timezone;
+      const el = (await streamTab(await run(ID, { tab: 'posts', pfrom: '2026-10-01', pto: '2026-10-09', q: ' cat ', format: 'REELS', tag: 'untagged', sort: 'engagement_asc', page: '2', view: 'grid', from: '7d' }))) as PostsEl;
+      expect(postArgs).toEqual([{ ...daysToIso('2026-10-01', '2026-10-09', tz), q: 'cat', format: 'REELS', tag: 'untagged', sort: { key: 'engagement', asc: true }, page: 2, size: 24 }]);
+      expect(el.props).toMatchObject({ state: { q: 'cat', sort: 'engagement_asc', page: 2, view: 'grid' }, page: 1, total: 0, today: '2026-10-17', scope: { from: '7d' } });
+      expect(calls).not.toContain('postRows'); // no full read once the migration is applied
+      await streamTab(await run(ID, { tab: 'posts' })); // All time = the MAX_DAYS floor, newest first, 50 per page
+      expect(postArgs.at(-1)).toMatchObject({ ...daysToIso('2021-10-14', '2026-10-17', tz), q: '', format: null, tag: null, sort: { key: 'date', asc: false }, page: 1, size: 50 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('before the migration (function missing): every post of the same window, the state applied in TypeScript', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z'));
+    try {
+      accounts.push(acct(ID));
+      migrated.posts = false;
+      const el = (await streamTab(await run(ID, { tab: 'posts', pr: 'year', page: '3' }))) as PostsEl;
+      expect(calls).toEqual(expect.arrayContaining(['postPage', 'postRows']));
+      expect(since.at(-1)).toBe(daysToIso('2026-01-01', '2026-10-17', DEFAULT_PREFS.timezone).fromIso);
+      expect(el.props).toMatchObject({ total: 0, page: 1 }); // page 3 of nothing = page 1
     } finally {
       vi.useRealTimers();
     }
