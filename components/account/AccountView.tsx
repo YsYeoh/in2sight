@@ -11,7 +11,7 @@ import { ArrowLeft, CalendarDays, ExternalLink } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { startProgress } from '@/components/shared/NavigationProgress';
 import { PageHeader } from '@/components/shared/PageHeader';
-import { TimeScopeBar } from '@/components/shared/TimeScopeBar';
+import { RangeBar } from '@/components/shared/RangeBar';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TABS, type Tab } from '@/lib/dashboard/account';
@@ -64,7 +64,7 @@ export function AccountView({ account, tab, scope, today, keep, exportButton, ch
           </>
         }
       />
-      {tab === 'audience' ? null : <TimeScopeBar scope={scope} today={today} keep={keep} />}
+      {tab === 'audience' ? null : <RangeBar scope={scope} today={today} keep={keep} />}
       <Tabs value={tab} activationMode="manual" onValueChange={choose} className="min-w-0">
         <TabsList aria-label={t('tabs')} className="max-w-full justify-start overflow-x-auto">
           {TABS.map((v) => (

@@ -12,7 +12,7 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable } from '@/components/shared/DataTable';
 import { StatCard } from '@/components/shared/StatCard';
-import { useBucketFormat } from '@/components/shared/TimeScopeBar';
+import { useBucketFormat } from '@/components/shared/RangeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import type { KpiId } from '@/lib/analysis/growth';
 import type { GroupStats } from '@/lib/analysis/posts';

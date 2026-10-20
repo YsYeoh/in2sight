@@ -24,7 +24,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { useScopeText } from '@/components/shared/TimeScopeBar';
+import { useScopeText } from '@/components/shared/RangeBar';
 import { downloadExport, exportUrl, type ExportFormat } from '@/lib/export/download';
 import { NOTE_MAX, SECTIONS, TITLE_MAX, type ScopeOption, type Section } from '@/lib/export/params';
 import type { ResolvedScope } from '@/lib/time-scope/scope';
