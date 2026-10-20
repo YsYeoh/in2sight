@@ -1308,3 +1308,242 @@ git commit -m "feat(explorer): toolbar layout (apply as you pick, Advanced, chip
 ```
 
 ---
+
+### Task 8: Styleguide — the standard pieces
+
+**Files:**
+- Create: `app/styleguide/StandardsGallery.tsx`, `tests/standards-gallery.test.tsx`
+- Modify: `app/styleguide/page.tsx`
+
+**Interfaces:**
+- Consumes: `RangeBar` (Task 4), `FilterToolbar`, `FilterSelect`, `FilterSearch` (Task 3), `TabsList variant="line"` (Task 2), `styleguide.standards.*` (Task 1), `DEFAULT_SCOPE`, `resolveScope` (`lib/time-scope/scope.ts`), `addDays`, `localDay` (`lib/sync/time.ts`).
+- Produces: `StandardsGallery({ today }: { today: string })` (`'use client'`), rendered by `/styleguide` above `Gallery`: a card per piece with an `h3` title — Range bar (`<RangeBar scope={resolveScope(DEFAULT_SCOPE, today, addDays(today, -400))} today={today} />`), Filter toolbar (`label={s.filterToolbar}`: a `FilterSearch` (`sampleSearch`), a sort `FilterSelect` (`sampleSort`: `sampleNewest` / `sampleReach`), `advanced` = a format `FilterSelect` (`explorer.format`, `explorer.anyFormat` + `analysis.format.*`), `advancedCount={1}`, one chip `analysis.format.REELS` → `?`, `clearHref="?"`; every `hrefFor` returns a `?…` link on the styleguide itself), Section tabs (`TabsList variant="line"` with `pages.account.tab.{overview,posts,stories}`, content `styleguide.gallery.tabText`), Buttons in one row (`div[role=group][aria-label=s.buttons]` with three `type="button"` default-size buttons: outline `export.button` with the `Download` icon, outline `pages.account.calendar`, ghost `pages.account.instagram`), Scrollbar (a `max-h-40 overflow-y-auto` list of 30 `s.row` lines next to an `overflow-x-auto` strip of 20 small cards), wrapped in a section titled `s.title` with `s.intro`. Styling like `Gallery`'s cards (`Card`, `CardHeader`, `CardTitle`, `CardContent`).
+
+- [ ] **Step 1: Write the failing test** — create `tests/standards-gallery.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { StandardsGallery } from '@/app/styleguide/StandardsGallery';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) }));
+
+describe.each([
+  ['en', en],
+  ['zh-CN', zh],
+] as const)('StandardsGallery (%s)', (locale, messages) => {
+  it('shows the range bar, the filter toolbar, underline tabs, a one-height button row and the scrollbar sample', () => {
+    render(
+      <NextIntlClientProvider locale={locale} messages={messages}>
+        <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={() => {}}>
+          <StandardsGallery today="2026-10-17" />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    const s = messages.styleguide.standards;
+    for (const title of [s.title, s.rangeBar, s.filterToolbar, s.tabs, s.buttons, s.scrollbar]) expect(screen.getByText(title), title).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: messages.timeScope.presets })).getAllByRole('link')).toHaveLength(3);
+    const toolbar = screen.getByRole('group', { name: s.filterToolbar });
+    expect(within(toolbar).getByRole('searchbox', { name: s.sampleSearch })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: messages.filters.withCount.replace('{label}', messages.filters.advanced).replace('{count}', '1') })).toBeInTheDocument();
+    expect(screen.getByRole('tablist')).toHaveAttribute('data-variant', 'line');
+    const row = screen.getByRole('group', { name: s.buttons });
+    expect(within(row).getAllByRole('button').map((b) => b.getAttribute('data-size'))).toEqual(['default', 'default', 'default']);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/standards-gallery.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/app/styleguide/StandardsGallery"`.
+
+- [ ] **Step 3: Implement** `app/styleguide/StandardsGallery.tsx` per the Interfaces block, and in `app/styleguide/page.tsx` render `<StandardsGallery today={localDay(new Date(), prefs.timezone)} />` right before `<Gallery />` (import `localDay` from `@/lib/sync/time`).
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/standards-gallery.test.tsx tests/gallery.test.tsx tests/dashboard-gallery.test.tsx` and `npx tsc --noEmit` and `npx eslint app/styleguide/StandardsGallery.tsx app/styleguide/page.tsx`
+Expected: PASS; clean. Then look at `/styleguide` (`npm run dev`) at 360 / 768 / 1280 in two themes, light and dark: the underline sits on the tab rule, the scrollbar thumb is visible but quiet, the toolbar and the range bar wrap without a sideways page scroll, "More ranges" opens a sheet on the phone width. Note what you saw in the report.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/styleguide/StandardsGallery.tsx app/styleguide/page.tsx tests/standards-gallery.test.tsx
+git commit -m "feat(styleguide): standard controls section (range bar, filter toolbar, underline tabs, button row, scrollbar)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 9: Standard, guards, unused keys, docs; final check
+
+**Files:**
+- Create: `docs/UI_STANDARDS.md`, `tests/ui-standards.test.ts`
+- Modify: `CLAUDE.md`, `docs/HANDOVER.md`, `docs/TODO.md`, `docs/SPEC.md`, `docs/RUNBOOK_TIMESCOPE.md`, `messages/en.json`, `messages/zh-CN.json`
+
+**Interfaces:**
+- Consumes: everything above (final names: `RangeBar`, `FilterToolbar.tsx` exports, `TabsList variant="line"`, `styles/scrollbar.css`, `ExplorerToolbar`, `StandardsGallery`).
+- Produces: the written standard, the CLAUDE.md rules, five guard tests, a message catalogue without dead keys.
+
+- [ ] **Step 1: Write the guard test** — create `tests/ui-standards.test.ts`:
+
+```ts
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+
+// Guards for docs/UI_STANDARDS.md. Each failure names the rule it breaks.
+const root = process.cwd();
+const read = (f: string) => readFileSync(join(root, f), 'utf8');
+function files(dir: string): string[] {
+  return readdirSync(join(root, dir)).flatMap((f) => {
+    const p = `${dir}/${f}`;
+    return statSync(join(root, p)).isDirectory() ? files(p) : /\.tsx?$/.test(f) ? [p] : [];
+  });
+}
+const src = ['app', 'components', 'lib'].flatMap(files).map((f) => [f, read(f)] as const);
+const flat = (o: Record<string, unknown>, p = ''): [string, string][] =>
+  Object.entries(o).flatMap(([k, v]) => (v !== null && typeof v === 'object' ? flat(v as Record<string, unknown>, `${p}${k}.`) : [[`${p}${k}`, String(v)] as [string, string]]));
+
+describe('UI standards (docs/UI_STANDARDS.md)', () => {
+  it('rule 6: no abbreviated range labels (7d, 1y, YTD) in any UI string, in either language', () => {
+    for (const [k, v] of [...flat(en), ...flat(zh)]) expect(v, k).not.toMatch(/(^|[^\w{#])\d{1,3}[dwmyh](?!\w)|\bYTD\b/);
+    for (const v of Object.values(zh.timeScope.preset)) expect([...v].length, v).toBeGreaterThanOrEqual(4); // 最近 7 天, not 7天
+  });
+
+  it('rule 4: the range bar is on trend pages only; TimeScopeBar is gone', () => {
+    const users = src.filter(([, s]) => /<RangeBar\b/.test(s)).map(([f]) => f).sort();
+    expect(users).toEqual(['app/styleguide/StandardsGallery.tsx', 'components/account/AccountView.tsx', 'components/calendar/CalendarView.tsx', 'components/explorer/ExplorerView.tsx', 'components/overview/OverviewView.tsx']);
+    expect(src.filter(([, s]) => /TimeScopeBar/.test(s)).map(([f]) => f)).toEqual([]);
+  });
+
+  it('rule 7: page sections use underline tabs (the styleguide keeps one pill demo)', () => {
+    for (const [f, s] of src) {
+      if (f === 'app/styleguide/Gallery.tsx') continue;
+      for (const m of s.matchAll(/<TabsList\b[^>]*>/g)) expect(m[0], f).toMatch(/variant="line"/);
+    }
+  });
+
+  it('rule 5: header action rows and toolbars use one (default) button size', () => {
+    for (const f of ['components/account/AccountView.tsx', 'components/export/ExportDialog.tsx', 'components/explorer/ExplorerView.tsx', 'components/explorer/ExplorerToolbar.tsx']) expect(read(f), f).not.toMatch(/size="sm"/);
+  });
+
+  it('rule 8: one scrollbar, styled only in styles/scrollbar.css', () => {
+    for (const [f, s] of src) expect(s, f).not.toMatch(/scrollbar-(width|color|gutter)|::-webkit-scrollbar/);
+  });
+});
+```
+
+- [ ] **Step 2: Run it** — `npx vitest run tests/ui-standards.test.ts`. Expected: PASS on the merged code of Tasks 1–8 (it guards what they built). If a check fails, the failing file breaks a rule: fix that file in the smallest way (and report it), never loosen the test.
+
+- [ ] **Step 3: Delete the keys nobody uses any more** — first prove they are unused: `grep -rnE "t\('(custom|compare|apply|removeFilter)'\)|cmp\.custom|tab\.audience" app components lib` must list only the two legitimate `t('apply')` calls (the date forms in `components/shared/RangeBar.tsx` = `timeScope.apply`, and `components/account/PostsTab.tsx` = `pages.account.posts.apply`); `AccountView` renders `t(\`tab.${v}\`)` for `TABS` only (no `audience` any more). Then, as text edits in BOTH files:
+  - `timeScope`: delete the line `    "custom": "Custom",` (zh `    "custom": "自定义",`) and the line `    "compare": "Compare",` (zh `    "compare": "对比",`); in the `"cmp": {…}` line delete `, "custom": "Custom days"` (zh `, "custom": "自定义日期"`).
+  - `explorer`: in the three lines `    "any": "Any",` / `    "apply": "Apply",` / `    "reset": "Reset",` delete the middle one (zh `"any": "不限"` / `"apply": "应用"` / `"reset": "重置"`); delete `    "removeFilter": "Remove filter {name}",` (zh `    "removeFilter": "移除筛选条件 {name}",`).
+  - `pages.account.tab`: delete `, "audience": "Audience"` (zh `, "audience": "受众"`).
+  Run `npx vitest run tests/messages.test.ts tests/range-bar.test.tsx tests/explorer-view.test.tsx tests/account-view.test.tsx` → PASS.
+
+- [ ] **Step 4: Write `docs/UI_STANDARDS.md`** (exactly this content):
+
+```markdown
+# UI standards (in2sight)
+
+Every screen follows these rules. They come from the UX polish pass (design: docs/superpowers/specs/2026-10-20-ux-polish-and-tabs-design.md; built in Plan 14a). Each rule names the piece that implements it: use that piece, do not build a new one. `/styleguide` → "Standard controls" shows every piece in the current theme. Guards: `tests/ui-standards.test.ts`, `tests/messages.test.ts`, `tests/density-css.test.ts`, `tests/scrollbar-css.test.ts`.
+
+1. **Few controls on screen.** At most 3–5 primary controls; everything else under "Advanced" (filters) or "More ranges" (time). Crowded filter rows confused the owner. → `FilterToolbar` (`advanced`, `advancedCount`), `RangeBar`.
+2. **Hidden state is never invisible.** What is chosen inside a panel shows on its button (its name, a highlight or a count badge) and as a removable chip; "Clear all" removes the filters. → `FilterPanel` (`active`, `badge`), `FilterToolbar` (`chips`, `clearHref`), the `RangeBar` button.
+3. **The URL is the state; apply as you pick.** Filters, ranges and tabs live in the URL, so links, Back and saved views keep working. A select or option navigates at once, text search after a 400 ms pause (replace, no history spam); no Apply buttons; the top progress bar is the feedback. Never reset another filter when one changes. → `useApply`, `FilterSelect`, `FilterSearch`, `FilterOptions`.
+4. **The range filter belongs to trend pages only.** Overview, account Overview, Calendar, Explorer and the export dialog use `RangeBar` (Last 7 / 14 / 30 Days visible, the rest under "More ranges"). Lists (Posts, Stories, Tags) have their own filters in a `FilterToolbar` and never show the range bar.
+5. **One control height per row.** Every button, select, input and segmented control in a row is `--ctl` high: `size="default"` buttons, `h-[var(--ctl)]` native selects. Header action rows use the default size for every button, link-buttons included. `size="sm"` only inside a segmented control or a dense table or list, never next to a default control. Sizes come from the density tokens (`styles/density.css` is un-layered: `h-*`/`p-*` on shadcn controls are ignored).
+6. **Full-word labels.** "Last 7 Days", "Last 12 months", "Year to date", "All time"; never `7d`, `1y`, `YTD`, in both languages.
+7. **Underline tabs for page sections.** `TabsList variant="line"`: full width on a bottom rule, the active tab underlined in `--primary`; on overflow they scroll sideways with a fade and no visible bar. The pill variant is for small in-card toggles only.
+8. **One scrollbar.** `styles/scrollbar.css` styles every scroller (thin, 8 px, rounded, from `--foreground`, quiet until hover) in every theme; no per-component scrollbar styling; `scrollbar-none` only where a bar must stay hidden (tab strips).
+9. **No native chrome showing through.** Native selects and date inputs take the theme's input border and background; no browser scroll arrows, no default scrollbars.
+10. **Panels: a dialog on desktop, a bottom sheet on phones.** Every panel is a `ResponsiveDialog` (`FilterPanel`): focus is trapped, Esc and "Done" close it, focus returns to its button. Never `matchMedia` for layout.
+11. **Tokens only.** Colours from semantic tokens, sizes from density tokens, dates and numbers through `lib/format.ts`; check light and dark of every theme.
+
+**A new list page:** a `FilterToolbar` with the 3–5 filters people use most, the rest in `advanced`, chips and Clear all, every parameter validated on the server. **A new trend page:** `RangeBar` and `parseTimeScope`/`resolveScope`.
+```
+
+- [ ] **Step 5: CLAUDE.md, HANDOVER, TODO, SPEC, runbook**
+
+`CLAUDE.md`: insert after the "## UI kit rules" section (before "## Security rules"):
+
+```markdown
+## UI standards
+Read `docs/UI_STANDARDS.md` before building or changing a screen (`/styleguide` → "Standard controls" shows the pieces). Do not:
+- mix `size="sm"` with default-size controls in one row (header action rows: all default);
+- style a scrollbar per component (`styles/scrollbar.css` covers every scroller; `scrollbar-none` only for tab strips);
+- write abbreviated range labels such as `7d`, `1y`, `YTD` in any UI string (both locales);
+- build filter UI outside `FilterToolbar` (`components/shared/FilterToolbar.tsx`), or show the range bar (`RangeBar`) on list pages;
+- use the pill `TabsList` for page sections (use `variant="line"`).
+```
+
+`docs/HANDOVER.md`: in §0, after the "**Method notes from this run (reuse):**" paragraph, add:
+
+```markdown
+**Plan 14a (UI foundation) — lessons, apply them to every new screen (docs/UI_STANDARDS.md):** show 3-5 controls, the rest under Advanced / More ranges; one control height per row (header buttons all default size; `size="sm"` only inside segmented controls and dense tables); full-word range labels in both languages; underline tabs for page sections; one global themed scrollbar (`styles/scrollbar.css`); the range bar only on trend pages, lists get a `FilterToolbar`; the URL is the state and picks apply at once (text after 400 ms). Panels are `ResponsiveDialog`s (sheet on phones). Posts and Stories read All time until Plan 14b gives them their own filters and pagination. `?tab=audience` now redirects to Overview's Audience section.
+```
+
+and update the "**Where we stopped:**" sentence to say Plan 14a is implemented on local `main` (not pushed) — check `git log` for the real state before writing it.
+
+`docs/TODO.md`: insert before `## 6b. Next (Plan 14/15 Settings)`:
+
+```markdown
+## 6h. UI foundation (Plan 14a)
+- [x] Standard scrollbar, one control height per row, underline section tabs, full-word range labels (en + zh-CN) _(code done; live check pending — docs/RUNBOOK_TIMESCOPE.md §"Plan 14a")_
+- [x] `RangeBar` (Last 7 / 14 / 30 Days + More ranges) on Overview, account Overview, Calendar, Explorer; `FilterToolbar` pattern (`components/shared/FilterToolbar.tsx`)
+- [x] Account page: Overview / Posts / Stories, Audience inside Overview (`?tab=audience` redirects), range bar on Overview only; Posts and Stories read All time until Plan 14b
+- [x] Explorer toolbar (apply as you pick, Advanced, chips, Clear all); `docs/UI_STANDARDS.md`, CLAUDE.md "UI standards", guard tests
+- [ ] Owner: live check (RUNBOOK_TIMESCOPE §"Plan 14a"); confirm the plan's open questions (dialog/sheet panels, "Last 12 months", interim All time on Posts/Stories, title case on the three presets, Clear all vs Reset)
+- [ ] Plan 14b: Posts and Stories filters + pagination (replaces the interim All time lists)
+```
+
+`docs/SPEC.md` §8: append after the "**Covers (Plan 13a; …)**" paragraph:
+
+```markdown
+**UI standard (Plan 14a; ux-polish design §4):** `docs/UI_STANDARDS.md` binds every screen: at most 3–5 visible controls with the rest under Advanced / More ranges, one control height per row, full-word labels, underline section tabs, one themed scrollbar, URL state applied as picked. The range filter (`RangeBar`: Last 7 / 14 / 30 Days visible) is on Overview, account Overview, Calendar, Explorer and exports only. The account page has Overview / Posts / Stories tabs; Audience is the last Overview section (snapshots labelled "Latest snapshot, <date>"). The Explorer is a toolbar (Break down by, metrics, accounts, saved views; Advanced: chart metric, group, format incl. Stories, tag, weekday, hour; chips, Clear all, Reset).
+```
+
+`docs/RUNBOOK_TIMESCOPE.md`: rewrite the 360 and 768 rows of the layout table, the keyboard paragraph, step 2 of the tab walk-through ("Switch tabs …") and the 简体中文 line to describe the RangeBar (three presets + "More ranges"; Other ranges, Custom dates, Compare with and Group by inside the panel; the bar only on Overview of the account page; zh-CN 最近 7 天 / 最近 14 天 / 最近 30 天 / 更多范围), then append:
+
+```markdown
+## Plan 14a checks (UI foundation)
+1. Every theme × light/dark on `/styleguide` → "Standard controls" and on `/explorer`: the scrollbar thumb is thin, rounded and visible on hover; no white scrollbar in dark mode; no scroll arrows.
+2. Header rows (account page, Overview, Explorer, Calendar): every button and the Calendar's account select are the same height.
+3. Account page: tabs Overview / Posts / Stories with an underline; the range bar only on Overview; Audience at the bottom of Overview ("Latest snapshot, <date>"); `/accounts/<id>?tab=audience&from=90d` lands on Overview with 90 days and scrolls to Audience (best effort while the section streams in); Posts and Stories list everything newest first (500 posts / 200 Stories with "Show more").
+4. Explorer: no left column; Break down by, "N metrics", "All accounts", Saved views always visible; Advanced shows a count; each pick updates the page at once (top bar runs); chips remove one filter; Clear all keeps metrics and breakdown; Reset goes back to the defaults; a saved view from before still opens the same state.
+5. 360 px: the range bar and the toolbars wrap, no sideways page scroll; "More ranges" and every panel open as a bottom sheet.
+```
+
+- [ ] **Step 6: Final check** — remove finished worktrees first (implementer-rules, orchestrator checklist), then `rm -rf .next` and run `npm run check > check.log 2>&1; echo "CHECK_EXIT=$?" >> check.log` and read the log. Expected: lint, typecheck, every test file and the build pass (`CHECK_EXIT=0`).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add docs/UI_STANDARDS.md tests/ui-standards.test.ts CLAUDE.md docs/HANDOVER.md docs/TODO.md docs/SPEC.md docs/RUNBOOK_TIMESCOPE.md messages/en.json messages/zh-CN.json
+git commit -m "docs(ui): UI standards, CLAUDE.md rules, guard tests, lessons; drop unused messages" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+## Verification notes (plan author, 2026-10-20)
+
+Not dry-run in a clone (unlike 13a/13b). Instead every path, export and message key this plan names was checked against `main` at `b3a5197` by reading the code: the seven `TimeScopeBar` importers, `scopeHref`/`scopeParams` key order (`from`, `to`, `cmp`/`cfrom`/`cto`, `gran`, after the kept page parameters), `autoGranularity(90) = 'day'`, `vsPrevious` for 6 months = 182 days, `MAX_DAYS` floor `2021-10-14` for today `2026-10-17` (the existing account-page test), `explorerParams` order and the `%2C` encoding, `defaultMetrics` for the Reset link, `analysis.weekday.3 = 'Wed'`, `buildAudience` all-null → `reason: 'needs_100_followers'`, `useHeavyMotion` → true in jsdom without `matchMedia` (hence the motion mock in Task 6), the tests that quote the old labels (`account-view` line 105, `overview-view` lines 56 and 63, `time-scope-bar`, `stories-audience` lines 57 and 64), and the one stray `\r` per message file. `FilterSearch`'s render-phase sync + effect was linted with the repo's `eslint-plugin-react-hooks` 7.1.1 (clean). Expected risk spots for the implementers: Radix focus return timing in jsdom (the tests use `vi.waitFor`), the underline position (visual check in Task 8), and `user-event` with fake timers (`advanceTimers` is set).
+
+## Self-review (plan author)
+
+1. **Spec coverage.** §4.1: control height (Tasks 3–7, guard 9), scrollbar (2), underline tabs (2, 5, 6), range labels (4, guard 9), `RangeBar` (4), `FilterToolbar` (3). §4.2: account page (6), Posts/Stories interim (6; real filters = 14b), Overview/Calendar/Explorer/exports (4, 5, 7), other pages (Settings tabs 5; Tags/Accounts/Post Lab have no filters and already one size per row; the scrollbar is global). §4.4: UI_STANDARDS, CLAUDE.md, styleguide, guards (abbreviations, parity via `messages.test`, header sizes), HANDOVER lessons (8, 9). §5: no migration, URL contract untouched, no dependency. §3 owner decisions all mapped (sidebar/tab strip/links belong to 14c).
+2. **Step scan.** Every code step names its file, signature and the exact values; bodies only for `FilterSearch`'s sync (not determined by the tests) and copy the spec fixes (UI_STANDARDS, CLAUDE.md, TODO, SPEC, HANDOVER, runbook section). Task 9 Step 2 is a "run and fix" step on purpose (guards over merged code).
+3. **Type consistency.** `FilterToolbar`/`FilterPanel`/`FilterOptions`/`FilterSelect`/`FilterSearch`/`useApply`/`FilterChip`/`FilterOption`/`SEARCH_DEBOUNCE_MS` are the same in Task 3, the 14b section, Tasks 4, 7, 8. `RangeBar({ scope, today, keep? })` everywhere. `AccountView` loses `keep` in Task 6 and its test drops it; `AccountOverview` gains `audience?`. `TABS` change is reflected in `TabSkeleton`, the page and both tests.
+4. **Review Focus.** Five items, each with a pinning test in the owning task (listed in the section).
+5. **Proportion.** The spec's §4.1/§4.2 are ~25 lines; this plan is long mainly because of complete test code (the implementers need it) and the exact message/doc copy; implementation bodies are given only for `FilterSearch`.
+
+## Execution handoff
+
+Plan complete and saved to `docs/superpowers/plans/2026-10-27-14a-ui-foundation.md`. Recommended: subagent-driven in the waves above (A = 1, 2 · B = 3 · C = 4 · D = 5, 6, 7, 8 · E = 9), because Tasks 4–8 depend on the exact `FilterToolbar`/`RangeBar` interfaces and a fresh reviewer per task catches a drifted name before the next wave builds on it.
