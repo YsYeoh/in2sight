@@ -26,7 +26,7 @@
 - **Explorer layout:** row 1 the RangeBar; row 2 the `ExplorerToolbar`: Break down by (select), "N metrics" (panel of checkboxes), "All accounts" / "N accounts picked" (panel), Saved views (panel holding the existing `SavedViews`), Advanced (Chart metric, Group, Format, Tag, Weekday posted, Hour posted), Reset at the end. "Stories opt-in" is the Format select's Stories option (`fmt=STORY`, unchanged state; "Posts and Reels" is the default). Chips for every active filter (each picked account, group, format, tag, weekday, hour) + Clear all (removes those, keeps metrics, Break down by and the scope). Every change leaves the single-item level (`item` cleared), as submitting the old form did. The left column and its cards go; the results take the full width.
 - **Saved views keep working unchanged:** their stored query uses the same `explorerParams` keys; nothing about `lib/explorer/*` changes.
 - **Overview (all accounts), Calendar, ExportDialog:** the RangeBar via the rename (Task 4); the Export trigger and the Calendar's account select follow the control rules (Task 5). The Calendar keeps its period arrows and its GET-form account select (no router needed). The export dialog already shows the full-word range sentence (`useScopeText`).
-- **Message clean-up last:** keys that stop being used (`timeScope.custom`, `timeScope.compare`, `explorer.apply`, `explorer.removeFilter`, `pages.account.tab.audience`) are deleted by Task 9 after every user is gone, so no wave breaks a running page.
+- **Message clean-up last:** keys that stop being used (`timeScope.custom`, `timeScope.compare`, `timeScope.cmp.custom`, `explorer.apply`, `explorer.removeFilter`, `pages.account.tab.audience`) are deleted by Task 9 after every user is gone, so no wave breaks a running page.
 
 ## Open questions for the owner (the plan implements the default shown)
 
@@ -96,7 +96,7 @@ Interim state 14b replaces (Task 6): `TabContent`'s `case 'posts'` / `case 'stor
 
 | File | Responsibility |
 |---|---|
-| `messages/en.json`, `messages/zh-CN.json` | new keys (Task 1), preset labels (Task 4), unused keys removed (Task 9) |
+| `messages/en.json`, `messages/zh-CN.json` | new keys (Task 1), preset labels (Task 4), Stories/Audience wording (Task 6), unused keys removed (Task 9) |
 | `styles/scrollbar.css` (new), `app/globals.css` | the standard scrollbar + `scrollbar-none` opt-out |
 | `components/ui/tabs.tsx` | `line` variant = underline tabs |
 | `components/shared/FilterToolbar.tsx` (new) | `FilterToolbar`, `FilterPanel`, `FilterOptions`, `FilterSelect`, `FilterSearch`, `useApply`, `SEARCH_DEBOUNCE_MS`, types |
@@ -974,7 +974,7 @@ export function RangeBar({ scope, today, keep = {} }: { scope: ResolvedScope; to
 
 - [ ] **Step 5: Run the tests**
 
-Run: `npx vitest run tests/range-bar.test.tsx tests/time-scope.test.ts tests/account-view.test.tsx tests/overview-view.test.tsx tests/calendar.test.tsx tests/calendar-page.test.tsx tests/explorer-view.test.tsx tests/export-dialog.test.tsx tests/report-document.test.tsx tests/messages.test.ts` and `npx tsc --noEmit` and `npx eslint components/shared/RangeBar.tsx components/calendar/CalendarView.tsx components/overview/OverviewView.tsx components/explorer/ExplorerView.tsx components/account/AccountView.tsx components/account/AccountOverview.tsx components/export/ExportDialog.tsx components/report/ReportDocument.tsx`
+Run: `npx vitest run tests/range-bar.test.tsx tests/time-scope.test.ts tests/account-view.test.tsx tests/overview-view.test.tsx tests/calendar.test.tsx tests/calendar-page.test.tsx tests/explorer-view.test.tsx tests/export-dialog.test.tsx tests/report-document.test.tsx tests/export-client-graph.test.ts tests/messages.test.ts` and `npx tsc --noEmit` and `npx eslint components/shared/RangeBar.tsx components/calendar/CalendarView.tsx components/overview/OverviewView.tsx components/explorer/ExplorerView.tsx components/account/AccountView.tsx components/account/AccountOverview.tsx components/export/ExportDialog.tsx components/report/ReportDocument.tsx`
 Expected: PASS (range-bar: 12 tests; every other file unchanged in count); typecheck and eslint clean.
 
 - [ ] **Step 6: Commit**
@@ -1442,7 +1442,7 @@ describe('UI standards (docs/UI_STANDARDS.md)', () => {
 
 - [ ] **Step 2: Run it** — `npx vitest run tests/ui-standards.test.ts`. Expected: PASS on the merged code of Tasks 1–8 (it guards what they built). If a check fails, the failing file breaks a rule: fix that file in the smallest way (and report it), never loosen the test.
 
-- [ ] **Step 3: Delete the keys nobody uses any more** — first prove they are unused: `grep -rnE "t\('(custom|compare|apply|removeFilter)'\)|cmp\.custom|tab\.audience" app components lib` must list only the two legitimate `t('apply')` calls (the date forms in `components/shared/RangeBar.tsx` = `timeScope.apply`, and `components/account/PostsTab.tsx` = `pages.account.posts.apply`); `AccountView` renders `t(\`tab.${v}\`)` for `TABS` only (no `audience` any more). Then, as text edits in BOTH files:
+- [ ] **Step 3: Delete the keys nobody uses any more** — first prove they are unused: `grep -rnE "t\('(custom|compare|apply|removeFilter)'\)|cmp\.custom|tab\.audience" app components lib` must list only the two legitimate `t('apply')` calls (the date forms in `components/shared/RangeBar.tsx` = `timeScope.apply`, and `components/account/PostsTab.tsx` = `pages.account.posts.apply`); `AccountView` renders a tab label only for each entry of `TABS` (no `audience` any more). Then, as text edits in BOTH files:
   - `timeScope`: delete the line `    "custom": "Custom",` (zh `    "custom": "自定义",`) and the line `    "compare": "Compare",` (zh `    "compare": "对比",`); in the `"cmp": {…}` line delete `, "custom": "Custom days"` (zh `, "custom": "自定义日期"`).
   - `explorer`: in the three lines `    "any": "Any",` / `    "apply": "Apply",` / `    "reset": "Reset",` delete the middle one (zh `"any": "不限"` / `"apply": "应用"` / `"reset": "重置"`); delete `    "removeFilter": "Remove filter {name}",` (zh `    "removeFilter": "移除筛选条件 {name}",`).
   - `pages.account.tab`: delete `, "audience": "Audience"` (zh `, "audience": "受众"`).
