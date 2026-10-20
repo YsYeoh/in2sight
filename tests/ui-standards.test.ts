@@ -21,6 +21,7 @@ describe('UI standards (docs/UI_STANDARDS.md)', () => {
   it('rule 6: no abbreviated range labels (7d, 1y, YTD) in any UI string, in either language', () => {
     for (const [k, v] of [...flat(en), ...flat(zh)]) expect(v, k).not.toMatch(/(^|[^\w{#])\d{1,3}[dwmyh](?!\w)|\bYTD\b/);
     for (const v of Object.values(zh.timeScope.preset)) expect([...v].length, v).toBeGreaterThanOrEqual(4); // 最近 7 天, not 7天
+    for (const [k, v] of flat(zh.timeScope)) expect(v, k).not.toMatch(/\d[天周月年]/); // a digit glued to a Chinese unit is the short form
   });
 
   it('rule 4: the range bar is on trend pages only; TimeScopeBar is gone', () => {
@@ -37,7 +38,7 @@ describe('UI standards (docs/UI_STANDARDS.md)', () => {
   });
 
   it('rule 5: header action rows and toolbars use one (default) button size', () => {
-    for (const f of ['components/account/AccountView.tsx', 'components/export/ExportDialog.tsx', 'components/explorer/ExplorerView.tsx', 'components/explorer/ExplorerToolbar.tsx']) expect(read(f), f).not.toMatch(/size="sm"/);
+    for (const f of ['components/account/AccountView.tsx', 'components/export/ExportDialog.tsx', 'components/explorer/ExplorerView.tsx', 'components/explorer/ExplorerToolbar.tsx']) expect(read(f), f).not.toMatch(/size="sm"/); // Calendar's period arrows and Overview's account chips are small controls in rows of their own, so they are fine
   });
 
   it('rule 8: one scrollbar, styled only in styles/scrollbar.css', () => {

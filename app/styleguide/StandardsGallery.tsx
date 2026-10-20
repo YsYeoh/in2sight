@@ -77,9 +77,9 @@ export function StandardsGallery({ today }: { today: string }) {
 
       <Piece title={s('tabs')}>
         <Tabs defaultValue="overview">
-          <TabsList variant="line">
+          <TabsList variant="line" aria-label={s('tabs')}>
             {(['overview', 'posts', 'stories'] as const).map((v) => (
-              <TabsTrigger key={v} value={v}>
+              <TabsTrigger key={v} value={v} className="flex-none">
                 {ta(`tab.${v}`)}
               </TabsTrigger>
             ))}

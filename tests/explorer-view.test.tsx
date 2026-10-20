@@ -51,14 +51,15 @@ function data(q: Record<string, string>, o: Partial<ExplorerData> = {}): Explore
 
 function view(d: ExplorerData) {
   const actions = { save: vi.fn(async () => ({ ok: true as const })), rename: vi.fn(async () => ({ ok: true as const })), remove: vi.fn(async () => ({ ok: true as const })) };
-  render(
+  const tree = (x: ExplorerData) => (
     <NextIntlClientProvider locale="en" messages={en}>
       <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
-        <ExplorerView data={d} today={TODAY} views={[]} {...actions} />
+        <ExplorerView data={x} today={TODAY} views={[]} {...actions} />
       </PrefsProvider>
-    </NextIntlClientProvider>,
+    </NextIntlClientProvider>
   );
-  return actions;
+  const r = render(tree(d));
+  return { ...actions, rerender: (x: ExplorerData) => r.rerender(tree(x)) }; // a new URL = new data, same mounted tree
 }
 
 describe('ExplorerView: results', () => {
@@ -120,6 +121,29 @@ describe('ExplorerView: toolbar', () => {
     view(data({ m: 'reach,likes', by: 'account' }));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Break down by' }), 'format');
     expect(push).toHaveBeenCalledWith('/explorer?m=likes&by=format', { scroll: false });
+  });
+
+  it('metrics: when the URL catches up with a tick the checkbox stays mounted and keeps keyboard focus', async () => {
+    const user = userEvent.setup();
+    const v = view(data({ m: 'reach', by: 'account', from: '90d' }));
+    await user.click(screen.getByRole('button', { name: '1 metric' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Metrics' });
+    const likes = within(dialog).getByRole('checkbox', { name: 'Likes' });
+    await user.click(likes);
+    v.rerender(data({ m: 'reach,likes', by: 'account', from: '90d' })); // the router has applied the tick
+    const after = within(screen.getByRole('dialog', { name: 'Metrics' })).getByRole('checkbox', { name: 'Likes' });
+    expect(after).toBe(likes); // same DOM node: a remount would move focus to the dialog
+    expect(after).toHaveFocus();
+    expect(after).toBeChecked();
+  });
+
+  it('metrics: at the limit the unticked boxes are disabled, the ticked ones can still be removed', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach,likes,comments,saves', by: 'account', from: '90d' }));
+    await user.click(screen.getByRole('button', { name: '4 metrics' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Metrics' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Shares' })).toBeDisabled();
+    expect(within(dialog).getByRole('checkbox', { name: 'Saves' })).toBeEnabled();
   });
 
   it('metrics: each tick applies at once and the panel stays open; the last metric cannot be removed', async () => {

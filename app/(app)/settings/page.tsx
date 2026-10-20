@@ -25,9 +25,9 @@ export default async function SettingsPage() {
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
       <Tabs defaultValue="general">
         <TabsList variant="line">
-          <TabsTrigger value="general">{t('tabs.general')}</TabsTrigger>
-          <TabsTrigger value="notifications">{t('tabs.notifications')}</TabsTrigger>
-          <TabsTrigger value="account">{t('tabs.account')}</TabsTrigger>
+          <TabsTrigger value="general" className="flex-none">{t('tabs.general')}</TabsTrigger>
+          <TabsTrigger value="notifications" className="flex-none">{t('tabs.notifications')}</TabsTrigger>
+          <TabsTrigger value="account" className="flex-none">{t('tabs.account')}</TabsTrigger>
         </TabsList>
         <TabsContent value="general">
           <PrefsBar />

@@ -17,9 +17,15 @@ import { formatHour } from '@/lib/format';
 import { DIMENSIONS, METRIC_IDS, type DimensionId, type MetricId } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
 
-/** A checkbox list that ticks at once (a local copy of the picked ids) and applies each tick; the parent re-keys it when the URL's list changes. */
+/** A checkbox list that ticks at once (a local copy of the picked ids) and applies each tick. When the URL's list changes it
+ *  follows it in place (never re-keyed: a remount would drop keyboard focus to the dialog after every tick). */
 function Ticks<T extends string>({ options, initial, onChange, disabled }: { options: { id: T; label: string }[]; initial: T[]; onChange: (next: T[]) => void; disabled?: (id: T, picked: T[]) => boolean }) {
   const [picked, setPicked] = useState(initial);
+  const [seen, setSeen] = useState(initial.join());
+  if (initial.join() !== seen) {
+    setSeen(initial.join());
+    setPicked(initial);
+  }
   return (
     <div className="grid max-h-72 gap-1 overflow-y-auto pe-1">
       {options.map((o) => {
@@ -105,7 +111,6 @@ export function ExplorerToolbar({ data, views, query, save, rename, remove }: { 
       <FilterSelect id="x-by" label={t('groupBy')} value={s.by} options={DIMENSIONS.map((d) => ({ value: d, label: t(`by.${d}`) }))} hrefFor={(v) => go({ by: v as DimensionId })} />
       <FilterPanel label={t('metricsCount', { count: s.metrics.length })} title={t('metrics')} description={t('metricsHint', { max: MAX_METRICS })}>
         <Ticks
-          key={s.metrics.join()}
           options={METRIC_IDS.map((id) => ({ id, label: tm(id) }))}
           initial={s.metrics}
           disabled={(id, picked) => !usable(id, s) || (picked.includes(id) ? picked.length === 1 : picked.length >= MAX_METRICS)}
@@ -114,7 +119,7 @@ export function ExplorerToolbar({ data, views, query, save, rename, remove }: { 
         <p className="text-xs text-muted-foreground">{t('accountTotalsHint')}</p>
       </FilterPanel>
       <FilterPanel label={s.accounts.length ? t('accountsPicked', { count: s.accounts.length }) : t('allAccounts')} title={t('accounts')} active={s.accounts.length > 0}>
-        <Ticks key={s.accounts.join()} options={data.live.map((a) => ({ id: a.id, label: `@${a.username}` }))} initial={s.accounts} onChange={(next) => apply(go({ accounts: next }))} />
+        <Ticks options={data.live.map((a) => ({ id: a.id, label: `@${a.username}` }))} initial={s.accounts} onChange={(next) => apply(go({ accounts: next }))} />
       </FilterPanel>
       <FilterPanel label={t('views.title')} title={t('views.title')}>
         <SavedViews views={views} query={query} save={save} rename={rename} remove={remove} />
