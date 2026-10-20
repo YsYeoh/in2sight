@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -80,6 +80,7 @@ describe('ExplorerView: results', () => {
   it('export sends the canonical view query; the item level has no export button', async () => {
     const user = userEvent.setup();
     view(data({ m: 'reach', by: 'account', from: '90d' }));
+    expect(screen.getByRole('button', { name: 'Export view' })).toHaveAttribute('data-size', 'default');
     await user.click(screen.getByRole('button', { name: 'Export view' }));
     expect(download).toHaveBeenCalledWith('/api/export/explorer?m=reach&by=account&from=90d', 'xlsx');
   });
@@ -102,24 +103,70 @@ describe('ExplorerView: results', () => {
   });
 });
 
-describe('ExplorerView: settings form', () => {
-  const hidden = () => Object.fromEntries([...document.querySelectorAll<HTMLInputElement>('form[aria-label="Explorer settings"] input[type=hidden]')].map((i) => [i.name, i.value]));
-
-  it('metrics and accounts are joined into one parameter each; the scope rides along', async () => {
-    const user = userEvent.setup();
+describe('ExplorerView: toolbar', () => {
+  it('always visible: Break down by, metrics, accounts, saved views, Advanced and Reset; no Apply button; no left column', () => {
     view(data({ m: 'reach', by: 'account', from: '90d' }));
-    expect(hidden()).toMatchObject({ m: 'reach', from: '90d' });
-    await user.click(screen.getByRole('checkbox', { name: 'Likes' }));
-    await user.click(screen.getByRole('checkbox', { name: '@beta' }));
-    expect(hidden()).toMatchObject({ m: 'reach,likes', acc: B });
+    const bar = screen.getByRole('group', { name: 'Explorer settings' });
+    expect(within(bar).getByRole('combobox', { name: 'Break down by' })).toHaveValue('account');
+    for (const name of ['1 metric', 'All accounts', 'Saved views', 'Advanced']) expect(within(bar).getByRole('button', { name })).toHaveAttribute('data-size', 'default');
+    expect(within(bar).getByRole('link', { name: 'Reset' })).toHaveAttribute('href', '/explorer?m=reach%2CengagementRate%2Cposts%2CavgReach&by=account&from=90d');
+    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Tag' })).toBeNull(); // under Advanced
+    expect(document.querySelector('aside')).toBeNull();
   });
 
-  it('grouping by something account totals cannot show disables them and drops them from the query', async () => {
+  it('Break down by applies as picked; metrics the new breakdown cannot show are dropped', async () => {
     const user = userEvent.setup();
     view(data({ m: 'reach,likes', by: 'account' }));
-    await user.selectOptions(screen.getByLabelText('Break down by'), 'format');
-    expect(screen.getByRole('checkbox', { name: 'Reach' })).toBeDisabled();
-    expect(hidden().m).toBe('likes');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Break down by' }), 'format');
+    expect(push).toHaveBeenCalledWith('/explorer?m=likes&by=format', { scroll: false });
+  });
+
+  it('metrics: each tick applies at once and the panel stays open; the last metric cannot be removed', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    await user.click(screen.getByRole('button', { name: '1 metric' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Metrics' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Reach' })).toBeDisabled();
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Likes' }));
+    expect(push).toHaveBeenCalledWith('/explorer?m=reach%2Clikes&by=account&from=90d', { scroll: false });
+    expect(within(dialog).getByRole('checkbox', { name: 'Likes' })).toBeChecked(); // ticks at once
+    expect(screen.getByRole('dialog', { name: 'Metrics' })).toBeInTheDocument();
+  });
+
+  it('accounts: ticking one applies at once; picked accounts are named on the button and as chips', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    await user.click(screen.getByRole('button', { name: 'All accounts' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Accounts' })).getByRole('checkbox', { name: '@beta' }));
+    expect(push).toHaveBeenCalledWith(`/explorer?m=reach&by=account&acc=${B}&from=90d`, { scroll: false });
+    cleanup();
+    view(data({ m: 'reach', by: 'account', acc: B }));
+    expect(screen.getByRole('button', { name: '1 account picked' })).toHaveAttribute('data-variant', 'secondary');
+    expect(screen.getByRole('link', { name: 'Remove filter @beta' })).toHaveAttribute('href', '/explorer?m=reach&by=account');
+  });
+
+  it('Advanced: a badge counts the active filters; a pick applies at once; chips remove one filter and keep the rest; Clear all', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'posts', by: 'hour', fmt: 'REELS', wd: '3', from: '90d' }));
+    expect(screen.getByRole('link', { name: `Remove filter ${en.analysis.format.REELS}` })).toHaveAttribute('href', '/explorer?m=posts&by=hour&wd=3&from=90d');
+    expect(screen.getByRole('link', { name: 'Remove filter Wed' })).toHaveAttribute('href', '/explorer?m=posts&by=hour&fmt=REELS&from=90d');
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toHaveAttribute('href', '/explorer?m=posts&by=hour&from=90d');
+    await user.click(screen.getByRole('button', { name: 'Advanced, 2 active' }));
+    const dialog = await screen.findByRole('dialog', { name: en.filters.advancedTitle });
+    expect(within(dialog).getByRole('combobox', { name: 'Weekday posted' })).toHaveValue('3');
+    expect(within(within(dialog).getByRole('combobox', { name: 'Format' })).getByRole('option', { name: en.analysis.format.STORY })).toBeInTheDocument(); // the Stories opt-in
+    expect(within(dialog).getByRole('combobox', { name: 'Group' })).toBeInTheDocument(); // data has a group
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Hour posted' }), '9');
+    expect(push).toHaveBeenCalledWith('/explorer?m=posts&by=hour&fmt=REELS&wd=3&hr=9&from=90d', { scroll: false });
+  });
+
+  it('saved views live in their own panel', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account' }));
+    await user.click(screen.getByRole('button', { name: en.explorer.views.title }));
+    const dialog = await screen.findByRole('dialog', { name: en.explorer.views.title });
+    expect(within(dialog).getByRole('button', { name: en.explorer.views.save })).toBeInTheDocument();
   });
 });
 
