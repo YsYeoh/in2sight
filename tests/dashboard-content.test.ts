@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Tag } from '@/lib/analysis/types';
-import { buildPosts, buildStories, buildTagStats, MIN_TAG_POSTS, parsePostFilters, snippet } from '@/lib/dashboard/content';
+import { buildPosts, buildStories, buildTagStats, MIN_TAG_POSTS, parsePostFilters, snippet, storyView } from '@/lib/dashboard/content';
 import type { PostRow, StoryRow, StorySnapshot } from '@/lib/dashboard/detail-read';
 
 const KL = 'Asia/Kuala_Lumpur';
@@ -63,6 +63,16 @@ describe('buildPosts', () => {
     expect(buildPosts(rows, TAGS, { ...f, from: '2026-10-01', to: '2026-10-01' }, KL).map((p) => p.id)).toEqual(['b']);
     expect(buildPosts(rows, TAGS, { ...f, from: '2026-10-01', to: '2026-10-01' }, 'UTC').map((p) => p.id)).toEqual([]);
   });
+
+  it('search: a case-insensitive substring of the whole caption or of a tag name (as post_list), % and _ plain', () => {
+    const f = { format: null, tag: null, from: null, to: null };
+    const long = row('d', { caption: `${'x'.repeat(120)} Sale 50%_off` }); // past the 80-character snippet
+    const all = [...rows, long];
+    expect(buildPosts(all, TAGS, { ...f, q: 'sale' }, KL).map((p) => p.id)).toEqual(['d']); // past the snippet
+    expect(buildPosts(all, TAGS, { ...f, q: 'BEHIND' }, KL).map((p) => p.id)).toEqual(['a', 'c']); // tag name
+    expect(buildPosts(all, TAGS, { ...f, q: '50%_off' }, KL).map((p) => p.id)).toEqual(['d']);
+    expect(buildPosts(all, TAGS, { ...f, q: '' }, KL)).toHaveLength(4);
+  });
 });
 
 describe('buildStories', () => {
@@ -81,6 +91,17 @@ describe('buildStories', () => {
     expect(buildStories([], NOW)).toEqual([]);
     const [v] = buildStories([story('s3', '2026-10-14T20:00:00Z', [], null)], NOW);
     expect(v).toMatchObject({ final: null, exitRate: null, progression: [], reason: 'needs_5_viewers', live: true });
+  });
+});
+
+describe('storyView', () => {
+  it('a final row (story_list) gives exactly what buildStories derives from the snapshots', () => {
+    const NOW = new Date('2026-10-15T04:00:00Z');
+    const snaps = [snap('2026-10-13T08:30:00Z', { views: 10, exits: 1 }), snap('2026-10-14T07:30:00Z', { views: 40, exits: 4 }), snap('2026-10-14T08:30:00Z', { views: 41, exits: 9 })];
+    const head = { id: 's1', postedAt: '2026-10-13T08:00:00Z', expiresAt: '2026-10-14T08:00:00Z', permalink: null, cover: 'ok' as const };
+    const [built] = buildStories([{ ...head, snapshots: snaps }], NOW);
+    expect(storyView({ ...head, final: snaps[1], snapshots: 3, progression: [10, 40, 41] }, NOW)).toEqual(built);
+    expect(storyView({ ...head, final: null, snapshots: 0, progression: [] }, NOW)).toMatchObject({ reason: 'needs_5_viewers', exitRate: null, live: false });
   });
 });
 
