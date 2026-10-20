@@ -72,6 +72,20 @@
     "samplePercent": "Percent",
     "sampleDelta": "Change",
     "greeting": "Welcome back, {name}",
+    "standards": {
+      "title": "Standard controls",
+      "intro": "The shared pieces every page is built from (docs/UI_STANDARDS.md).",
+      "rangeBar": "Range bar",
+      "filterToolbar": "Filter toolbar",
+      "tabs": "Section tabs",
+      "buttons": "One row, one control height",
+      "scrollbar": "Scrollbar",
+      "row": "Row {n}",
+      "sampleSearch": "Search captions",
+      "sampleSort": "Sort",
+      "sampleNewest": "Newest first",
+      "sampleReach": "Most reach"
+    },
     "gallery": {
       "stats": "Stat cards",
       "charts": "Charts",
@@ -362,6 +376,7 @@
         "day": "{date} · {count, plural, one {# Story} other {# Stories}}"
       },
       "audience": {
+        "title": "Audience",
         "emptyHint": "Audience data appears once the account has 100+ followers and the daily sync has run.",
         "asOf": "As of {date}",
         "countries": "Top countries",
@@ -819,7 +834,17 @@
     "window": "Data from {from} to {to}",
     "windowCompare": "compared with {from} to {to}",
     "exploreMetric": "Explore {metric} in the Explorer",
-    "openAccount": "Open {name}"
+    "openAccount": "Open {name}",
+    "metricsCount": "{count, plural, one {# metric} other {# metrics}}"
+  },
+  "filters": {
+    "advanced": "Advanced",
+    "advancedTitle": "More filters",
+    "withCount": "{label}, {count} active",
+    "active": "Active filters",
+    "remove": "Remove filter {name}",
+    "clearAll": "Clear all",
+    "done": "Done"
   },
   "timeScope": {
     "label": "Time range",
@@ -852,7 +877,12 @@
     "noData": "No data captured yet.",
     "partialNote": "* only partly inside the range",
     "previous": "Previous period",
-    "next": "Next period"
+    "next": "Next period",
+    "more": "More ranges",
+    "otherRanges": "Other ranges",
+    "customDates": "Custom dates",
+    "compareWith": "Compare with",
+    "compareAllHint": "All time has no earlier period to compare with."
   },
   "media": {
     "noCover": "{name} ({why})",

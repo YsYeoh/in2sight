@@ -72,6 +72,20 @@
     "samplePercent": "百分比",
     "sampleDelta": "变化",
     "greeting": "欢迎回来,{name}",
+    "standards": {
+      "title": "标准控件",
+      "intro": "每个页面共用的标准组件（docs/UI_STANDARDS.md）。",
+      "rangeBar": "时间范围栏",
+      "filterToolbar": "筛选工具栏",
+      "tabs": "分区标签页",
+      "buttons": "同一行使用同一控件高度",
+      "scrollbar": "滚动条",
+      "row": "第 {n} 行",
+      "sampleSearch": "搜索文案",
+      "sampleSort": "排序",
+      "sampleNewest": "最新优先",
+      "sampleReach": "覆盖最多"
+    },
     "gallery": {
       "stats": "统计卡片",
       "charts": "图表",
@@ -362,6 +376,7 @@
         "day": "{date} · {count, plural, other {# 条快拍}}"
       },
       "audience": {
+        "title": "受众",
         "emptyHint": "账号粉丝达到 100 人且每日同步运行后，这里会显示受众数据。",
         "asOf": "数据日期：{date}",
         "countries": "主要国家/地区",
@@ -819,7 +834,17 @@
     "window": "数据范围：{from} 至 {to}",
     "windowCompare": "对比 {from} 至 {to}",
     "exploreMetric": "在探索中查看{metric}",
-    "openAccount": "打开 {name}"
+    "openAccount": "打开 {name}",
+    "metricsCount": "{count, plural, other {# 个指标}}"
+  },
+  "filters": {
+    "advanced": "高级",
+    "advancedTitle": "更多筛选",
+    "withCount": "{label}，已启用 {count} 项",
+    "active": "已启用的筛选",
+    "remove": "移除筛选：{name}",
+    "clearAll": "全部清除",
+    "done": "完成"
   },
   "timeScope": {
     "label": "时间范围",
@@ -852,7 +877,12 @@
     "noData": "尚未采集到数据。",
     "partialNote": "* 仅部分在所选范围内",
     "previous": "上一周期",
-    "next": "下一周期"
+    "next": "下一周期",
+    "more": "更多范围",
+    "otherRanges": "其他范围",
+    "customDates": "自定义日期",
+    "compareWith": "对比对象",
+    "compareAllHint": "全部时间没有更早的周期可以对比。"
   },
   "media": {
     "noCover": "{name}（{why}）",
