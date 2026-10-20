@@ -159,6 +159,8 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] Owner: live check (RUNBOOK_TIMESCOPE §"Plan 14a"); confirm the plan's open questions (dialog/sheet panels, "Last 12 months", interim All time on Posts/Stories, title case on the three presets, Clear all vs Reset)
 - [ ] Plan 14b: Posts and Stories filters + pagination (replaces the interim All time lists)
 
+- [ ] Known, left from the Plan 14a review (Minor): removing a filter chip drops keyboard focus to the page (move it to the next chip or the toolbar group); the underline tabs' fade mask always covers the last 1.5 rem even when nothing overflows, and the underline may sit about half a pixel above the rule (check visually in /styleguide); the guard test for one control height only covers the account page, export dialog and Explorer (Calendar's period arrows and Overview's account chips are small controls in rows of their own)
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
