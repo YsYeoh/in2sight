@@ -401,3 +401,170 @@ git commit -m "feat(db): post_list and story_list (filter, sort, page and count 
 ```
 
 ---
+
+### Task 2: i18n — every new key (additions only)
+
+**Files:**
+- Modify: `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/messages.test.ts` (existing: parity, non-empty, placeholders, no copy-pasted English) and `tests/ui-standards.test.ts` (14a: no `7d`-style values) must pass.
+
+**Interfaces:**
+- Produces (exact keys later tasks read): `pagination.{label,first,previous,next,last,status}` (new top-level namespace, after `table`); `pages.account.stories.{filters,sort,sorts.{newest,views,exit},measured,measuredOptions.{all,yes,no},emptyFiltered,list}`; `pages.account.posts.{filters,search,searchChip,sort,sorts.{newest,oldest,reach,reach_asc,views,views_asc,engagement,engagement_asc},range}`; `pages.account.lists.{posted,postedWith,postedTitle,quick,presets.{7d,30d,90d,year,all},custom,from,to,show,between}` (new object after `posts`).
+
+- [ ] **Step 1: Insert the keys** — three text edits per file (Edit tool; replace the anchor exactly; every other line stays byte-identical).
+
+`messages/en.json`:
+
+(a) anchor (3 lines, the end of `table` and the start of `nav`):
+```json
+    "showMore": "Show more"
+  },
+  "nav": {
+```
+replace with:
+```json
+    "showMore": "Show more"
+  },
+  "pagination": {
+    "label": "Pages",
+    "first": "First page",
+    "previous": "Previous page",
+    "next": "Next page",
+    "last": "Last page",
+    "status": "Page {page} of {pages}"
+  },
+  "nav": {
+```
+(b) anchor `        "day": "{date} · {count, plural, one {# Story} other {# Stories}}"` → replace with:
+```json
+        "day": "{date} · {count, plural, one {# Story} other {# Stories}}",
+        "filters": "Story filters",
+        "sort": "Sort",
+        "sorts": { "newest": "Newest first", "views": "Most views", "exit": "Highest exit rate" },
+        "measured": "Numbers",
+        "measuredOptions": { "all": "All Stories", "yes": "Measured", "no": "Not measured (under 5 viewers)" },
+        "emptyFiltered": "No Stories match these filters",
+        "list": "Stories"
+```
+(c) anchor (2 lines, the end of `pages.account.posts`):
+```json
+        "table": "Table"
+      }
+```
+replace with:
+```json
+        "table": "Table",
+        "filters": "Post filters",
+        "search": "Search captions and tags",
+        "searchChip": "Search: {q}",
+        "sort": "Sort",
+        "sorts": {
+          "newest": "Newest first",
+          "oldest": "Oldest first",
+          "reach": "Most reach",
+          "reach_asc": "Least reach",
+          "views": "Most views",
+          "views_asc": "Fewest views",
+          "engagement": "Best engagement",
+          "engagement_asc": "Lowest engagement"
+        },
+        "range": "{first}–{last} of {total} posts"
+      },
+      "lists": {
+        "posted": "Posted",
+        "postedWith": "Posted: {range}",
+        "postedTitle": "Posted date",
+        "quick": "Quick dates",
+        "presets": { "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", "year": "This year", "all": "All time" },
+        "custom": "Custom dates",
+        "from": "From",
+        "to": "To",
+        "show": "Show these dates",
+        "between": "{from} – {to}"
+      }
+```
+
+`messages/zh-CN.json` (same places):
+
+(a) anchor:
+```json
+    "showMore": "显示更多"
+  },
+  "nav": {
+```
+replace with:
+```json
+    "showMore": "显示更多"
+  },
+  "pagination": {
+    "label": "分页",
+    "first": "第一页",
+    "previous": "上一页",
+    "next": "下一页",
+    "last": "最后一页",
+    "status": "第 {page} 页，共 {pages} 页"
+  },
+  "nav": {
+```
+(b) anchor `        "day": "{date} · {count, plural, other {# 条快拍}}"` → replace with:
+```json
+        "day": "{date} · {count, plural, other {# 条快拍}}",
+        "filters": "快拍筛选",
+        "sort": "排序",
+        "sorts": { "newest": "最新优先", "views": "浏览最多", "exit": "退出率最高" },
+        "measured": "数据",
+        "measuredOptions": { "all": "全部快拍", "yes": "有数据", "no": "无数据（观看不足 5 人）" },
+        "emptyFiltered": "没有符合筛选条件的快拍",
+        "list": "快拍"
+```
+(c) anchor:
+```json
+        "table": "表格"
+      }
+```
+replace with:
+```json
+        "table": "表格",
+        "filters": "帖子筛选",
+        "search": "搜索文案和标签",
+        "searchChip": "搜索：{q}",
+        "sort": "排序",
+        "sorts": {
+          "newest": "最新优先",
+          "oldest": "最早优先",
+          "reach": "覆盖最多",
+          "reach_asc": "覆盖最少",
+          "views": "浏览最多",
+          "views_asc": "浏览最少",
+          "engagement": "互动率最高",
+          "engagement_asc": "互动率最低"
+        },
+        "range": "第 {first}–{last} 篇，共 {total} 篇帖子"
+      },
+      "lists": {
+        "posted": "发布时间",
+        "postedWith": "发布时间：{range}",
+        "postedTitle": "发布日期",
+        "quick": "快捷日期",
+        "presets": { "7d": "最近 7 天", "30d": "最近 30 天", "90d": "最近 90 天", "year": "今年", "all": "全部时间" },
+        "custom": "自定义日期",
+        "from": "开始日期",
+        "to": "结束日期",
+        "show": "显示这些日期",
+        "between": "{from} 至 {to}"
+      }
+```
+
+- [ ] **Step 2: Run the catalog tests**
+
+Run: `npx vitest run tests/messages.test.ts tests/ui-standards.test.ts` and `node -e "JSON.parse(require('fs').readFileSync('messages/en.json','utf8'));JSON.parse(require('fs').readFileSync('messages/zh-CN.json','utf8'))"`
+Expected: PASS; the parse prints nothing. `git diff --stat messages` shows only insertions plus the three anchor lines per file that gained a comma (`"day"` and `"table"`; the `showMore` anchor line is unchanged).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add messages/en.json messages/zh-CN.json
+git commit -m "feat(i18n): Posts and Stories filters, sort orders, pagination" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
