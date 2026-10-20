@@ -19,13 +19,13 @@ On `/overview`, an account's Overview/Posts/Stories tabs and `/calendar`: 4 them
 
 | Width | What must hold |
 |---|---|
-| 360 | No horizontal page scroll (`document.documentElement.scrollWidth <= innerWidth`). The 8 preset buttons wrap onto two rows inside their frame; Custom, Compare and Group by wrap below them; the summary line ("Last 30 days · vs previous 30 days") wraps instead of overflowing. **Custom** opens a bottom sheet that scrolls; every date input and select is reachable. |
-| 768 | Presets on one row, the selects next to or below them; **Custom** opens a centred dialog. |
+| 360 | No horizontal page scroll (`document.documentElement.scrollWidth <= innerWidth`). The three presets (Last 7 / 14 / 30 Days) and **More ranges** wrap inside the bar; the summary line ("Last 30 days · vs previous 30 days") wraps instead of overflowing. **More ranges** opens a bottom sheet that scrolls (Other ranges, Custom dates, Compare with, Group by); every date input, link and select is reachable. |
+| 768 | The three presets and **More ranges** on one row; **More ranges** opens a centred dialog. |
 | 1280 | Everything on one row; the dialog is narrow (not full width). |
 
 In every theme and mode: the active preset is visibly highlighted (secondary button), the selects and date inputs use the theme's input border and background (no white box in dark mode), the summary line is readable muted text.
 
-Keyboard only (no mouse): Tab reaches every preset, Custom, Compare and Group by; Enter on a preset navigates; arrow keys change the Compare/Group-by select and the page follows; in the dialog Tab moves through the five forms, Esc closes it. A screen reader announces the summary line after a change (it is a `status`).
+Keyboard only (no mouse): Tab reaches the three presets and More ranges; Enter on a preset navigates; Enter on More ranges opens the panel, Tab moves through Other ranges, the five Custom date forms, the Compare with links and the Group by links (Enter on a link navigates and closes the panel), Esc closes it and focus returns to More ranges. A screen reader announces the summary line after a change (it is a `status`).
 
 ## 2. Presets and numbers
 
@@ -69,9 +69,9 @@ If your timezone has DST (e.g. Europe/London: last Sunday of October; America/Ne
 ## 7. The scope travels
 
 1. On Overview pick **90 days**, then click an account's @username: the account page shows 90 days.
-2. Switch tabs (Posts, Stories, Overview): still 90 days (the tab URL keeps `from=90d`). Audience has no bar (it shows the latest snapshot).
-3. Posts tab: change Format → the scope stays; **Reset** keeps the scope too. The count line reads "Showing X of Y posts": X is the posts in the table (the scope's days, then the Format and Tag filters); Y is the posts loaded for this page, not every post stored for the account. The page loads the newest 500 posts of the account, or every post back to the start of the range when that reaches further, so Y can include posts older than the range and posts the filters hide.
-4. Stories tab: Stories of the range; with more than 200 in the range it says "Showing the newest 200 Stories of this range…".
+2. Switch tabs (Posts, Stories, Overview): the range bar shows on Overview only; the tab URL keeps `from=90d`, so coming back to Overview shows 90 days again. Audience is the last section of Overview (a snapshot, labelled "Latest snapshot, <date>"), not a tab.
+3. Posts tab (until Plan 14b): lists every post newest first (All time, the newest 500 plus "Show more"); the scope does not filter it. Change Format → the scope stays in the URL; **Reset** keeps it too. The count line reads "Showing X of Y posts": X is the posts in the table (after the Format and Tag filters); Y is the posts loaded for this page.
+4. Stories tab (until Plan 14b): the newest 200 Stories of All time, said on screen.
 5. "Overview" back link and the **Calendar** button keep 90 days; the sidebar/tab-bar **Overview** and **Calendar** items keep it; **Accounts**, **Tags**, **Settings** do not carry it.
 6. Browser back/forward walk through the scopes you chose (the URL is the state).
 
@@ -89,13 +89,20 @@ If your timezone has DST (e.g. Europe/London: last Sunday of October; America/Ne
 
 ## 10. Language
 
-Switch to 简体中文: presets read 7天 … 1年, 今年, 全部; the summary line, dialog, compare and group-by options are Chinese; dates follow Settings → date format.
+Switch to 简体中文: the bar reads 最近 7 天 / 最近 14 天 / 最近 30 天 / 更多范围, and the panel's other ranges read 最近 90 天 … 最近 12 个月, 今年至今, 全部时间; the summary line, panel, compare and group-by options are Chinese; dates follow Settings → date format.
 
 ## Known limits
 
 - **All on the Posts tab and in the export's Posts sheet** lists every stored post up to 5 years back, even posts older than the first captured day. The KPIs and charts for All still start at the first captured day, and the Calendar for All starts at the first captured day too; older posts are in the Posts tab.
 - **Exports reject a bad range** with `{"error":"bad_params"}` (400) instead of repairing it: a start after the end, more than 1,830 days, or a start in the future. (The pages still repair a hostile URL to the default or to about 5 years, section 6.)
 - **Stories are capped at 200 per account per range** in the Stories tab and in exports. In the export, the xlsx Stories sheet carries a note saying it is capped, and the PDF shows the Stories count as "200+".
+
+## Plan 14a checks (UI foundation)
+1. Every theme × light/dark on `/styleguide` → "Standard controls" and on `/explorer`: the scrollbar thumb is thin, rounded and visible on hover; no white scrollbar in dark mode; no scroll arrows.
+2. Header rows (account page, Overview, Explorer, Calendar): every button and the Calendar's account select are the same height.
+3. Account page: tabs Overview / Posts / Stories with an underline; the range bar only on Overview; Audience at the bottom of Overview ("Latest snapshot, <date>"); `/accounts/<id>?tab=audience&from=90d` lands on Overview with 90 days and scrolls to Audience (best effort while the section streams in); Posts and Stories list everything newest first (500 posts / 200 Stories with "Show more").
+4. Explorer: no left column; Break down by, "N metrics", "All accounts", Saved views always visible; Advanced shows a count; each pick updates the page at once (top bar runs); chips remove one filter; Clear all keeps metrics and breakdown; Reset goes back to the defaults; a saved view from before still opens the same state.
+5. 360 px: the range bar and the toolbars wrap, no sideways page scroll; "More ranges" and every panel open as a bottom sheet.
 
 ## Report back
 

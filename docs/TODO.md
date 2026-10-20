@@ -151,6 +151,14 @@ Follow-ups from the Plan 12b review (not done):
 
 - [ ] Known, left from the Plan 13 reviews (Minor): Calendar phone agenda renders a thumb per item even on desktop with "all" (up to 5000 hidden instances; cap or gate on `covers` if profiling shows it); Auto view mounts two drawer roots per post (capped at 50 by "Show more"); the Post Lab fallback page (migration missing) always links back to Posts, also for a Story (moot now the migration is live); skip rate shows the raw percentile although lower is better (decide: show 100 - p, or a hint); feed interactions treat a missing saves/shares part as 0 (undercounts instead of null; fine while those columns are always captured); the emoji count includes ©, ® and ™.
 
+## 6h. UI foundation (Plan 14a)
+- [x] Standard scrollbar, one control height per row, underline section tabs, full-word range labels (en + zh-CN) _(code done; live check pending — docs/RUNBOOK_TIMESCOPE.md §"Plan 14a")_
+- [x] `RangeBar` (Last 7 / 14 / 30 Days + More ranges) on Overview, account Overview, Calendar, Explorer; `FilterToolbar` pattern (`components/shared/FilterToolbar.tsx`)
+- [x] Account page: Overview / Posts / Stories, Audience inside Overview (`?tab=audience` redirects), range bar on Overview only; Posts and Stories read All time until Plan 14b
+- [x] Explorer toolbar (apply as you pick, Advanced, chips, Clear all); `docs/UI_STANDARDS.md`, CLAUDE.md "UI standards", guard tests
+- [ ] Owner: live check (RUNBOOK_TIMESCOPE §"Plan 14a"); confirm the plan's open questions (dialog/sheet panels, "Last 12 months", interim All time on Posts/Stories, title case on the three presets, Clear all vs Reset)
+- [ ] Plan 14b: Posts and Stories filters + pagination (replaces the interim All time lists)
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)

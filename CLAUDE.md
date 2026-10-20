@@ -42,6 +42,14 @@ Source of truth: `docs/SPEC.md` (design), `docs/TODO.md` (progress), `docs/META_
 - **Forms and dialogs:** forms use `FormField` with the render-prop pattern; dialogs use `ResponsiveDialog*`.
 - **Layout breakpoints:** never use `window.matchMedia` / `useMediaQuery` for layout, CSS breakpoints only (hydration mismatches).
 
+## UI standards
+Read `docs/UI_STANDARDS.md` before building or changing a screen (`/styleguide` → "Standard controls" shows the pieces). Do not:
+- mix `size="sm"` with default-size controls in one row (header action rows: all default);
+- style a scrollbar per component (`styles/scrollbar.css` covers every scroller; `scrollbar-none` only for tab strips);
+- write abbreviated range labels such as `7d`, `1y`, `YTD` in any UI string (both locales);
+- build filter UI outside `FilterToolbar` (`components/shared/FilterToolbar.tsx`), or show the range bar (`RangeBar`) on list pages;
+- use the pill `TabsList` for page sections (use `variant="line"`).
+
 ## Security rules
 - Never commit `.env*`. Never log, print, or return access tokens or secrets. No tokens in client bundles (`NEXT_PUBLIC_` is for the Supabase URL/anon key only).
 - Cron endpoints require `CRON_SECRET`. Service-role key is server-only.
