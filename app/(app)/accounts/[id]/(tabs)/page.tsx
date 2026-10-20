@@ -12,9 +12,9 @@ import { requireOwner } from '@/lib/auth/require-owner';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
 import { buildAudience } from '@/lib/dashboard/audience';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
-import { buildPosts, buildStories, parsePostFilters, parsePostsView, storyView } from '@/lib/dashboard/content';
-import { loadAudience, loadOnline, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
-import { LIST_KEYS, listWindow, pageStories, parseStoryList, storyPageSize } from '@/lib/dashboard/lists';
+import { buildPosts, buildStories, storyView } from '@/lib/dashboard/content';
+import { loadAudience, loadOnline, loadPostPage, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
+import { LIST_KEYS, listWindow, pagePosts, pageStories, parsePostList, parseStoryList, postPageSize, postSortOf, storyPageSize } from '@/lib/dashboard/lists';
 import { exportScopes } from '@/lib/export/params';
 import { loadDaily, loadFirstDay, loadPosts, MEDIA_LIMIT } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
@@ -25,6 +25,8 @@ import { parseTimeScope, readFrom, resolveScope, type ResolvedScope } from '@/li
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
+const NO_FILTERS = { format: null, tag: null, from: null, to: null }; // post_list already filtered the page
+
 /** Live (non-archived) accounts: archived ones are hidden (SPEC §7c). Shared by the header and the tab (one query). */
 const liveAccounts = async () => (await loadAccounts()).filter((a) => a.status !== 'archived');
 
@@ -34,14 +36,22 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
   const now = new Date();
   const today = localDay(now, prefs.timezone);
   const tz = prefs.timezone;
-  // Posts and Stories have no range of their own until Plan 14b: All time, newest first (the "all" list range, MAX_DAYS back)
-  const allTime = resolveScope({ range: 'all', cmp: 'none', gran: 'auto' }, today, scope.earliest).listRange;
   switch (tab) {
     case 'posts': {
-      const [rows, tags] = await Promise.all([loadPostRows(db, account.id, dayStart(allTime.from, tz).toISOString()), loadTags(db)]);
-      const filters = { ...parsePostFilters(sp), from: allTime.from, to: allTime.to };
+      // own list params, never the Time Scope (ux-polish design §8 calls 1-3); one page from post_list
+      const state = parsePostList(sp);
+      const win = listWindow(state.dates, today);
+      const { fromIso, toIso } = daysToIso(win.from, win.to, tz);
+      const [read, tags] = await Promise.all([
+        loadPostPage(db, account.id, { fromIso, toIso, q: state.q, format: state.format, tag: state.tag, sort: postSortOf(state.sort), page: state.page, size: postPageSize(state.view) }),
+        loadTags(db),
+      ]);
       // the imported server action is passed straight to the client component (never wrapped in a closure here)
-      return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} accountId={account.id} view={parsePostsView(sp.view)} setPostTags={setPostTagsAction} />;
+      const props = { tags, state, today, scope: scope.params, accountId: account.id, setPostTags: setPostTagsAction };
+      if (read) return <PostsTab posts={buildPosts(read.rows, tags, NO_FILTERS, tz)} total={read.total} page={read.page} {...props} />;
+      // before migration 20261027000001 is applied: every post of the window (loadPostRows), the same state applied in TypeScript
+      const rows = await loadPostRows(db, account.id, fromIso);
+      return <PostsTab {...pagePosts(buildPosts(rows, tags, { format: state.format, tag: state.tag, from: win.from, to: win.to, q: state.q }, tz), state)} {...props} />;
     }
     case 'stories': {
       // own list params, never the Time Scope (ux-polish design §8 calls 1-3); one page from story_list

@@ -1,84 +1,38 @@
 'use client';
 
 import type { ReactElement } from 'react';
-import Form from 'next/form';
 import Link from 'next/link';
 import { ExternalLink, FlaskConical, LayoutGrid, Table2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { PostedFilter, usePostedName } from '@/components/account/PostedFilter';
 import { TagPicker, type SetPostTags } from '@/components/account/TagPicker';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { DataTable, type Column } from '@/components/shared/DataTable';
-import { FormField } from '@/components/shared/FormField';
+import { FilterSearch, FilterSelect, FilterToolbar, type FilterChip } from '@/components/shared/FilterToolbar';
 import { MediaDrawer } from '@/components/shared/MediaDrawer';
 import { MediaThumb } from '@/components/shared/MediaThumb';
-import { formHref, startProgress } from '@/components/shared/NavigationProgress';
 import { NavLink } from '@/components/shared/NavLink';
+import { Pagination } from '@/components/shared/Pagination';
 import { TagBadge } from '@/components/shared/TagBadge';
 import { Button } from '@/components/ui/button';
 import { FEED_FORMATS } from '@/lib/analysis/posts';
 import type { Tag } from '@/lib/analysis/types';
-import type { PostFilters, PostsView, PostView } from '@/lib/dashboard/content';
+import type { FeedFormat, PostsView, PostView } from '@/lib/dashboard/content';
+import { ALL_TIME, pageCount, POST_SORTS, postHref, postListParams, postPageSize, postSortFor, postSortOf, samePlace, type PostListState, type PostSort, type PostSortKey } from '@/lib/dashboard/lists';
 import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
 import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
 import { postLabHref } from '@/lib/post-lab/params';
 import { cn } from '@/lib/utils';
 
-export const POSTS_PAGE = 50;
-const SELECT = 'h-[var(--ctl)] w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground';
 const TRIGGER = 'rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring';
+/** Table columns that have a server sort (ux-polish design §8 call 7); the others are not sortable. */
+const SORT_COLUMNS: Record<string, PostSortKey> = { post: 'date', reach: 'reach', views: 'views', er: 'engagement' };
 
-/** Filters are a GET form (next/form: a client navigation, still a plain GET without JavaScript): the URL is the state.
- *  The dates are the page's Time Scope (the bar above) and `keep` the chosen view, carried as hidden fields. */
-function Filters({ tags, filters, keep }: { tags: Tag[]; filters: PostFilters; keep: Record<string, string> }) {
-  const t = useTranslations('pages.account.posts');
-  const ta = useTranslations('analysis');
-  const query = new URLSearchParams(keep).toString();
-  return (
-    <Form action="" onSubmit={(e) => startProgress(formHref(e.currentTarget))} className="grid grid-cols-2 items-end gap-[var(--gp)] md:grid-cols-[repeat(2,minmax(0,1fr))_auto]">
-      <input type="hidden" name="tab" value="posts" />
-      {Object.entries(keep).map(([k, v]) => (
-        <input key={k} type="hidden" name={k} value={v} />
-      ))}
-      <FormField id="f-format" label={t('format')}>
-        {(p) => (
-          <select {...p} name="format" defaultValue={filters.format ?? ''} className={SELECT}>
-            <option value="">{t('all')}</option>
-            {FEED_FORMATS.map((f) => (
-              <option key={f} value={f}>
-                {ta(`format.${f}`)}
-              </option>
-            ))}
-          </select>
-        )}
-      </FormField>
-      <FormField id="f-tag" label={t('tag')}>
-        {(p) => (
-          <select {...p} name="tag" defaultValue={filters.tag ?? ''} className={SELECT}>
-            <option value="">{t('all')}</option>
-            <option value="untagged">{t('untagged')}</option>
-            {tags.map((tag) => (
-              <option key={tag.id} value={tag.id}>
-                {tag.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </FormField>
-      <div className="col-span-2 flex gap-2 md:col-span-1">
-        <Button type="submit">{t('apply')}</Button>
-        <Button asChild variant="ghost">
-          <Link href={`?tab=posts${query ? `&${query}` : ''}`}>{t('reset')}</Link>
-        </Button>
-      </div>
-    </Form>
-  );
-}
-
-/** Grid | Table as links (URL state like the filters, so Back and shared links keep it). */
+/** Grid | Table as links (URL state like the filters, so Back and shared links keep it): one segmented control, --ctl high. */
 function ViewToggle({ current, href, className }: { current: PostsView; href: (v: PostsView) => string; className?: string }) {
   const t = useTranslations('pages.account.posts');
   return (
-    <div role="group" aria-label={t('view')} className={cn('flex gap-1', className)}>
+    <div role="group" aria-label={t('view')} className={cn('flex h-[var(--ctl)] items-center gap-0.5 rounded-md border border-input p-0.5', className)}>
       {(['grid', 'table'] as const).map((v) => {
         const Icon = v === 'grid' ? LayoutGrid : Table2;
         return (
@@ -94,26 +48,30 @@ function ViewToggle({ current, href, className }: { current: PostsView; href: (v
   );
 }
 
-/** `scope` = the canonical Time Scope parameters of the page (ResolvedScope.params), kept by the filter form.
- *  `accountId` set: each post links to its single-item level in the Explorer and to its Post Lab (both with the page's scope).
- *  `view`: grid or table from `?view=`; null = automatic (grid below md, table from md). Every cover opens the post's drawer. */
+/** One page of posts. `total` = how many match the filters; `page` = the page shown; `state` = the list's URL state
+ *  (lib/dashboard/lists.ts); `today` = the owner's day (date filter). `scope` = the page's Time Scope params, carried in
+ *  every list link (never a filter here). `accountId` set: each post links to its single-item level in the Explorer and
+ *  to its Post Lab (no range: ux-polish design §8 call 1). `state.view`: grid or table; null = automatic (grid below md,
+ *  table from md). Every cover opens the post's drawer. */
 export function PostsTab({
   posts,
   total,
+  page,
+  state,
   tags,
-  filters,
+  today,
   scope = {},
   accountId,
-  view = null,
   setPostTags,
 }: {
   posts: PostView[];
   total: number;
+  page: number;
+  state: PostListState;
   tags: Tag[];
-  filters: PostFilters;
+  today: string;
   scope?: Record<string, string>;
   accountId?: string;
-  view?: PostsView | null;
   setPostTags: SetPostTags;
 }) {
   const t = useTranslations('pages.account.posts');
@@ -122,16 +80,25 @@ export function PostsTab({
   const tx = useTranslations('media');
   const tl = useTranslations('postLab');
   const { prefs } = usePrefs();
+  const posted = usePostedName(state.dates, today);
   const count = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
   const label = (p: PostView) => `${ta(`format.${p.mediaType}`)} · ${formatDateTime(p.postedAt, prefs)}`;
-  const query = new URLSearchParams(scope).toString();
-  const keep = view ? { ...scope, view } : scope;
-  const viewHref = (v: PostsView) => `?${new URLSearchParams({ tab: 'posts', ...(filters.format ? { format: filters.format } : {}), ...(filters.tag ? { tag: filters.tag } : {}), ...scope, view: v })}`;
-  const explorer = (p: PostView) => explorerHref(parseExplorerState({ by: 'post', acc: accountId, fmt: p.mediaType, item: p.id }), query);
+  const href = (patch: Partial<PostListState>) => postHref(state, patch, scope);
+  const size = postPageSize(state.view);
+  const viewHref = (v: PostsView) => href({ view: v, page: samePlace(page, size, postPageSize(v)) });
+  const sort = postSortOf(state.sort);
+  const tagName = (id: string) => (id === 'untagged' ? t('untagged') : (tags.find((x) => x.id === id)?.name ?? id));
+  const chips: FilterChip[] = [
+    ...(state.q ? [{ id: 'q', label: t('searchChip', { q: state.q }), href: href({ q: '' }) }] : []),
+    ...(state.dates.pr || state.dates.from || state.dates.to ? [{ id: 'posted', label: posted, href: href({ dates: ALL_TIME }) }] : []),
+    ...(state.format ? [{ id: 'format', label: ta(`format.${state.format}`), href: href({ format: null }) }] : []),
+    ...(state.tag ? [{ id: 'tag', label: tagName(state.tag), href: href({ tag: null }) }] : []),
+  ];
+  const explorer = (p: PostView) => explorerHref(parseExplorerState({ by: 'post', acc: accountId, fmt: p.mediaType, item: p.id }), '');
   /** The post's Post Lab: a small flask link next to the title / date (accessible name = "Open the Post Lab of …"). */
   const labLink = (p: PostView) =>
     accountId ? (
-      <Link href={postLabHref(accountId, p.id, query)} aria-label={tl('openFor', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
+      <Link href={postLabHref(accountId, p.id)} aria-label={tl('openFor', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
         <FlaskConical aria-hidden="true" className="size-3.5" />
       </Link>
     ) : null;
@@ -156,7 +123,7 @@ export function PostsTab({
       action={
         accountId ? (
           <Button asChild size="sm">
-            <Link href={postLabHref(accountId, p.id, query)}>
+            <Link href={postLabHref(accountId, p.id)}>
               <FlaskConical aria-hidden="true" />
               {tl('open')}
             </Link>
@@ -209,7 +176,6 @@ export function PostsTab({
     {
       key: 'post',
       header: t('post'),
-      sortValue: (p) => p.postedAt,
       cell: (p) => (
         <span className="flex min-w-0 items-center gap-2">
           {detail(
@@ -241,13 +207,13 @@ export function PostsTab({
         </span>
       ),
     },
-    { key: 'reach', header: tm('reach'), sortValue: (p) => p.reach, cell: (p) => formatCompact(p.reach, prefs), align: 'right' },
-    { key: 'views', header: tm('views'), sortValue: (p) => p.views, cell: (p) => formatCompact(p.views, prefs), align: 'right' },
-    { key: 'likes', header: t('likes'), sortValue: (p) => p.likes, cell: (p) => count(p.likes), align: 'right' },
-    { key: 'comments', header: t('comments'), sortValue: (p) => p.comments, cell: (p) => count(p.comments), align: 'right' },
-    { key: 'saves', header: t('saves'), sortValue: (p) => p.saves, cell: (p) => count(p.saves), align: 'right' },
-    { key: 'shares', header: t('shares'), sortValue: (p) => p.shares, cell: (p) => count(p.shares), align: 'right' },
-    { key: 'er', header: tm('engagementRate'), sortValue: (p) => p.engagementRate, cell: (p) => formatPercent(p.engagementRate, prefs), align: 'right' },
+    { key: 'reach', header: tm('reach'), cell: (p) => formatCompact(p.reach, prefs), align: 'right' },
+    { key: 'views', header: tm('views'), cell: (p) => formatCompact(p.views, prefs), align: 'right' },
+    { key: 'likes', header: t('likes'), cell: (p) => count(p.likes), align: 'right' },
+    { key: 'comments', header: t('comments'), cell: (p) => count(p.comments), align: 'right' },
+    { key: 'saves', header: t('saves'), cell: (p) => count(p.saves), align: 'right' },
+    { key: 'shares', header: t('shares'), cell: (p) => count(p.shares), align: 'right' },
+    { key: 'er', header: tm('engagementRate'), cell: (p) => formatPercent(p.engagementRate, prefs), align: 'right' },
     {
       key: 'tags',
       header: t('tags'),
@@ -264,22 +230,48 @@ export function PostsTab({
 
   return (
     <div className="grid min-w-0 gap-[var(--gp)]">
-      <Filters tags={tags} filters={filters} keep={keep} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* the custom-dates form keeps every other parameter as hidden fields */}
+      <FilterToolbar
+        label={t('filters')}
+        chips={chips}
+        clearHref={href({ q: '', dates: ALL_TIME, format: null, tag: null })}
+        end={
+          state.view ? (
+            <ViewToggle current={state.view} href={viewHref} />
+          ) : (
+            <>
+              {/* automatic: the toggle shows the view each width gets (CSS only); a choice applies at every width */}
+              <ViewToggle current="grid" href={viewHref} className="md:hidden" />
+              <ViewToggle current="table" href={viewHref} className="max-md:hidden" />
+            </>
+          )
+        }
+      >
+        <FilterSearch id="posts-q" label={t('search')} placeholder={t('search')} value={state.q} hrefFor={(q) => href({ q })} />
+        <PostedFilter id="posts-posted" dates={state.dates} today={today} hrefFor={(dates) => href({ dates })} hidden={postListParams({ ...state, dates: ALL_TIME, page: 1 }, scope)} />
+        <FilterSelect id="posts-format" label={t('format')} value={state.format ?? ''} options={[{ value: '', label: t('all') }, ...FEED_FORMATS.map((f) => ({ value: f, label: ta(`format.${f}`) }))]} hrefFor={(v) => href({ format: (v || null) as FeedFormat | null })} />
+        <FilterSelect id="posts-tag" label={t('tag')} value={state.tag ?? ''} options={[{ value: '', label: t('all') }, { value: 'untagged', label: t('untagged') }, ...tags.map((x) => ({ value: x.id, label: x.name }))]} hrefFor={(v) => href({ tag: v || null })} />
+        <FilterSelect id="posts-sort" label={t('sort')} value={state.sort} options={POST_SORTS.map((v) => ({ value: v, label: t(`sorts.${v}`) }))} hrefFor={(v) => href({ sort: v as PostSort })} />
+      </FilterToolbar>
+      {total > 0 ? (
         <p className="text-xs text-muted-foreground" aria-live="polite">
-          {t('count', { shown: formatNumber(posts.length, prefs), total: formatNumber(total, prefs) })}
+          {t('range', { first: count((page - 1) * size + 1), last: count((page - 1) * size + posts.length), total: count(total) })}
         </p>
-        {/* automatic: the toggle shows the view each width gets (CSS only); a choice applies at every width */}
-        {view ? (
-          <ViewToggle current={view} href={viewHref} />
-        ) : (
-          <>
-            <ViewToggle current="grid" href={viewHref} className="md:hidden" />
-            <ViewToggle current="table" href={viewHref} className="max-md:hidden" />
-          </>
-        )}
-      </div>
-      <DataTable rows={posts} columns={columns} rowKey={(p) => p.id} caption={t('caption')} empty={t('empty')} initialSort={{ key: 'post', dir: 'desc' }} pageSize={POSTS_PAGE} tile={tile} view={view ?? 'auto'} />
+      ) : null}
+      <DataTable
+        rows={posts}
+        columns={columns}
+        rowKey={(p) => p.id}
+        caption={t('caption')}
+        empty={t('empty')}
+        tile={tile}
+        view={state.view ?? 'auto'}
+        serverSort={{
+          current: { key: Object.keys(SORT_COLUMNS).find((k) => SORT_COLUMNS[k] === sort.key) ?? 'post', dir: sort.asc ? 'asc' : 'desc' },
+          href: (key) => (SORT_COLUMNS[key] ? href({ sort: postSortFor(SORT_COLUMNS[key], SORT_COLUMNS[key] === sort.key ? !sort.asc : false) }) : null),
+        }}
+      />
+      <Pagination page={page} pages={pageCount(total, size)} hrefFor={(p) => href({ page: p })} />
     </div>
   );
 }

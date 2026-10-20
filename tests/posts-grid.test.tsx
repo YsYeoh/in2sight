@@ -7,8 +7,11 @@ import { PostsTab } from '@/components/account/PostsTab';
 import type { SetPostTags } from '@/components/account/TagPicker';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import type { Tag } from '@/lib/analysis/types';
-import type { PostFilters, PostsView, PostView } from '@/lib/dashboard/content';
+import type { PostsView, PostView } from '@/lib/dashboard/content';
+import { ALL_TIME, type PostListState } from '@/lib/dashboard/lists';
 import { DEFAULT_PREFS } from '@/lib/prefs';
+
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) })); // the toolbar's selects navigate
 
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
@@ -28,17 +31,17 @@ afterAll(() => {
 const A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const T1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
 const TAGS: Tag[] = [{ id: T1, name: 'Promo', color: 'chart-2' }];
-const NONE: PostFilters = { format: null, tag: null, from: null, to: null };
+const NEWEST: PostListState = { dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null };
 // a Reel published 7 Oct 2026, 20:00 in Kuala Lumpur (12:00 UTC), with a stored cover
 const reel: PostView = { id: '42', mediaType: 'REELS', postedAt: '2026-10-07T12:00:00Z', permalink: 'https://www.instagram.com/reel/42/', caption: 'Behind the scenes', reach: 1200, views: 3400, likes: 40, comments: 5, saves: 3, shares: 2, engagementRate: 0.0417, cover: 'ok', slides: null, tags: [] };
 const LABEL = 'Reel · 7 Oct 2026 20:00';
 
-function tab(o: { view?: PostsView | null; filters?: PostFilters; accountId?: string; setPostTags?: SetPostTags; posts?: PostView[] } = {}) {
+function tab(o: { view?: PostsView | null; state?: Partial<PostListState>; accountId?: string; setPostTags?: SetPostTags; posts?: PostView[] } = {}) {
   const setPostTags = o.setPostTags ?? vi.fn<SetPostTags>(async () => ({ ok: true }));
   const r = render(
     <NextIntlClientProvider locale="en" messages={en}>
       <PrefsProvider initial={{ ...DEFAULT_PREFS, timezone: 'Asia/Kuala_Lumpur' }} persist={vi.fn()}>
-        <PostsTab posts={o.posts ?? [reel]} total={1} tags={TAGS} filters={o.filters ?? NONE} scope={{ from: '90d', cmp: 'yoy' }} accountId={o.accountId} view={o.view} setPostTags={setPostTags} />
+        <PostsTab posts={o.posts ?? [reel]} total={1} page={1} state={{ ...NEWEST, ...o.state, view: o.view ?? null }} tags={TAGS} today="2026-10-17" scope={{ from: '90d', cmp: 'yoy' }} accountId={o.accountId} setPostTags={setPostTags} />
       </PrefsProvider>
     </NextIntlClientProvider>,
   );
@@ -67,13 +70,13 @@ describe('Posts tab: Grid | Table', () => {
   });
 
   it('the toggle is two links that keep the tab, the filters and the Time Scope; the current view is marked', () => {
-    tab({ view: 'grid', filters: { format: 'REELS', tag: T1, from: null, to: null } });
+    tab({ view: 'grid', state: { format: 'REELS', tag: T1 } });
     const group = screen.getByRole('group', { name: en.pages.account.posts.view });
     const grid = within(group).getByRole('link', { name: en.pages.account.posts.grid });
     const table = within(group).getByRole('link', { name: en.pages.account.posts.table });
     expect(grid).toHaveAttribute('aria-current', 'true');
     expect(table).not.toHaveAttribute('aria-current');
-    expect(table).toHaveAttribute('href', `?tab=posts&format=REELS&tag=${T1}&from=90d&cmp=yoy&view=table`);
+    expect(table).toHaveAttribute('href', `?tab=posts&format=REELS&tag=${T1}&view=table&from=90d&cmp=yoy`);
   });
 
   it('automatic (no ?view): one toggle per width, grid below md, table from md (CSS only)', () => {
@@ -87,16 +90,15 @@ describe('Posts tab: Grid | Table', () => {
     expect(screen.getByRole('list', { name: en.pages.account.posts.caption }).parentElement).toHaveClass('md:hidden');
   });
 
-  it('a chosen view is kept by the filter form and its Reset link', () => {
-    const { container } = tab({ view: 'grid' });
-    const form = container.querySelector('form')!;
-    expect(Object.fromEntries([...form.querySelectorAll<HTMLInputElement>('input[type=hidden]')].map((i) => [i.name, i.value]))).toEqual({ tab: 'posts', from: '90d', cmp: 'yoy', view: 'grid' });
-    expect(screen.getByRole('link', { name: en.pages.account.posts.reset })).toHaveAttribute('href', '?tab=posts&from=90d&cmp=yoy&view=grid');
+  it('a chosen view is kept by every list link (here a chip and Clear all)', () => {
+    tab({ view: 'grid', state: { format: 'REELS' } });
+    expect(screen.getByRole('link', { name: 'Remove filter Reel' })).toHaveAttribute('href', '?tab=posts&view=grid&from=90d&cmp=yoy');
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toHaveAttribute('href', '?tab=posts&view=grid&from=90d&cmp=yoy');
   });
 
-  it('with an account, the tile date drills into the Explorer item level, keeping the scope', () => {
+  it('with an account, the tile date drills into the Explorer item level (no range: ux-polish §8 call 1)', () => {
     tab({ view: 'grid', accountId: A });
-    expect(screen.getByRole('link', { name: '7 Oct 2026 20:00' })).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42&from=90d&cmp=yoy`);
+    expect(screen.getByRole('link', { name: '7 Oct 2026 20:00' })).toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42`);
   });
 });
 
