@@ -7,8 +7,11 @@ import zh from '@/messages/zh-CN.json';
 import { StoriesTab } from '@/components/account/StoriesTab';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { buildStories } from '@/lib/dashboard/content';
+import { ALL_TIME } from '@/lib/dashboard/lists';
 import type { StoryRow } from '@/lib/dashboard/detail-read';
 import { DEFAULT_PREFS } from '@/lib/prefs';
+
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) })); // the toolbar's selects navigate
 
 const NOW = new Date('2026-10-15T04:00:00Z'); // 12:00 in Kuala Lumpur (the default timezone)
 const snap = (capturedAt: string, views: number) => ({ capturedAt, reach: views - 1, views, replies: 1, shares: 0, interactions: 2, tapsForward: 7, tapsBack: 0, exits: 2 });
@@ -28,7 +31,7 @@ function strip(locale: 'en' | 'zh-CN' = 'en') {
   return render(
     <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
       <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
-        <StoriesTab stories={STORIES} />
+        <StoriesTab stories={STORIES} items={4} days={3} page={1} state={{ dates: ALL_TIME, measured: null, sort: 'newest', page: 1 }} today="2026-10-15" />
       </PrefsProvider>
     </NextIntlClientProvider>,
   );

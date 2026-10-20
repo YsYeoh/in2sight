@@ -12,8 +12,9 @@ import { requireOwner } from '@/lib/auth/require-owner';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
 import { buildAudience } from '@/lib/dashboard/audience';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
-import { buildPosts, buildStories, parsePostFilters, parsePostsView } from '@/lib/dashboard/content';
-import { loadAudience, loadOnline, loadPostRows, loadStories, loadTags } from '@/lib/dashboard/detail-read';
+import { buildPosts, buildStories, parsePostFilters, parsePostsView, storyView } from '@/lib/dashboard/content';
+import { loadAudience, loadOnline, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
+import { LIST_KEYS, listWindow, pageStories, parseStoryList, storyPageSize } from '@/lib/dashboard/lists';
 import { exportScopes } from '@/lib/export/params';
 import { loadDaily, loadFirstDay, loadPosts, MEDIA_LIMIT } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
@@ -43,9 +44,16 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       return <PostsTab posts={buildPosts(rows, tags, filters, tz)} total={rows.length} tags={tags} filters={filters} scope={scope.params} accountId={account.id} view={parsePostsView(sp.view)} setPostTags={setPostTagsAction} />;
     }
     case 'stories': {
-      const { fromIso, toIso } = daysToIso(allTime.from, allTime.to, tz);
+      // own list params, never the Time Scope (ux-polish design §8 calls 1-3); one page from story_list
+      const state = parseStoryList(sp);
+      const win = listWindow(state.dates, today);
+      const { fromIso, toIso } = daysToIso(win.from, win.to, tz);
+      const read = await loadStoryPage(db, account.id, { fromIso, toIso, tz, measured: state.measured, sort: state.sort, page: state.page, size: storyPageSize(state.sort) });
+      const props = { state, today, accountId: account.id, scope: scope.params };
+      if (read) return <StoriesTab stories={read.stories.map((x) => storyView(x, now))} items={read.items} days={read.days} page={read.page} {...props} />;
+      // before migration 20261027000001 is applied: the capped read of the window, the same state applied in TypeScript
       const { stories, truncated } = await loadStories(db, account.id, fromIso, toIso);
-      return <StoriesTab stories={buildStories(stories, now)} truncated={truncated} accountId={account.id} scope={scope.params} />;
+      return <StoriesTab {...pageStories(buildStories(stories, now), state, tz)} truncated={truncated} {...props} />;
     }
     default: {
       const fromDay = readFrom(scope.scope, today);
@@ -90,9 +98,10 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
       today={today}
       exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} time={scope} />}
     >
-      {/* key: a new tab, scope or filter is a new boundary, so its skeleton shows instead of the stale tab. Not the
-          Grid/Table view: the same posts stay on screen until the other view streams in. */}
-      <Suspense key={JSON.stringify({ ...sp, view: undefined })} fallback={<TabSkeleton tab={tab} />}>
+      {/* key: a new tab or Time Scope is a new boundary, so its skeleton shows instead of the stale tab. Not the list
+          params of Posts/Stories (LIST_KEYS, incl. the Grid/Table view): the toolbar stays mounted (the search box keeps
+          its focus) and the shown page stays until the next one streams in, with the top progress bar running. */}
+      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries(LIST_KEYS.map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>
         <TabContent tab={tab} account={account} sp={sp} scope={scope} />
       </Suspense>
     </AccountView>

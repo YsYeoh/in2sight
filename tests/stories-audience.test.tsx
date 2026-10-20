@@ -8,12 +8,14 @@ import { AudienceTab } from '@/components/account/AudienceTab';
 import { StoriesTab } from '@/components/account/StoriesTab';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { buildAudience } from '@/lib/dashboard/audience';
-import { buildStories } from '@/lib/dashboard/content';
+import { buildStories, type StoryView } from '@/lib/dashboard/content';
+import { ALL_TIME } from '@/lib/dashboard/lists';
 import type { StoryRow } from '@/lib/dashboard/detail-read';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 
 const motion = vi.hoisted(() => ({ heavy: false }));
 vi.mock('@/lib/motion', () => ({ useHeavyMotion: () => motion.heavy }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) })); // the toolbar's selects navigate
 beforeEach(() => {
   motion.heavy = false;
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null); // jsdom has no canvas; the globe bails out
@@ -35,8 +37,9 @@ const snap = (capturedAt: string, views: number, exits: number) => ({ capturedAt
 const story = (id: string, postedAt: string, snapshots: ReturnType<typeof snap>[]): StoryRow => ({ id, postedAt, expiresAt: new Date(Date.parse(postedAt) + 86_400_000).toISOString(), permalink: id === 's1' ? 'https://www.instagram.com/stories/x/1/' : null, snapshots });
 
 describe('StoriesTab', () => {
+  const tab = (stories: StoryView[], truncated = false) => <StoriesTab stories={stories} items={stories.length} days={stories.length} page={1} state={{ dates: ALL_TIME, measured: null, sort: 'newest', page: 1 }} today="2026-10-15" truncated={truncated} />;
   it('zero stories: an empty state that explains why', () => {
-    wrap(<StoriesTab stories={[]} />);
+    wrap(tab([]));
     expect(screen.getByRole('status')).toHaveTextContent(en.pages.account.stories.empty);
   });
 
@@ -45,7 +48,7 @@ describe('StoriesTab', () => {
       [story('s1', '2026-10-15T01:00:00Z', [snap('2026-10-15T01:30:00Z', 10, 1), snap('2026-10-15T02:00:00Z', 20, 2)]), story('s2', '2026-10-13T01:00:00Z', [snap('2026-10-13T23:30:00Z', 50, 5)]), story('s3', '2026-10-12T01:00:00Z', [])],
       NOW,
     );
-    wrap(<StoriesTab stories={stories} />);
+    wrap(tab(stories));
     const cards = screen.getAllByRole('listitem');
     expect(cards).toHaveLength(3);
     expect(within(cards[0]).getByText(en.pages.account.stories.live)).toBeInTheDocument();
@@ -60,7 +63,7 @@ describe('StoriesTab', () => {
 
   it('a capped range says so', () => {
     const stories = buildStories([story('s9', '2026-10-15T01:00:00Z', [])], NOW);
-    wrap(<StoriesTab stories={stories} truncated />);
+    wrap(tab(stories, true));
     expect(screen.getByRole('status')).toHaveTextContent('Showing the newest 1 Stories.');
   });
 });
