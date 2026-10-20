@@ -17,7 +17,7 @@ import { startProgress } from '@/components/shared/NavigationProgress';
 import { NavLink } from '@/components/shared/NavLink';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DeltaPill, StatCard } from '@/components/shared/StatCard';
-import { TimeScopeBar, useBucketFormat, useScopeText } from '@/components/shared/TimeScopeBar';
+import { RangeBar, useBucketFormat, useScopeText } from '@/components/shared/RangeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -243,7 +243,7 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
   const header = (
     <>
       <PageHeader title={t('title')} subtitle={t('subtitle')} actions={exportButton} />
-      <TimeScopeBar scope={model.scope} today={today} />
+      <RangeBar scope={model.scope} today={today} />
     </>
   );
 

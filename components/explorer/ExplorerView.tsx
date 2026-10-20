@@ -21,7 +21,7 @@ import { LoadingButton } from '@/components/shared/LoadingButton';
 import { formHref, startProgress } from '@/components/shared/NavigationProgress';
 import { NavLink } from '@/components/shared/NavLink';
 import { PageHeader } from '@/components/shared/PageHeader';
-import { TimeScopeBar } from '@/components/shared/TimeScopeBar';
+import { RangeBar } from '@/components/shared/RangeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -346,7 +346,7 @@ export function ExplorerView({ data, today, views, save, rename, remove }: { dat
         </p>
       ) : null}
       <Crumbs data={data} />
-      <TimeScopeBar scope={data.scope} today={today} keep={Object.fromEntries(explorerParams(s))} />
+      <RangeBar scope={data.scope} today={today} keep={Object.fromEntries(explorerParams(s))} />
       {data.live.length === 0 ? (
         <EmptyState
           icon={<CircleUserRound className="size-5" aria-hidden />}

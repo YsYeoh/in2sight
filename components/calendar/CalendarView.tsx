@@ -13,7 +13,7 @@ import { usePrefs } from '@/components/providers/PrefsProvider';
 import { formHref, startProgress } from '@/components/shared/NavigationProgress';
 import { MediaThumb } from '@/components/shared/MediaThumb';
 import { PageHeader } from '@/components/shared/PageHeader';
-import { TimeScopeBar, useScopeText } from '@/components/shared/TimeScopeBar';
+import { RangeBar, useScopeText } from '@/components/shared/RangeBar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { weekdayOf } from '@/lib/analysis/best-time';
@@ -121,7 +121,7 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
         }
       />
 
-      <TimeScopeBar scope={scope} today={today} keep={keep} />
+      <RangeBar scope={scope} today={today} keep={keep} />
 
       <div className="mb-[var(--gp)] flex items-center justify-between gap-2">
         {prev ? (

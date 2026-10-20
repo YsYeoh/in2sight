@@ -102,7 +102,7 @@ describe('AccountView', () => {
     const q = 'from=2026-09-01&to=2026-09-30&cmp=yoy';
     expect(screen.getByRole('link', { name: en.pages.account.back })).toHaveAttribute('href', `/overview?${q}`);
     expect(screen.getByRole('link', { name: en.pages.account.calendar })).toHaveAttribute('href', `/calendar?account=${ID}&${q}`);
-    expect(screen.getByRole('link', { name: '7d' })).toHaveAttribute('href', '?tab=overview&from=7d&cmp=yoy');
+    expect(screen.getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?tab=overview&from=7d&cmp=yoy');
     await user.click(screen.getByRole('tab', { name: 'Posts' }));
     expect(push).toHaveBeenCalledWith(`?tab=posts&${q}`, { scroll: false });
     cleanup();

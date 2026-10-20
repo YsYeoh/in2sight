@@ -53,14 +53,14 @@ describe('OverviewView', () => {
     view(buildOverview({ accounts: [], sync: {}, daily: {}, posts: {} }, opts('', 'UTC')));
     expect(screen.getAllByRole('status')[1]).toHaveTextContent(en.pages.overview.empty);
     expect(screen.getByRole('link', { name: en.pages.overview.addAccount })).toHaveAttribute('href', '/accounts');
-    expect(screen.getByRole('link', { name: '30d' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: en.timeScope.preset['30d'] })).toHaveAttribute('aria-current', 'page');
   });
 
   it('totals with comparisons, group sections then isolated accounts', () => {
     view();
     const totals = screen.getByRole('region', { name: en.pages.overview.allAccounts });
     expect(within(totals).getByText(en.metrics.reach)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '7d' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('aria-current', 'page');
     expect(screen.getAllByText('vs previous 7 days').length).toBeGreaterThan(0); // the cards that have a comparison
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
     expect(headings.slice(0, 2)).toEqual([expect.stringContaining('Brand X'), expect.stringContaining(en.pages.overview.isolated)]);
@@ -126,7 +126,7 @@ describe('OverviewView', () => {
   it('renders in Simplified Chinese', () => {
     view(undefined, 'zh-CN');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('总览');
-    expect(screen.getByRole('link', { name: '7天' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: zh.timeScope.preset['7d'] })).toBeInTheDocument();
     expect(screen.getAllByText('对比前 7 天').length).toBeGreaterThan(0);
   });
 });

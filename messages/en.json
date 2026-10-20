@@ -849,8 +849,8 @@
   "timeScope": {
     "label": "Time range",
     "presets": "Quick ranges",
-    "preset": { "7d": "7d", "14d": "14d", "30d": "30d", "90d": "90d", "6m": "6m", "1y": "1y", "ytd": "YTD", "all": "All" },
-    "presetLong": { "7d": "Last 7 days", "14d": "Last 14 days", "30d": "Last 30 days", "90d": "Last 90 days", "6m": "Last 6 months", "1y": "Last 12 months", "ytd": "Year to date", "all": "All data" },
+    "preset": { "7d": "Last 7 Days", "14d": "Last 14 Days", "30d": "Last 30 Days", "90d": "Last 90 days", "6m": "Last 6 months", "1y": "Last 12 months", "ytd": "Year to date", "all": "All time" },
+    "presetLong": { "7d": "Last 7 days", "14d": "Last 14 days", "30d": "Last 30 days", "90d": "Last 90 days", "6m": "Last 6 months", "1y": "Last 12 months", "ytd": "Year to date", "all": "All time" },
     "custom": "Custom",
     "customTitle": "Choose a time range",
     "customHint": "Days start at midnight in your timezone ({tz}).",
