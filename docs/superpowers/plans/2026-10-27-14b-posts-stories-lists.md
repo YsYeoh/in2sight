@@ -2422,3 +2422,768 @@ git commit -m "feat(stories): own filters, day pages from story_list (no 200 cap
 ```
 
 ---
+
+### Task 9: Posts tab end to end — component, the page's `case 'posts'`
+
+**Files:**
+- Modify: `components/account/PostsTab.tsx` (rewritten), `app/(app)/accounts/[id]/(tabs)/page.tsx` (`case 'posts'`, imports, one constant; 14a's `allTime` goes)
+- Modify tests: `tests/posts-tab.test.tsx` (rewritten), `tests/posts-grid.test.tsx`, `tests/account-drill.test.tsx` (last describe), `tests/navigation-start.test.tsx` (the Posts case), `tests/post-lab-links.test.tsx` (Posts describe), `tests/account-page.test.tsx`
+
+**Interfaces:**
+- Consumes: 14a `FilterToolbar`, `FilterSearch`, `FilterSelect`, `FilterChip`; `PostedFilter`, `usePostedName` (Task 7); `Pagination` (Task 5); `DataTable` `serverSort` (Task 6); `ALL_TIME`, `pageCount`, `POST_SORTS`, `postHref`, `postListParams`, `postPageSize`, `postSortFor`, `postSortOf`, `samePlace`, `PostListState`, `PostSort`, `PostSortKey`, `listWindow`, `pagePosts`, `parsePostList` (Task 3); `loadPostPage` (Task 4), `loadPostRows`, `loadTags`, `buildPosts`; i18n `pages.account.posts.*`, `pagination.*`, `filters.*`.
+- Produces: `PostsTab({ posts, total, page, state, tags, today, scope?, accountId?, setPostTags }: { posts: PostView[]; total: number; page: number; state: PostListState; tags: Tag[]; today: string; scope?: Record<string, string>; accountId?: string; setPostTags: SetPostTags })`. `POSTS_PAGE`, the `filters` and `view` props and the GET filter form are gone (`state.view` replaces `view`).
+
+- [ ] **Step 1: Write the failing tests**
+
+Replace `tests/posts-tab.test.tsx` with:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { PostsTab } from '@/components/account/PostsTab';
+import type { SetPostTags } from '@/components/account/TagPicker';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { Tag } from '@/lib/analysis/types';
+import type { PostView } from '@/lib/dashboard/content';
+import { ALL_TIME, type PostListState } from '@/lib/dashboard/lists';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const { push, replace } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace, prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); // Radix Checkbox measures itself
+  push.mockReset();
+  replace.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const T1 = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const TAGS: Tag[] = [{ id: T1, name: '🔥 Promo', color: 'chart-2' }];
+const NEWEST: PostListState = { dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null };
+const SCOPE = { from: '90d', cmp: 'yoy' }; // the page's Time Scope: carried in every list link, never a filter
+const post = (i: number, o: Partial<PostView> = {}): PostView => ({ id: `m${i}`, mediaType: 'IMAGE', postedAt: new Date(Date.UTC(2026, 8, 1) + i * 3_600_000).toISOString(), permalink: `https://www.instagram.com/p/m${i}/`, caption: `Caption ${i}`, reach: 100 + i, views: null, likes: i, comments: null, saves: null, shares: null, engagementRate: 0.01, tags: [], ...o });
+
+function view(posts: PostView[], o: { tags?: Tag[]; state?: PostListState; total?: number; page?: number; setPostTags?: SetPostTags } = {}) {
+  const setPostTags = o.setPostTags ?? vi.fn<SetPostTags>(async () => ({ ok: true }));
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <PostsTab posts={posts} total={o.total ?? posts.length} page={o.page ?? 1} state={o.state ?? NEWEST} tags={o.tags ?? TAGS} today="2026-10-17" scope={SCOPE} setPostTags={setPostTags} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return { setPostTags };
+}
+
+describe('PostsTab: server pages', () => {
+  it('shows the rows as given (one page), "51–100 of 1,234 posts", and page links that keep the filters and the scope; no "Show more"', () => {
+    view(Array.from({ length: 50 }, (_, i) => post(i)), { total: 1234, page: 2, state: { ...NEWEST, format: 'IMAGE', page: 2 } });
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('row')).toHaveLength(51); // + header row
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('Caption 0'); // the server's order, not re-sorted
+    expect(screen.getByText('51–100 of 1,234 posts')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: en.table.showMore })).toBeNull();
+    const nav = screen.getByRole('navigation', { name: en.pagination.label });
+    expect(nav).toHaveTextContent('Page 2 of 25');
+    expect(within(nav).getByRole('link', { name: en.pagination.next })).toHaveAttribute('href', '?tab=posts&format=IMAGE&page=3&from=90d&cmp=yoy');
+    expect(within(nav).getByRole('link', { name: en.pagination.previous })).toHaveAttribute('href', '?tab=posts&format=IMAGE&from=90d&cmp=yoy');
+  });
+
+  it('table headers Post, Reach, Views and Engagement rate use the server sort; the active one toggles direction; Likes is not sortable', () => {
+    view([post(1)], { state: { ...NEWEST, sort: 'reach' } });
+    const heads = within(screen.getByRole('table')).getAllByRole('columnheader');
+    const link = (name: string) => within(screen.getByRole('table')).getByRole('link', { name });
+    expect(link(en.pages.account.posts.post)).toHaveAttribute('href', '?tab=posts&from=90d&cmp=yoy'); // newest = the default
+    expect(link(en.metrics.reach)).toHaveAttribute('href', '?tab=posts&sort=reach_asc&from=90d&cmp=yoy');
+    expect(link(en.metrics.views)).toHaveAttribute('href', '?tab=posts&sort=views&from=90d&cmp=yoy');
+    expect(link(en.metrics.engagementRate)).toHaveAttribute('href', '?tab=posts&sort=engagement&from=90d&cmp=yoy');
+    expect(heads.find((h) => h.textContent === en.metrics.reach)).toHaveAttribute('aria-sort', 'descending');
+    expect(within(heads.find((h) => h.textContent === en.pages.account.posts.likes)!).queryByRole('link')).toBeNull();
+  });
+
+  it('null caption and permalink: placeholder text, no external link; a permalink opens with noopener', () => {
+    view([post(1, { caption: null, permalink: null }), post(2)]);
+    const table = screen.getByRole('table');
+    expect(within(table).getByText(en.pages.account.posts.noCaption)).toBeInTheDocument();
+    const external = within(table).getAllByRole('link').filter((a) => a.getAttribute('target') === '_blank');
+    expect(external).toHaveLength(1);
+    expect(external[0]).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(external[0]).toHaveAttribute('href', 'https://www.instagram.com/p/m2/');
+  });
+});
+
+describe('PostsTab: filters', () => {
+  it('a toolbar: search, Posted, Format, Tag, Sort (one control height) and Grid | Table; the current values are shown', () => {
+    view([], { state: { ...NEWEST, q: 'cat', format: 'REELS', tag: T1, sort: 'engagement' } });
+    const bar = screen.getByRole('group', { name: en.pages.account.posts.filters });
+    expect(within(bar).getByRole('searchbox', { name: en.pages.account.posts.search })).toHaveValue('cat');
+    expect(within(bar).getByRole('button', { name: 'Posted: All time' })).toHaveAttribute('data-size', 'default');
+    expect(within(bar).getByRole('combobox', { name: en.pages.account.posts.format })).toHaveValue('REELS');
+    expect(within(bar).getByRole('combobox', { name: en.pages.account.posts.tag })).toHaveValue(T1);
+    expect(within(bar).getByRole('combobox', { name: en.pages.account.posts.sort })).toHaveValue('engagement');
+    for (const s of within(bar).getAllByRole('combobox')) expect(s).toHaveClass('h-[var(--ctl)]');
+    expect(within(bar).getAllByRole('group', { name: en.pages.account.posts.view })[0]).toHaveClass('h-[var(--ctl)]');
+    expect(screen.getAllByText(en.pages.account.posts.empty).length).toBeGreaterThan(0);
+  });
+
+  it('every pick applies at once and goes back to page 1, keeping the other filters, the view and the scope', async () => {
+    const user = userEvent.setup();
+    view([post(1)], { page: 3, state: { ...NEWEST, q: 'cat', view: 'grid', page: 3 } });
+    await user.selectOptions(screen.getByRole('combobox', { name: en.pages.account.posts.format }), 'REELS');
+    expect(push).toHaveBeenLastCalledWith('?tab=posts&q=cat&format=REELS&view=grid&from=90d&cmp=yoy', { scroll: false });
+    await user.selectOptions(screen.getByRole('combobox', { name: en.pages.account.posts.tag }), 'untagged');
+    expect(push).toHaveBeenLastCalledWith('?tab=posts&q=cat&tag=untagged&view=grid&from=90d&cmp=yoy', { scroll: false });
+    await user.selectOptions(screen.getByRole('combobox', { name: en.pages.account.posts.sort }), 'views_asc');
+    expect(push).toHaveBeenLastCalledWith('?tab=posts&q=cat&sort=views_asc&view=grid&from=90d&cmp=yoy', { scroll: false });
+    await user.type(screen.getByRole('searchbox', { name: en.pages.account.posts.search }), 's{Enter}');
+    expect(replace).toHaveBeenLastCalledWith('?tab=posts&q=cats&view=grid&from=90d&cmp=yoy', { scroll: false }); // typing adds no history entries
+  });
+
+  it('active filters are chips that remove one each; Clear all keeps the sort, the view and the scope', () => {
+    view([post(1)], { state: { dates: { pr: '90d', from: null, to: null }, q: 'cat', format: 'REELS', tag: T1, sort: 'reach', page: 2, view: 'table' } });
+    const chips = screen.getByRole('list', { name: en.filters.active });
+    const rest = `sort=reach&view=table&from=90d&cmp=yoy`;
+    expect(within(chips).getAllByRole('link').map((a) => [a.getAttribute('aria-label'), a.getAttribute('href')])).toEqual([
+      ['Remove filter Search: cat', `?tab=posts&pr=90d&format=REELS&tag=${T1}&${rest}`],
+      ['Remove filter Last 90 days', `?tab=posts&q=cat&format=REELS&tag=${T1}&${rest}`],
+      ['Remove filter Reel', `?tab=posts&pr=90d&q=cat&tag=${T1}&${rest}`],
+      ['Remove filter 🔥 Promo', `?tab=posts&pr=90d&q=cat&format=REELS&${rest}`],
+    ]);
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toHaveAttribute('href', `?tab=posts&${rest}`);
+  });
+});
+
+describe('PostsTab: tags', () => {
+  it('tag picker: saves the chosen tags through the server action; an error key is translated', async () => {
+    const user = userEvent.setup();
+    const setPostTags = vi.fn<SetPostTags>().mockResolvedValueOnce({ ok: false, error: 'not_found' }).mockResolvedValueOnce({ ok: true });
+    view([post(1)], { setPostTags });
+    const table = screen.getByRole('table');
+    await user.click(within(table).getByRole('button', { name: /Edit tags of/ }));
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
+    expect(setPostTags).toHaveBeenCalledWith('m1', [T1]);
+    expect(await screen.findByRole('alert')).toHaveTextContent(en.pages.tags.errors.not_found);
+    await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument()); // the save transition closes it
+  });
+
+  it('no tags yet: the picker links to the Tags page', async () => {
+    const user = userEvent.setup();
+    view([post(1)], { tags: [] });
+    await user.click(within(screen.getByRole('table')).getByRole('button', { name: /Edit tags of/ }));
+    expect(screen.getByRole('link', { name: en.pages.account.posts.manageTags })).toHaveAttribute('href', '/tags');
+  });
+});
+```
+
+Existing tests — exact replacements (Edit tool). `ROUTER` = the line given in Task 8.
+
+`tests/posts-grid.test.tsx` — replace each `old` (it occurs once) with `new`:
+
+1. old:
+```tsx
+import type { PostFilters, PostsView, PostView } from '@/lib/dashboard/content';
+```
+   new:
+```tsx
+import type { PostsView, PostView } from '@/lib/dashboard/content';
+import { ALL_TIME, type PostListState } from '@/lib/dashboard/lists';
+```
+
+2. old:
+```tsx
+import { DEFAULT_PREFS } from '@/lib/prefs';
+```
+   new:
+```tsx
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) })); // the toolbar's selects navigate
+```
+
+3. old:
+```tsx
+const NONE: PostFilters = { format: null, tag: null, from: null, to: null };
+```
+   new:
+```tsx
+const NEWEST: PostListState = { dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null };
+```
+
+4. old:
+```tsx
+function tab(o: { view?: PostsView | null; filters?: PostFilters; accountId?: string;
+```
+   new:
+```tsx
+function tab(o: { view?: PostsView | null; state?: Partial<PostListState>; accountId?: string;
+```
+
+5. old:
+```tsx
+<PostsTab posts={o.posts ?? [reel]} total={1} tags={TAGS} filters={o.filters ?? NONE} scope={{ from: '90d', cmp: 'yoy' }} accountId={o.accountId} view={o.view} setPostTags={setPostTags} />
+```
+   new:
+```tsx
+<PostsTab posts={o.posts ?? [reel]} total={1} page={1} state={{ ...NEWEST, ...o.state, view: o.view ?? null }} tags={TAGS} today="2026-10-17" scope={{ from: '90d', cmp: 'yoy' }} accountId={o.accountId} setPostTags={setPostTags} />
+```
+
+6. old:
+```tsx
+    tab({ view: 'grid', filters: { format: 'REELS', tag: T1, from: null, to: null } });
+```
+   new:
+```tsx
+    tab({ view: 'grid', state: { format: 'REELS', tag: T1 } });
+```
+
+7. old:
+```tsx
+    expect(table).toHaveAttribute('href', `?tab=posts&format=REELS&tag=${T1}&from=90d&cmp=yoy&view=table`);
+```
+   new:
+```tsx
+    expect(table).toHaveAttribute('href', `?tab=posts&format=REELS&tag=${T1}&view=table&from=90d&cmp=yoy`);
+```
+
+8. old:
+```tsx
+  it('a chosen view is kept by the filter form and its Reset link', () => {
+    const { container } = tab({ view: 'grid' });
+    const form = container.querySelector('form')!;
+    expect(Object.fromEntries([...form.querySelectorAll<HTMLInputElement>('input[type=hidden]')].map((i) => [i.name, i.value]))).toEqual({ tab: 'posts', from: '90d', cmp: 'yoy', view: 'grid' });
+    expect(screen.getByRole('link', { name: en.pages.account.posts.reset })).toHaveAttribute('href', '?tab=posts&from=90d&cmp=yoy&view=grid');
+  });
+```
+   new:
+```tsx
+  it('a chosen view is kept by every list link (here a chip and Clear all)', () => {
+    tab({ view: 'grid', state: { format: 'REELS' } });
+    expect(screen.getByRole('link', { name: 'Remove filter Reel' })).toHaveAttribute('href', '?tab=posts&view=grid&from=90d&cmp=yoy');
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toHaveAttribute('href', '?tab=posts&view=grid&from=90d&cmp=yoy');
+  });
+```
+
+9. old:
+```tsx
+  it('with an account, the tile date drills into the Explorer item level, keeping the scope', () => {
+```
+   new:
+```tsx
+  it('with an account, the tile date drills into the Explorer item level (no range: ux-polish §8 call 1)', () => {
+```
+
+10. old:
+```tsx
+toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42&from=90d&cmp=yoy`);
+```
+   new:
+```tsx
+toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42`);
+```
+
+`tests/account-drill.test.tsx` — replace each `old` (it occurs once) with `new`:
+
+1. old:
+```tsx
+import type { PostView } from '@/lib/dashboard/content';
+```
+   new:
+```tsx
+import type { PostView } from '@/lib/dashboard/content';
+import { ALL_TIME } from '@/lib/dashboard/lists';
+```
+
+2. old:
+```tsx
+  it('each post opens its single-item level in the Explorer, keeping the scope', () => {
+```
+   new:
+```tsx
+  it('each post opens its single-item level in the Explorer, with no range (ux-polish §8 call 1)', () => {
+```
+
+3. old:
+```tsx
+    wrap(<PostsTab posts={[row]} total={1} tags={[]} filters={{ format: null, tag: null, from: null, to: null }} scope={{ from: '90d' }} accountId={A} setPostTags={vi.fn()} />);
+```
+   new:
+```tsx
+    wrap(<PostsTab posts={[row]} total={1} page={1} state={{ dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null }} tags={[]} today="2026-10-17" scope={{ from: '90d' }} accountId={A} setPostTags={vi.fn()} />);
+```
+
+4. old:
+```tsx
+toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42&from=90d`);
+```
+   new:
+```tsx
+toHaveAttribute('href', `/explorer?m=posts%2CavgReach%2CpostEngagementRate&by=post&acc=${A}&fmt=REELS&item=42`);
+```
+
+`tests/navigation-start.test.tsx` — replace each `old` (it occurs once) with `new`:
+
+1. old:
+```tsx
+import { buildCalendar } from '@/lib/dashboard/calendar';
+```
+   new:
+```tsx
+import { buildCalendar } from '@/lib/dashboard/calendar';
+import { ALL_TIME } from '@/lib/dashboard/lists';
+```
+
+2. old:
+```tsx
+  it('submitting the Posts filters starts the bar (next/form GET, no method attribute needed)', () => {
+    const { container } = wrap(<PostsTab posts={[]} total={0} tags={[]} filters={{ format: 'REELS', tag: null, from: null, to: null }} setPostTags={vi.fn()} />);
+    const form = container.querySelector('form')!;
+    expect(form.method).toBe('get');
+    fireEvent.submit(form);
+    expect(started).toHaveBeenCalledOnce();
+  });
+```
+   new:
+```tsx
+  it('picking a Posts filter starts the bar, then pushes the list URL', () => {
+    wrap(<PostsTab posts={[]} total={0} page={1} state={{ dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null }} tags={[]} today="2026-10-15" setPostTags={vi.fn()} />);
+    fireEvent.change(screen.getByRole('combobox', { name: en.pages.account.posts.format }), { target: { value: 'REELS' } });
+    expect(started).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledWith('?tab=posts&format=REELS', { scroll: false });
+  });
+```
+
+(If 14a left `keep={{ tab: 'overview' }}` on the `AccountView` in this file, remove that prop too — 14a dropped it; list it as a deviation.)
+
+`tests/post-lab-links.test.tsx` — replace each `old` (it occurs once) with `new`:
+
+1. old:
+```tsx
+const LAB = `/accounts/${A}/media/42?from=90d`;
+```
+   new:
+```tsx
+const LAB = `/accounts/${A}/media/42`; // no range (ux-polish §8 call 1)
+```
+
+2. old:
+```tsx
+  it('a flask link per row and tile, and "Open Post Lab" in the drawer, all with the scope', async () => {
+```
+   new:
+```tsx
+  it('a flask link per row and tile, and "Open Post Lab" in the drawer, none with a range', async () => {
+```
+
+3. old:
+```tsx
+    wrap(<PostsTab posts={[reel]} total={1} tags={[]} filters={{ format: null, tag: null, from: null, to: null }} scope={{ from: '90d' }} accountId={A} setPostTags={vi.fn()} />);
+```
+   new:
+```tsx
+    wrap(<PostsTab posts={[reel]} total={1} page={1} state={{ dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null }} tags={[]} today="2026-10-15" scope={{ from: '90d' }} accountId={A} setPostTags={vi.fn()} />);
+```
+
+4. old:
+```tsx
+    wrap(<PostsTab posts={[reel]} total={1} tags={[]} filters={{ format: null, tag: null, from: null, to: null }} setPostTags={vi.fn()} />);
+```
+   new:
+```tsx
+    wrap(<PostsTab posts={[reel]} total={1} page={1} state={{ dates: ALL_TIME, q: '', format: null, tag: null, sort: 'newest', page: 1, view: null }} tags={[]} today="2026-10-15" setPostTags={vi.fn()} />);
+```
+
+`tests/account-page.test.tsx` (as Task 8 left it):
+- hoisted state: add `postArgs: [] as Record<string, unknown>[]` and `posts: true` inside `migrated` (`migrated: { stories: true, posts: true }`), destructure `postArgs`; in `beforeEach` add `postArgs.length = 0;` and `migrated.posts = true;`.
+- in the `vi.mock('@/lib/dashboard/detail-read', …)` object add:
+
+```ts
+  loadPostPage: async (_db: unknown, _id: string, a: Record<string, unknown>) => {
+    if (fail.postRows) throw new Error('db down');
+    return calls.push('postPage'), postArgs.push(a), migrated.posts ? { rows: [], total: 0, page: 1 } : null;
+  },
+```
+- in the test `'posts view: ?view=grid|table is passed to the tab; …'`: `ReactElement<{ view: string | null }>).props.view` → `ReactElement<{ state: { view: string | null } }>).props.state.view` (both lines: `grid` and `junk`).
+- in `'posts tab loads only its own data (posts with tags + tag list)'`: `['postRows', 'tags']` → `['postPage', 'tags']`.
+- delete the whole test `'Posts read All time, newest first, whatever the scope (until Task 9)'` (14a's, renamed by Task 8); remove `dayStart` from the `@/lib/sync/time` import if nothing else uses it.
+- append at the end of the file:
+
+```ts
+describe('account page: Posts list (Plan 14b)', () => {
+  type PostsEl = ReactElement<{ state: unknown; page: number; total: number; today: string; scope: Record<string, string> }>;
+  it('own list params, never the Time Scope: the posted window in the owner timezone, one page of post_list', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
+    try {
+      accounts.push(acct(ID));
+      const tz = DEFAULT_PREFS.timezone;
+      const el = (await streamTab(await run(ID, { tab: 'posts', pfrom: '2026-10-01', pto: '2026-10-09', q: ' cat ', format: 'REELS', tag: 'untagged', sort: 'engagement_asc', page: '2', view: 'grid', from: '7d' }))) as PostsEl;
+      expect(postArgs).toEqual([{ ...daysToIso('2026-10-01', '2026-10-09', tz), q: 'cat', format: 'REELS', tag: 'untagged', sort: { key: 'engagement', asc: true }, page: 2, size: 24 }]);
+      expect(el.props).toMatchObject({ state: { q: 'cat', sort: 'engagement_asc', page: 2, view: 'grid' }, page: 1, total: 0, today: '2026-10-17', scope: { from: '7d' } });
+      expect(calls).not.toContain('postRows'); // no full read once the migration is applied
+      await streamTab(await run(ID, { tab: 'posts' })); // All time = the MAX_DAYS floor, newest first, 50 per page
+      expect(postArgs.at(-1)).toMatchObject({ ...daysToIso('2021-10-14', '2026-10-17', tz), q: '', format: null, tag: null, sort: { key: 'date', asc: false }, page: 1, size: 50 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('before the migration (function missing): every post of the same window, the state applied in TypeScript', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z'));
+    try {
+      accounts.push(acct(ID));
+      migrated.posts = false;
+      const el = (await streamTab(await run(ID, { tab: 'posts', pr: 'year', page: '3' }))) as PostsEl;
+      expect(calls).toEqual(expect.arrayContaining(['postPage', 'postRows']));
+      expect(since.at(-1)).toBe(daysToIso('2026-01-01', '2026-10-17', DEFAULT_PREFS.timezone).fromIso);
+      expect(el.props).toMatchObject({ total: 0, page: 1 }); // page 3 of nothing = page 1
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/posts-tab.test.tsx tests/posts-grid.test.tsx tests/account-drill.test.tsx tests/navigation-start.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx`
+Expected: FAIL — `page`/`state`/`today` are not props (tsc), no "Post filters" toolbar, Explorer/Post Lab links still carry the range, the page never calls `loadPostPage`.
+
+- [ ] **Step 3: Implement**
+
+`components/account/PostsTab.tsx` — replace the whole file with:
+
+```tsx
+'use client';
+
+import type { ReactElement } from 'react';
+import Link from 'next/link';
+import { ExternalLink, FlaskConical, LayoutGrid, Table2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { PostedFilter, usePostedName } from '@/components/account/PostedFilter';
+import { TagPicker, type SetPostTags } from '@/components/account/TagPicker';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { DataTable, type Column } from '@/components/shared/DataTable';
+import { FilterSearch, FilterSelect, FilterToolbar, type FilterChip } from '@/components/shared/FilterToolbar';
+import { MediaDrawer } from '@/components/shared/MediaDrawer';
+import { MediaThumb } from '@/components/shared/MediaThumb';
+import { NavLink } from '@/components/shared/NavLink';
+import { Pagination } from '@/components/shared/Pagination';
+import { TagBadge } from '@/components/shared/TagBadge';
+import { Button } from '@/components/ui/button';
+import { FEED_FORMATS } from '@/lib/analysis/posts';
+import type { Tag } from '@/lib/analysis/types';
+import type { FeedFormat, PostsView, PostView } from '@/lib/dashboard/content';
+import { ALL_TIME, pageCount, POST_SORTS, postHref, postListParams, postPageSize, postSortFor, postSortOf, samePlace, type PostListState, type PostSort, type PostSortKey } from '@/lib/dashboard/lists';
+import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
+import { formatCompact, formatDateTime, formatNumber, formatPercent } from '@/lib/format';
+import { postLabHref } from '@/lib/post-lab/params';
+import { cn } from '@/lib/utils';
+
+const TRIGGER = 'rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring';
+/** Table columns that have a server sort (ux-polish design §8 call 7); the others are not sortable. */
+const SORT_COLUMNS: Record<string, PostSortKey> = { post: 'date', reach: 'reach', views: 'views', er: 'engagement' };
+
+/** Grid | Table as links (URL state like the filters, so Back and shared links keep it): one segmented control, --ctl high. */
+function ViewToggle({ current, href, className }: { current: PostsView; href: (v: PostsView) => string; className?: string }) {
+  const t = useTranslations('pages.account.posts');
+  return (
+    <div role="group" aria-label={t('view')} className={cn('flex h-[var(--ctl)] items-center gap-0.5 rounded-md border border-input p-0.5', className)}>
+      {(['grid', 'table'] as const).map((v) => {
+        const Icon = v === 'grid' ? LayoutGrid : Table2;
+        return (
+          <Button key={v} asChild size="sm" variant={v === current ? 'secondary' : 'ghost'}>
+            <Link href={href(v)} scroll={false} aria-current={v === current ? 'true' : undefined}>
+              <Icon aria-hidden="true" />
+              {t(v)}
+            </Link>
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** One page of posts. `total` = how many match the filters; `page` = the page shown; `state` = the list's URL state
+ *  (lib/dashboard/lists.ts); `today` = the owner's day (date filter). `scope` = the page's Time Scope params, carried in
+ *  every list link (never a filter here). `accountId` set: each post links to its single-item level in the Explorer and
+ *  to its Post Lab (no range: ux-polish design §8 call 1). `state.view`: grid or table; null = automatic (grid below md,
+ *  table from md). Every cover opens the post's drawer. */
+export function PostsTab({
+  posts,
+  total,
+  page,
+  state,
+  tags,
+  today,
+  scope = {},
+  accountId,
+  setPostTags,
+}: {
+  posts: PostView[];
+  total: number;
+  page: number;
+  state: PostListState;
+  tags: Tag[];
+  today: string;
+  scope?: Record<string, string>;
+  accountId?: string;
+  setPostTags: SetPostTags;
+}) {
+  const t = useTranslations('pages.account.posts');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const tx = useTranslations('media');
+  const tl = useTranslations('postLab');
+  const { prefs } = usePrefs();
+  const posted = usePostedName(state.dates, today);
+  const count = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
+  const label = (p: PostView) => `${ta(`format.${p.mediaType}`)} · ${formatDateTime(p.postedAt, prefs)}`;
+  const href = (patch: Partial<PostListState>) => postHref(state, patch, scope);
+  const size = postPageSize(state.view);
+  const viewHref = (v: PostsView) => href({ view: v, page: samePlace(page, size, postPageSize(v)) });
+  const sort = postSortOf(state.sort);
+  const tagName = (id: string) => (id === 'untagged' ? t('untagged') : (tags.find((x) => x.id === id)?.name ?? id));
+  const chips: FilterChip[] = [
+    ...(state.q ? [{ id: 'q', label: t('searchChip', { q: state.q }), href: href({ q: '' }) }] : []),
+    ...(state.dates.pr || state.dates.from || state.dates.to ? [{ id: 'posted', label: posted, href: href({ dates: ALL_TIME }) }] : []),
+    ...(state.format ? [{ id: 'format', label: ta(`format.${state.format}`), href: href({ format: null }) }] : []),
+    ...(state.tag ? [{ id: 'tag', label: tagName(state.tag), href: href({ tag: null }) }] : []),
+  ];
+  const explorer = (p: PostView) => explorerHref(parseExplorerState({ by: 'post', acc: accountId, fmt: p.mediaType, item: p.id }), '');
+  /** The post's Post Lab: a small flask link next to the title / date (accessible name = "Open the Post Lab of …"). */
+  const labLink = (p: PostView) =>
+    accountId ? (
+      <Link href={postLabHref(accountId, p.id)} aria-label={tl('openFor', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
+        <FlaskConical aria-hidden="true" className="size-3.5" />
+      </Link>
+    ) : null;
+
+  // one drawer per post (content mounts only while open), opened by the cover button of a tile or a table row
+  const detail = (p: PostView, trigger: ReactElement) => (
+    <MediaDrawer
+      media={p}
+      title={label(p)}
+      description={p.caption ?? t('noCaption')}
+      permalink={p.permalink}
+      stats={[
+        { label: tm('reach'), value: formatCompact(p.reach, prefs) },
+        { label: tm('views'), value: formatCompact(p.views, prefs) },
+        { label: tm('engagementRate'), value: formatPercent(p.engagementRate, prefs) },
+        { label: t('likes'), value: count(p.likes) },
+        { label: t('comments'), value: count(p.comments) },
+        { label: t('saves'), value: count(p.saves) },
+        { label: t('shares'), value: count(p.shares) },
+      ]}
+      trigger={trigger}
+      action={
+        accountId ? (
+          <Button asChild size="sm">
+            <Link href={postLabHref(accountId, p.id)}>
+              <FlaskConical aria-hidden="true" />
+              {tl('open')}
+            </Link>
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        <span className="mr-1 text-xs text-muted-foreground">{t('tags')}</span>
+        {p.tags.map((tag) => (
+          <TagBadge key={tag.id} tag={tag} />
+        ))}
+        <TagPicker postId={p.id} label={label(p)} tags={tags} selected={p.tags.map((x) => x.id)} setPostTags={setPostTags} />
+      </div>
+    </MediaDrawer>
+  );
+
+  const tile = (p: PostView) => (
+    <div className="grid min-w-0 gap-1">
+      {detail(
+        p,
+        <button type="button" aria-label={tx('details', { name: label(p) })} className={cn('block w-full', TRIGGER)}>
+          <MediaThumb media={p} className="aspect-[4/5]" />
+        </button>,
+      )}
+      {accountId ? (
+        <span className="flex min-w-0 items-center justify-between gap-1">
+          <NavLink href={explorer(p)} className="truncate text-xs font-medium underline-offset-4 hover:underline">
+            {formatDateTime(p.postedAt, prefs)}
+          </NavLink>
+          {labLink(p)}
+        </span>
+      ) : (
+        <span className="truncate text-xs font-medium">{formatDateTime(p.postedAt, prefs)}</span>
+      )}
+      <dl className="grid grid-cols-2 gap-x-2 text-xs">
+        <div className="min-w-0">
+          <dt className="truncate text-muted-foreground">{tm('reach')}</dt>
+          <dd className="truncate font-medium tabular-nums">{formatCompact(p.reach, prefs)}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="truncate text-muted-foreground">{tm('engagementRate')}</dt>
+          <dd className="truncate font-medium tabular-nums">{formatPercent(p.engagementRate, prefs)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+
+  const columns: Column<PostView>[] = [
+    {
+      key: 'post',
+      header: t('post'),
+      cell: (p) => (
+        <span className="flex min-w-0 items-center gap-2">
+          {detail(
+            p,
+            <button type="button" aria-label={tx('details', { name: label(p) })} className={cn('shrink-0', TRIGGER)}>
+              <MediaThumb media={p} className="aspect-square w-9" badges={false} />
+            </button>,
+          )}
+          <span className="flex min-w-0 flex-col">
+            <span className="flex min-w-0 items-center gap-1.5">
+              {accountId ? (
+                <NavLink href={explorer(p)} className="truncate underline-offset-4 hover:underline">
+                  {label(p)}
+                </NavLink>
+              ) : (
+                <span className="truncate">{label(p)}</span>
+              )}
+              {p.permalink ? (
+                <a href={p.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
+                  <ExternalLink aria-hidden="true" className="size-3.5" />
+                </a>
+              ) : null}
+              {labLink(p)}
+            </span>
+            <span className="truncate text-xs font-normal text-muted-foreground" dir="auto">
+              {p.caption ?? t('noCaption')}
+            </span>
+          </span>
+        </span>
+      ),
+    },
+    { key: 'reach', header: tm('reach'), cell: (p) => formatCompact(p.reach, prefs), align: 'right' },
+    { key: 'views', header: tm('views'), cell: (p) => formatCompact(p.views, prefs), align: 'right' },
+    { key: 'likes', header: t('likes'), cell: (p) => count(p.likes), align: 'right' },
+    { key: 'comments', header: t('comments'), cell: (p) => count(p.comments), align: 'right' },
+    { key: 'saves', header: t('saves'), cell: (p) => count(p.saves), align: 'right' },
+    { key: 'shares', header: t('shares'), cell: (p) => count(p.shares), align: 'right' },
+    { key: 'er', header: tm('engagementRate'), cell: (p) => formatPercent(p.engagementRate, prefs), align: 'right' },
+    {
+      key: 'tags',
+      header: t('tags'),
+      cell: (p) => (
+        <span className="flex min-w-0 flex-wrap items-center gap-1">
+          {p.tags.map((tag) => (
+            <TagBadge key={tag.id} tag={tag} />
+          ))}
+          <TagPicker postId={p.id} label={label(p)} tags={tags} selected={p.tags.map((x) => x.id)} setPostTags={setPostTags} />
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      {/* the custom-dates form keeps every other parameter as hidden fields */}
+      <FilterToolbar
+        label={t('filters')}
+        chips={chips}
+        clearHref={href({ q: '', dates: ALL_TIME, format: null, tag: null })}
+        end={
+          state.view ? (
+            <ViewToggle current={state.view} href={viewHref} />
+          ) : (
+            <>
+              {/* automatic: the toggle shows the view each width gets (CSS only); a choice applies at every width */}
+              <ViewToggle current="grid" href={viewHref} className="md:hidden" />
+              <ViewToggle current="table" href={viewHref} className="max-md:hidden" />
+            </>
+          )
+        }
+      >
+        <FilterSearch id="posts-q" label={t('search')} placeholder={t('search')} value={state.q} hrefFor={(q) => href({ q })} />
+        <PostedFilter id="posts-posted" dates={state.dates} today={today} hrefFor={(dates) => href({ dates })} hidden={postListParams({ ...state, dates: ALL_TIME, page: 1 }, scope)} />
+        <FilterSelect id="posts-format" label={t('format')} value={state.format ?? ''} options={[{ value: '', label: t('all') }, ...FEED_FORMATS.map((f) => ({ value: f, label: ta(`format.${f}`) }))]} hrefFor={(v) => href({ format: (v || null) as FeedFormat | null })} />
+        <FilterSelect id="posts-tag" label={t('tag')} value={state.tag ?? ''} options={[{ value: '', label: t('all') }, { value: 'untagged', label: t('untagged') }, ...tags.map((x) => ({ value: x.id, label: x.name }))]} hrefFor={(v) => href({ tag: v || null })} />
+        <FilterSelect id="posts-sort" label={t('sort')} value={state.sort} options={POST_SORTS.map((v) => ({ value: v, label: t(`sorts.${v}`) }))} hrefFor={(v) => href({ sort: v as PostSort })} />
+      </FilterToolbar>
+      {total > 0 ? (
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {t('range', { first: count((page - 1) * size + 1), last: count((page - 1) * size + posts.length), total: count(total) })}
+        </p>
+      ) : null}
+      <DataTable
+        rows={posts}
+        columns={columns}
+        rowKey={(p) => p.id}
+        caption={t('caption')}
+        empty={t('empty')}
+        tile={tile}
+        view={state.view ?? 'auto'}
+        serverSort={{
+          current: { key: Object.keys(SORT_COLUMNS).find((k) => SORT_COLUMNS[k] === sort.key) ?? 'post', dir: sort.asc ? 'asc' : 'desc' },
+          href: (key) => (SORT_COLUMNS[key] ? href({ sort: postSortFor(SORT_COLUMNS[key], SORT_COLUMNS[key] === sort.key ? !sort.asc : false) }) : null),
+        }}
+      />
+      <Pagination page={page} pages={pageCount(total, size)} hrefFor={(p) => href({ page: p })} />
+    </div>
+  );
+}
+```
+
+`app/(app)/accounts/[id]/(tabs)/page.tsx`:
+- imports: add `loadPostPage` to the `@/lib/dashboard/detail-read` import; the `@/lib/dashboard/lists` import becomes `import { LIST_KEYS, listWindow, pagePosts, pageStories, parsePostList, parseStoryList, postPageSize, postSortOf, storyPageSize } from '@/lib/dashboard/lists';`; drop `parsePostFilters` and `parsePostsView` from the `@/lib/dashboard/content` import, and `resolveScope`/`dayStart` from theirs if nothing else in the file uses them (eslint says).
+- after `type SearchParams = …;` add: `const NO_FILTERS = { format: null, tag: null, from: null, to: null }; // post_list already filtered the page`
+- delete 14a's `allTime` constant and its comment in `TabContent`;
+- replace the whole `case 'posts': { … }` block with:
+
+```tsx
+    case 'posts': {
+      // own list params, never the Time Scope (ux-polish design §8 calls 1-3); one page from post_list
+      const state = parsePostList(sp);
+      const win = listWindow(state.dates, today);
+      const { fromIso, toIso } = daysToIso(win.from, win.to, tz);
+      const [read, tags] = await Promise.all([
+        loadPostPage(db, account.id, { fromIso, toIso, q: state.q, format: state.format, tag: state.tag, sort: postSortOf(state.sort), page: state.page, size: postPageSize(state.view) }),
+        loadTags(db),
+      ]);
+      // the imported server action is passed straight to the client component (never wrapped in a closure here)
+      const props = { tags, state, today, scope: scope.params, accountId: account.id, setPostTags: setPostTagsAction };
+      if (read) return <PostsTab posts={buildPosts(read.rows, tags, NO_FILTERS, tz)} total={read.total} page={read.page} {...props} />;
+      // before migration 20261027000001 is applied: every post of the window (loadPostRows), the same state applied in TypeScript
+      const rows = await loadPostRows(db, account.id, fromIso);
+      return <PostsTab {...pagePosts(buildPosts(rows, tags, { format: state.format, tag: state.tag, from: win.from, to: win.to, q: state.q }, tz), state)} {...props} />;
+    }
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/posts-tab.test.tsx tests/posts-grid.test.tsx tests/account-drill.test.tsx tests/navigation-start.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx tests/data-table-server-sort.test.tsx tests/posted-filter.test.tsx tests/route-loading.test.tsx tests/messages.test.ts` and `npx tsc --noEmit` and `npx eslint components/account/PostsTab.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/posts-tab.test.tsx tests/posts-grid.test.tsx tests/account-drill.test.tsx tests/navigation-start.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx`
+Expected: PASS (`posts-tab`: 8 tests; `account-page` +2); typecheck and eslint clean (`posts-tab` is known slow: rerun alone on a timeout).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/account/PostsTab.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/posts-tab.test.tsx tests/posts-grid.test.tsx tests/account-drill.test.tsx tests/navigation-start.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx
+git commit -m "feat(posts): own filters and search, server sort and pages from post_list" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
