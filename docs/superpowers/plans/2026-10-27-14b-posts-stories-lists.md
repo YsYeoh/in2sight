@@ -1969,3 +1969,456 @@ git commit -m "feat(lists): PostedFilter (quick dates + custom dates, own URL pa
 ```
 
 ---
+
+### Task 8: Stories tab end to end — component, the page's `case 'stories'`, the Suspense key
+
+**Files:**
+- Modify: `components/account/StoriesTab.tsx` (rewritten), `app/(app)/accounts/[id]/(tabs)/page.tsx` (`case 'stories'`, two import lines, the Suspense key)
+- Create: `tests/stories-list.test.tsx`
+- Modify tests: `tests/stories-filmstrip.test.tsx`, `tests/stories-audience.test.tsx` (StoriesTab describe), `tests/post-lab-links.test.tsx` (router mock + Stories describe), `tests/account-page.test.tsx`
+
+**Interfaces:**
+- Consumes: 14a `FilterToolbar`, `FilterSelect`, `FilterChip`; `PostedFilter`, `usePostedName` (Task 7); `Pagination` (Task 5); `ALL_TIME`, `pageCount`, `STORY_SORTS`, `storyHref`, `storyListParams`, `storyPageSize`, `StoryListState`, `StorySort`, `LIST_KEYS`, `listWindow`, `pageStories`, `parseStoryList` (Task 3); `storyView`, `buildStories`, `storyDays` (content); `loadStoryPage` (Task 4), `loadStories`; i18n `pages.account.stories.*`, `pagination.*`, `filters.*`.
+- Produces: `StoriesTab({ stories, items, days, page, state, today, truncated?, accountId?, scope? }: { stories: StoryView[]; items: number; days: number; page: number; state: StoryListState; today: string; truncated?: boolean; accountId?: string; scope?: Record<string, string> })` — `scope` is now only carried in the list links (Post Lab links carry no range). The page's Suspense key ignores `LIST_KEYS`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/stories-list.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { StoriesTab } from '@/components/account/StoriesTab';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { buildStories, type StoryView } from '@/lib/dashboard/content';
+import type { StoryRow } from '@/lib/dashboard/detail-read';
+import { ALL_TIME, type StoryListState } from '@/lib/dashboard/lists';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  push.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const A = 'aaaaaaaa-0000-4000-8000-000000000001';
+const NOW = new Date('2026-10-15T04:00:00Z');
+const NEWEST: StoryListState = { dates: ALL_TIME, measured: null, sort: 'newest', page: 1 };
+const SCOPE = { from: '90d' }; // the page's Time Scope: carried, never a filter
+const story = (id: string, postedAt: string, views: number | null): StoryRow => ({ id, postedAt, expiresAt: null, permalink: null, cover: 'ok', snapshots: views === null ? [] : [{ capturedAt: postedAt, reach: views, views, replies: null, shares: null, interactions: null, tapsForward: null, tapsBack: null, exits: 1 }] });
+const STORIES = buildStories([story('s1', '2026-10-14T23:30:00Z', 40), story('s2', '2026-10-13T02:00:00Z', 10), story('s3', '2026-10-12T02:00:00Z', null)], NOW);
+
+function tab(o: { stories?: StoryView[]; state?: StoryListState; items?: number; days?: number; page?: number } = {}) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <StoriesTab stories={o.stories ?? STORIES} items={o.items ?? 3} days={o.days ?? 3} page={o.page ?? 1} state={o.state ?? NEWEST} today="2026-10-15" accountId={A} scope={SCOPE} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('Stories tab: filters', () => {
+  it('a toolbar with Posted, Sort and Numbers (no range bar, no search); defaults All time and newest first', () => {
+    tab();
+    const bar = screen.getByRole('group', { name: en.pages.account.stories.filters });
+    expect(within(bar).getByRole('button', { name: 'Posted: All time' })).toBeInTheDocument();
+    expect(within(bar).getByRole('combobox', { name: en.pages.account.stories.sort })).toHaveValue('newest');
+    expect(within(bar).getByRole('combobox', { name: en.pages.account.stories.measured })).toHaveValue('');
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(screen.queryByRole('navigation', { name: en.timeScope.presets })).toBeNull();
+    expect(within(bar).queryByRole('list', { name: en.filters.active })).toBeNull(); // nothing active, no chips
+  });
+
+  it('picking a sort or Numbers applies at once, back to page 1, keeping the other filters and the scope', async () => {
+    const user = userEvent.setup();
+    tab({ state: { ...NEWEST, dates: { pr: '30d', from: null, to: null }, page: 3 } });
+    await user.selectOptions(screen.getByRole('combobox', { name: en.pages.account.stories.sort }), 'exit');
+    expect(push).toHaveBeenLastCalledWith('?tab=stories&pr=30d&sort=exit&from=90d', { scroll: false });
+    await user.selectOptions(screen.getByRole('combobox', { name: en.pages.account.stories.measured }), 'no');
+    expect(push).toHaveBeenLastCalledWith('?tab=stories&pr=30d&measured=no&from=90d', { scroll: false });
+  });
+
+  it('active filters are chips that remove one each; Clear all keeps the sort and the scope', () => {
+    tab({ state: { dates: { pr: '7d', from: null, to: null }, measured: true, sort: 'views', page: 2 } });
+    const chips = screen.getByRole('list', { name: en.filters.active });
+    expect(within(chips).getByRole('link', { name: 'Remove filter Last 7 days' })).toHaveAttribute('href', '?tab=stories&measured=yes&sort=views&from=90d');
+    expect(within(chips).getByRole('link', { name: 'Remove filter Measured' })).toHaveAttribute('href', '?tab=stories&pr=7d&sort=views&from=90d');
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toHaveAttribute('href', '?tab=stories&sort=views&from=90d');
+  });
+
+  it('nothing matches the filters: says so, the toolbar stays to undo them', () => {
+    tab({ stories: [], items: 0, days: 0, state: { ...NEWEST, measured: false } });
+    expect(screen.getByRole('status')).toHaveTextContent(en.pages.account.stories.emptyFiltered);
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toBeInTheDocument();
+  });
+});
+
+describe('Stories tab: pages', () => {
+  it('newest: day strips, pages count days (7 per page); the page links keep every filter and the scope', () => {
+    tab({ items: 30, days: 20, page: 2, state: { ...NEWEST, measured: true, page: 2 } });
+    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(3);
+    const nav = screen.getByRole('navigation', { name: en.pagination.label });
+    expect(nav).toHaveTextContent('Page 2 of 3');
+    expect(within(nav).getByRole('link', { name: en.pagination.next })).toHaveAttribute('href', '?tab=stories&measured=yes&page=3&from=90d');
+    expect(within(nav).getByRole('link', { name: en.pagination.first })).toHaveAttribute('href', '?tab=stories&measured=yes&from=90d');
+  });
+
+  it('other sorts: one flat list in the given order, each frame with its date; pages count Stories (48 per page)', () => {
+    const byViews = [STORIES[0], STORIES[1], STORIES[2]];
+    tab({ stories: byViews, items: 100, days: 3, state: { ...NEWEST, sort: 'views' } });
+    expect(screen.queryAllByRole('heading', { level: 3 })).toHaveLength(0);
+    const list = screen.getByRole('list', { name: en.pages.account.stories.list });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(within(list).getAllByRole('listitem')[0]).getByText('15 Oct 2026 07:30')).toBeInTheDocument(); // date + time
+    expect(screen.getByRole('navigation', { name: en.pagination.label })).toHaveTextContent('Page 1 of 3');
+  });
+
+  it('one page: no page navigation; Post Lab links carry no range', () => {
+    tab();
+    expect(screen.queryByRole('navigation', { name: en.pagination.label })).toBeNull();
+    expect(screen.getAllByRole('link', { name: /^Open the Post Lab of/ })[0]).toHaveAttribute('href', `/accounts/${A}/media/s1`);
+  });
+});
+```
+
+Existing tests — exact text replacements (Edit tool; each `old` occurs once). `ROUTER` below means this line:
+`vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }) })); // the toolbar's selects navigate`
+
+`tests/stories-filmstrip.test.tsx`:
+- after `import { buildStories } from '@/lib/dashboard/content';` add `import { ALL_TIME } from '@/lib/dashboard/lists';`
+- after `import { DEFAULT_PREFS } from '@/lib/prefs';` add an empty line and `ROUTER`
+- `        <StoriesTab stories={STORIES} />` → `        <StoriesTab stories={STORIES} items={4} days={3} page={1} state={{ dates: ALL_TIME, measured: null, sort: 'newest', page: 1 }} today="2026-10-15" />`
+
+`tests/stories-audience.test.tsx` (14a already changed its wording to "3 Stories" / "Showing the newest 1 Stories."):
+- `import { buildStories } from '@/lib/dashboard/content';` → `import { buildStories, type StoryView } from '@/lib/dashboard/content';` + next line `import { ALL_TIME } from '@/lib/dashboard/lists';`
+- after `vi.mock('@/lib/motion', () => ({ useHeavyMotion: () => motion.heavy }));` add `ROUTER`
+- `describe('StoriesTab', () => {` → that line + next line `  const tab = (stories: StoryView[], truncated = false) => <StoriesTab stories={stories} items={stories.length} days={stories.length} page={1} state={{ dates: ALL_TIME, measured: null, sort: 'newest', page: 1 }} today="2026-10-15" truncated={truncated} />;`
+- `    wrap(<StoriesTab stories={[]} />);` → `    wrap(tab([]));`; `    wrap(<StoriesTab stories={stories} />);` → `    wrap(tab(stories));`; `    wrap(<StoriesTab stories={stories} truncated />);` → `    wrap(tab(stories, true));`
+
+`tests/post-lab-links.test.tsx` (the Posts describe is Task 9's):
+- after `import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';` add an empty line and `ROUTER`; after `import { buildStories, type PostView } from '@/lib/dashboard/content';` add `import { ALL_TIME } from '@/lib/dashboard/lists';`
+- `  it('each frame links to its Post Lab, and so does its drawer', async () => {` → `  it('each frame links to its Post Lab, and so does its drawer; no range rides along (ux-polish §8 call 1)', async () => {`
+- `    wrap(<StoriesTab stories={stories} accountId={A} scope={{ from: '7d' }} />);` → `    wrap(<StoriesTab stories={stories} items={1} days={1} page={1} state={{ dates: ALL_TIME, measured: null, sort: 'newest', page: 1 }} today="2026-10-15" accountId={A} scope={{ from: '7d' }} />);`
+- in the two Stories expectations `` `/accounts/${A}/media/9?from=7d` `` → `` `/accounts/${A}/media/9` `` (both lines).
+
+`tests/account-page.test.tsx` (as 14a left it):
+- hoisted state: add `storyArgs: [] as Record<string, unknown>[], migrated: { stories: true }` to the `vi.hoisted` object and to its destructuring; in `beforeEach` add `storyArgs.length = 0;` and `migrated.stories = true;`.
+- in the `vi.mock('@/lib/dashboard/detail-read', …)` object add:
+  `loadStoryPage: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('storyPage'), storyArgs.push(a), migrated.stories ? { stories: [], items: 0, days: 0, page: 1 } : null),`
+- replace the whole test `'the Suspense key changes with the query, so a new tab/period/filter shows its skeleton instead of the stale tab'` with:
+
+```ts
+  it('the Suspense key ignores the list params (the toolbar stays mounted, the search box keeps focus); a tab or Time Scope change re-keys', async () => {
+    accounts.push(acct(ID));
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    const stories = await key({ tab: 'stories' });
+    expect(await key({ tab: 'stories', pr: '7d', pfrom: '2026-10-01', pto: '2026-10-09', sort: 'views', measured: 'yes', page: '2' })).toBe(stories);
+    const posts = await key({ tab: 'posts' });
+    expect(await key({ tab: 'posts', q: 'cat', format: 'REELS', tag: 'untagged', sort: 'reach', page: '3', view: 'grid' })).toBe(posts);
+    expect(new Set([stories, posts, await key({ tab: 'stories', from: '90d' })]).size).toBe(3);
+  });
+```
+- in the `it.each` "%s tab loads only its own data": `['stories', 'stories']` → `['stories', 'storyPage']`.
+- in 14a's test `'Posts and Stories read All time, newest first, whatever the scope (they get their own filters in Plan 14b)'` delete the two Stories lines (`await streamTab(await run(ID, { tab: 'stories', ...sp }));` and the `expect(storiesFrom.at(-1))…` line) and rename it `'Posts read All time, newest first, whatever the scope (until Task 9)'` (Task 9 replaces it).
+- append at the end of the file:
+
+```ts
+describe('account page: Stories list (Plan 14b)', () => {
+  type StoriesEl = ReactElement<{ state: unknown; page: number; items: number; days: number; today: string; truncated?: boolean; scope: Record<string, string> }>;
+  it('own list params, never the Time Scope: the posted window in the owner timezone, one page of story_list', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
+    try {
+      accounts.push(acct(ID));
+      const tz = DEFAULT_PREFS.timezone;
+      const el = (await streamTab(await run(ID, { tab: 'stories', pr: '7d', sort: 'exit', measured: 'no', page: '2', from: '2026-09-01', to: '2026-09-30' }))) as StoriesEl;
+      expect(storyArgs).toEqual([{ ...daysToIso('2026-10-11', '2026-10-17', tz), tz, measured: false, sort: 'exit', page: 2, size: 48 }]);
+      expect(el.props).toMatchObject({ state: { dates: { pr: '7d', from: null, to: null }, measured: false, sort: 'exit', page: 2 }, page: 1, items: 0, days: 0, today: '2026-10-17', scope: { from: '2026-09-01', to: '2026-09-30' } });
+      expect(calls).not.toContain('stories'); // no capped read once the migration is applied
+      await streamTab(await run(ID, { tab: 'stories' })); // All time = the MAX_DAYS floor, newest pages by 7 days
+      expect(storyArgs.at(-1)).toMatchObject({ ...daysToIso('2021-10-14', '2026-10-17', tz), sort: 'newest', page: 1, size: 7, measured: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('before the migration (function missing): the capped read of the same window, the state applied in TypeScript', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z'));
+    try {
+      accounts.push(acct(ID));
+      migrated.stories = false;
+      const el = (await streamTab(await run(ID, { tab: 'stories', pr: '30d', page: '4' }))) as StoriesEl;
+      expect(calls).toContain('storyPage');
+      expect(storiesFrom).toEqual([daysToIso('2026-09-18', '2026-10-17', DEFAULT_PREFS.timezone).fromIso]);
+      expect(el.props).toMatchObject({ items: 0, days: 0, page: 1, truncated: false }); // page 4 of nothing = page 1
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+```
+
+`StoriesTab` and `account-page` imports needed by the appended describe: `ReactElement` is already imported; add `daysToIso` to the `@/lib/sync/time` import if 14a did not (14a Task 6 adds it).
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/stories-list.test.tsx tests/stories-filmstrip.test.tsx tests/stories-audience.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx`
+Expected: FAIL — no "Story filters" toolbar; `items`/`state` are not props (tsc); the Post Lab links still carry `?from=7d`; the page never calls `loadStoryPage`; the Suspense key changes with `sort`.
+
+- [ ] **Step 3: Implement**
+
+`components/account/StoriesTab.tsx` — replace the whole file with:
+
+```tsx
+'use client';
+
+// Stories as a filmstrip per owner-timezone day (creator-toolkit spec §4): days newest first, the Stories of a day in
+// the order they played, left to right. Each frame is its cover (it opens the Story's drawer) with the key numbers
+// under it; the views curve lives in the drawer (a frame is too narrow for it). With the account id, each Story links to
+// its Post Lab (the drawer's action and a small flask link; no range, ux-polish design §8 call 1).
+// Own filters (Plan 14b): posted date, sort, measured; "Newest" pages by 7 whole days, the other sorts are a flat list
+// of 48 Stories per page, each frame showing its date. The list state is the URL (lib/dashboard/lists.ts).
+import Link from 'next/link';
+import { ExternalLink, Film, FlaskConical } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { Sparkline } from '@/components/charts/Sparkline';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { PostedFilter, usePostedName } from '@/components/account/PostedFilter';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { FilterSelect, FilterToolbar, type FilterChip } from '@/components/shared/FilterToolbar';
+import { MediaDrawer } from '@/components/shared/MediaDrawer';
+import { MediaThumb } from '@/components/shared/MediaThumb';
+import { Pagination } from '@/components/shared/Pagination';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { storyDays, type StoryView } from '@/lib/dashboard/content';
+import { ALL_TIME, pageCount, STORY_SORTS, storyHref, storyListParams, storyPageSize, type StoryListState, type StorySort } from '@/lib/dashboard/lists';
+import { formatCompact, formatDateTime, formatDay, formatNumber, formatPercent, formatTime } from '@/lib/format';
+import { postLabHref } from '@/lib/post-lab/params';
+
+/** `withDate`: the flat list (sorted by views or exit rate) shows the date with the time; the filmstrip has day headings. */
+function Frame({ s, lab, withDate = false }: { s: StoryView; lab: string | null; withDate?: boolean }) {
+  const t = useTranslations('pages.account.stories');
+  const tm = useTranslations('metrics');
+  const ta = useTranslations('analysis');
+  const tx = useTranslations('media');
+  const tl = useTranslations('postLab');
+  const { prefs } = usePrefs();
+  const f = s.final;
+  const title = `${ta('format.STORY')} · ${formatDateTime(s.postedAt, prefs)}`;
+  const hint = s.live ? t('liveHint', { count: s.snapshots }) : t('finalHint', { count: s.snapshots });
+  const media = { id: s.id, mediaType: 'STORY' as const, cover: s.cover, expired: !s.live };
+  const all = [
+    [tm('views'), formatCompact(f?.views ?? null, prefs)],
+    [tm('reach'), formatCompact(f?.reach ?? null, prefs)],
+    [t('replies'), formatNumber(f?.replies ?? null, prefs)],
+    [t('exitRate'), formatPercent(s.exitRate, prefs)],
+    [t('shares'), formatNumber(f?.shares ?? null, prefs)],
+    [t('tapsForward'), formatNumber(f?.tapsForward ?? null, prefs)],
+  ] as const;
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <MediaDrawer
+        media={media}
+        title={title}
+        description={s.reason ? ta(`reasons.${s.reason}`) : hint}
+        permalink={s.permalink}
+        stats={s.reason ? [] : all.map(([label, value]) => ({ label, value }))}
+        trigger={
+          <button type="button" aria-label={tx('details', { name: s.live ? title : `${title} · ${t('expired')}` })} className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <MediaThumb media={media} />
+          </button>
+        }
+        action={
+          lab ? (
+            <Button asChild size="sm">
+              <Link href={lab}>
+                <FlaskConical aria-hidden="true" />
+                {tl('open')}
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      >
+        {s.reason ? null : <Sparkline data={s.progression} className="text-chart-2" />}
+      </MediaDrawer>
+      <div className="flex min-w-0 items-center justify-between gap-1">
+        <span className="truncate text-xs font-medium tabular-nums">{withDate ? formatDateTime(s.postedAt, prefs) : formatTime(s.postedAt, prefs)}</span>
+        {s.live ? <Badge>{t('live')}</Badge> : null}
+      </div>
+      {s.reason ? (
+        <p className="text-xs text-muted-foreground">{ta(`reasons.${s.reason}`)}</p>
+      ) : (
+        <dl className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+          {all.slice(0, 4).map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="truncate text-muted-foreground">{label}</dt>
+              <dd className="truncate font-medium tabular-nums">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <div className="flex min-w-0 items-center justify-between gap-1 text-[10px] text-muted-foreground">
+        <span className="truncate">{hint}</span>
+        {lab ? (
+          <Link href={lab} aria-label={tl('openFor', { post: title })} className="shrink-0 hover:text-foreground">
+            <FlaskConical aria-hidden="true" className="size-3.5" />
+          </Link>
+        ) : null}
+        {s.permalink ? (
+          <a href={s.permalink} target="_blank" rel="noopener noreferrer" aria-label={t('open', { time: formatDateTime(s.postedAt, prefs) })} className="shrink-0 hover:text-foreground">
+            <ExternalLink aria-hidden="true" className="size-3.5" />
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const MEASURED = { '': null, yes: true, no: false } as const;
+
+/** One page of Stories. `items` / `days` = how many Stories / owner-timezone days match (the pages count days for
+ *  "Newest"); `page` = the page shown; `state` = the list's URL state; `today` = the owner's day (date filter).
+ *  `truncated`: the fallback read before the migration stopped at STORY_LIMIT; said out loud, never silent.
+ *  `scope` = the page's Time Scope params, carried in every list link (never a filter here).
+ *  `accountId` set: each Story links to its Post Lab. */
+export function StoriesTab({
+  stories,
+  items,
+  days,
+  page,
+  state,
+  today,
+  truncated = false,
+  accountId,
+  scope = {},
+}: {
+  stories: StoryView[];
+  items: number;
+  days: number;
+  page: number;
+  state: StoryListState;
+  today: string;
+  truncated?: boolean;
+  accountId?: string;
+  scope?: Record<string, string>;
+}) {
+  const t = useTranslations('pages.account.stories');
+  const { prefs } = usePrefs();
+  const posted = usePostedName(state.dates, today);
+  const href = (patch: Partial<StoryListState>) => storyHref(state, patch, scope);
+  const measured = state.measured === null ? '' : state.measured ? 'yes' : 'no';
+  const chips: FilterChip[] = [
+    ...(state.dates.pr || state.dates.from || state.dates.to ? [{ id: 'posted', label: posted, href: href({ dates: ALL_TIME }) }] : []),
+    ...(measured ? [{ id: 'measured', label: t(`measuredOptions.${measured}`), href: href({ measured: null }) }] : []),
+  ];
+  const lab = (s: StoryView) => (accountId ? postLabHref(accountId, s.id) : null);
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      <FilterToolbar label={t('filters')} chips={chips} clearHref={href({ dates: ALL_TIME, measured: null })}>
+        <PostedFilter id="stories-posted" dates={state.dates} today={today} hrefFor={(dates) => href({ dates })} hidden={storyListParams({ ...state, dates: ALL_TIME, page: 1 }, scope)} />
+        <FilterSelect id="stories-sort" label={t('sort')} value={state.sort} options={STORY_SORTS.map((v) => ({ value: v, label: t(`sorts.${v}`) }))} hrefFor={(v) => href({ sort: v as StorySort })} />
+        <FilterSelect id="stories-measured" label={t('measured')} value={measured} options={(['', 'yes', 'no'] as const).map((v) => ({ value: v, label: t(`measuredOptions.${v || 'all'}`) }))} hrefFor={(v) => href({ measured: MEASURED[v as keyof typeof MEASURED] })} />
+      </FilterToolbar>
+      {stories.length === 0 ? (
+        <EmptyState icon={<Film className="size-5" aria-hidden />} title={chips.length ? t('emptyFiltered') : t('empty')} description={t('emptyHint')} />
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">{t('summary', { count: formatNumber(items, prefs) })}</p>
+          {truncated ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              {t('truncated', { count: formatNumber(stories.length, prefs) })}
+            </p>
+          ) : null}
+          {state.sort === 'newest' ? (
+            storyDays(stories, prefs.timezone).map((d) => (
+              <section key={d.day} aria-labelledby={`stories-${d.day}`} className="grid min-w-0 gap-2">
+                <h3 id={`stories-${d.day}`} className="text-sm font-medium">
+                  {t('day', { date: formatDay(d.day, prefs), count: d.stories.length })}
+                </h3>
+                <ol className="flex min-w-0 snap-x gap-[var(--gp)] overflow-x-auto pb-2">
+                  {d.stories.map((s) => (
+                    <li key={s.id} className="w-32 shrink-0 snap-start sm:w-36">
+                      <Frame s={s} lab={lab(s)} />
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ))
+          ) : (
+            <ol aria-label={t('list')} className="grid grid-cols-2 gap-[var(--gp)] sm:grid-cols-4 lg:grid-cols-6">
+              {stories.map((s) => (
+                <li key={s.id} className="min-w-0">
+                  <Frame s={s} lab={lab(s)} withDate />
+                </li>
+              ))}
+            </ol>
+          )}
+          <Pagination page={page} pages={pageCount(state.sort === 'newest' ? days : items, storyPageSize(state.sort))} hrefFor={(p) => href({ page: p })} />
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+`app/(app)/accounts/[id]/(tabs)/page.tsx`:
+- imports: add `loadStoryPage` to the `@/lib/dashboard/detail-read` import; add `storyView` to the `@/lib/dashboard/content` import; add the line `import { LIST_KEYS, listWindow, pageStories, parseStoryList, storyPageSize } from '@/lib/dashboard/lists';`.
+- replace the whole `case 'stories': { … }` block of `TabContent` (14a's "All time" version) with:
+
+```tsx
+    case 'stories': {
+      // own list params, never the Time Scope (ux-polish design §8 calls 1-3); one page from story_list
+      const state = parseStoryList(sp);
+      const win = listWindow(state.dates, today);
+      const { fromIso, toIso } = daysToIso(win.from, win.to, tz);
+      const read = await loadStoryPage(db, account.id, { fromIso, toIso, tz, measured: state.measured, sort: state.sort, page: state.page, size: storyPageSize(state.sort) });
+      const props = { state, today, accountId: account.id, scope: scope.params };
+      if (read) return <StoriesTab stories={read.stories.map((x) => storyView(x, now))} items={read.items} days={read.days} page={read.page} {...props} />;
+      // before migration 20261027000001 is applied: the capped read of the window, the same state applied in TypeScript
+      const { stories, truncated } = await loadStories(db, account.id, fromIso, toIso);
+      return <StoriesTab {...pageStories(buildStories(stories, now), state, tz)} truncated={truncated} {...props} />;
+    }
+```
+- replace the comment above the `<Suspense …>` and its `key` with:
+
+```tsx
+      {/* key: a new tab or Time Scope is a new boundary, so its skeleton shows instead of the stale tab. Not the list
+          params of Posts/Stories (LIST_KEYS, incl. the Grid/Table view): the toolbar stays mounted (the search box keeps
+          its focus) and the shown page stays until the next one streams in, with the top progress bar running. */}
+      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries(LIST_KEYS.map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>
+```
+- If `allTime` (14a) is now used only by `case 'posts'`, leave it there (Task 9 removes it).
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/stories-list.test.tsx tests/stories-filmstrip.test.tsx tests/stories-audience.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx tests/posted-filter.test.tsx tests/route-loading.test.tsx tests/messages.test.ts` and `npx tsc --noEmit` and `npx eslint components/account/StoriesTab.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/stories-list.test.tsx tests/stories-filmstrip.test.tsx tests/stories-audience.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx`
+Expected: PASS (`stories-list`: 7 tests; `account-page` +2); typecheck and eslint clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/account/StoriesTab.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/stories-list.test.tsx tests/stories-filmstrip.test.tsx tests/stories-audience.test.tsx tests/post-lab-links.test.tsx tests/account-page.test.tsx
+git commit -m "feat(stories): own filters, day pages from story_list (no 200 cap), flat list for other sorts" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
