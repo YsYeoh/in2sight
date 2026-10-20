@@ -3,6 +3,7 @@
 @import "tw-animate-css";
 @import "../styles/density.css";
 @import "../styles/loading.css";
+@import "../styles/scrollbar.css";
 
 /* dark: variant follows our attribute, not the OS setting */
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
