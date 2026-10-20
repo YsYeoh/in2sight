@@ -3,8 +3,10 @@
 // Sortable table on md+, card list on phones (CSS breakpoints only, both rendered; never matchMedia). With `tile`, a
 // grid of tiles replaces the phone cards ('auto') or the whole table ('grid'), sharing the sort and "Show more".
 // ponytail: client-side sort of already-loaded rows (≤ 500) + an optional "Show more" page; TanStack Table (SPEC §2)
-// comes in when server-side paging or column visibility is needed.
+// comes in when column visibility is needed. `serverSort`: the rows arrive sorted and paged by the server (Posts tab,
+// Plan 14b); the sortable headers are links to the server sort and the client sort, phone sort select and "Show more" are off.
 import { useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
@@ -21,6 +23,11 @@ export interface Column<T> {
 }
 
 type Sort = { key: string; dir: 'asc' | 'desc' } | null;
+/** Server-sorted rows: `current` marks the active header; `href(key)` = the link for that header (null = not sortable). */
+export interface ServerSort {
+  current: Sort;
+  href: (key: string) => string | null;
+}
 
 export function sortRows<T>(rows: T[], columns: Column<T>[], sort: Sort): T[] {
   const col = sort && columns.find((c) => c.key === sort.key);
@@ -38,12 +45,13 @@ export function sortRows<T>(rows: T[], columns: Column<T>[], sort: Sort): T[] {
 }
 
 /** `view` (with `tile` only): 'table' = table + phone cards (default), 'grid' = tiles at every width, 'auto' = tiles below md, the table from md. */
-export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null, pageSize, tile, view = 'table' }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort; pageSize?: number; tile?: (row: T) => ReactNode; view?: 'table' | 'grid' | 'auto' }) {
+export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = false, initialSort = null, pageSize, tile, view = 'table', serverSort }: { rows: T[]; columns: Column<T>[]; rowKey: (row: T) => string; caption: string; empty?: ReactNode; loading?: boolean; initialSort?: Sort; pageSize?: number; tile?: (row: T) => ReactNode; view?: 'table' | 'grid' | 'auto'; serverSort?: ServerSort }) {
   const t = useTranslations('table');
   const [sort, setSort] = useState<Sort>(initialSort);
   const [shown, setShown] = useState(pageSize ?? Number.POSITIVE_INFINITY);
-  const all = sortRows(rows, columns, sort);
-  const sorted = all.slice(0, shown); // sort everything, then show the first page: "Show more" never reorders
+  const all = serverSort ? rows : sortRows(rows, columns, sort);
+  const shownSort = serverSort ? serverSort.current : sort;
+  const sorted = serverSort ? all : all.slice(0, shown); // sort everything, then show the first page: "Show more" never reorders
   const [first, ...rest] = columns;
   const toggle = (key: string) => setSort((s) => (s?.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }));
   const sortable = columns.filter((c) => c.sortValue);
@@ -61,14 +69,25 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = 
             <TableHeader>
               <TableRow>
                 {columns.map((c) => {
-                  const active = sort?.key === c.key;
-                  const Icon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+                  const active = shownSort?.key === c.key;
+                  const Icon = active ? (shownSort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+                  const href = serverSort ? serverSort.href(c.key) : null;
+                  const head = cn('inline-flex items-center gap-1 rounded-sm text-xs font-medium outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active ? 'text-foreground' : 'text-muted-foreground');
+                  const label = (
+                    <>
+                      {c.header}
+                      <Icon aria-hidden="true" className={cn('size-3', !active && 'opacity-50')} />
+                    </>
+                  );
                   return (
-                    <TableHead key={c.key} aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn(c.align === 'right' && 'text-right')}>
-                      {c.sortValue ? (
-                        <button type="button" onClick={() => toggle(c.key)} className={cn('inline-flex items-center gap-1 rounded-sm text-xs font-medium outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active ? 'text-foreground' : 'text-muted-foreground')}>
-                          {c.header}
-                          <Icon aria-hidden="true" className={cn('size-3', !active && 'opacity-50')} />
+                    <TableHead key={c.key} aria-sort={active ? (shownSort.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn(c.align === 'right' && 'text-right')}>
+                      {href ? (
+                        <Link href={href} scroll={false} className={head}>
+                          {label}
+                        </Link>
+                      ) : !serverSort && c.sortValue ? (
+                        <button type="button" onClick={() => toggle(c.key)} className={head}>
+                          {label}
                         </button>
                       ) : (
                         <span className="text-xs font-medium text-muted-foreground">{c.header}</span>
@@ -102,7 +121,7 @@ export function DataTable<T>({ rows, columns, rowKey, caption, empty, loading = 
       )}
 
       <div className={cn('grid gap-[var(--gp)]', !gridOnly && 'md:hidden')}>
-        {sortable.length > 0 ? (
+        {sortable.length > 0 && !serverSort ? (
           <div className="flex items-center justify-end gap-2">
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               {t('sortBy')}
