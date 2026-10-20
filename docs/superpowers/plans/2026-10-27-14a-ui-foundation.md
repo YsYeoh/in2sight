@@ -986,3 +986,325 @@ git commit -m "feat(ui): RangeBar (Last 7/14/30 Days + More ranges) replaces Tim
 ```
 
 ---
+
+### Task 5: Control rules — Export trigger, Calendar account select, Settings tabs
+
+**Files:**
+- Modify: `components/export/ExportDialog.tsx`, `components/calendar/CalendarView.tsx`, `app/(app)/settings/page.tsx`
+- Test: `tests/export-dialog.test.tsx`, `tests/calendar.test.tsx` (one new test each)
+
+**Interfaces:**
+- Consumes: `TabsList variant="line"` (Task 2); `RangeBar` already in `CalendarView` (Task 4).
+- Produces: the Export trigger is a default-size control in every header (account page, Overview); the Calendar header's account select is `--ctl` high; Settings sections use underline tabs.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/export-dialog.test.tsx`:
+
+```tsx
+describe('ExportDialog trigger', () => {
+  it('is a default-size control, like every header action', () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+          <ExportDialog scopes={scopes} defaultScope="all" time={time()} />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveAttribute('data-size', 'default');
+  });
+});
+```
+
+Add inside `describe('CalendarView', …)` of `tests/calendar.test.tsx`:
+
+```tsx
+  it('header: the account select is a full-height control (one control height per row)', () => {
+    view(A1);
+    expect(screen.getByRole('combobox', { name: en.pages.calendar.account })).toHaveClass('h-[var(--ctl)]', 'text-sm');
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/export-dialog.test.tsx tests/calendar.test.tsx`
+Expected: FAIL — the trigger has `data-size="sm"`; the select has `h-[var(--ctl-sm)] … text-xs`.
+
+- [ ] **Step 3: Implement**
+- `ExportDialog.tsx`: the trigger `<Button variant="outline" size="sm">` → `<Button variant="outline">`.
+- `CalendarView.tsx`: the account select's class → `h-[var(--ctl)] max-w-48 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground`; its `<noscript>` submit button loses `size="sm"`. Nothing else (the period arrows are a row of their own and stay `sm`, the GET form stays: no router needed).
+- `app/(app)/settings/page.tsx`: `<TabsList>` → `<TabsList variant="line">`.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/export-dialog.test.tsx tests/calendar.test.tsx tests/calendar-page.test.tsx tests/calendar-covers.test.tsx tests/overview-view.test.tsx` and `npx eslint components/export/ExportDialog.tsx components/calendar/CalendarView.tsx "app/(app)/settings/page.tsx"`
+Expected: PASS; eslint clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/export/ExportDialog.tsx components/calendar/CalendarView.tsx "app/(app)/settings/page.tsx" tests/export-dialog.test.tsx tests/calendar.test.tsx
+git commit -m "fix(ui): one control height in header rows (Export, Calendar account select); Settings uses underline tabs" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Account page — Overview / Posts / Stories, Audience inside Overview, RangeBar on Overview only, Posts/Stories All time
+
+**Files:**
+- Modify: `lib/dashboard/account.ts`, `components/account/AccountView.tsx`, `components/account/AccountOverview.tsx`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `messages/en.json`, `messages/zh-CN.json` (four wording lines each)
+- Test: `tests/account-view.test.tsx`, `tests/account-page.test.tsx`, `tests/dashboard-account.test.ts`, `tests/stories-audience.test.tsx` (wording); `tests/route-loading.test.tsx` passes unchanged (it iterates `TABS`).
+
+**Interfaces:**
+- Consumes: `RangeBar` (Task 4), `TabsList variant="line"` (Task 2), `pages.account.audience.title` (Task 1), `AudienceTab`, `buildAudience`, `loadAudience` (unchanged), `resolveScope` (unchanged).
+- Produces:
+  - `lib/dashboard/account.ts`: `TABS = ['overview', 'posts', 'stories'] as const` (`Tab` follows; `parseTab('audience')` → `'overview'`).
+  - `AccountView({ account, tab, scope, today, exportButton?, children })` — the `keep` prop is gone; the RangeBar (no `keep`: Overview is the default tab) renders inside the Overview tab panel only, above `children`.
+  - `AccountOverview({ model, account?, audience? }: { …; audience?: AudienceModel })` — when `audience` is given, the last section is `<section id="audience" aria-labelledby="audience-title" className="grid min-w-0 scroll-mt-[var(--pg)] gap-[var(--gp)]">` with an `h2#audience-title` (`pages.account.audience.title`) and `<AudienceTab model={audience} />`.
+  - Page: `?tab=audience` → `redirect(\`/accounts/${account.id}${scope.query ? \`?${scope.query}\` : ''}#audience\`)` (after the account is found, so unknown ids still 404); the Overview tab also loads `loadAudience(db, account.id)`; Posts and Stories read `allTime = resolveScope({ range: 'all', cmp: 'none', gran: 'auto' }, today, scope.earliest).listRange` (Plan 14b replaces this).
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/dashboard-account.test.ts` — the `parseTab` test becomes:
+
+```ts
+describe('parseTab', () => {
+  it('accepts the three tabs only; the old Audience tab and injections fall back to overview', () => {
+    expect(TABS).toEqual(['overview', 'posts', 'stories']);
+    expect(['overview', 'posts', 'stories', 'audience'].map(parseTab)).toEqual(['overview', 'posts', 'stories', 'overview']);
+    for (const bad of [undefined, '', 'POSTS', 'settings', '<script>alert(1)</script>', 'posts ', ['posts', 'audience'], 42, '__proto__', 'constructor']) expect(parseTab(bad)).toBe('overview');
+  });
+});
+```
+(add `TABS` to the import from `@/lib/dashboard/account`).
+
+`tests/account-view.test.tsx`:
+- after the `next/navigation` mock add `vi.mock('@/lib/motion', async (orig) => ({ ...(await orig<object>()), useHeavyMotion: () => false }));` and add `import { buildAudience } from '@/lib/dashboard/audience';`;
+- `frame` becomes `const frame = (tab: 'overview' | 'posts' | 'stories', q = '', children = <p>panel</p>) => (<AccountView account={head} tab={tab} scope={scopeOf(q)} today={TODAY}>{children}</AccountView>);`
+- in "header, back link, …" add at the end: `for (const name of [en.pages.account.calendar, en.pages.account.instagram]) expect(screen.getByRole('link', { name })).toHaveAttribute('data-size', 'default'); // one size in the header row`
+- "tabs have tablist/tab/tabpanel roles…": expected names `['Overview', 'Posts', 'Stories']` and add `expect(list).toHaveAttribute('data-variant', 'line');`
+- "choosing a tab…": click `'Stories'` and expect `push` `'?tab=stories'` (the rest unchanged);
+- replace the test "the time scope travels: …; Audience has no bar" with:
+
+```tsx
+  it('the time scope travels (tabs, back link, calendar link); the range bar shows on Overview only, inside its panel', async () => {
+    const user = userEvent.setup();
+    const q = 'from=2026-09-01&to=2026-09-30&cmp=yoy';
+    wrap(frame('overview', q));
+    expect(screen.getByRole('link', { name: en.pages.account.back })).toHaveAttribute('href', `/overview?${q}`);
+    expect(screen.getByRole('link', { name: en.pages.account.calendar })).toHaveAttribute('href', `/calendar?account=${ID}&${q}`);
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?from=7d&cmp=yoy');
+    await user.click(screen.getByRole('tab', { name: 'Posts' }));
+    expect(push).toHaveBeenCalledWith(`?tab=posts&${q}`, { scroll: false });
+    for (const tab of ['posts', 'stories'] as const) {
+      cleanup();
+      wrap(frame(tab, 'from=90d'));
+      expect(screen.queryByRole('navigation', { name: en.timeScope.presets })).toBeNull();
+    }
+  });
+```
+- in `describe('AccountOverview', …)` add:
+
+```tsx
+  it('Audience is the last section of Overview (#audience); its snapshots say they are the latest snapshot', () => {
+    const audience = buildAudience({ age_gender: null, country: { day: '2026-10-14', data: { MY: 60, SG: 40 } }, city: null });
+    wrap(<AccountOverview model={buildAccountOverview(empty, opts)} audience={audience} />);
+    const section = screen.getByRole('region', { name: en.pages.account.audience.title });
+    expect(section).toHaveAttribute('id', 'audience');
+    expect(within(section).getByText('Latest snapshot, 14 Oct 2026')).toBeInTheDocument();
+    expect(within(section).getByText('Malaysia')).toBeInTheDocument();
+    expect(section.parentElement?.lastElementChild).toBe(section); // the last section of the page
+  });
+```
+
+`tests/account-page.test.tsx`:
+- hoisted state gains `storiesFrom: [] as string[]` (reset in `beforeEach`); the `next/navigation` mock gains `redirect: (url: string) => { throw new Error(\`NEXT_REDIRECT ${url}\`); },`; the `loadStories` mock becomes `loadStories: async (_db: unknown, _id: string, fromIso: string) => (calls.push('stories'), storiesFrom.push(fromIso), { stories: [], truncated: false }),`; import `daysToIso` next to `dayStart` from `@/lib/sync/time`.
+- "posts view: …" keeps its Suspense-key and `view` assertions and drops the three `keep` assertions (the `keep` prop is gone); title: `'posts view: ?view=grid|table is passed to the tab; the Suspense key ignores it'`.
+- "the scope is resolved once … Posts filters are kept (validated)" drops its `keep` assertion; title: `'the scope is resolved once with the first captured day'`.
+- replace "posts tab: \"all\" lists every stored post …" with:
+
+```ts
+  it('Posts and Stories read All time, newest first, whatever the scope (they get their own filters in Plan 14b)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z')); // 12:00 in the default timezone: the same day everywhere
+    try {
+      accounts.push(acct(ID));
+      const tz = DEFAULT_PREFS.timezone;
+      for (const sp of [{}, { from: '2026-09-01', to: '2026-09-30' }, { from: '7d' }]) {
+        const posts = (await streamTab(await run(ID, { tab: 'posts', ...sp }))) as ReactElement<{ filters: { from: string; to: string } }>;
+        expect(posts.props.filters).toMatchObject({ from: '2021-10-14', to: '2026-10-17' }); // MAX_DAYS back
+        expect(since.at(-1)).toBe(dayStart('2021-10-14', tz).toISOString());
+        await streamTab(await run(ID, { tab: 'stories', ...sp }));
+        expect(storiesFrom.at(-1)).toBe(daysToIso('2021-10-14', '2026-10-17', tz).fromIso);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+```
+- the `it.each` "%s tab loads only its own data" keeps only `['stories', 'stories']`;
+- add:
+
+```ts
+  it('the Overview also loads the audience snapshots and hands them to the page', async () => {
+    accounts.push(acct(ID));
+    const tab = (await streamTab(await run(ID))) as ReactElement<{ audience: { reason: string | null } }>;
+    expect(calls).toContain('audience');
+    expect(tab.props.audience).toMatchObject({ reason: 'needs_100_followers' }); // the mock has no snapshot
+  });
+
+  it('?tab=audience (old links) redirects to the Audience section of Overview, keeping the scope; unknown accounts still 404', async () => {
+    await expect(run(ID, { tab: 'audience' })).rejects.toThrow('NEXT_NOT_FOUND');
+    accounts.push(acct(ID));
+    await expect(run(ID, { tab: 'audience', from: '90d' })).rejects.toThrow(`NEXT_REDIRECT /accounts/${ID}?from=90d#audience`);
+    await expect(run(ID, { tab: 'audience' })).rejects.toThrow(`NEXT_REDIRECT /accounts/${ID}#audience`);
+  });
+```
+
+`tests/stories-audience.test.tsx` (wording only): `'3 Stories in this range'` → `'3 Stories'`; `'Showing the newest 1 Stories of this range. Pick a shorter range to see older ones.'` → `'Showing the newest 1 Stories.'`; and in the test "ranked countries …" add `expect(screen.getAllByText('Latest snapshot, 14 Oct 2026')).toHaveLength(3); // countries, cities, age and gender`.
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx tests/stories-audience.test.tsx`
+Expected: FAIL — `TABS` still has `audience`; four tabs render; the bar sits above the tabs on every tab; `audience` is not a prop of `AccountOverview`; no redirect; Posts follow the scope; the old wording.
+
+- [ ] **Step 3: Implement**
+- `lib/dashboard/account.ts`: `TABS = ['overview', 'posts', 'stories'] as const` with the comment `// Audience is the last section of Overview (ux-polish design §4.2); ?tab=audience redirects there`.
+- `messages/en.json` (text edits, whole lines): `"empty": "No Stories captured in this range",` → `"empty": "No Stories captured yet",`; `"summary": "{count} Stories in this range",` → `"summary": "{count} Stories",`; `"truncated": "Showing the newest {count} Stories of this range. Pick a shorter range to see older ones.",` → `"truncated": "Showing the newest {count} Stories.",`; `"asOf": "As of {date}",` → `"asOf": "Latest snapshot, {date}",`. `messages/zh-CN.json`: `"empty": "此范围内没有采集到快拍",` → `"empty": "还没有采集到快拍",`; `"summary": "此范围内共 {count} 条快拍",` → `"summary": "共 {count} 条快拍",`; `"truncated": "仅显示此范围内最新的 {count} 条快拍。选择更短的范围可查看更早的快拍。",` → `"truncated": "仅显示最新的 {count} 条快拍。",`; `"asOf": "数据日期：{date}",` → `"asOf": "最新快照：{date}",`.
+- `components/account/AccountView.tsx`: drop `keep`; header buttons lose `size="sm"` (both); `<TabsList variant="line" aria-label={t('tabs')}>` (no className); triggers keep `className="flex-none"`; remove the bar above the tabs; each `TabsContent` renders `v === tab ? (<>{v === 'overview' ? <RangeBar scope={scope} today={today} /> : null}{children}</>) : null`. Update the header comment (three tabs; the range bar lives in the Overview panel, outside the tab's Suspense boundary, so it stays usable while the tab streams).
+- `components/account/AccountOverview.tsx`: the `audience?: AudienceModel` prop and the section above (last child of the root grid; `import { AudienceTab } from '@/components/account/AudienceTab'`, `import type { AudienceModel } from '@/lib/dashboard/audience'`).
+- `components/account/TabSkeleton.tsx`: remove `case 'audience'`; the default (overview) skeleton gains a fourth `<SkeletonGrid count={2} className="lg:grid-cols-2" itemClassName="h-64" />` (the Audience cards); comment: "AudienceTab inside Overview".
+- `app/(app)/accounts/[id]/(tabs)/page.tsx`: import `redirect`; remove the top-level `filters`, `view` and `keep` and the `keep` prop; after `const scope = …` add the redirect line (Interfaces); in `TabContent` add, after `tz`:
+  ```ts
+  // Posts and Stories have no range of their own until Plan 14b: All time, newest first (the "all" list range, MAX_DAYS back)
+  const allTime = resolveScope({ range: 'all', cmp: 'none', gran: 'auto' }, today, scope.earliest).listRange;
+  ```
+  posts: `loadPostRows(db, account.id, dayStart(allTime.from, tz).toISOString())` and `filters = { ...parsePostFilters(sp), from: allTime.from, to: allTime.to }`; stories: `daysToIso(allTime.from, allTime.to, tz)`; remove `case 'audience'` (and the `AudienceTab` import); overview: add `loadAudience(db, account.id)` to its `Promise.all` and pass `audience={buildAudience(audience)}` to `AccountOverview`. Posts and Stories keep receiving `scope={scope.params}` (their Explorer / Post Lab links and the Posts filter form keep carrying the scope).
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx tests/stories-audience.test.tsx tests/route-loading.test.tsx tests/posts-tab.test.tsx tests/posts-grid.test.tsx tests/stories-filmstrip.test.tsx tests/account-drill.test.tsx tests/report-document.test.tsx tests/messages.test.ts` and `npx tsc --noEmit` and `npx eslint lib/dashboard/account.ts components/account/AccountView.tsx components/account/AccountOverview.tsx components/account/TabSkeleton.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx"`
+Expected: PASS; typecheck and eslint clean (`posts-tab` is known slow: rerun alone on a timeout). `grep -rn "tab=audience\|'audience'" app components lib` → only the redirect line and `lib/export` (`SECTIONS` keeps its `audience` export section).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/dashboard/account.ts components/account/AccountView.tsx components/account/AccountOverview.tsx components/account/TabSkeleton.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" messages/en.json messages/zh-CN.json tests/account-view.test.tsx tests/account-page.test.tsx tests/dashboard-account.test.ts tests/stories-audience.test.tsx
+git commit -m "feat(account): Overview / Posts / Stories underline tabs, Audience inside Overview, range bar on Overview only" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Explorer toolbar
+
+**Files:**
+- Create: `components/explorer/ExplorerToolbar.tsx`
+- Modify: `components/explorer/ExplorerView.tsx`
+- Test: `tests/explorer-view.test.tsx` (the "settings form" block is replaced by "toolbar" tests; one assertion added to the export test)
+
+**Interfaces:**
+- Consumes: `FilterToolbar`, `FilterPanel`, `FilterSelect`, `useApply`, `type FilterChip` (Task 3); `RangeBar` (Task 4); `explorer.metricsCount`, `filters.*` (Task 1); `explorerHref`, `explorerParams`, `withState`, `usable`, `FORMATS`, `MAX_METRICS`, `type ExplorerState` (`lib/explorer/state.ts`); `rowLabel` (`lib/explorer/labels.ts`); `DIMENSIONS`, `METRIC_IDS`, `type MetricId`, `type DimensionId` (`lib/metrics.ts`); `SavedViews`, `type SavedViewsProps`; `type ExplorerData` (type-only import, the client graph test forbids a runtime import of `lib/explorer/load`).
+- Produces: `ExplorerToolbar({ data, views, query, save, rename, remove }: { data: ExplorerData } & SavedViewsProps): JSX.Element`.
+  - `go(patch: Partial<ExplorerState>): string` = `explorerHref(withState(s, { ...patch, item: null }), data.scope.query)` — every change leaves the single-item level; every other part of the state is kept.
+  - `FilterToolbar label={t('controls')}` with children in this order: `FilterSelect id="x-by" label={t('groupBy')}` (DIMENSIONS, `t(\`by.${d}\`)`); a metrics `FilterPanel` (label `t('metricsCount', { count: s.metrics.length })`, title `t('metrics')`, description `t('metricsHint', { max: MAX_METRICS })`) holding one checkbox per `METRIC_IDS` entry (label `tm(id)`) and the `accountTotalsHint` line; an accounts `FilterPanel` (label `s.accounts.length ? t('accountsPicked', { count }) : t('allAccounts')`, title `t('accounts')`, `active` when any is picked) holding one checkbox per `data.live` account (`@username`); a saved-views `FilterPanel` (label and title `t('views.title')`) holding `<SavedViews views query save rename remove />`.
+  - `advanced`: `FilterSelect`s `x-chart` (`t('chartMetric')`, options `s.metrics`), `x-grp` (only when `data.groups.length`; `''` = `t('anyGroup')`), `x-fmt` (`''` = `t('anyFormat')`, then `FORMATS` incl. `STORY` = the Stories opt-in), `x-tag` (`''` = `t('anyTag')`, `untagged`, the tags), `x-wd` (`''` = `t('any')`, 0–6 `ta(\`weekday.${d}\`)`), `x-hr` (`''` = `t('any')`, 0–23 `formatHour`). `''` patches the part to `null`; weekday/hour values are `Number(v)`.
+  - `advancedCount` = the number of non-null `group`, `format`, `tag`, `weekday`, `hour`.
+  - `chips` (in this order, each `href = go({ <part>: <cleared> })`): one per picked account (`@username`, `accounts` without it), group, format (`ta(\`format.${f}\`)`), tag (`rowLabel('tag', …)`), weekday (`rowLabel('weekday', …)`), hour (`formatHour`). `clearHref = go({ accounts: [], group: null, format: null, tag: null, weekday: null, hour: null })`.
+  - `end`: `<Button asChild variant="ghost"><Link href={resetHref}>{t('reset')}</Link></Button>` with the existing reset patch (`metrics: [], accounts: [], group/format/tag/weekday/hour/item: null, by: 'account'`).
+  - Checkbox lists apply each tick at once (`apply(go({ metrics | accounts: next }))`) and keep the panel open; each list is its own small component holding a local copy of the picked ids (`useState(initial)`), rendered with `key={<the URL's list>.join()}` so it resets when the URL state changes. A metric box is disabled when `!usable(id, s)`, when it is unticked and `MAX_METRICS` are picked, or when it is the last ticked one.
+
+- [ ] **Step 1: Write the failing tests** — in `tests/explorer-view.test.tsx`, in "export sends the canonical view query…" add before the click: `expect(screen.getByRole('button', { name: 'Export view' })).toHaveAttribute('data-size', 'default');`, and replace the whole `describe('ExplorerView: settings form', …)` block with:
+
+```tsx
+describe('ExplorerView: toolbar', () => {
+  it('always visible: Break down by, metrics, accounts, saved views, Advanced and Reset; no Apply button; no left column', () => {
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    const bar = screen.getByRole('group', { name: 'Explorer settings' });
+    expect(within(bar).getByRole('combobox', { name: 'Break down by' })).toHaveValue('account');
+    for (const name of ['1 metric', 'All accounts', 'Saved views', 'Advanced']) expect(within(bar).getByRole('button', { name })).toHaveAttribute('data-size', 'default');
+    expect(within(bar).getByRole('link', { name: 'Reset' })).toHaveAttribute('href', '/explorer?m=reach%2CengagementRate%2Cposts%2CavgReach&by=account&from=90d');
+    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Tag' })).toBeNull(); // under Advanced
+    expect(document.querySelector('aside')).toBeNull();
+  });
+
+  it('Break down by applies as picked; metrics the new breakdown cannot show are dropped', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach,likes', by: 'account' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Break down by' }), 'format');
+    expect(push).toHaveBeenCalledWith('/explorer?m=likes&by=format', { scroll: false });
+  });
+
+  it('metrics: each tick applies at once and the panel stays open; the last metric cannot be removed', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    await user.click(screen.getByRole('button', { name: '1 metric' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Metrics' });
+    expect(within(dialog).getByRole('checkbox', { name: 'Reach' })).toBeDisabled();
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Likes' }));
+    expect(push).toHaveBeenCalledWith('/explorer?m=reach%2Clikes&by=account&from=90d', { scroll: false });
+    expect(within(dialog).getByRole('checkbox', { name: 'Likes' })).toBeChecked(); // ticks at once
+    expect(screen.getByRole('dialog', { name: 'Metrics' })).toBeInTheDocument();
+  });
+
+  it('accounts: ticking one applies at once; picked accounts are named on the button and as chips', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account', from: '90d' }));
+    await user.click(screen.getByRole('button', { name: 'All accounts' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Accounts' })).getByRole('checkbox', { name: '@beta' }));
+    expect(push).toHaveBeenCalledWith(`/explorer?m=reach&by=account&acc=${B}&from=90d`, { scroll: false });
+    cleanup();
+    view(data({ m: 'reach', by: 'account', acc: B }));
+    expect(screen.getByRole('button', { name: '1 account picked' })).toHaveAttribute('data-variant', 'secondary');
+    expect(screen.getByRole('link', { name: 'Remove filter @beta' })).toHaveAttribute('href', '/explorer?m=reach&by=account');
+  });
+
+  it('Advanced: a badge counts the active filters; a pick applies at once; chips remove one filter and keep the rest; Clear all', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'posts', by: 'hour', fmt: 'REELS', wd: '3', from: '90d' }));
+    expect(screen.getByRole('link', { name: `Remove filter ${en.analysis.format.REELS}` })).toHaveAttribute('href', '/explorer?m=posts&by=hour&wd=3&from=90d');
+    expect(screen.getByRole('link', { name: 'Remove filter Wed' })).toHaveAttribute('href', '/explorer?m=posts&by=hour&fmt=REELS&from=90d');
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toHaveAttribute('href', '/explorer?m=posts&by=hour&from=90d');
+    await user.click(screen.getByRole('button', { name: 'Advanced, 2 active' }));
+    const dialog = await screen.findByRole('dialog', { name: en.filters.advancedTitle });
+    expect(within(dialog).getByRole('combobox', { name: 'Weekday posted' })).toHaveValue('3');
+    expect(within(within(dialog).getByRole('combobox', { name: 'Format' })).getByRole('option', { name: en.analysis.format.STORY })).toBeInTheDocument(); // the Stories opt-in
+    expect(within(dialog).getByRole('combobox', { name: 'Group' })).toBeInTheDocument(); // data has a group
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Hour posted' }), '9');
+    expect(push).toHaveBeenCalledWith('/explorer?m=posts&by=hour&fmt=REELS&wd=3&hr=9&from=90d', { scroll: false });
+  });
+
+  it('saved views live in their own panel', async () => {
+    const user = userEvent.setup();
+    view(data({ m: 'reach', by: 'account' }));
+    await user.click(screen.getByRole('button', { name: en.explorer.views.title }));
+    const dialog = await screen.findByRole('dialog', { name: en.explorer.views.title });
+    expect(within(dialog).getByRole('button', { name: en.explorer.views.save })).toBeInTheDocument();
+  });
+});
+```
+(add `cleanup` to the `@testing-library/react` import).
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/explorer-view.test.tsx`
+Expected: FAIL — no "Explorer settings" group with those buttons (the old form is a `form` with an Apply button); the Export button is `sm`.
+
+- [ ] **Step 3: Implement**
+- Create `components/explorer/ExplorerToolbar.tsx` (`'use client'`) per the Interfaces block.
+- `ExplorerView.tsx`: delete `Controls`, `Hidden`, `SELECT` and the imports only they used (`Form`, `FormField`, `formHref`, `Card`, `CardContent`, `FORMATS`, `MAX_METRICS`, `usable`, `DIMENSIONS`, `METRIC_IDS`, `X`); remove the chips block from `Results` (the toolbar has them); the export `LoadingButton` loses `size="sm"`; the body becomes: `PageHeader` → export error → `Crumbs` → `RangeBar` (unchanged props) → empty state, or `<ExplorerToolbar data={data} views={views} query={query} save={save} rename={rename} remove={remove} />` followed by `<div className="min-w-0">` with the window line and the item panel / `Results`. Update the header comment ("toolbar: the URL is the only state; every pick applies at once").
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/explorer-view.test.tsx tests/explorer-item.test.tsx tests/explorer-post-lab-link.test.tsx tests/saved-views.test.tsx tests/explorer-state.test.ts` and `npx tsc --noEmit` and `npx eslint components/explorer/ExplorerToolbar.tsx components/explorer/ExplorerView.tsx`
+Expected: PASS (the client-module-graph test included); typecheck and eslint clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/explorer/ExplorerToolbar.tsx components/explorer/ExplorerView.tsx tests/explorer-view.test.tsx
+git commit -m "feat(explorer): toolbar layout (apply as you pick, Advanced, chips, Clear all) instead of the settings column" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
