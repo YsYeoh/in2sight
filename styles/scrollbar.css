@@ -1,0 +1,36 @@
+/*
+ * The standard scrollbar (docs/UI_STANDARDS.md): thin, rounded, quiet until the scroller is hovered, coloured from the
+ * theme's --foreground so every theme and mode matches. Un-layered like density.css. Applies to every scroller, so no
+ * component needs a class; `scrollbar-none` hides the bar where it must stay hidden (tab strips).
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent) transparent;
+}
+*:hover {
+  scrollbar-color: color-mix(in srgb, var(--foreground) 40%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--foreground) 22%, transparent) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--foreground) 40%, transparent) padding-box;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
