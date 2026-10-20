@@ -103,7 +103,7 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
             ))}
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               {t('account')}
-              <select name="account" defaultValue={account ?? ''} onChange={(e) => e.currentTarget.form?.requestSubmit()} className="h-[var(--ctl-sm)] max-w-40 rounded-md border border-input bg-background px-2 text-xs text-foreground">
+              <select name="account" defaultValue={account ?? ''} onChange={(e) => e.currentTarget.form?.requestSubmit()} className="h-[var(--ctl)] max-w-48 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground">
                 <option value="">{t('allAccounts')}</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -113,7 +113,7 @@ export function CalendarView({ model, scope, today, accounts, account, truncated
               </select>
             </label>
             <noscript>
-              <Button type="submit" size="sm" variant="outline">
+              <Button type="submit" variant="outline">
                 {t('show')}
               </Button>
             </noscript>

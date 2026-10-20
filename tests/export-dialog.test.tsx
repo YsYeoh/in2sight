@@ -140,3 +140,16 @@ describe('ExportDialog', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/export/xlsx?scope=all'); // the default scope (last 30 days) needs no parameter
   });
 });
+
+describe('ExportDialog trigger', () => {
+  it('is a default-size control, like every header action', () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+          <ExportDialog scopes={scopes} defaultScope="all" time={time()} />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveAttribute('data-size', 'default');
+  });
+});
