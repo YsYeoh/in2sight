@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
+import { GrowthTab } from '@/components/account/GrowthTab';
 import { PostsTab } from '@/components/account/PostsTab';
 import { StoriesTab } from '@/components/account/StoriesTab';
 import { TabSkeleton } from '@/components/account/TabSkeleton';
@@ -13,6 +14,8 @@ import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboa
 import { buildAudience } from '@/lib/dashboard/audience';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
 import { buildPosts, buildStories, storyView } from '@/lib/dashboard/content';
+import { buildGrowth, growthReadFrom, HOURLY_MAX_DAYS } from '@/lib/dashboard/growth';
+import { loadAudienceEnds, loadCommentDays, loadFollowerCurve, loadReachBreakdown, loadStoryDays } from '@/lib/dashboard/growth-read';
 import { loadAudience, loadOnline, loadPostPage, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
 import { LIST_KEYS, listWindow, pagePosts, pageStories, parsePostList, parseStoryList, postPageSize, postSortOf, storyPageSize } from '@/lib/dashboard/lists';
 import { exportScopes } from '@/lib/export/params';
@@ -21,6 +24,7 @@ import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { addDays, dayStart, daysToIso, localDay } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
+import { daysIn } from '@/lib/time-scope/range';
 import { parseTimeScope, readFrom, resolveScope, type ResolvedScope } from '@/lib/time-scope/scope';
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -64,6 +68,22 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       // before migration 20261027000001 is applied: the capped read of the window, the same state applied in TypeScript
       const { stories, truncated } = await loadStories(db, account.id, fromIso, toIso);
       return <StoriesTab {...pageStories(buildStories(stories, now), state, tz)} truncated={truncated} {...props} />;
+    }
+    case 'growth': {
+      // the range + 90 days before it (same-weekday history, Why baselines) + the last 28 days (projection); Plan 15a
+      const fromDay = growthReadFrom(scope, today);
+      const { fromIso, toIso } = daysToIso(fromDay, scope.range.to, tz);
+      const range = daysToIso(scope.range.from, scope.range.to, tz);
+      const [daily, posts, breakdown, stories, comments, curve, audience] = await Promise.all([
+        loadDaily(db, account.id, fromDay),
+        loadPosts(db, account.id, MEDIA_LIMIT, fromIso),
+        loadReachBreakdown(db, account.id, fromDay, scope.range.to),
+        loadStoryDays(db, account.id, fromIso, toIso, tz),
+        loadCommentDays(db, account.id, fromIso, toIso, tz),
+        daysIn(scope.range) <= HOURLY_MAX_DAYS ? loadFollowerCurve(db, account.id, range.fromIso, range.toIso, tz) : null,
+        loadAudienceEnds(db, account.id, scope.range.from, scope.range.to),
+      ]);
+      return <GrowthTab model={buildGrowth({ daily, posts, breakdown, stories, comments, curve, audience }, { scope, today, tz, weekStart: prefs.weekStart })} />;
     }
     default: {
       const fromDay = readFrom(scope.scope, today);

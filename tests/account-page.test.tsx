@@ -1,7 +1,7 @@
 import { Suspense, isValidElement, type ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { calls, accounts, fail, since, storiesFrom, storyArgs, postArgs, migrated } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[], storyArgs: [] as Record<string, unknown>[], postArgs: [] as Record<string, unknown>[], migrated: { stories: true, posts: true } }));
+const { calls, accounts, fail, since, storiesFrom, storyArgs, postArgs, migrated, growthArgs } = vi.hoisted(() => ({ growthArgs: { breakdownFrom: [] as string[] }, calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[], storyArgs: [] as Record<string, unknown>[], postArgs: [] as Record<string, unknown>[], migrated: { stories: true, posts: true } }));
 
 vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push('requireOwner') }));
 vi.mock('next/navigation', () => ({
@@ -41,9 +41,17 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
   loadAudience: async () => (calls.push('audience'), { age_gender: null, country: null, city: null }),
 }));
 
+vi.mock('@/lib/dashboard/growth-read', () => ({
+  loadReachBreakdown: async (_db: unknown, _id: string, from: string) => (calls.push('breakdown'), growthArgs.breakdownFrom.push(from), []),
+  loadFollowerCurve: async () => (calls.push('curve'), []),
+  loadStoryDays: async () => (calls.push('storyDays'), { days: {}, from: null }),
+  loadCommentDays: async () => (calls.push('commentDays'), { days: {}, from: null }),
+  loadAudienceEnds: async () => (calls.push('audienceEnds'), { first: { age_gender: null, country: null, city: null }, last: { age_gender: null, country: null, city: null } }),
+}));
+
 import AccountPage from '@/app/(app)/accounts/[id]/(tabs)/page';
 import { DEFAULT_PREFS } from '@/lib/prefs';
-import { daysToIso } from '@/lib/sync/time';
+import { daysToIso, localDay } from '@/lib/sync/time';
 
 const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
 const acct = (id: string, status = 'active', o: Record<string, unknown> = {}) => ({ id, igUserId: id, username: `u${id.slice(0, 4)}`, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status, archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-09-01T00:00:00Z', ...o });
@@ -66,6 +74,7 @@ beforeEach(() => {
   migrated.posts = true;
   accounts.length = 0;
   fail.postRows = false;
+  growthArgs.breakdownFrom.length = 0;
 });
 
 describe('account detail page', () => {
@@ -254,5 +263,27 @@ describe('account page: Posts list (Plan 14b)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('account page: Growth tab (Plan 15a)', () => {
+  it('reads the scope plus the 90-day look-back with the owner session, builds the model and hands it to the tab', async () => {
+    accounts.push(acct(ID));
+    const el = await run(ID, { tab: 'growth', from: '30d' });
+    const tab = (await streamTab(el)) as ReactElement<{ model: { scope: { range: { to: string } }; days: { day: string }[] } }>;
+    expect(el.props.tab).toBe('growth');
+    expect(calls).toEqual(expect.arrayContaining(['daily', 'posts', 'breakdown', 'storyDays', 'commentDays', 'audienceEnds']));
+    expect(calls).not.toContain('curve'); // 30 days: daily points, no hourly read
+    expect(calls).not.toContain('ADMIN');
+    expect(calls).not.toContain('postPage');
+    const today = localDay(new Date(), DEFAULT_PREFS.timezone);
+    expect(tab.props.model.scope.range.to).toBe(today);
+    expect(tab.props.model.days[0].day).toBe(growthArgs.breakdownFrom[0]); // the readers and the model use the same first day
+  });
+
+  it('ranges of 7 days or less also read the hourly follower curve', async () => {
+    accounts.push(acct(ID));
+    await streamTab(await run(ID, { tab: 'growth', from: '7d' }));
+    expect(calls).toContain('curve');
   });
 });

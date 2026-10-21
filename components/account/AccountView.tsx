@@ -1,9 +1,9 @@
 'use client';
 
-// Account detail frame: back link, header and the three underline tabs (Overview / Posts / Stories). The tab is URL state
+// Account detail frame: back link, header and the underline tabs (Overview / Growth / Posts / Stories). The tab is URL state
 // (?tab=…): choosing one navigates (keeping the scope) and the server renders ONLY that tab's data as `children`. Radix
 // Tabs gives tablist/tab/tabpanel roles + arrow keys; activationMode="manual" so arrowing between tabs does not fire a
-// navigation per key press. The range bar lives in the Overview panel only, outside the tab's Suspense boundary, so it
+// navigation per key press. The range bar lives in the Overview and Growth panels only, outside the tab's Suspense boundary, so it
 // stays usable while the tab streams.
 import { useTransition, type ReactNode } from 'react';
 import Link from 'next/link';
@@ -76,7 +76,7 @@ export function AccountView({ account, tab, scope, today, exportButton, children
           <TabsContent key={v} value={v} aria-busy={pending || undefined} className={cn('min-w-0 pt-[var(--gp)] transition-opacity', pending && 'opacity-60')}>
             {v === tab ? (
               <>
-                {v === 'overview' ? <RangeBar scope={scope} today={today} /> : null}
+                {v === 'overview' || v === 'growth' ? <RangeBar scope={scope} today={today} keep={v === 'growth' ? { tab: v } : undefined} /> : null}
                 {children}
               </>
             ) : null}
