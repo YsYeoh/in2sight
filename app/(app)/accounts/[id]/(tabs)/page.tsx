@@ -3,11 +3,13 @@ import { notFound, redirect } from 'next/navigation';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
+import { FollowersTab } from '@/components/account/FollowersTab';
 import { GrowthTab } from '@/components/account/GrowthTab';
 import { PostsTab } from '@/components/account/PostsTab';
 import { StoriesTab } from '@/components/account/StoriesTab';
 import { TabSkeleton } from '@/components/account/TabSkeleton';
 import { setPostTagsAction } from '@/app/(app)/tags/actions';
+import { deleteFollowerSnapshotAction } from '@/app/(app)/accounts/followers-actions';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
@@ -19,6 +21,9 @@ import { loadAudienceEnds, loadCommentDays, loadFollowerCurve, loadReachBreakdow
 import { loadAudience, loadOnline, loadPostPage, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
 import { LIST_KEYS, listWindow, pagePosts, pageStories, parsePostList, parseStoryList, postPageSize, postSortOf, storyPageSize } from '@/lib/dashboard/lists';
 import { exportScopes } from '@/lib/export/params';
+import { followersView } from '@/lib/followers/diff';
+import { listFollowerSnapshots, loadFollowerSnapshot } from '@/lib/followers/read';
+import { FOLLOWER_KEYS, parseFollowerState, resolvePair } from '@/lib/followers/state';
 import { loadDaily, loadFirstDay, loadPosts, MEDIA_LIMIT } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -85,6 +90,19 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       ]);
       return <GrowthTab model={buildGrowth({ daily, posts, breakdown, stories, comments, curve, audience }, { scope, today, tz, weekStart: prefs.weekStart })} />;
     }
+    case 'followers': {
+      // by-name lists from uploaded exports (Plan 15b): the snapshot list, then the two compared snapshots, diffed here;
+      // only one page of names goes to the browser. The Time Scope is carried in links, never used.
+      const snapshots = await listFollowerSnapshots(db, account.id);
+      const props = { accountId: account.id, username: account.username, today, scope: scope.params, deleteSnapshot: deleteFollowerSnapshotAction };
+      const state = parseFollowerState(sp, snapshots ?? []);
+      // before migration 20261028000002 is applied: the guide and a "needs a database update" note, no upload
+      if (!snapshots) return <FollowersTab ready={false} snapshots={[]} state={state} newer={null} older={null} view={null} {...props} />;
+      const pair = resolvePair(state, snapshots);
+      const [newer, older] = await Promise.all([pair.newer && loadFollowerSnapshot(db, account.id, pair.newer.id), pair.older && loadFollowerSnapshot(db, account.id, pair.older.id)]);
+      const view = pair.newer && newer ? followersView(newer, older ?? null, state) : null;
+      return <FollowersTab ready snapshots={snapshots} state={state} newer={view ? pair.newer : null} older={older ? pair.older : null} view={view} {...props} />;
+    }
     default: {
       const fromDay = readFrom(scope.scope, today);
       const pool = poolFor(account, await liveAccounts());
@@ -129,9 +147,9 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
       exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} time={scope} />}
     >
       {/* key: a new tab or Time Scope is a new boundary, so its skeleton shows instead of the stale tab. Not the list
-          params of Posts/Stories (LIST_KEYS, incl. the Grid/Table view): the toolbar stays mounted (the search box keeps
+          params of Posts/Stories/Followers (LIST_KEYS, incl. the Grid/Table view, and FOLLOWER_KEYS): the toolbar stays mounted (the search box keeps
           its focus) and the shown page stays until the next one streams in, with the top progress bar running. */}
-      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries(LIST_KEYS.map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>
+      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries([...LIST_KEYS, ...FOLLOWER_KEYS].map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>
         <TabContent tab={tab} account={account} sp={sp} scope={scope} />
       </Suspense>
     </AccountView>

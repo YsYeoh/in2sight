@@ -15,6 +15,11 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push('session'), {}) }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push('ADMIN') }));
+const followers = vi.hoisted(() => ({ snapshots: [] as Record<string, unknown>[] | null, data: {} as Record<string, unknown>, loads: [] as string[] }));
+vi.mock('@/lib/followers/read', () => ({
+  listFollowerSnapshots: async (_db: unknown, accountId: string) => (calls.push(`followerSnapshots:${accountId}`), followers.snapshots),
+  loadFollowerSnapshot: async (_db: unknown, _accountId: string, id: string) => (calls.push('followerSnapshot'), followers.loads.push(id), followers.data[id] ?? null),
+}));
 vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (await import('@/lib/prefs')).DEFAULT_PREFS }));
 vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ list: async () => (calls.push('accounts'), accounts) }) }));
 vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => ({}) }));
@@ -285,5 +290,64 @@ describe('account page: Growth tab (Plan 15a)', () => {
     accounts.push(acct(ID));
     await streamTab(await run(ID, { tab: 'growth', from: '7d' }));
     expect(calls).toContain('curve');
+  });
+});
+
+describe('account page: the Followers tab (Plan 15b)', () => {
+  const S1 = '00000000-0000-4000-8000-000000000001';
+  const S2 = '00000000-0000-4000-8000-000000000002';
+  const meta = (id: string, takenOn: string) => ({ id, takenOn, followerCount: 2, followingCount: 1, createdAt: `${takenOn}T10:00:00Z` });
+  type FollowersProps = { ready: boolean; snapshots: unknown[]; newer: { id: string } | null; older: { id: string } | null; view: { list: string; counts: Record<string, number | null>; page: { rows: { username: string }[] } | null } | null; scope: Record<string, string>; deleteSnapshot: unknown; username: string };
+  const followersTab = async (sp: Record<string, string> = {}) => ((await streamTab(await run(ID, { tab: 'followers', ...sp }))) as ReactElement<FollowersProps>).props;
+
+  beforeEach(() => {
+    followers.snapshots = [meta(S2, '2026-10-20'), meta(S1, '2026-09-20')];
+    followers.data = { [S2]: { followers: [{ username: 'bob', at: null }, { username: 'cat', at: null }], following: [{ username: 'cat', at: null }] }, [S1]: { followers: [{ username: 'amy', at: null }, { username: 'bob', at: null }], following: null } };
+    followers.loads = [];
+    accounts.push(acct(ID));
+  });
+
+  it('reads the snapshot list, then the two compared snapshots with the owner session, and hands one diffed page to the tab', async () => {
+    const p = await followersTab();
+    expect(p.ready).toBe(true);
+    expect(followers.loads).toEqual([S2, S1]);
+    expect([p.newer?.id, p.older?.id]).toEqual([S2, S1]);
+    expect(p.view?.list).toBe('new');
+    expect(p.view?.counts).toEqual({ new: 1, lost: 1, theyDontFollow: 0, iDontFollow: 1, mutual: 1 });
+    expect(p.view?.page?.rows.map((r) => r.username)).toEqual(['cat']);
+    expect(p.username).toBe(acct(ID).username);
+    expect(typeof p.deleteSnapshot).toBe('function');
+    expect(calls).toContain(`followerSnapshots:${ID}`);
+    expect(calls).not.toContain('ADMIN');
+  });
+
+  it('URL state: a chosen list, a search; invalid snapshot ids fall back to the newest pair', async () => {
+    const p = await followersTab({ list: 'lost', q: 'AM', snap: 'not-a-uuid' });
+    expect(p.view?.list).toBe('lost');
+    expect(p.view?.page?.rows.map((r) => r.username)).toEqual(['amy']);
+    expect([p.newer?.id, p.older?.id]).toEqual([S2, S1]);
+  });
+
+  it('before migration 20261028000002 (table missing): the tab says so, nothing else is read', async () => {
+    followers.snapshots = null;
+    const p = await followersTab();
+    expect(p.ready).toBe(false);
+    expect(p.view).toBeNull();
+    expect(followers.loads).toEqual([]);
+  });
+
+  it('no snapshot yet → no view; one snapshot → no comparison', async () => {
+    followers.snapshots = [];
+    expect((await followersTab()).view).toBeNull();
+    followers.snapshots = [meta(S2, '2026-10-20')];
+    const one = await followersTab();
+    expect(one.older).toBeNull();
+    expect(one.view?.list).toBe('theyDontFollow');
+  });
+
+  it('the Suspense key ignores the follower params (the toolbar stays mounted); the scope rides along to the tab', async () => {
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    expect(await key({ tab: 'followers', snap: S1, vs: S2, list: 'mutual', q: 'x', page: '2' })).toBe(await key({ tab: 'followers' }));
+    expect((await followersTab({ from: '2026-09-01', to: '2026-09-30' })).scope).toEqual({ from: '2026-09-01', to: '2026-09-30' });
   });
 });
