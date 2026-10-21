@@ -15,6 +15,7 @@ import { DataTable, type Column } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { startProgress } from '@/components/shared/NavigationProgress';
 import { NavLink } from '@/components/shared/NavLink';
+import { OpenInTab } from '@/components/shared/OpenInTab';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DeltaPill, StatCard } from '@/components/shared/StatCard';
 import { RangeBar, useBucketFormat, useScopeText } from '@/components/shared/RangeBar';
@@ -56,6 +57,7 @@ function AccountCardView({ c, vs, query, p }: { c: AccountCard; vs: string; quer
   const tR = useTranslations('analysis.reasons');
   const tA = useTranslations('analysis');
   const tErr = useTranslations('accounts.errors');
+  const tTab = useTranslations('tabs');
   const { prefs } = usePrefs();
   const delta = useKpiDelta()('followers', c.kpis.followers);
   const reachDown = (c.kpis.reach.change ?? 0) < 0;
@@ -68,11 +70,14 @@ function AccountCardView({ c, vs, query, p }: { c: AccountCard; vs: string; quer
               <AvatarFallback>{[...c.username][0]?.toUpperCase()}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <h3 className="truncate font-medium">
-                <NavLink href={`/accounts/${c.id}${query ? `?${query}` : ''}`} className="underline-offset-4 hover:underline">
-                  @{c.username}
-                </NavLink>
-              </h3>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <h3 className="truncate font-medium">
+                  <NavLink href={`/accounts/${c.id}${query ? `?${query}` : ''}`} className="underline-offset-4 hover:underline">
+                    @{c.username}
+                  </NavLink>
+                </h3>
+                <OpenInTab href={`/accounts/${c.id}${query ? `?${query}` : ''}`} label={tTab('openInTab', { name: `@${c.username}` })} />
+              </div>
               {c.displayName ? <p className="truncate text-xs text-muted-foreground">{c.displayName}</p> : null}
             </div>
             {c.state === 'needs_reconnect' ? (
