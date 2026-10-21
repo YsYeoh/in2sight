@@ -89,6 +89,7 @@ describe('AccountsView', () => {
     setup();
     await userEvent.click(screen.getAllByRole('button', { name: 'Account actions' })[0]);
     expect(await screen.findByRole('menuitem', { name: 'Reconnect' })).toHaveAttribute('href', '/api/instagram/connect?group=Brand%20X');
+    expect(screen.getByRole('menuitem', { name: 'Reconnect' })).toHaveAttribute('target', '_top'); // breaks out of a tab frame
   });
 
   it('archiving needs a confirmation, then calls the action with the id', async () => {

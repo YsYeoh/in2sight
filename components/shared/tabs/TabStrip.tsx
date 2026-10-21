@@ -4,7 +4,7 @@
 // close; they shrink, then the row scrolls sideways) and "+" (a new Overview tab). A WAI-ARIA tablist: one tab in the
 // Tab order (roving tabIndex), Left/Right/Home/End move and activate, Delete closes. Switching is instant, so arrow
 // keys activate as they move. The frames are the tab panels; they carry their own titles.
-import type { KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { ArrowLeft, ArrowRight, Plus, RotateCw, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
@@ -19,10 +19,10 @@ export function TabNavButtons() {
   const tab = state.tabs.find((x) => x.id === state.active);
   return (
     <div className="flex shrink-0 items-center">
-      <Button variant="ghost" size="icon" aria-label={t('back')} disabled={!tab?.back.length} onClick={() => step(-1)}>
+      <Button variant="ghost" size="icon" aria-label={t('back')} disabled={!tab?.back.length || tab.frameUrl === null} onClick={() => step(-1)}>
         <ArrowLeft aria-hidden />
       </Button>
-      <Button variant="ghost" size="icon" aria-label={t('forward')} disabled={!tab?.fwd.length} onClick={() => step(1)}>
+      <Button variant="ghost" size="icon" aria-label={t('forward')} disabled={!tab?.fwd.length || tab.frameUrl === null} onClick={() => step(1)}>
         <ArrowRight aria-hidden />
       </Button>
       <Button variant="ghost" size="icon" aria-label={tab?.stale ? t('refreshStale') : t('refresh')} data-stale={tab?.stale || undefined} className="relative" onClick={refresh}>
@@ -38,8 +38,20 @@ export function TabStrip({ className }: { className?: string }) {
   const { state, open, activate, close } = useTabs();
   const title = useTabTitle();
   const focusTab = (id: string) => document.getElementById(`tab-${id}`)?.focus();
+  const refocus = useRef(false);
+  // after a close the focus would fall to <body>: put it on the tab that became active (once the new list is rendered)
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    focusTab(state.active);
+  }, [state.tabs, state.active]);
+  const closeTab = (id: string) => {
+    refocus.current = true;
+    close(id);
+  };
 
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return; // Alt+arrows are Back/Forward for the shell, not tab-strip keys
     const n = state.tabs.length;
     const to = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : null;
     if (to !== null) {
@@ -48,9 +60,7 @@ export function TabStrip({ className }: { className?: string }) {
       focusTab(state.tabs[to].id);
     } else if (e.key === 'Delete') {
       e.preventDefault();
-      const next = state.tabs[i + 1] ?? state.tabs[i - 1];
-      close(state.tabs[i].id);
-      if (next) focusTab(next.id);
+      closeTab(state.tabs[i].id);
     }
   };
 
@@ -86,7 +96,7 @@ export function TabStrip({ className }: { className?: string }) {
                 type="button"
                 tabIndex={-1}
                 aria-label={t('close', { title: name })}
-                onClick={() => close(tab.id)}
+                onClick={() => closeTab(tab.id)}
                 className="mr-1 grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-hover hover:text-foreground"
               >
                 <X aria-hidden className="size-3.5" />

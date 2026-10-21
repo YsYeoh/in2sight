@@ -13,6 +13,7 @@ export const LIVE_CAP = 8;
 export const LIVE_CAP_COARSE = 3; // phones and tablets (lib/motion coarsePointer)
 export const STALE_MS = 30 * 60_000; // the sync interval
 export const HISTORY_MAX = 50;
+export const RESTORE_MAX = 50; // tabs read back from storage
 export const STORAGE_KEY = 'in2sight.tabs';
 
 export interface Tab {
@@ -93,8 +94,10 @@ function activate(s: TabsState, id: string, now: number): TabsState {
 }
 
 function open(s: TabsState, url: string, mode: OpenMode, now: number): TabsState {
+  const cur = s.tabs.find((t) => t.id === s.active);
+  // before the frame's first report there is nobody to send "go" to: the tap would be lost, so it opens the page like a link
+  if (mode === 'current' && cur?.frameUrl === null) mode = 'exact';
   if (mode === 'current') {
-    const cur = s.tabs.find((t) => t.id === s.active);
     return !cur || cur.url === url ? s : patch(s, s.active, (t) => ({ ...t, url, back: push(t.back, t.url), fwd: [], stale: false }));
   }
   const hits = mode === 'exact' ? s.tabs.filter((t) => t.url === url) : mode === 'nav' ? s.tabs.filter((t) => navMatches(t.url, url)) : [];
@@ -118,13 +121,28 @@ function close(s: TabsState, id: string, now: number): TabsState {
 
 function report(t: Tab, url: string, title: string): Tab {
   if (url === t.frameUrl) return { ...t, title: title || t.title }; // the frame has not moved: a title update (or a command still on its way)
-  if (t.frameUrl === null || url === t.url) return { ...t, url, frameUrl: url, title: title || (url === t.url ? t.title : '') }; // first load (or a redirect), or a command arrived
+  // a "go" is on its way (frameUrl !== url): a stop on the way (rapid Back/Back lands on the first target first) only moves
+  // frameUrl; a URL the stacks do not know is a redirect of the command, which the tab follows. Neither touches the stacks.
+  const goingTo = t.frameUrl !== null && t.frameUrl !== t.url;
+  if (goingTo && url !== t.url && (t.back.includes(url) || t.fwd.includes(url))) return { ...t, frameUrl: url, title: title || t.title };
+  if (t.frameUrl === null || url === t.url || goingTo) return { ...t, url, frameUrl: url, title: title || (url === t.url ? t.title : '') }; // first load (or a redirect), or a command arrived
   return { ...t, url, frameUrl: url, title, back: push(t.back, t.url), fwd: [] }; // a navigation inside the tab
 }
 
 function step(t: Tab, dir: -1 | 1): Tab {
+  if (t.frameUrl === null) return t; // the frame has not reported yet: it could not obey
   if (dir < 0) return t.back.length ? { ...t, url: t.back[t.back.length - 1], back: t.back.slice(0, -1), fwd: [t.url, ...t.fwd].slice(0, HISTORY_MAX), stale: false } : t;
   return t.fwd.length ? { ...t, url: t.fwd[0], fwd: t.fwd.slice(1), back: push(t.back, t.url), stale: false } : t;
+}
+
+/** A saved URL as same-origin path + query with dot segments resolved, or null when it does not lead to a tab page. */
+function cleanUrl(url: string): string | null {
+  try {
+    const u = new URL(url, 'http://tabs.invalid');
+    return u.origin === 'http://tabs.invalid' && isTabPath(u.pathname) ? u.pathname + u.search : null;
+  } catch {
+    return null;
+  }
 }
 
 function restore(s: TabsState, raw: string | null): TabsState {
@@ -133,8 +151,9 @@ function restore(s: TabsState, raw: string | null): TabsState {
     const v = JSON.parse(raw ?? 'null') as { v?: unknown; tabs?: unknown } | null;
     if (v?.v !== 1 || !Array.isArray(v.tabs)) return s;
     saved = (v.tabs as { url?: unknown; title?: unknown }[])
-      .filter((t) => typeof t?.url === 'string' && t.url.startsWith('/') && !t.url.startsWith('//') && isTabPath(pathOf(t.url)))
-      .map((t) => ({ url: t.url as string, title: typeof t.title === 'string' ? t.title.slice(0, 120) : '' }));
+      .map((t) => ({ url: typeof t?.url === 'string' && t.url.startsWith('/') ? cleanUrl(t.url) : null, title: typeof t?.title === 'string' ? t.title.slice(0, 120) : '' }))
+      .filter((t): t is { url: string; title: string } => t.url !== null)
+      .slice(0, RESTORE_MAX);
   } catch {
     return s;
   }
@@ -142,7 +161,7 @@ function restore(s: TabsState, raw: string | null): TabsState {
   const cur = s.tabs.find((t) => t.id === s.active)!;
   const at = saved.findIndex((t) => t.url === cur.url);
   const tabs = saved.map((t, k) => (k === at ? { ...cur, title: cur.title || t.title } : blank(`t${s.next + k}`, t.url, t.title)));
-  return { ...s, tabs: at < 0 ? [...tabs, cur] : tabs, next: s.next + saved.length };
+  return { ...s, tabs: (at < 0 ? [...tabs, cur] : tabs).slice(-RESTORE_MAX), next: s.next + saved.length };
 }
 
 export function tabsReducer(s: TabsState, a: TabsAction): TabsState {

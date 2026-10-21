@@ -129,6 +129,27 @@ describe('FrameBridge', () => {
     ]);
   });
 
+  it('Alt+arrows typed in a text field are the field’s own (word jump on a Mac), not a Back/Forward request', () => {
+    render(
+      <>
+        <FrameBridge />
+        <input aria-label="search" />
+        <textarea aria-label="note" />
+        <select aria-label="pick" />
+        <div contentEditable suppressContentEditableWarning aria-label="rich" />
+        <button>plain</button>
+      </>,
+    );
+    posted.mockClear();
+    for (const el of ['search', 'note', 'pick', 'rich']) {
+      const ok = fireEvent.keyDown(document.querySelector(`[aria-label="${el}"]`)!, { key: 'ArrowLeft', altKey: true });
+      expect(ok, el).toBe(true); // not prevented
+    }
+    expect(sent()).toEqual([]);
+    fireEvent.keyDown(document.querySelector('button')!, { key: 'ArrowLeft', altKey: true });
+    expect(sent()).toEqual([{ type: 'in2sight:history', dir: -1 }]);
+  });
+
   it('obeys go and refresh from its parent only, same origin only, valid URLs only', () => {
     render(tree());
     const from = (data: unknown, origin = O, source: MessageEventSource | null = window) => act(() => void window.dispatchEvent(new MessageEvent('message', { data, origin, source })));

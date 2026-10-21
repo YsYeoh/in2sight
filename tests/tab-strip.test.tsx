@@ -70,6 +70,33 @@ describe('TabStrip', () => {
     expect(tabNames()).toEqual(['*Overview']);
   });
 
+  it('after a close, the focus lands on the newly active tab (Delete key and close button alike)', async () => {
+    setup([{ url: '/overview', title: 'Overview' }, { url: '/tags', title: 'Tags' }, { url: '/calendar', title: 'Calendar' }]);
+    const tabs = () => within(tablist()).getAllByRole('tab');
+    await userEvent.click(tabs()[1]);
+    fireEvent.keyDown(tabs()[1], { key: 'Delete' });
+    expect(tabNames()).toEqual(['Overview', '*Calendar']);
+    expect(document.activeElement).toBe(tabs()[1]);
+    await userEvent.click(screen.getByRole('button', { name: 'Close Calendar' }));
+    expect(tabNames()).toEqual(['*Overview']);
+    expect(document.activeElement).toBe(tabs()[0]);
+    expect(tabs()[0].tabIndex).toBe(0);
+  });
+
+  it('Alt+Left / Alt+Right with the focus in the strip are not strip keys: the selection stays and the active tab steps once', () => {
+    setup([{ url: '/tags', title: 'Tags' }, { url: '/overview', title: 'Overview' }]);
+    report('/overview', 'Overview');
+    report('/tags?a=1', 'A');
+    report('/tags?a=2', 'B');
+    const active = within(tablist()).getAllByRole('tab')[1];
+    active.focus();
+    fireEvent.keyDown(active, { key: 'ArrowLeft', altKey: true });
+    expect(tabNames()).toEqual(['Tags', '*B']); // not moved to the previous tab, and stepped once (not to /overview)
+    expect(window.location.pathname + window.location.search).toBe('/tags?a=1');
+    fireEvent.keyDown(within(tablist()).getAllByRole('tab')[1], { key: 'ArrowLeft' }); // a plain arrow still moves
+    expect(tabNames()).toEqual(['*Tags', 'B']);
+  });
+
   it('Back/Forward are disabled until the active tab has history, and step it', async () => {
     setup();
     const back = () => within(tablist().parentElement!).getByRole('button', { name: 'Back' });
@@ -81,6 +108,18 @@ describe('TabStrip', () => {
     await userEvent.click(back());
     expect(fwd()).toBeEnabled();
     expect(window.location.pathname).toBe('/overview');
+  });
+
+  it('Back is disabled while the active tab’s frame has not reported yet (a discarded tab coming back), enabled after its first report', async () => {
+    setup();
+    report('/overview', 'Overview');
+    report('/tags', 'Tags'); // t0 now has history
+    for (let i = 0; i < 8; i++) await userEvent.click(screen.getByRole('button', { name: 'New tab' })); // 9 tabs: t0's frame is discarded
+    await userEvent.click(within(tablist()).getAllByRole('tab')[0]);
+    const back = within(tablist().parentElement!).getByRole('button', { name: 'Back' });
+    expect(back).toBeDisabled();
+    report('/tags', 'Tags');
+    expect(back).toBeEnabled();
   });
 
   it('a stale tab gets a dot and a longer label on Refresh; refreshing clears it', async () => {

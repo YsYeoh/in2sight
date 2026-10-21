@@ -94,6 +94,34 @@ describe('tabsReducer', () => {
     expect(run(initialTabs('/overview'), { type: 'step', id: 't0', dir: -1 })).toEqual(initialTabs('/overview')); // nothing back
   });
 
+  it('two steps back, then the frame reports the intermediate URL and then the final one: the stacks end consistent and Forward survives', () => {
+    let s = run(initialTabs('/overview'), report('/overview'), report('/tags'), report('/explorer'));
+    s = run(s, { type: 'step', id: 't0', dir: -1 }, { type: 'step', id: 't0', dir: -1 });
+    expect(tab(s)).toMatchObject({ url: '/overview', frameUrl: '/explorer', back: [], fwd: ['/tags', '/explorer'] });
+    s = run(s, report('/tags')); // the first go landed: a step on the way, not a navigation
+    expect(tab(s)).toMatchObject({ url: '/overview', frameUrl: '/tags', back: [], fwd: ['/tags', '/explorer'] });
+    s = run(s, report('/overview'));
+    expect(tab(s)).toMatchObject({ url: '/overview', frameUrl: '/overview', back: [], fwd: ['/tags', '/explorer'] });
+    s = run(s, { type: 'step', id: 't0', dir: 1 });
+    expect(tab(s)).toMatchObject({ url: '/tags', back: ['/overview'], fwd: ['/explorer'] });
+  });
+
+  it('a redirected go: the tab follows the frame afterwards without phantom entries', () => {
+    let s = run(initialTabs('/overview'), report('/overview'), report('/tags'), { type: 'step', id: 't0', dir: -1 });
+    s = run(s, report('/overview?x=1')); // the frame was redirected on its way back
+    expect(tab(s)).toMatchObject({ url: '/overview?x=1', frameUrl: '/overview?x=1', back: [], fwd: ['/tags'] });
+    s = run(s, report('/calendar'));
+    expect(tab(s)).toMatchObject({ url: '/calendar', back: ['/overview?x=1'], fwd: [] });
+  });
+
+  it('step does nothing before the frame has reported; a bottom-bar tap then opens the page like a link (it would be lost otherwise)', () => {
+    const s = initialTabs('/overview');
+    expect(run(s, { type: 'step', id: 't0', dir: -1 })).toEqual(s);
+    const t = run(s, open('/tags', 'current'));
+    expect(urls(t)).toEqual(['/overview', '/tags']);
+    expect(tab(t, 't0')).toMatchObject({ url: '/overview', back: [] });
+  });
+
   it('a new navigation clears Forward; the Back stack keeps the last HISTORY_MAX entries', () => {
     let s = run(initialTabs('/overview'), report('/overview'));
     for (let i = 0; i < HISTORY_MAX + 5; i++) s = run(s, report(`/explorer?i=${i}`));
@@ -163,6 +191,16 @@ describe('tabsReducer', () => {
     expect(urls(t)).toEqual(['/tags', '/explorer?m=reach', '/calendar', '/settings']);
     expect(t.active).toBe('t0');
     for (const bad of [null, '', '{', '[]', '{"v":2,"tabs":[{"url":"/tags"}]}', '{"v":1,"tabs":"x"}', '{"v":1,"tabs":[null]}']) expect(run(initialTabs('/tags'), { type: 'restore', raw: bad }), String(bad)).toEqual(initialTabs('/tags'));
+  });
+
+  it('restore: paths are normalised (a traversal out of a tab page is dropped, dot segments resolve) and at most 50 tabs come back', () => {
+    const raw = JSON.stringify({ v: 1, tabs: [{ url: '/overview/../login' }, { url: '/accounts/../tags?x=1' }, { url: '/\\evil.test/overview' }, { url: '/calendar' }] });
+    expect(urls(run(initialTabs('/overview'), { type: 'restore', raw }))).toEqual(['/tags?x=1', '/calendar', '/overview']);
+    const many = JSON.stringify({ v: 1, tabs: Array.from({ length: 1000 }, (_, i) => ({ url: `/explorer?i=${i}`, title: 'x' })) });
+    const s = run(initialTabs('/overview'), { type: 'restore', raw: many });
+    expect(s.tabs).toHaveLength(50);
+    expect(s.active).toBe('t0');
+    expect(tab(s).url).toBe('/overview');
   });
 
   it('serialize writes urls and titles only, and restore reads it back', () => {

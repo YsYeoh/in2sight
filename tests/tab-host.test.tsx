@@ -126,6 +126,7 @@ describe('TabsProvider + TabFrames', () => {
     expect(tabs()).toBe('/overview?from=2026-09-01 /accounts */accounts/a1?tab=posts');
     fireEvent.click(link('bell item'));
     expect(tabs()).toBe('/overview?from=2026-09-01 /accounts */accounts/a1?tab=posts');
+    fromFrame(frameOf('/accounts/a1?tab=posts'), { type: 'in2sight:nav', url: '/accounts/a1?tab=posts', title: '' }); // navigating a tab needs its frame to have reported
     fireEvent.click(link('bottom tags'));
     expect(tabs()).toBe('/overview?from=2026-09-01 /accounts */tags');
   });
@@ -170,6 +171,19 @@ describe('TabsProvider + TabFrames', () => {
     fromFrame(f, { type: 'in2sight:history', dir: -1 });
     expect(post).toHaveBeenLastCalledWith({ type: 'in2sight:go', url: '/overview' }, O);
     expect(post).toHaveBeenCalledTimes(3); // once per step, not once per render
+  });
+
+  it('Alt+arrows already handled by a focused widget (default prevented) do not step the tab a second time', () => {
+    setup('/overview');
+    const f = frameOf('/overview');
+    fromFrame(f, { type: 'in2sight:nav', url: '/overview', title: '' });
+    fromFrame(f, { type: 'in2sight:nav', url: '/tags', title: '' });
+    const post = vi.spyOn(f.contentWindow!, 'postMessage');
+    const swallow = (e: Event) => e.preventDefault();
+    document.addEventListener('keydown', swallow);
+    fireEvent.keyDown(document.body, { key: 'ArrowLeft', altKey: true });
+    document.removeEventListener('keydown', swallow);
+    expect(post).not.toHaveBeenCalled();
   });
 
   it('a history request from an inactive frame is ignored', () => {

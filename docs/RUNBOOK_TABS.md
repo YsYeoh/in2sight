@@ -25,6 +25,7 @@ How it works, in one paragraph: the top window is only the shell (sidebar, heade
 3. Session expiry: in DevTools → Application → Cookies, delete the Supabase auth cookies, then click a link inside a tab. **Pass:** the WHOLE window goes to the login page, never a login form inside the tab.
 4. Export → "Preview" on Overview. **Pass:** the report opens in a normal browser tab (not as an app tab).
 5. Download an Excel export from inside a tab. **Pass:** the file downloads as before.
+6. On the Accounts page inside a tab, click "Connect Instagram" → "Continue with Instagram", and on an expired account use "Reconnect" (also from the sync panel). **Pass:** the WHOLE window goes to Instagram's login (never a blank or refused frame inside the tab); after authorising you come back to the app.
 
 ## 3. Memory and speed (desktop Chrome)
 1. Open these 4 tabs: Overview (Last 90 days), an account's Posts tab (table view), Explorer, Calendar. Visit each once.
@@ -37,6 +38,9 @@ How it works, in one paragraph: the top window is only the shell (sidebar, heade
 2. Use the ← button at the left of the strip three times. **Pass:** you step back Post Lab → Posts → account Overview → Overview, inside this tab only. → steps forward again.
 3. Open a second tab and navigate in it. Switch back to the first tab and press ←. **Pass:** the FIRST tab steps back; the second tab does not move.
 4. Alt+Left / Alt+Right, once with the focus in the tab strip and once after clicking inside the page. **Pass:** one step each time (if one key press steps twice, or the browser leaves the app, note it: browsers differ here).
+   - With the focus on a tab in the strip, Alt+Left must step the active tab back exactly once and must not switch to the neighbouring tab.
+   - Double-click ← quickly on a tab with at least 3 pages of history. **Pass:** it ends two pages back and → still works (Forward is not lost).
+   - Mac: put the cursor in a search field inside a page and press Option+Left. **Pass:** the cursor jumps a word and the tab does not step.
 5. The browser's own Back button: best effort only. It steps whichever tab navigated last; it is not per tab (the browser has one history for all frames). Expected, not a failure.
 6. Note: Back shows the earlier page again with its URL state (range, filters, page number) but at the top of the page and with drawers closed.
 

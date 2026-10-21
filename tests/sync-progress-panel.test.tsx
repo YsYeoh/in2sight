@@ -85,6 +85,7 @@ describe('SyncProgressPanel', () => {
   it('needs reconnect links to the reconnect flow (keeps the group)', () => {
     view([{ ...base, phase: 'needs_reconnect', current: null, errorKey: 'token_invalid' }]);
     expect(screen.getByRole('link', { name: 'Reconnect' })).toHaveAttribute('href', expect.stringContaining('/api/instagram/connect'));
+    expect(screen.getByRole('link', { name: 'Reconnect' })).toHaveAttribute('target', '_top');
     expect(screen.getByText(en.sync.phase.needs_reconnect)).toBeInTheDocument();
   });
 

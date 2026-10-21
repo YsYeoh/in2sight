@@ -54,7 +54,7 @@ export function ConnectDialog({ groups, trigger }: { groups: string[]; trigger: 
           </ResponsiveDialogClose>
           {valid ? (
             <Button asChild>
-              <a href={connectHref(group)}>{t('continue')}</a>
+              <a href={connectHref(group)} target="_top">{t('continue')}</a>
             </Button>
           ) : (
             <Button disabled>{t('continue')}</Button>

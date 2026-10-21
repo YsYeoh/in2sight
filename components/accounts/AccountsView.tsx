@@ -91,7 +91,7 @@ function CommentsHint({ a }: { a: StoredAccount }) {
   const t = useTranslations('accounts');
   if (a.status !== 'active' || hasScope(a, COMMENTS_SCOPE)) return null;
   return (
-    <a href={connectHref(a.groupName)} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+    <a href={connectHref(a.groupName)} target="_top" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
       {t('commentsHint')}
     </a>
   );
@@ -125,7 +125,7 @@ function RowMenu({ a, busy, onEditGroup, onArchive, onSyncNow }: { a: StoredAcco
         ) : null}
         <DropdownMenuItem onSelect={() => onEditGroup(a)}>{t('editGroup')}</DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <a href={connectHref(a.groupName)}>{t('reconnect')}</a>
+          <a href={connectHref(a.groupName)} target="_top">{t('reconnect')}</a>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={() => onArchive(a)}>
