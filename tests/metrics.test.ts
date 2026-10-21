@@ -39,6 +39,11 @@ describe('deltaView', () => {
     expect(deltaView('reach', k({ diff: 0.0001, change: 0.0000001 }), P)).toMatchObject({ text: '0.0%', direction: 'flat', tone: 'neutral' });
     expect(deltaView('reach', k({ diff: null, change: null }), P)).toBeNull();
   });
+  it('takes a { kind, higherIsBetter } definition for numbers outside the registry (lower-is-better turns a rise bad)', () => {
+    expect(deltaView({ kind: 'count', higherIsBetter: false }, k({ diff: 5, change: 0.5 }), P)).toEqual({ text: '+50.0%', unit: 'relative', direction: 'up', tone: 'bad' });
+    expect(deltaView({ kind: 'percent', higherIsBetter: false }, k({ diff: -0.01, change: -0.2 }), P)).toEqual({ text: '-1.0', unit: 'points', direction: 'down', tone: 'good' });
+    expect(deltaView({ kind: 'count', higherIsBetter: true }, k({ diff: null }), P)).toBeNull();
+  });
 });
 
 describe('formatDay / formatSigned', () => {

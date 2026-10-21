@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Heatmap, type HeatmapCell } from '@/components/charts/Heatmap';
-import { SeriesChart, seriesColor } from '@/components/charts/SeriesChart';
+import { SeriesChart, seriesColor, toneColor } from '@/components/charts/SeriesChart';
 
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
 afterEach(() => vi.unstubAllGlobals());
@@ -18,6 +18,13 @@ describe('SeriesChart', () => {
 
   it('colours cycle through the six chart tokens', () => {
     expect([0, 5, 6].map(seriesColor)).toEqual(['var(--chart-1)', 'var(--chart-6)', 'var(--chart-1)']);
+  });
+
+  it('a series with a tone uses the success / danger token (legend and marks); the others keep their chart colour', () => {
+    const { container } = render(<SeriesChart kind="bar" data={rows} xKey="day" series={[{ key: 'a', label: 'Follows', tone: 'good' }, { key: 'b', label: 'Unfollows', tone: 'bad' }, { key: 'a', label: 'Plain' }]} title="Flow" formatLabel={(v) => `${v} · 2 posts`} />);
+    const dots = [...container.querySelectorAll('[data-slot="series-chart"] li > span[aria-hidden="true"]')].map((s) => (s as HTMLElement).style.background);
+    expect(dots).toEqual(['var(--success)', 'var(--danger)', 'var(--chart-3)']);
+    expect(toneColor).toEqual({ good: 'var(--success)', bad: 'var(--danger)' });
   });
 
   it('a very long account name truncates in the legend', () => {
