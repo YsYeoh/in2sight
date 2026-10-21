@@ -55,13 +55,23 @@ export function FollowerUpload({ accountId, username, today }: { accountId: stri
     const bad = checkFiles(list.map((f) => ({ name: f.name, size: f.size }))); // before a byte is read
     if (bad) return setError({ key: bad.error, file: bad.file });
     setBusy('reading');
+    let unreadable = ''; // the owner's own local file name: fine to show in the message
     try {
-      const files = await Promise.all(list.map(async (f) => ({ name: f.name, text: await f.text() })));
+      const files = await Promise.all(
+        list.map(async (f) => {
+          try {
+            return { name: f.name, text: await f.text() };
+          } catch (e) {
+            unreadable ||= f.name;
+            throw e;
+          }
+        }),
+      );
       const r = parseExportFiles(files, Math.floor(Date.now() / 1000));
       if (r.ok) setParsed(r);
       else setError({ key: r.error, file: r.file });
     } catch {
-      setError({ key: 'badJson' });
+      setError({ key: 'badJson', file: unreadable || list.map((f) => f.name).join(', ') });
     } finally {
       setBusy(null);
     }

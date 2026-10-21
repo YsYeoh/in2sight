@@ -159,6 +159,31 @@ describe('FollowersTab', () => {
     expect(p.deleteSnapshot).toHaveBeenCalledWith(ACC, id(1));
   });
 
+  it('deleting a snapshot that is already gone says so (not "this account no longer exists")', async () => {
+    const user = userEvent.setup();
+    const p = props({}, { deleteSnapshot: vi.fn(async () => ({ ok: false as const, error: 'notFound' })) });
+    view(p);
+    await user.click(within(screen.getByRole('region', { name: T.snapshots.title })).getAllByRole('button', { name: 'Delete the snapshot of 2026-09-20' })[0]);
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: T.snapshots.confirm }));
+    const dialog = await screen.findByRole('alertdialog');
+    await waitFor(() => expect(dialog).toHaveTextContent('That snapshot was already deleted.'));
+    expect(dialog).not.toHaveTextContent(T.errors.notFound);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('two snapshots that look identical (same day, same size, nothing new or lost) get a quiet hint, not just "0 new"', () => {
+    const twin = meta(1, '2026-10-20', 4, 3);
+    const state = parseFollowerState({}, [NEW_META, twin]);
+    view(props({}, { snapshots: [NEW_META, twin], older: twin, state, view: followersView(NEWER, NEWER, state) }));
+    expect(screen.getByText(T.identical)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: T.upload.open })).toBeEnabled(); // uploads are not blocked
+  });
+
+  it('no identical hint for a real comparison, or when the sizes or days differ', () => {
+    view(props());
+    expect(screen.queryByText(T.identical)).toBeNull();
+  });
+
   it('an export older than 30 days gets one quiet line, nothing more', () => {
     view(props({}, { today: '2026-11-25' }));
     expect(screen.getByText('Your newest export is 36 days old. Upload a new one to see recent changes.')).toBeInTheDocument();

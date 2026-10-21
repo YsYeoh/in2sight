@@ -430,6 +430,7 @@
           "invalid": "The upload was not accepted. Choose the files again.",
           "tooLarge": "The upload is too large.",
           "notFound": "This account no longer exists.",
+          "snapshotGone": "That snapshot was already deleted.",
           "notReady": "Followers needs a database update first.",
           "tooManySnapshots": "This account already has {max} snapshots. Delete old ones to upload more.",
           "unexpected": "Something went wrong. Try again."
@@ -446,6 +447,7 @@
         "snapshotBased": "Snapshot-based: only people who followed or unfollowed between these two files, not everything in between.",
         "needTwo": "Upload a second export later to see who followed and unfollowed in between.",
         "needFollowing": "This snapshot has no following.json, so this list is empty. Upload both files next time.",
+        "identical": "These two files look identical: was the same export uploaded twice? Delete one to free a slot.",
         "toolbar": "Follower list filters",
         "search": "Search usernames",
         "searchChip": "Search: {q}",

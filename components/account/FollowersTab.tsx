@@ -124,6 +124,8 @@ export function FollowersTab({ accountId, username, today, scope = {}, ready, sn
   const unavailable = (l: FollowerList) => (l === 'new' || l === 'lost' ? t('needTwo') : t('needFollowing'));
   const page = view.page;
   const dates = { newer: day(newer.takenOn), older: older ? day(older.takenOn) : '' };
+  // the same export uploaded twice: "0 new / 0 unfollowed" is then no result at all (uploads stay allowed)
+  const identical = older !== null && older.takenOn === newer.takenOn && older.followerCount === newer.followerCount && view.counts.new === 0 && view.counts.lost === 0;
 
   return (
     <div className="grid min-w-0 gap-[var(--gp)]">
@@ -175,6 +177,7 @@ export function FollowersTab({ accountId, username, today, scope = {}, ready, sn
           </TabsContent>
         ))}
       </Tabs>
+      {identical ? <p className="text-sm text-muted-foreground">{t('identical')}</p> : null}
       <section aria-labelledby="follower-snapshots" className="grid min-w-0 gap-2">
         <h2 id="follower-snapshots" className="text-sm font-medium">
           {t('snapshots.title')}
@@ -215,7 +218,7 @@ export function FollowersTab({ accountId, username, today, scope = {}, ready, sn
           setDeleting(true);
           const r = await deleteSnapshot(accountId, target.id);
           setDeleting(false);
-          if (!r.ok) return setDeleteError(t(`errors.${r.error === 'notFound' ? 'notFound' : 'unexpected'}`, { max: '', file: '' }));
+          if (!r.ok) return setDeleteError(t(`errors.${r.error === 'notFound' ? 'snapshotGone' : 'unexpected'}`));
           setTarget(null);
           router.refresh();
         }}

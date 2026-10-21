@@ -72,6 +72,15 @@ describe('FollowerUpload', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('a file the browser cannot read names that file in the error', async () => {
+    view();
+    const unreadable = json('followers_2.json', []);
+    unreadable.text = () => Promise.reject(new Error('NotReadableError'));
+    choose(json('followers_1.json', [entry('alice')]), unreadable);
+    expect(await screen.findByRole('alert')).toHaveTextContent('followers_2.json could not be read as JSON.');
+    expect(screen.getByRole('button', { name: T.upload.submit })).toBeDisabled();
+  });
+
   it('uploads ONLY usernames and times to the owner route, then closes and refreshes the page', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 201, headers: { 'content-type': 'application/json' } }));
     view();

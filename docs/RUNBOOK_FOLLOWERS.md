@@ -29,7 +29,7 @@ Confirm in the Supabase SQL editor:
 
 ```sql
 select relname, relrowsecurity from pg_class where relname = 'follower_exports';            -- 1 row, true
-select polname, polcmd from pg_policy where polrelid = 'public.follower_exports'::regclass;  -- follower_exports_owner_all, *
+select polname, polcmd from pg_policy where polrelid = 'public.follower_exports'::regclass;  -- follower_exports_owner_select (r), _insert (a), _delete (d)
 select confdeltype from pg_constraint where conrelid = 'public.follower_exports'::regclass and contype = 'f';  -- c (cascade)
 ```
 
@@ -81,7 +81,8 @@ node -e "for (const f of process.argv.slice(1)) { const j = JSON.parse(require('
 - DevTools → Network on Upload: ONE `POST /api/accounts/<id>/followers`, request size well under 4 MB (≈ 25–47 bytes
   per person), answer 201; the request body contains `followers` pairs and NO `instagram.com` links.
 - Upload the same export again with another date: the snapshot list shows both; New followers and Unfollowed you are
-  empty when comparing them (same people).
+  empty when comparing them (same people). With the SAME date too, a quiet line says the two files look identical (was
+  the same export uploaded twice?); upload is still allowed.
 
 ## 4. The lists
 
@@ -115,8 +116,12 @@ select count(*) from public.follower_exports;   -- ERROR: permission denied for 
 rollback;
 ```
 
-- Vercel → the project → Logs, the hour of an upload and an export: search for one follower's username you know is in
-  the file → **no match** (only the fixed lines `followers upload failed` / `followers export failed` may ever appear).
+- Vercel → the project → Logs, the hour of an upload and an export: no follower name appears in any log line except
+  one you typed into the search box yourself (the search text is in the URL, `?q=`, so it is in the request log); the
+  application's own lines are only the fixed `followers upload failed` / `followers export failed`. Check by looking
+  at a log line of the upload request and of the export request: the path and status, no usernames.
+- The search text is the owner's own input; it is in the URL and so in request logs; do not search names you do not
+  want in logs.
 - `select count(*) from public.sync_runs where summary::text ilike '%<a known follower username>%';` → 0 (the sync
   never sees these lists; type the name only into the SQL editor, never into a chat).
 - The account Excel/PDF exports (Export dialog) contain no follower names (only counts, as before).
