@@ -61,7 +61,7 @@ describe('post/story list migration', () => {
       expect(body, key).toMatch(exact(`case when p_sort = '${key}' and p_asc then f.${col} end asc nulls last`));
     }
     expect(body).toMatch(exact("case when p_sort = 'date' and p_asc then f.posted_at end asc, case when p_sort = 'date' and p_asc then f.id end asc, f.posted_at desc, f.id desc) as n"));
-    expect(body).toMatch(exact('where r.n > p_offset and r.n <= p_offset + p_limit order by r.n'));
+    expect(body).toMatch(exact('where r.n > p_offset and r.n <= p_offset::bigint + least(greatest(p_limit, 0), 200) order by r.n'));
     expect(body).toMatch(exact('array(select t.tag_id from public.media_tags t where t.media_id = r.id order by t.tag_id)')); // tags for the page only
   });
 
@@ -79,7 +79,7 @@ describe('post/story list migration', () => {
     expect(body).toMatch(exact('(m.posted_at at time zone p_tz)::date as day'));
     expect(body).toMatch(exact('dense_rank() over (order by f.day desc) as day_n'));
     expect(body).toMatch(exact("case when p_sort = 'views' then f.views end desc nulls last, case when p_sort = 'exit' then f.exit_rate end desc nulls last, f.posted_at desc, f.id desc) as n"));
-    expect(body).toMatch(exact("where case when p_sort = 'newest' then r.day_n > p_offset and r.day_n <= p_offset + p_limit else r.n > p_offset and r.n <= p_offset + p_limit end"));
+    expect(body).toMatch(exact("where case when p_sort = 'newest' then r.day_n > p_offset and r.day_n <= p_offset::bigint + least(greatest(p_limit, 0), 200) else r.n > p_offset and r.n <= p_offset::bigint + least(greatest(p_limit, 0), 200) end"));
     expect(body).toMatch(exact('(select coalesce(max(r2.day_n), 0) from r r2) as days'));
     const [, after] = body.split(/\)\s+select\s+p\.id/i); // the final select, after the page was cut
     expect(after).toMatch(exact('array_agg(x.views order by x.captured_at) as progression'));

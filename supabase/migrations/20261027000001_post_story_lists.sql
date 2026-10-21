@@ -68,7 +68,7 @@ as $$
          array(select t.tag_id from public.media_tags t where t.media_id = r.id order by t.tag_id),
          r.n, r.total
     from r
-   where r.n > p_offset and r.n <= p_offset + p_limit
+   where r.n > p_offset and r.n <= p_offset::bigint + least(greatest(p_limit, 0), 200)
    order by r.n
 $$;
 
@@ -126,8 +126,8 @@ as $$
   p as (
     select r.*, (select coalesce(max(r2.day_n), 0) from r r2) as days
       from r
-     where case when p_sort = 'newest' then r.day_n > p_offset and r.day_n <= p_offset + p_limit
-                else r.n > p_offset and r.n <= p_offset + p_limit end
+     where case when p_sort = 'newest' then r.day_n > p_offset and r.day_n <= p_offset::bigint + least(greatest(p_limit, 0), 200)
+                else r.n > p_offset and r.n <= p_offset::bigint + least(greatest(p_limit, 0), 200) end
   )
   select p.id, p.posted_at, p.expires_at, p.permalink, p.cover_status, p.captured_at, p.reach, p.views, p.replies,
          p.shares, p.total_interactions, p.taps_forward, p.taps_back, p.exits,
