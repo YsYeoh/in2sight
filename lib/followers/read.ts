@@ -1,5 +1,5 @@
 // Reads and writes of follower_exports (Plan 15b). The ONLY module that names that table (tests/followers-privacy.test.ts).
-// Owner-session client only: RLS (follower_exports_owner_all, is_owner()) applies to every call; never the admin
+// Owner-session client only: RLS (follower_exports_owner_select / _insert / _delete, is_owner()) applies to every call; never the admin
 // client. Every query is filtered by the account id AND (for one snapshot) the snapshot id. Errors are fixed texts:
 // a Supabase error can echo row values, i.e. third-party usernames.
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -58,6 +58,8 @@ export type SaveResult = 'ok' | 'tooManySnapshots' | 'notReady';
 
 /** Stores one validated upload (lib/followers/payload.ts validateUpload) as a snapshot; at most MAX_SNAPSHOTS per account. */
 export async function saveFollowerSnapshot(db: SupabaseClient, accountId: string, u: Upload): Promise<SaveResult> {
+  // ponytail: the cap is count-then-insert, not atomic: two simultaneous uploads at 59 can both pass and reach 61.
+  // Owner-only and the upload dialog blocks a double submit, so this is accepted; upgrade path: a before-insert trigger.
   const { count, error } = await db.from(TABLE).select('id', { count: 'exact', head: true }).eq('account_id', accountId);
   if (error) return missing(error) ? 'notReady' : fail('count');
   if ((count ?? 0) >= MAX_SNAPSHOTS) return 'tooManySnapshots';

@@ -26,13 +26,22 @@ create table public.follower_exports (
   created_at      timestamptz not null default now(),
   check (cardinality(followers) <= 50000 and cardinality(followers_at) = cardinality(followers) and array_position(followers, null) is null),
   check ((following is null) = (following_at is null)),
-  check (following is null or (cardinality(following) <= 10000 and cardinality(following_at) = cardinality(following) and array_position(following, null) is null))
+  check (following is null or (cardinality(following) <= 10000 and cardinality(following_at) = cardinality(following) and array_position(following, null) is null)),
+  -- one-dimensional only (a hand-made 2-D array would break the index-by-index reads); array_ndims of an empty array is
+  -- NULL, so coalesce(.., 1) lets the empty array and a NULL following pass explicitly
+  check (coalesce(array_ndims(followers), 1) = 1 and coalesce(array_ndims(following), 1) = 1)
 );
 -- the Followers tab lists an account's snapshots newest first; the cascade from accounts uses it too
 create index follower_exports_account_idx on public.follower_exports (account_id, taken_on desc, created_at desc);
 alter table public.follower_exports enable row level security;
-create policy follower_exports_owner_all on public.follower_exports
-  for all to authenticated
-  using ((select public.is_owner()))
+-- select / insert / delete only: nothing in the app updates a snapshot (a re-upload is a new row)
+create policy follower_exports_owner_select on public.follower_exports
+  for select to authenticated
+  using ((select public.is_owner()));
+create policy follower_exports_owner_insert on public.follower_exports
+  for insert to authenticated
   with check ((select public.is_owner()));
+create policy follower_exports_owner_delete on public.follower_exports
+  for delete to authenticated
+  using ((select public.is_owner()));
 revoke all on public.follower_exports from anon;

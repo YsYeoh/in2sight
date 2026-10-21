@@ -31,7 +31,9 @@ export function buildFollowerSheets(d: FollowerSheetInput, t: Translate, prefs: 
     d.people,
     { prefs },
   );
-  const hint = d.older === null && (d.list === 'new' || d.list === 'lost') ? '' : k(`hints.${d.list}`, { newer: d.newer, older: d.older ?? '' });
+  const diff = d.list === 'new' || d.list === 'lost'; // only these two depend on two files; "snapshot-based" is true of them alone
+  const hint = d.older === null && diff ? '' : k(`hints.${d.list}`, { newer: d.newer, older: d.older ?? '' });
+  const note = diff && d.older !== null ? k('snapshotBased') : '';
   const about = sheet<AboutRow>(
     k('sheet.about'),
     [
@@ -43,7 +45,7 @@ export function buildFollowerSheets(d: FollowerSheetInput, t: Translate, prefs: 
       { field: k('sheet.list'), value: listName },
       { field: k('sheet.newer'), value: d.newer },
       { field: k('sheet.older'), value: d.older },
-      { field: k('sheet.note'), value: `${hint} ${k('snapshotBased')}`.trim() },
+      { field: k('sheet.note'), value: `${hint} ${note}`.trim() },
     ],
     { prefs },
   );

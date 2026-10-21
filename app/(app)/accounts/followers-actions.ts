@@ -1,7 +1,7 @@
 'use server';
 
 // Follower snapshots are owner-authored data: this action uses the OWNER-SESSION client, so RLS
-// (follower_exports_owner_all, gated on is_owner()) applies. Never the admin client here. Uploads go through the route
+// (follower_exports_owner_select / _insert / _delete, gated on is_owner()) applies. Never the admin client here. Uploads go through the route
 // handler app/api/accounts/[id]/followers (a server action's 1 MB body limit is too small for big accounts).
 import { revalidatePath } from 'next/cache';
 import { requireOwner } from '@/lib/auth/require-owner';

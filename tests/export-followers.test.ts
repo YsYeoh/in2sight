@@ -69,6 +69,17 @@ describe('buildFollowerSheets', () => {
     expect(rows[5][1]).toBe('They follow you in the export of 2026-10-20 but not in the one of 2026-09-20. Snapshot-based: only people who followed or unfollowed between these two files, not everything in between.');
   });
 
+  it('the "snapshot-based" note is only for the new / lost lists (the only ones that depend on two files)', () => {
+    const note = (list: 'new' | 'lost' | 'theyDontFollow' | 'iDontFollow' | 'mutual', older: string | null) => values(buildFollowerSheets({ account: 'a', list, newer: '2026-10-20', older, people: [] }, translator('en'), PREFS)[1])[5][1] as string;
+    for (const list of ['new', 'lost'] as const) expect(note(list, '2026-09-20')).toContain('Snapshot-based');
+    for (const list of ['theyDontFollow', 'iDontFollow', 'mutual'] as const) {
+      expect(note(list, '2026-09-20')).not.toContain('Snapshot-based');
+      expect(note(list, null)).toMatch(/export of 2026-10-20/); // its own hint, nothing about two files
+      expect(note(list, null)).not.toContain('Snapshot-based');
+    }
+    expect(note('new', null)).toBeNull(); // no older snapshot: an empty cell (such a list is not offered anyway)
+  });
+
   it('the time column follows the list; zh-CN sheet names', () => {
     const [list] = buildFollowerSheets({ account: 'a', list: 'theyDontFollow', newer: 'x', older: null, people: [] }, translator('en'), PREFS);
     expect(values(list)[0][1]).toBe('You followed on');
