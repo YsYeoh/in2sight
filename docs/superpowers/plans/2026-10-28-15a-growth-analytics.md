@@ -223,6 +223,7 @@ with
             "postedNoBase": "{format} posted {when} at {hour}: reached {reach} (too few earlier posts of this format to compare)",
             "no_posts": "Nothing posted that day or the day before; you usually post every {every} days",
             "stories": "Story reach {reach}, {change} against the typical {typical} ({stories, plural, =0 {no Stories} one {# Story} other {# Stories}} that day)",
+            "storiesNoCount": "Story reach {reach}, {change} against the typical {typical}",
             "non_followers": "Non-followers were {share} of reach, typical {typical}",
             "time_of_day": "Posts around {hour} usually reach {ratio}× your median post",
             "comments": "{comments, plural, one {# comment} other {# comments}} that day, typical {typical}"
@@ -318,6 +319,7 @@ with
             "postedNoBase": "{when} {hour} 发布的{format}：覆盖 {reach}（之前同格式的帖子太少，无法比较）",
             "no_posts": "当天和前一天都没有发布；你通常每 {every} 天发布一次",
             "stories": "快拍覆盖 {reach}，相比通常的 {typical} 变化 {change}（当天{stories, plural, =0 {没有快拍} other {# 个快拍}}）",
+            "storiesNoCount": "快拍覆盖 {reach}，相比通常的 {typical} 变化 {change}",
             "non_followers": "非粉丝占覆盖人数的 {share}，通常为 {typical}",
             "time_of_day": "在 {hour} 前后发布的帖子，覆盖通常是你帖子中位数的 {ratio} 倍",
             "comments": "当天 {comments} 条评论，通常为 {typical}"
@@ -532,4 +534,152 @@ Expected: PASS (11 tests).
 ```bash
 git add lib/analysis/trend.ts tests/analysis-trend.test.ts
 git commit -m "feat(analysis): robust z-score, same-weekday anomaly and median-slope follower projection" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+### Task 3: "Why did this change?" — per-day facts and the reason rules
+
+**Files:**
+- Create: `lib/analysis/why.ts`
+- Test: `tests/analysis-why.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `median` (`lib/analysis/posts.ts`), `addDays` (`lib/sync/time.ts`), `MediaKind` (`lib/instagram/parse.ts`).
+- Produces (Tasks 6, 7, 8):
+
+```ts
+export type FeedKind = Exclude<MediaKind, 'STORY'>;
+/** A feed post or Reel published on an owner-timezone day, with its latest reach. */
+export interface DayPost { id: string; mediaType: FeedKind; postedAt: string; hour: number; reach: number | null; permalink: string | null }
+/** Everything known about one owner-timezone day of one account (null = not known, never 0). */
+export interface GrowthDay {
+  day: string;
+  followers: number | null; // the day's last follower count
+  follows: number | null;
+  unfollows: number | null;
+  net: number | null; // follows − unfollows, else the change of the follower count from the day before
+  netSource: 'instagram' | 'derived' | null;
+  reach: number | null; // account_daily.reach
+  reachFollower: number | null; // breakdown reach of FOLLOWER, summed over formats
+  reachNonFollower: number | null;
+  storyReach: number | null; // breakdown reach of STORY, every follow type
+  posts: DayPost[]; // feed posts and Reels published that day
+  stories: number | null; // Stories published that day; null = not counted
+  comments: number | null; // comments received that day; null = not counted
+}
+export type WhyMetric = 'net' | 'reach';
+export const WHY_METRICS: readonly WhyMetric[] = ['net', 'reach'];
+export type ReasonId = 'posted' | 'no_posts' | 'stories' | 'non_followers' | 'time_of_day' | 'comments';
+export const REASON_ORDER: readonly ReasonId[] = ['posted', 'no_posts', 'stories', 'non_followers', 'time_of_day', 'comments'];
+export interface Reason { id: ReasonId; direction: 'up' | 'down'; weight: number; confidence: 'low' | 'medium'; n: number; values: Record<string, number | string | null> }
+export interface Why { day: string; metric: WhyMetric; value: number | null; typical: number | null; n: number; direction: 'up' | 'down' | 'flat' | null; reasons: Reason[]; posts: (DayPost & { when: 'same_day' | 'day_before' })[] }
+/** A day of the range that weekdayAnomaly (Task 2) flagged; built by Task 6, listed by Task 7. */
+export interface UnusualDay { day: string; metric: WhyMetric; value: number; typical: number; z: number | null; direction: 'up' | 'down' | 'flat' }
+export const WHY = { baselineDays: 28, minBaseline: 7, mediumBaseline: 14, postDays: 90, minFormatPosts: 5, mediumFormatPosts: 10, maxReasons: 4, postEvery: 4, storyShift: 0.3, nfShift: 0.05, hourShift: 0.2, minHourPosts: 3, mediumHourPosts: 5, minComments: 5, commentsRatio: 2 } as const;
+export function explainDay(days: GrowthDay[], day: string, metric: WhyMetric): Why
+```
+
+- Each reason's `values` keys (Task 7 formats them): `posted` {`postId`, `format` (FeedKind), `when` ('same_day' | 'day_before'), `hour`, `reach`, `ratio` (null = too few earlier posts of the format), `posts`}; `no_posts` {`every`}; `stories` {`reach`, `typical`, `change`, `stories` (null = not counted)}; `non_followers` {`share`, `typical`, `change`}; `time_of_day` {`hour`, `ratio`, `posts`}; `comments` {`comments`, `typical`}.
+
+- [ ] **Step 1: Write the failing test** — create `tests/analysis-why.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { explainDay, REASON_ORDER, WHY, type DayPost, type GrowthDay } from '@/lib/analysis/why';
+import { addDays } from '@/lib/sync/time';
+
+const DAY = '2026-10-14';
+const day = (d: string, o: Partial<GrowthDay> = {}): GrowthDay => ({ day: d, followers: null, follows: null, unfollows: null, net: 5, netSource: 'instagram', reach: 1000, reachFollower: 700, reachNonFollower: 300, storyReach: 400, posts: [], stories: 2, comments: 1, ...o });
+const post = (id: string, d: string, o: Partial<DayPost> = {}): DayPost => ({ id, mediaType: 'REELS', postedAt: `${d}T12:00:00Z`, hour: 20, reach: 1000, permalink: null, ...o });
+/** 44 days ending DAY. Every second day up to DAY − 2 has a Reel (reach 1000, 20:00) and an image (reach 400, 09:00); DAY − 1 and DAY have none. */
+function history(over: Record<string, Partial<GrowthDay>> = {}, n = 44): GrowthDay[] {
+  return Array.from({ length: n }, (_, i) => {
+    const d = addDays(DAY, i - (n - 1));
+    const posts = i % 2 === 0 && d < addDays(DAY, -1) ? [post(`r${i}`, d), post(`i${i}`, d, { mediaType: 'IMAGE', reach: 400, hour: 9 })] : [];
+    return day(d, { posts, ...over[d] });
+  });
+}
+const ids = (w: { reasons: { id: string }[] }) => w.reasons.map((r) => r.id);
+
+describe('explainDay', () => {
+  it('a follower spike: the big Reel and the non-follower share explain it, strongest first (ties in rule order)', () => {
+    const w = explainDay(history({ [DAY]: { net: 60, reach: 5000, reachFollower: 800, reachNonFollower: 1200, posts: [post('big', DAY, { reach: 5000 })] } }), DAY, 'net');
+    expect(w).toMatchObject({ day: DAY, metric: 'net', value: 60, typical: 5, n: 28, direction: 'up' });
+    expect(ids(w)).toEqual(['posted', 'non_followers', 'time_of_day']);
+    expect(w.reasons[0]).toEqual({ id: 'posted', direction: 'up', weight: 3, confidence: 'medium', n: 21, values: { postId: 'big', format: 'REELS', when: 'same_day', hour: 20, reach: 5000, ratio: 5, posts: 1 } });
+    expect(w.reasons[1]).toMatchObject({ id: 'non_followers', direction: 'up', weight: 3, confidence: 'medium', n: 28 });
+    expect(w.reasons[1].values.share).toBeCloseTo(0.6);
+    expect(w.reasons[1].values.change).toBeCloseTo(0.3);
+    expect(w.reasons[2]).toMatchObject({ id: 'time_of_day', direction: 'up', confidence: 'medium', n: 21, values: { hour: 20, posts: 21 } });
+    expect(w.reasons[2].weight).toBeCloseTo(0.857, 3); // Reels at 20:00 reach 1000 vs the median post 700
+    expect(w.posts.map((p) => [p.id, p.when])).toEqual([['big', 'same_day']]);
+  });
+
+  it('reasons pointing the other way are dropped (Story reach fell on a spike day)', () => {
+    const w = explainDay(history({ [DAY]: { net: 60, storyReach: 100, posts: [post('big', DAY, { reach: 5000 })] } }), DAY, 'net');
+    expect(ids(w)).not.toContain('stories');
+    expect(w.reasons.every((r) => r.direction === 'up')).toBe(true);
+  });
+
+  it('a drop: nothing posted that day or the day before, and Story reach fell', () => {
+    const w = explainDay(history({ [DAY]: { net: -20, storyReach: 100, stories: 0 } }), DAY, 'net');
+    expect(w).toMatchObject({ value: -20, typical: 5, direction: 'down', posts: [] });
+    expect(ids(w)).toEqual(['no_posts', 'stories']);
+    expect(w.reasons[0]).toMatchObject({ direction: 'down', weight: 1.5, confidence: 'medium', n: 28 });
+    expect(w.reasons[0].values.every).toBeCloseTo(28 / 13); // 13 of the 28 days before had a post
+    expect(w.reasons[1]).toMatchObject({ direction: 'down', weight: 1.5, values: { reach: 100, typical: 400, change: -0.75, stories: 0 } });
+  });
+
+  it('the day before counts; reach as the metric; a comment burst', () => {
+    const w = explainDay(history({ [addDays(DAY, -1)]: { posts: [post('eve', addDays(DAY, -1), { reach: 3000 })] }, [DAY]: { reach: 4000, comments: 12 } }), DAY, 'reach');
+    expect(w).toMatchObject({ metric: 'reach', value: 4000, typical: 1000, direction: 'up' });
+    expect(w.reasons.find((r) => r.id === 'posted')?.values).toMatchObject({ postId: 'eve', when: 'day_before', ratio: 3 });
+    expect(w.reasons.find((r) => r.id === 'comments')).toMatchObject({ direction: 'up', weight: 2, values: { comments: 12, typical: 1 } });
+  });
+
+  it('too little history: no typical, no direction, every reason kept with low confidence and no ratio', () => {
+    const w = explainDay(history({ [DAY]: { net: 9, posts: [post('p', DAY, { mediaType: 'IMAGE', hour: 9 })] } }, 4), DAY, 'net');
+    expect(w).toMatchObject({ value: 9, typical: null, n: 3, direction: null });
+    expect(w.reasons.find((r) => r.id === 'posted')).toMatchObject({ direction: 'up', weight: 1, confidence: 'low', n: 1, values: { ratio: null } }); // one earlier image (DAY − 3), under the 5 needed
+  });
+
+  it('an unknown day or a missing value: nothing to explain, no crash', () => {
+    expect(explainDay(history(), '2027-01-01', 'net')).toMatchObject({ value: null, typical: null, direction: null, reasons: [] });
+    expect(explainDay(history({ [DAY]: { reach: null } }), DAY, 'reach')).toMatchObject({ value: null, direction: null });
+  });
+
+  it('never more than 4 reasons, never "high" confidence', () => {
+    const w = explainDay(history({ [DAY]: { net: 80, reachNonFollower: 2000, storyReach: 2000, comments: 40, posts: [post('big', DAY, { reach: 9000 })] } }), DAY, 'net');
+    expect(w.reasons.length).toBeLessThanOrEqual(WHY.maxReasons);
+    for (const r of w.reasons) expect(['low', 'medium']).toContain(r.confidence);
+    expect(REASON_ORDER).toHaveLength(6);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/analysis-why.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/analysis/why"`.
+
+- [ ] **Step 3: Implement `lib/analysis/why.ts`** — the types and constants above, a header comment ("rule-based patterns, not causes; every reason carries its evidence, its sample and a confidence word, never 'high'"), and `explainDay` exactly as follows (`base` = the days in `[day − 28, day − 1]`; `med(xs)` = `median` of the numbers in `xs`, nulls dropped):
+  1. No `GrowthDay` for `day` → `{ day, metric, value: null, typical: null, n: 0, direction: null, reasons: [], posts: [] }`. `value` = the day's `net` or `reach`. `vals` = the base days' metric values (non-null); `n = vals.length`; `typical = n ≥ WHY.minBaseline ? median(vals) : null`; `direction` = null when value or typical is null, else up / down / flat. If `value` is null: return with `reasons: []` and the posts.
+  2. `P` = that day's posts tagged `when: 'same_day'`, then the day before's tagged `'day_before'` (also returned as `posts`). `earlier` = the posts of the days in `[day − 90, day − 2]` with a reach.
+  3. **posted** (P not empty): `top` = the P post with the most reach (a null reach ranks last; ties keep P order). `fmt` = reaches of `earlier` posts with `top.mediaType`; `ratio = fmt.length ≥ 5 && med(fmt) > 0 && top.reach !== null ? top.reach / med(fmt) : null`. Direction `ratio !== null && ratio < 1 ? 'down' : 'up'`; weight `ratio === null ? 1 : Math.min(3, Math.max(ratio, 1 / ratio))`; confidence `fmt.length ≥ 10 ? 'medium' : 'low'`; `n = fmt.length`; values as listed in Interfaces (`posts = P.length`).
+  4. **no_posts** (P empty): `postingDays` = base days with ≥ 1 post; fires when `base.length > 0 && postingDays / base.length ≥ 1 / WHY.postEvery`: direction `'down'`, weight 1.5, values `{ every: base.length / postingDays }`, confidence `base.length ≥ 14 ? 'medium' : 'low'`, `n = base.length`.
+  5. **stories**: `m = med(base storyReach)` over `ns` values; fires when the day's `storyReach !== null && ns ≥ 7 && m > 0` and `|change| ≥ 0.3` with `change = (storyReach − m) / m`: direction by sign, weight `Math.min(3, Math.abs(change) * 2)`, values `{ reach, typical: m, change, stories: the day's stories }`, confidence `ns ≥ 14 ? 'medium' : 'low'`, `n = ns`.
+  6. **non_followers**: `share(d) = reachFollower and reachNonFollower both non-null and their sum > 0 ? reachNonFollower / sum : null`; `m = med(base shares)` over `nb`; fires when the day's share is non-null, `nb ≥ 7` and `|share − m| ≥ 0.05`: direction by sign, weight `Math.min(3, Math.abs(change) / 0.05)`, values `{ share, typical: m, change }`, confidence `nb ≥ 14 ? 'medium' : 'low'`, `n = nb`.
+  7. **time_of_day** (only with `top`): `near` = `earlier` posts whose hour is within 1 of `top.hour` on a 24-hour clock (`Math.min(d, 24 − d) ≤ 1`, `d = |h − top.hour|`); fires when `near.length ≥ 3`, `med(all earlier) > 0` and `|ratio − 1| ≥ 0.2` with `ratio = med(near) / med(all earlier)`: direction `ratio > 1 ? 'up' : 'down'`, weight `Math.min(1.5, Math.abs(ratio − 1) * 2)`, values `{ hour: top.hour, ratio, posts: near.length }`, confidence `near.length ≥ 5 ? 'medium' : 'low'`, `n = near.length`.
+  8. **comments**: `m = med(base comments)` over `nc`; fires when the day's `comments !== null && nc ≥ 7 && comments ≥ 5 && comments ≥ 2 × max(m, 1)`: direction `'up'`, weight `Math.min(2, comments / Math.max(m, 1) / 2)`, values `{ comments, typical: m }`, confidence `nc ≥ 14 ? 'medium' : 'low'`, `n = nc`.
+  9. Keep only reasons whose direction equals `direction` when that is `'up'` or `'down'` (all of them otherwise); sort by weight descending, ties by `REASON_ORDER`; keep the first `WHY.maxReasons`.
+
+- [ ] **Step 4: Run it to verify it passes**
+
+Run: `npx vitest run tests/analysis-why.test.ts`
+Expected: PASS (7 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/analysis/why.ts tests/analysis-why.test.ts
+git commit -m "feat(analysis): rule-based reasons for a day's change (why did this change)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
