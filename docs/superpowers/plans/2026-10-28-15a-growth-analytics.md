@@ -1710,3 +1710,59 @@ Expected: PASS. Then `npx tsc --noEmit` and `npx eslint "app/(app)/accounts/[id]
 git add lib/dashboard/account.ts components/account/AccountView.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx
 git commit -m "feat(account): Growth tab on the account page (range bar, owner-session reads)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+### Task 10: Docs — runbook, spec, TODO, handover, UI standard
+
+**Files:**
+- Create: `docs/RUNBOOK_GROWTH.md`
+- Modify: `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/UI_STANDARDS.md`
+
+**Interfaces:** none (docs only). Runs beside Task 9; it describes the state after Task 9.
+
+- [ ] **Step 1: `docs/RUNBOOK_GROWTH.md`** — title "Runbook — Growth tab (Plan 15a)"; intro: live checks for the owner with the assistant; no migration; the maths was dry-run (plan "Dry run"), the UI only in jsdom; never paste tokens or other people's names. Sections (each a short numbered checklist with the expected result):
+  - **§1 Open it:** an account page → "Growth" tab between Overview and Posts; the range bar shows (Last 7 / 14 / 30 Days); picking a range stays on Growth (`?tab=growth&from=…`); light and dark of two themes; 360 / 768 / 1280 px (no sideways scroll; KPI row 2 / 3 / 6 columns).
+  - **§2 Follows and unfollows mapping (Open question 7):** in the Supabase SQL editor (owner session or service role, read only): `select d.day, d.follows, d.unfollows, d.follows - d.unfollows as ig_net, d.followers - p.followers as count_change from account_daily d join account_daily p on p.account_id = d.account_id and p.day = d.day - 1 where d.account_id = '<id>' and d.follows is not null and d.followers is not null and p.followers is not null order by d.day desc limit 30;` — expected: `ig_net` close to `count_change` on most days (Instagram's numbers lag and round; the sign must agree on days with a clear move). If `ig_net ≈ −count_change`, FOLLOWER/NON_FOLLOWER are swapped in `lib/instagram/metrics.ts` `FOLLOW_TYPE`: tell the owner, fix in a separate change (constant + a one-off `update account_daily set follows = unfollows, unfollows = follows`), do not hand-edit data before that decision.
+  - **§3 Followers card:** Last 7 Days shows hourly points; 30 days daily; the change line matches the first/last counts; "Follower history starts …" on an account connected inside the range; the projection says method, n, dates and a confidence word; under 14 days of counts it says why there is none.
+  - **§4 Why panel:** pick an unusual day (or click a bar with Group by: Day) → the URL gets `&day=…` without a page reload (Network tab: no document or RSC request); reload / open the link in a new tab → the same explanation; reasons name the post (link opens Instagram in a new tab), Story reach, non-follower share, comments, each with "Low/Medium confidence · sample n"; a weekly range says how to click single days.
+  - **§5 Speed:** Server-Timing / Network for the Growth tab at Last 30 Days, Last year and All time (budget: warm data ≤ 1.2 s p75, docs/RUNBOOK_PERF.md). Over budget at All time → note the numbers; the upgrade path is the rollup function named in the plan (Open question 8).
+  - **§6 Loyalty and audience:** the per-format table lists the formats the account used with non-follower shares; Audience over time compares the first and the latest snapshot of the range, notable rows (≥ 2 points) highlighted, countries outside Instagram's top 45 show "—".
+- [ ] **Step 2: `docs/SPEC.md`** — after §7f add `## 7g. Growth tab (Plan 15a; creator-toolkit design §6 "Audience & growth")` with one bullet per part, using the plan's Decisions as the source (the tab and its range bar; KPIs and their comparison rules; followers daily/hourly, change, projection method and confidence; follow flow with `instagram` / `derived` sources and churn; loyalty by follow type and per format, summed over formats; audience then-vs-now with the 2-point highlight; unusual days (same weekday, 8 weeks, ≥ 4 samples, |z| ≥ 3.5, ≥ max(3, 10 %)); the six Why rules, at most 4 reasons, low/medium confidence only, "patterns, not proof"; `?day` / `?why` URL state via `history.replaceState`; reads: owner session, no SQL, the 5,000-row caps). In §8 "UI (v1)", add "Growth" to the account page's tab list.
+- [ ] **Step 3: `docs/TODO.md`** — add before `## 6b. Next (Plan 14/15 Settings)`:
+
+```markdown
+## 6k. Growth tab (Plan 15a; creator-toolkit design §6)
+- [x] Followers (daily, hourly for ≤ 7 days), change over the range, 7/30/90-day projection with method and confidence _(code done; NOT verified live — docs/RUNBOOK_GROWTH.md §3)_
+- [x] Follows vs unfollows (Instagram's, or the follower-count change under 100 followers), churn, best and worst days with what was published _(code done; NOT verified live)_
+- [x] Followers vs non-followers reached over time and per format; audience then vs now with highlighted changes _(code done; NOT verified live)_
+- [x] "Why did this change?": unusual days (same-weekday robust z-score) and rule-based reasons with evidence, sample and confidence; `?day`/`?why` in the URL _(code done; NOT verified live — RUNBOOK_GROWTH §4)_
+- [ ] Owner: run docs/RUNBOOK_GROWTH.md (§2 checks the uncertain FOLLOWER/NON_FOLLOWER mapping first); confirm the plan's open questions (own tab, no Overview roll-up, reach summed over formats, projection method, anomaly thresholds, then-vs-now audience, follow mapping check, no SQL)
+- [ ] Not captured (needs a sync change if wanted): engaged-audience demographics; demographics for `last_30_days` / `last_90_days`
+```
+
+- [ ] **Step 4: `docs/HANDOVER.md`** — under section 0, after the "Plan 14c state" paragraph, add a "**Plan 15a (Growth tab) — state and lessons:**" paragraph: code complete on local `main`, not pushed, not verified live (RUNBOOK_GROWTH); no migration; the picked day is URL state written with `history.replaceState` (no server round trip); analysis reasons are rules with evidence, sample and a low/medium confidence word, never "high"; the FOLLOW_TYPE mapping is still unverified (RUNBOOK_GROWTH §2); the next roadmap steps are Plan 15b (followers diff) and 15c (comments/fans).
+- [ ] **Step 5: `docs/UI_STANDARDS.md`** — in rule 4 change "Overview, account Overview, Calendar, Explorer and the export dialog use `RangeBar`" to "Overview, account Overview and Growth, Calendar, Explorer and the export dialog use `RangeBar` (on an account tab, `keep={{ tab }}`)"; append after rule 13:
+
+```markdown
+14. **Analysis states its basis.** Every analysis card says where its numbers come from (a source line under the title), the sample behind any "typical" or "median" (`n`), a confidence word for rule-based findings (Low / Medium — never "high": a rule finds a pattern, not a cause) and a "data starts" line when the history is shorter than the range; a missing number has a reason, never 0. A clickable chart always has a keyboard path to the same items (a list or table), and a pick that only changes what is shown is URL state written with `history.replaceState` (no server round trip). → `ChartCard` `subtitle`, `WhyPanel`, `GrowthTab`.
+```
+
+- [ ] **Step 6: Check** — `npx vitest run tests/messages.test.ts tests/ui-standards.test.ts` (unchanged guards; docs only) and read the five files once more for wrong names (every function, file and key named must exist after Tasks 1–9).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add docs/RUNBOOK_GROWTH.md docs/SPEC.md docs/TODO.md docs/HANDOVER.md docs/UI_STANDARDS.md
+git commit -m "docs(growth): RUNBOOK_GROWTH, SPEC 7g, TODO 6k, handover, UI standard rule 14" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+## Dry-run result
+
+Tasks 1–9 were applied to a throwaway clone of `main` at `0cee097` (outside the repo, sharing this checkout's `node_modules`) exactly as written here: `npx vitest run` → **236 files, 2126 tests passed**; `npx tsc --noEmit` clean; `npx eslint` on every new and changed file clean; Task 9's patch passes `git apply --check --ignore-whitespace` on `main`. The scratch implementation used for the dry run is not part of the plan beyond the algorithms written out above; implementers write their own from the steps.
+
+## Self-review (planner)
+
+- **Spec coverage (§6 Audience & growth, minus 15b/15c):** Followers daily + growth rate + 7/30/90 projection → Tasks 2, 6, 8; Follow flow (follows vs unfollows, churn, best/worst, what happened that day) → 6, 8; Loyalty vs discovery (follow type over time, per format, non-follower share trend) → 6, 8 (KPI sparkline = the share trend); Demographics over time with change highlighting → 4, 6, 8; "Why did this change?" + anomaly detection → 2, 3, 7, 8; data source / sample / trust → every card + UI rule 14; i18n, responsive, URL state, formats, tokens → 1, 8, 9; docs → 10. Overview roll-up and engaged-audience demographics: Open question 2 and "Data not captured".
+- **Types:** `GrowthDay`, `DayPost`, `UnusualDay`, `WhyMetric` (Task 3) are used unchanged by Tasks 6–8; `BreakdownRow`, `DayCounts` (Task 4) by Task 6; `DeltaDef` (Task 5) by Tasks 6 and 8; `GrowthModel` (Task 6) by Tasks 8 and 9 — all compiled together in the dry run.
+- **Proportion:** algorithms (projection, anomaly, reasons, model rules) are written out; components and readers are signatures, layout rules and complete tests.
