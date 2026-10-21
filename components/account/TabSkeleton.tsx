@@ -17,6 +17,13 @@ export function TabSkeleton({ tab }: { tab: Tab }) {
           <SkeletonGrid count={6} className="sm:grid-cols-2 xl:grid-cols-3" itemClassName="h-40" />
         </div>
       );
+    case 'followers':
+      return (
+        <div aria-busy="true" className="grid min-w-0 gap-[var(--gp)]">
+          <SkeletonGrid count={1} itemClassName="h-[calc(var(--ctl)*1.8)] rounded-md" />
+          <SkeletonTable rows={8} />
+        </div>
+      );
     default:
       return (
         <div aria-busy="true" className="grid min-w-0 gap-[var(--gp)]">
