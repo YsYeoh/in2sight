@@ -16,20 +16,21 @@ const DIRECTION = {
 } as const;
 
 /** The unusual days of the range (the keyboard path of the chart click) and the rule-based reasons of the picked day. */
-export function WhyPanel({ days, unusual, pick, onPick }: { days: GrowthDay[]; unusual: UnusualDay[]; pick: { day: string | null; metric: WhyMetric }; onPick: (day: string, metric: WhyMetric) => void }) {
+export function WhyPanel({ days, unusual, pick, settled, onPick }: { days: GrowthDay[]; unusual: UnusualDay[]; pick: { day: string | null; metric: WhyMetric }; settled?: string; onPick: (day: string, metric: WhyMetric) => void }) {
   const t = useTranslations('pages.account.growth');
   const ta = useTranslations('analysis');
   const { prefs } = usePrefs();
   const titleId = useId();
   const one = (v: unknown) => formatNumber(Number(v), prefs, { maximumFractionDigits: 1 });
   const amount = (metric: WhyMetric, v: number | null) => (metric === 'net' ? formatSigned(v, prefs) : formatCompact(v, prefs));
-  const w = useMemo(() => (pick.day ? explainDay(days, pick.day, pick.metric) : null), [days, pick.day, pick.metric]);
+  const w = useMemo(() => (pick.day ? explainDay(days, pick.day, pick.metric, settled) : null), [days, pick.day, pick.metric, settled]);
 
   const reasonText = (r: Reason): string => {
     const v = r.values;
     switch (r.id) {
       case 'posted': {
         const args = { format: ta(`format.${v.format as string}`), when: t(`why.when.${v.when as string}`), hour: formatHour(Number(v.hour), prefs), reach: formatCompact(v.reach as number | null, prefs) };
+        if (v.immature) return t('why.reason.postedImmature', args);
         return v.ratio === null ? t('why.reason.postedNoBase', args) : t('why.reason.posted', { ...args, ratio: one(v.ratio) });
       }
       case 'no_posts':

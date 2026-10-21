@@ -3,6 +3,7 @@
 import { median } from '@/lib/analysis/posts';
 import type { MediaKind } from '@/lib/instagram/parse';
 import { addDays } from '@/lib/sync/time';
+import { daysBetween } from '@/lib/time-scope/range';
 
 export type FeedKind = Exclude<MediaKind, 'STORY'>;
 /** A feed post or Reel published on an owner-timezone day, with its latest reach. */
@@ -27,7 +28,9 @@ export type WhyMetric = 'net' | 'reach';
 export const WHY_METRICS: readonly WhyMetric[] = ['net', 'reach'];
 export type ReasonId = 'posted' | 'no_posts' | 'stories' | 'non_followers' | 'time_of_day' | 'comments';
 export const REASON_ORDER: readonly ReasonId[] = ['posted', 'no_posts', 'stories', 'non_followers', 'time_of_day', 'comments'];
-export interface Reason { id: ReasonId; direction: 'up' | 'down'; weight: number; confidence: 'low' | 'medium'; n: number; values: Record<string, number | string | null> }
+export interface Reason { id: ReasonId; direction: 'up' | 'down'; weight: number; confidence: 'low' | 'medium'; n: number; values: Record<string, number | string | boolean | null> }
+/** A post gathers reach for days: younger than this (at the settled end day) it is not compared with posts that had their full life. */
+export const POST_MATURE_DAYS = 7;
 export interface Why { day: string; metric: WhyMetric; value: number | null; typical: number | null; n: number; direction: 'up' | 'down' | 'flat' | null; reasons: Reason[]; posts: (DayPost & { when: 'same_day' | 'day_before' })[] }
 /** A day of the range that weekdayAnomaly (Task 2) flagged; built by Task 6, listed by Task 7. */
 export interface UnusualDay { day: string; metric: WhyMetric; value: number; typical: number; z: number | null; direction: 'up' | 'down' | 'flat' }
@@ -37,7 +40,8 @@ const nums = (xs: (number | null)[]): number[] => xs.filter((x): x is number => 
 const med = (xs: (number | null)[]): number | null => median(nums(xs));
 const sign = (x: number): 'up' | 'down' => (x > 0 ? 'up' : 'down');
 
-export function explainDay(days: GrowthDay[], day: string, metric: WhyMetric): Why {
+/** `settled` = the settled end day (what the KPIs end on); without it no post is treated as too recent. */
+export function explainDay(days: GrowthDay[], day: string, metric: WhyMetric, settled?: string): Why {
   const byDay = new Map(days.map((d) => [d.day, d]));
   const today = byDay.get(day);
   const empty: Why = { day, metric, value: null, typical: null, n: 0, direction: null, reasons: [], posts: [] };
@@ -64,15 +68,18 @@ export function explainDay(days: GrowthDay[], day: string, metric: WhyMetric): W
 
   // posted / no_posts
   let top: (typeof P)[number] | undefined;
+  let immature = false;
   if (P.length > 0) {
     top = P.reduce((best, p) => ((p.reach ?? -1) > (best.reach ?? -1) ? p : best));
+    immature = settled !== undefined && daysBetween(top.when === 'same_day' ? day : addDays(day, -1), settled) < POST_MATURE_DAYS;
     const fmt = nums(earlier.filter((p) => p.mediaType === top!.mediaType).map((p) => p.reach));
     const m = med(fmt);
-    const ratio = fmt.length >= WHY.minFormatPosts && m !== null && m > 0 && top.reach !== null ? top.reach / m : null;
+    const ratio = !immature && fmt.length >= WHY.minFormatPosts && m !== null && m > 0 && top.reach !== null ? top.reach / m : null;
     reasons.push({
-      id: 'posted', direction: ratio !== null && ratio < 1 ? 'down' : 'up', weight: ratio === null ? 1 : Math.min(3, Math.max(ratio, 1 / ratio)),
-      confidence: fmt.length >= WHY.mediumFormatPosts ? 'medium' : 'low', n: fmt.length,
-      values: { postId: top.id, format: top.mediaType, when: top.when, hour: top.hour, reach: top.reach, ratio, posts: P.length },
+      // too recent: evidence only; it takes the day's own direction so the direction filter below never drops it
+      id: 'posted', direction: immature ? (direction === 'up' || direction === 'down' ? direction : 'up') : ratio !== null && ratio < 1 ? 'down' : 'up', weight: ratio === null ? 1 : Math.min(3, Math.max(ratio, 1 / ratio)),
+      confidence: !immature && fmt.length >= WHY.mediumFormatPosts ? 'medium' : 'low', n: fmt.length,
+      values: { postId: top.id, format: top.mediaType, when: top.when, hour: top.hour, reach: top.reach, ratio, posts: P.length, ...(immature ? { immature: true } : {}) },
     });
   } else {
     const postingDays = base.filter((d) => d.posts.length > 0).length;
@@ -106,7 +113,7 @@ export function explainDay(days: GrowthDay[], day: string, metric: WhyMetric): W
   }
 
   // time_of_day
-  if (top) {
+  if (top && !immature) {
     const near = earlier.filter((p) => {
       const d = Math.abs(p.hour - top.hour);
       return Math.min(d, 24 - d) <= 1;
@@ -128,9 +135,11 @@ export function explainDay(days: GrowthDay[], day: string, metric: WhyMetric): W
     reasons.push({ id: 'comments', direction: 'up', weight: Math.min(2, today.comments / Math.max(cm, 1) / 2), confidence: cs.length >= WHY.mediumBaseline ? 'medium' : 'low', n: cs.length, values: { comments: today.comments, typical: cm } });
   }
 
+  // with no direction (too little baseline) reasons may point both ways: list them in rule order, never ranked by weight
+  const ranked = direction === 'up' || direction === 'down';
   out.reasons = reasons
-    .filter((r) => direction !== 'up' && direction !== 'down' ? true : r.direction === direction)
-    .sort((a, b) => b.weight - a.weight || REASON_ORDER.indexOf(a.id) - REASON_ORDER.indexOf(b.id))
+    .filter((r) => !ranked || r.direction === direction)
+    .sort((a, b) => (ranked ? b.weight - a.weight : 0) || REASON_ORDER.indexOf(a.id) - REASON_ORDER.indexOf(b.id))
     .slice(0, WHY.maxReasons);
   return out;
 }

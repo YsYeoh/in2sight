@@ -43,6 +43,7 @@ order by d.day desc limit 30;
 5. Switch to a weekly range or Group by: Week. **Pass:** a chart click does nothing and the card says to choose Group by: Day; the Unusual days list still works.
 6. Edit the URL by hand to a junk `day` (`day=abc`, a date outside the range) and a junk `why`. **Pass:** ignored, no error.
 7. Keyboard: Tab to the Unusual days list and pick a day with Enter. **Pass:** same result as the chart click.
+8. **Pass:** today is never flagged unusual; a day before the first captured Story shows unknown, not zero Stories; a post younger than 7 days says too recent to compare.
 
 ## 5. Speed
 1. Open the Growth tab at Last 30 Days, Last year and All time with warm data; read `Server-Timing` / the Network tab (as in `docs/RUNBOOK_PERF.md`).

@@ -412,6 +412,7 @@
         "noDays": "None in this range",
         "dayLine": "{day}: {net}, {activity}",
         "activity": "{posts, plural, =0 {no posts} one {# post} other {# posts}}, {stories, plural, =0 {no Stories} one {# Story} other {# Stories}}",
+        "activityStoriesUnknown": "{posts, plural, =0 {no posts} one {# post} other {# posts}}, Story count unknown",
         "storiesFrom": "Story counts are complete from {date} (only the newest Stories were counted).",
         "dayOnly": "Choose Group by: Day under More ranges to click single days.",
         "loyaltyTitle": "Followers and non-followers reached",
@@ -456,6 +457,7 @@
           "reason": {
             "posted": "{format} posted {when} at {hour}: reached {reach}, {ratio}× your typical {format}",
             "postedNoBase": "{format} posted {when} at {hour}: reached {reach} (too few earlier posts of this format to compare)",
+            "postedImmature": "{format} posted {when} at {hour}: reached {reach} so far (too recent to compare with earlier posts)",
             "no_posts": "Nothing posted that day or the day before; you usually post every {every} days",
             "stories": "Story reach {reach}, {change} against the typical {typical} ({stories, plural, =0 {no Stories} one {# Story} other {# Stories}} that day)",
             "storiesNoCount": "Story reach {reach}, {change} against the typical {typical}",

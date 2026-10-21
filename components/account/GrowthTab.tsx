@@ -56,7 +56,7 @@ export function GrowthTab({ model }: { model: GrowthModel }) {
   const daily = model.scope.gran === 'day';
   const fmtY = (n: number) => formatCompact(n, prefs);
   const whole = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
-  const activityText = (a: { posts: number; stories: number | null }) => t('activity', { posts: a.posts, stories: a.stories ?? 0 });
+  const activityText = (a: { posts: number; stories: number | null }) => (a.stories === null ? t('activityStoriesUnknown', { posts: a.posts }) : t('activity', { posts: a.posts, stories: a.stories }));
   const withActivity = (day: string) => {
     const a = model.activity[day];
     return a ? `${fmtFlow(day)} · ${activityText(a)}` : fmtFlow(day);
@@ -254,7 +254,7 @@ export function GrowthTab({ model }: { model: GrowthModel }) {
         </ChartCard>
       </div>
 
-      <WhyPanel days={model.days} unusual={model.unusual} pick={shown} onPick={onPick} />
+      <WhyPanel days={model.days} unusual={model.unusual} pick={shown} settled={model.settled} onPick={onPick} />
 
       <ChartCard title={t('audienceTitle')} subtitle={t('audienceSource')}>
         {DIMS.every((d) => model.audience[d] === null) ? (

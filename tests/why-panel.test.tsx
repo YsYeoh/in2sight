@@ -60,6 +60,18 @@ describe('WhyPanel', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
+  it('a post younger than a week says it is too recent to compare, with no multiple of the typical post (en and zh-CN)', () => {
+    const { unmount } = wrap(<WhyPanel days={days} unusual={unusual} pick={{ day: DAY, metric: 'net' }} settled={addDays(DAY, 1)} onPick={vi.fn()} />);
+    const posted = document.querySelector('[data-reason="posted"]')!;
+    expect(posted.textContent).toContain('too recent to compare');
+    expect(posted.textContent).not.toContain('×');
+    expect(document.querySelector('[data-reason="time_of_day"]')).toBeNull();
+    unmount();
+    wrap(<WhyPanel days={days} unusual={unusual} pick={{ day: DAY, metric: 'net' }} settled={addDays(DAY, 1)} onPick={vi.fn()} />, 'zh-CN');
+    expect(document.querySelector('[data-reason="posted"]')!.textContent).toContain('太新');
+    expect(document.body.textContent).not.toMatch(/NaN|undefined|pages\.account|\{/);
+  });
+
   it('nothing unusual, a day without enough history, a day without a value', () => {
     const { unmount } = wrap(<WhyPanel days={days.slice(-3)} unusual={[]} pick={{ day: DAY, metric: 'reach' }} onPick={vi.fn()} />);
     expect(screen.getByText(en.pages.account.growth.why.noUnusual)).toBeInTheDocument();

@@ -412,6 +412,7 @@
         "noDays": "本时间范围内没有",
         "dayLine": "{day}：{net}，{activity}",
         "activity": "{posts, plural, =0 {没有帖子} other {# 个帖子}}，{stories, plural, =0 {没有快拍} other {# 个快拍}}",
+        "activityStoriesUnknown": "{posts, plural, =0 {没有帖子} other {# 个帖子}}，快拍数未知",
         "storiesFrom": "快拍数从 {date} 起完整（只统计了最新的快拍）。",
         "dayOnly": "在「更多时间范围」中选择「分组方式：按天」即可点选单日。",
         "loyaltyTitle": "覆盖的粉丝与非粉丝",
@@ -456,6 +457,7 @@
           "reason": {
             "posted": "{when} {hour} 发布的{format}：覆盖 {reach}，是你通常{format}的 {ratio} 倍",
             "postedNoBase": "{when} {hour} 发布的{format}：覆盖 {reach}（之前同格式的帖子太少，无法比较）",
+            "postedImmature": "{when} {hour} 发布的{format}：目前覆盖 {reach}（发布时间太新，无法与之前的帖子比较）",
             "no_posts": "当天和前一天都没有发布；你通常每 {every} 天发布一次",
             "stories": "快拍覆盖 {reach}，相比通常的 {typical} 变化 {change}（当天{stories, plural, =0 {没有快拍} other {# 个快拍}}）",
             "storiesNoCount": "快拍覆盖 {reach}，相比通常的 {typical} 变化 {change}",

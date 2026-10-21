@@ -32,7 +32,7 @@ function fail(op: string): never {
 /** Reach by follow type and format, one row per (day, follow type, product type).
  *  ponytail: ~8 rows a day, 15 requests for 5 years; a `security invoker` rollup function is the upgrade if Server-Timing says so. */
 export async function loadReachBreakdown(db: SupabaseClient, accountId: string, fromDay: string, toDay: string): Promise<BreakdownRow[]> {
-  const { rows } = await readPages(
+  const { rows: all, truncated } = await readPages(
     (from, to) =>
       db
         .from('account_daily_breakdown')
@@ -48,6 +48,9 @@ export async function loadReachBreakdown(db: SupabaseClient, accountId: string, 
     'reach breakdown',
     { max: BREAKDOWN_LIMIT },
   );
+  // newest first: when capped, the oldest day may be cut (FOLLOWER rows sort before NON_FOLLOWER), so it is left out
+  const oldest = truncated ? all[all.length - 1]?.day : undefined;
+  const rows = oldest === undefined ? all : all.filter((r) => r.day !== oldest);
   return rows.flatMap((r) => (typeof r.value === 'number' && Number.isFinite(r.value) ? [{ day: String(r.day), followType: String(r.follow_type), productType: String(r.product_type), value: r.value }] : []));
 }
 
@@ -63,7 +66,7 @@ async function dayCounts(db: SupabaseClient, table: 'media' | 'comments', column
   const { rows, truncated } = await readPages(
     (from, to) => {
       const q = db.from(table).select(column).eq('account_id', accountId);
-      return (table === 'media' ? q.eq('media_type', 'STORY') : q).gte(column, fromIso).lt(column, toIso).order(column, { ascending: false }).range(from, to);
+      return (table === 'media' ? q.eq('media_type', 'STORY') : q).gte(column, fromIso).lt(column, toIso).order(column, { ascending: false }).order('id', { ascending: false }).range(from, to);
     },
     op,
     { max: DAY_COUNT_LIMIT },

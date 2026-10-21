@@ -15,7 +15,7 @@ export const TAG_LIMIT = 500;
 /** Calendar items (posts + Stories of every account in scope) read for one range, in 1,000-row pages; past this the page says "too many". */
 export const CALENDAR_LIMIT = 5000;
 const ONLINE_LIMIT = 1000;
-export const AUDIENCE_KINDS: AudienceKind[] =['age_gender', 'country', 'city'];
+export const AUDIENCE_KINDS: AudienceKind[] = ['age_gender', 'country', 'city'];
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);

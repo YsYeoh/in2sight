@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { audienceRow } from '@/lib/dashboard/detail-read';
-import { DAY_COUNT_LIMIT, loadAudienceEnds, loadCommentDays, loadFollowerCurve, loadReachBreakdown, loadStoryDays } from '@/lib/dashboard/growth-read';
+import { BREAKDOWN_LIMIT, DAY_COUNT_LIMIT, loadAudienceEnds, loadCommentDays, loadFollowerCurve, loadReachBreakdown, loadStoryDays } from '@/lib/dashboard/growth-read';
 
 type Call = { table: string; select: string; ops: unknown[][] };
 type Result = { data?: unknown; error?: unknown };
@@ -36,6 +36,15 @@ describe('loadReachBreakdown', () => {
     const c = f.calls[0];
     expect(c.select).toBe('day,follow_type,product_type,value');
     expect(c.ops).toEqual(expect.arrayContaining([['eq', 'account_id', 'a1'], ['eq', 'metric', 'reach'], ['gte', 'day', '2026-07-01'], ['lte', 'day', '2026-10-14'], ['order', 'day', { ascending: false }], ['range', 0, 999]]));
+  });
+
+  it('a read capped at BREAKDOWN_LIMIT drops its oldest day (it may be cut: FOLLOWER rows without their NON_FOLLOWER rows)', async () => {
+    const page = (n: number, day: string) => ({ data: Array.from({ length: n }, () => ({ day, follow_type: 'FOLLOWER', product_type: 'REEL', value: 1 })) });
+    const pages = [...Array.from({ length: 19 }, () => page(1000, '2026-10-14')), { data: [...page(500, '2026-10-14').data, ...page(500, '2026-10-13').data] }];
+    const rows = await loadReachBreakdown(fakeDb({ account_daily_breakdown: pages }).db, 'a1', '2026-07-01', '2026-10-14');
+    expect(BREAKDOWN_LIMIT).toBe(20_000);
+    expect(rows).toHaveLength(19_500);
+    expect(rows.every((r) => r.day === '2026-10-14')).toBe(true);
   });
 
   it('a database error becomes a fixed message', async () => {
@@ -76,6 +85,13 @@ describe('loadStoryDays / loadCommentDays', () => {
     expect(f.calls).toHaveLength(5);
     expect(f.calls[0].select).toBe('commented_at');
     expect(f.calls[0].ops).toEqual(expect.arrayContaining([['eq', 'account_id', 'a1'], ['order', 'commented_at', { ascending: false }]]));
+  });
+
+  it('orders by time, then by the unique id, so paging never skips or repeats a row at a page boundary', async () => {
+    const f = fakeDb({ media: [{ data: [] }], comments: [{ data: [] }] });
+    await loadStoryDays(f.db, 'a1', 'x', 'y', KL);
+    await loadCommentDays(f.db, 'a1', 'x', 'y', KL);
+    for (const c of f.calls) expect(c.ops.filter((o) => o[0] === 'order').map((o) => o[1])).toEqual([c.select, 'id']);
   });
 
   it('errors become fixed messages', async () => {

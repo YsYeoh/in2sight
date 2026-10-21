@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { explainDay, REASON_ORDER, WHY, type DayPost, type GrowthDay } from '@/lib/analysis/why';
+import { explainDay, POST_MATURE_DAYS, REASON_ORDER, WHY, type DayPost, type GrowthDay } from '@/lib/analysis/why';
 import { addDays } from '@/lib/sync/time';
 
 const DAY = '2026-10-14';
@@ -55,6 +55,38 @@ describe('explainDay', () => {
     const w = explainDay(history({ [DAY]: { net: 9, posts: [post('p', DAY, { mediaType: 'IMAGE', hour: 9 })] } }, 4), DAY, 'net');
     expect(w).toMatchObject({ value: 9, typical: null, n: 3, direction: null });
     expect(w.reasons.find((r) => r.id === 'posted')).toMatchObject({ direction: 'up', weight: 1, confidence: 'low', n: 1, values: { ratio: null } }); // one earlier image (DAY − 3), under the 5 needed
+  });
+
+  it('a post younger than a week is too recent to compare: the reason stays (evidence, no ratio, no time of day), even where the ratio would point the other way', () => {
+    const low = (net: number) => history({ [DAY]: { net, posts: [post('new', DAY, { reach: 100 })] } });
+    const spike = explainDay(low(60), DAY, 'net', addDays(DAY, POST_MATURE_DAYS - 2)); // age 5
+    expect(ids(spike)).toContain('posted');
+    expect(spike.reasons.find((r) => r.id === 'posted')).toMatchObject({ direction: 'up', confidence: 'low', values: { postId: 'new', reach: 100, ratio: null, immature: true } });
+    expect(ids(spike)).not.toContain('time_of_day');
+    const drop = explainDay(low(-20), DAY, 'net', addDays(DAY, 1));
+    expect(drop.reasons.find((r) => r.id === 'posted')).toMatchObject({ direction: 'down', values: { ratio: null, immature: true } });
+    expect(drop.reasons.some((r) => r.values.ratio !== undefined && r.values.ratio !== null)).toBe(false);
+  });
+
+  it('a post of a week or more keeps the ratio reason as before', () => {
+    const w = explainDay(history({ [DAY]: { net: -20, posts: [post('old', DAY, { reach: 100 })] } }), DAY, 'net', addDays(DAY, POST_MATURE_DAYS));
+    expect(w.reasons.find((r) => r.id === 'posted')).toMatchObject({ direction: 'down', values: { ratio: 0.1 } });
+    expect(w.reasons.find((r) => r.id === 'posted')!.values.immature).toBeUndefined();
+  });
+
+  it('a post from the day before is aged from its own day', () => {
+    const eve = addDays(DAY, -1);
+    const h = history({ [eve]: { posts: [post('eve', eve, { reach: 3000 })] }, [DAY]: { net: 60 } });
+    expect(explainDay(h, DAY, 'net', addDays(eve, POST_MATURE_DAYS - 1)).reasons.find((r) => r.id === 'posted')!.values).toMatchObject({ ratio: null, immature: true });
+    expect(explainDay(h, DAY, 'net', addDays(eve, POST_MATURE_DAYS)).reasons.find((r) => r.id === 'posted')!.values).toMatchObject({ ratio: 3 });
+  });
+
+  it('no direction (too little baseline): reasons are listed in rule order, not ranked by weight', () => {
+    const h = history({ [DAY]: { net: 9, storyReach: 4000, comments: 40, posts: [post('p', DAY, { mediaType: 'IMAGE', hour: 9 })] } }).map((d) => (d.day === DAY ? d : { ...d, net: null }));
+    const w = explainDay(h, DAY, 'net');
+    expect(w).toMatchObject({ typical: null, direction: null });
+    expect(ids(w)).toEqual(['posted', 'stories', 'time_of_day', 'comments']);
+    expect(w.reasons[1].weight).toBeGreaterThan(w.reasons[0].weight); // Stories weigh more, yet posted stays first
   });
 
   it('an unknown day or a missing value: nothing to explain, no crash', () => {
