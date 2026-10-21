@@ -3150,3 +3150,200 @@ git commit -m "feat(followers): export one follower list to Excel (owner-only, f
 ```
 
 ---
+
+### Task 9: Docs, final check
+
+**Files:**
+- Create: `docs/RUNBOOK_FOLLOWERS.md`
+- Modify: `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/UI_STANDARDS.md`
+
+**Interfaces:**
+- Consumes: everything above. Produces: no code API; the docs below.
+
+- [ ] **Step 1: `docs/RUNBOOK_FOLLOWERS.md`** — create with exactly this content:
+
+````markdown
+# Runbook — Followers by name (Plan 15b)
+
+Live checks for the owner (with the assistant). Everything was tested with fakes only; the Instagram export format is
+UNCONFIRMED until §2 passes on a real export. **Privacy first:** the follower lists are other people's personal data.
+Never paste usernames, export files or screenshots of the lists into chats, issues or logs; the checks below are
+designed to report counts and structure only.
+
+## 0. The migration (apply BEFORE or right after deploying; the owner says go)
+
+`supabase/migrations/20261028000002_follower_exports.sql` adds ONE table, `follower_exports` (owner-only RLS, deleted
+with its account). Until it is applied, the Followers tab shows the guide and "Followers needs a database update", and
+the upload answers `notReady`; nothing else changes. Apply:
+
+```bash
+# with .env.local loaded into the shell environment (never print the values; see docs/HANDOVER.md §0 "How it was applied")
+npx supabase migration list            # expect only 20261028000002 pending (and Plan 15a's 20261028000001 if it exists), nothing remote-only
+npx supabase db push --dry-run --password "$SUPABASE_DB_PASSWORD"   # expect exactly the pending file(s)
+npx supabase db push --yes --password "$SUPABASE_DB_PASSWORD"
+```
+
+Confirm in the Supabase SQL editor:
+
+```sql
+select relname, relrowsecurity from pg_class where relname = 'follower_exports';            -- 1 row, true
+select polname, polcmd from pg_policy where polrelid = 'public.follower_exports'::regclass;  -- follower_exports_owner_all, *
+select confdeltype from pg_constraint where conrelid = 'public.follower_exports'::regclass and contype = 'f';  -- c (cascade)
+```
+
+Then Supabase dashboard → Advisors → Security and Performance: no new warning for `follower_exports`.
+
+## 1. Layout: 360 / 768 / 1280 × themes, keyboard
+
+Account page → Followers, in each width (DevTools device toolbar) and each theme in light and dark:
+
+| Check | 360 | 768 | 1280 |
+|---|---|---|---|
+| Tabs Overview / Posts / Stories / Followers fit or scroll sideways without a visible bar | | | |
+| The guide opens and closes; the seven steps are readable | | | |
+| Toolbar wraps; search, the two selects and the buttons are the same height; no sideways page scroll | | | |
+| The five list tabs scroll sideways on a phone; the active one is underlined | | | |
+| The list is cards on a phone, a table from 768; page navigation wraps and stays centred | | | |
+| Upload opens as a bottom sheet (phone) / a dialog (wider); Esc and Cancel close it; focus returns to the button | | | |
+| No range bar on the Followers tab | | | |
+
+Keyboard only: Tab through the guide summary → search → Snapshot → Compare with → Export list → Upload export → the
+list tabs (arrow keys move, Enter opens) → the profile links → the page buttons → the Delete buttons.
+
+## 2. Confirm the export format on a REAL export (gate: do this before relying on the feature)
+
+1. Follow the guide in the tab on the phone (the owner's account). Note any step whose wording differs from the guide
+   (Instagram renames menus) and tell the assistant the exact labels (en and, if used, zh-CN).
+2. Unzip the download. Note the folder path and the file names under `connections/followers_and_following/` (or
+   wherever they are). Expected: `followers_1.json` (+ `followers_2.json` …), `following.json`.
+3. Print the STRUCTURE only (no usernames) of each file — run this in a terminal in the unzipped folder (Node is
+   installed with the app):
+
+```bash
+node -e "for (const f of process.argv.slice(1)) { const j = JSON.parse(require('fs').readFileSync(f, 'utf8')); const list = Array.isArray(j) ? j : Object.values(j)[0]; const e = Array.isArray(list) ? list[0] : null; const s = e && Array.isArray(e.string_list_data) ? e.string_list_data[0] : null; console.log(f, '| root:', Array.isArray(j) ? 'array' : 'object keys=' + Object.keys(j).join(','), '| entries:', Array.isArray(list) ? list.length : '?', '| entry keys:', e ? Object.keys(e).join(',') : '-', '| title empty:', e ? e.title === '' : '-', '| item keys:', s ? Object.keys(s).join(',') : '-', '| timestamp type:', s ? typeof s.timestamp : '-'); }" followers_1.json following.json
+```
+
+   Expected (the plan's assumptions E3/E4): followers = `root: array` (or `object keys=relationships_followers`),
+   item keys `href,value,timestamp`, timestamp `number`; following = `object keys=relationships_following`, item keys
+   `href,value,timestamp` or `href,timestamp` with a non-empty title. Send the assistant these lines (they contain no
+   names). Anything else: the parser needs a new fixture (lib/followers/parse.ts `entryPerson` / `kindOf`).
+4. Upload the files in the tab. The preview's follower count should be close to the profile's follower number on
+   Instagram (people who followed or left since the export was made explain a small gap); "entries are not a valid
+   username" should be 0 or tiny. Note both numbers (counts only).
+
+## 3. Upload and errors
+
+- Choose the `.zip` itself → "is a zip file. Unzip it first". Choose a `.html` file → "comes from an HTML export".
+  Choose `following.json` alone → "Add followers_1.json". Choose `recently_unfollowed_profiles.json` with the
+  followers file → listed under "Not needed, skipped".
+- DevTools → Network on Upload: ONE `POST /api/accounts/<id>/followers`, request size well under 4 MB (≈ 25–47 bytes
+  per person), answer 201; the request body contains `followers` pairs and NO `instagram.com` links.
+- Upload the same export again with another date: the snapshot list shows both; New followers and Unfollowed you are
+  empty when comparing them (same people).
+
+## 4. The lists
+
+1. With two real exports some days apart: New followers and Unfollowed you list the changes, each with "Snapshot-based".
+   Spot-check two names per list on Instagram (do not paste them anywhere).
+2. Don't follow you back / You don't follow back / Mutuals: the three add up — Mutuals + You don't follow back = the
+   newer snapshot's followers; Mutuals + Don't follow you back = its following.
+3. Search narrows the list as you type (after a short pause), the chip removes it; pages: First / Previous / Next /
+   Last keep the search; `page=999` in the URL shows page 1.
+4. Snapshot / Compare with: pick an older pair; the dates in the hint follow; choosing them "the wrong way round"
+   still compares older → newer.
+5. Export list: the .xlsx opens in Excel / Numbers / LibreOffice: the list sheet (Username, the date column, Profile
+   link) and an About sheet with both dates and the snapshot-based note.
+6. Delete a snapshot: it asks first; afterwards the list and the selects no longer show it.
+
+## 5. Privacy and security (run all; report only yes/no and counts)
+
+```sql
+-- sizes: about 1 MB or less per 50,000 followers
+select taken_on, follower_count, following_count, pg_column_size(followers) + pg_column_size(followers_at) + coalesce(pg_column_size(following) + pg_column_size(following_at), 0) as bytes from public.follower_exports order by taken_on desc;
+
+-- nobody but the owner gets rows
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000000","aal":"aal1"}', true);
+select count(*) from public.follower_exports;   -- 0
+rollback;
+begin;
+set local role anon;
+select count(*) from public.follower_exports;   -- ERROR: permission denied for table follower_exports
+rollback;
+```
+
+- Vercel → the project → Logs, the hour of an upload and an export: search for one follower's username you know is in
+  the file → **no match** (only the fixed lines `followers upload failed` / `followers export failed` may ever appear).
+- `select count(*) from public.sync_runs where error ilike '%<a known follower username>%';` → 0 (the sync never sees
+  these lists).
+- The account Excel/PDF exports (Export dialog) contain no follower names (only counts, as before).
+- Delete all data: when an ARCHIVED test account is deleted permanently (Accounts → Delete all data), its snapshots
+  go with it: `select count(*) from public.follower_exports where account_id = '<that id>';` → 0. Do not delete a
+  real account for this check; it is pinned by the migration test (`on delete cascade`) if no test account exists.
+
+## 6. Speed (the biggest account)
+
+DevTools → Network on a list change (another tab, a search, a page) for the account with the most followers: "Waiting
+for server response" within the 1.2 s budget of docs/RUNBOOK_PERF.md. Note: ____ ms. Each change re-reads the two
+compared snapshots (~1–2 MB from the database for 50,000 followers); if it is slower than the budget, tell the
+assistant (the upgrade is a per-snapshot cache or an SQL diff function).
+
+## 7. Known limits (by design)
+
+- Only by-name route: no API gives follower names; nothing is crawled. Lists are as good as the two files.
+- Snapshot-based: someone who followed and unfollowed between two exports appears in neither list; renamed and
+  deactivated accounts appear as "Unfollowed you".
+- At most 50,000 followers and 10,000 following per export; at most 60 snapshots per account. No .zip upload yet.
+- No reminder notification; only the quiet "export is N days old" line after 30 days.
+
+## What to send if it fails
+
+The URL (without tokens), the width and theme, the step, the error text shown, counts (never names), and for §2 the
+structure lines printed by the command.
+````
+
+- [ ] **Step 2: `docs/UI_STANDARDS.md`** — insert after the line that starts with `13. **Lists have their own date filter.**`:
+
+```markdown
+14. **Uploads are parsed in the browser and re-checked on the server.** A file the owner picks is size-checked by name and size BEFORE it is read, parsed by a pure, capped, shape-validating function (JSON.parse only, error keys, odd entries skipped and counted), previewed, and only the minimum the feature needs is sent — to a route handler that checks the owner, the origin, the content type and the byte size before reading, reads with a byte cap and validates every value again. Raw files never leave the device; nothing from them is logged. → `lib/followers/parse.ts`, `lib/followers/payload.ts`, `app/api/accounts/[id]/followers/route.ts`, `components/account/FollowerUpload.tsx`.
+```
+
+- [ ] **Step 3: SPEC, TODO, HANDOVER**
+
+`docs/SPEC.md`: insert directly before the line `## 8. UI (v1)` a new section (use the next free letter after the last `## 7x.` heading — `7g` unless Plan 15a already added one):
+
+```markdown
+## 7g. Followers by name (Plan 15b; creator-toolkit design §6, §0b)
+No API gives follower names and crawling was declined (§0b), so the only by-name route is the owner's own Instagram export ("Export your information" → Followers and following → JSON). Account page → **Followers** tab: a guide with the exact steps (en/zh-CN), an upload dialog, five lists comparing two snapshots — **new followers, unfollowed you, don't follow you back, you don't follow back, mutuals** — searchable (username substring), 50 per page from the server, exportable to Excel (one list + an About sheet, formula-guarded), always labelled snapshot-based. Upload: the browser checks names/sizes (≤ 10 files, ≤ 32 MB each, ≤ 64 MB total), parses the JSON (`followers_N.json` arrays or `relationships_followers`, `following.json` `relationships_following` with the name in `value`, `title` or the link; other `relationships_*` files skipped; ≤ 50,000 followers, ≤ 10,000 following) and sends only lower-cased usernames + follow times to `POST /api/accounts/[id]/followers` (owner → origin → JSON → ≤ 4 MB before and while reading → strict validation → live account → ≤ 60 snapshots). Storage: `follower_exports` (migration `20261028000002`), ONE row per snapshot with parallel arrays (`followers text[]`, `followers_at bigint[]`, optional `following`/`following_at`), owner-authored RLS (`is_owner()` for all), `on delete cascade` from `accounts` (part of "Delete all data permanently"; a future Settings "Data & privacy" must list it), never logged, never in `sync_runs`, alerts, push or the account exports; only `lib/followers/read.ts` names the table. Diff = TypeScript set arithmetic on the server per request; only one page reaches the browser. No reminder notification (off by default, §0b); the tab notes an export older than 30 days. Without the migration the tab shows the guide and "needs a database update". Zip upload, > 50,000 followers (gzip payload) and storing recently-unfollowed / pending requests are later.
+```
+
+`docs/TODO.md`: insert directly before the line `## 6b. Next (Plan 14/15 Settings)` (next free letter after the last `## 6x.` section — `6k` unless Plan 15a took it):
+
+```markdown
+## 6k. Followers by name — export upload diff (Plan 15b)
+- [x] Migration `20261028000002_follower_exports.sql` (one row per snapshot, arrays, owner RLS, cascade) _(written and tested; NOT applied — owner go-ahead, docs/RUNBOOK_FOLLOWERS.md §0)_
+- [x] Browser-side parser (size caps, known format variants, error keys) + strict server validation; owner-only capped upload route; delete action; privacy guard test
+- [x] Followers tab: guide (en/zh-CN), upload dialog, five lists with search and server pages, snapshot list, Excel export of a list; quiet "older than 30 days" line
+- [ ] Owner: apply the migration (runbook §0); **confirm the export format on a real export (RUNBOOK_FOLLOWERS §2 — gate)**; live and privacy checks (§1, §3–§6); confirm the plan's open questions (50,000 cap, no zip yet, ignore recently-unfollowed/pending, no reminder push, 60 snapshots, fourth tab, owner-picked date, renamed accounts as unfollowers)
+- [ ] Later: .zip upload (DecompressionStream + inflated-size caps), gzip payload for > 50,000 followers, commenters × followers (Plan 15c)
+```
+
+`docs/HANDOVER.md` §0: insert after the paragraph that starts with `**Plan 14c state (shell tabs):**`:
+
+```markdown
+**Plan 15b (Followers by name) — lessons:** the first file upload in the app. Parse untrusted files in the BROWSER with a pure, capped parser (sizes checked before reading; `JSON.parse` only; skip-and-count odd entries; error keys) and send only the minimum; the server never trusts that: a route handler (not a server action: those are capped at 1 MB and raising the limit raises it for every action) checks owner → origin → content type → content-length → a byte-counting read → strict validation. Vercel Functions reject bodies over 4.5 MB, which is why raw exports cannot be uploaded. Personal data of third parties: one module names the table (a test enforces it), fixed log lines only, owner-session client only, cascade with the account. Store a snapshot as one row of arrays (~6× smaller than a row per name). Migration `20261028000002` is written but NOT applied; the export format is UNCONFIRMED until RUNBOOK_FOLLOWERS §2 passes on a real export.
+```
+
+and update the "**Where we stopped:**" sentence to say Plan 15b is implemented on local `main` (not pushed) with its migration not applied and the export format unconfirmed — check `git log` for the real state before writing it.
+
+- [ ] **Step 4: Final check** — remove finished worktrees first (implementer rules, orchestrator checklist), then `rm -rf .next` and run `npm run check > check.log 2>&1; echo "CHECK_EXIT=$?" >> check.log` and read the log. Expected: lint, typecheck, every test file and the build pass (`CHECK_EXIT=0`; the build lists `/api/accounts/[id]/followers` and `/api/export/followers`). Also `git diff --stat <base> -- app/globals.css components/ui` → empty; `grep -rn "follower_exports" app components lib` → only `lib/followers/read.ts` (and comments); `grep -rn "console\.\(log\|info\|warn\)" lib/followers app/api/accounts app/api/export/followers components/account/Follower*` → nothing.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add docs/RUNBOOK_FOLLOWERS.md docs/UI_STANDARDS.md docs/SPEC.md docs/TODO.md docs/HANDOVER.md
+git commit -m "docs(followers): runbook (real-export gate, privacy checks), UI standard 14, SPEC 7g, TODO, lessons" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
