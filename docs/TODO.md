@@ -162,7 +162,7 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] Known, left from the Plan 14a review (Minor): removing a filter chip drops keyboard focus to the page (move it to the next chip or the toolbar group); the underline tabs' fade mask always covers the last 1.5 rem even when nothing overflows, and the underline may sit about half a pixel above the rule (check visually in /styleguide); the guard test for one control height only covers the account page, export dialog and Explorer (Calendar's period arrows and Overview's account chips are small controls in rows of their own)
 
 ## 6i. Posts and Stories lists (Plan 14b)
-- [x] Migration `20261027000001_post_story_lists.sql`: `post_list`, `story_list` (security invoker; filter, sort, page, count; Story final numbers) _(written and tested; NOT applied — owner go-ahead, docs/RUNBOOK_LISTS.md §0)_
+- [x] Migration `20261027000001_post_story_lists.sql`: `post_list`, `story_list` (security invoker; filter, sort, page, count; Story final numbers) _(written, tested and APPLIED to the live database 2026-10-21; the runtime check after applying is docs/RUNBOOK_LISTS.md, incl. a non-ASCII search)_
 - [x] Posts: search, posted date, Format, Tag, Sort, chips, Clear all, server pages (24 grid / 50 table), table headers on the server sort
 - [x] Stories: posted date, Sort, measured; 7 days per page for Newest, 48 per page for the other sorts; no 200 cap (once the migration is applied)
 - [x] Fallback to the capped reads while the migration is missing; `Pagination`, `PostedFilter`, `DataTable` server sort; `docs/UI_STANDARDS.md` rules 12–13
@@ -175,7 +175,7 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Break-outs (login, 2FA, setup, sign-out, report preview never inside a tab), `frame-ancestors 'self'`, worker leaves tab frames alone _(code done; NOT verified live — RUNBOOK_TABS §2)_
 - [x] Preferences (theme, mode, language, formats) follow across tabs and the shell via `BroadcastChannel` _(code done; NOT verified live — RUNBOOK_TABS §8)_
 - [ ] Owner: run docs/RUNBOOK_TABS.md (Gate B: §1–§3 must pass before relying on the tabs / pushing to production); confirm the plan's open questions (Back re-renders the earlier page, titles from the heading, icon placement, phone Back in the sheet, 30-minute stale mark, live cap 3 on touch devices)
-- [ ] Status: Plans 14a, 14b and 14c are all on local `main`, NOT pushed, nothing deployed. Migration `20261027000001_post_story_lists.sql` (14b) is NOT applied to the live database: apply only on the owner's go-ahead, before deploying code that needs it (until then the Posts and Stories tabs use the old capped reads).
+- [ ] Status: Plans 14a, 14b and 14c are pushed to `main` (2026-10-21, `b8f723c`; Vercel deploys it). Migration `20261027000001_post_story_lists.sql` (14b) is APPLIED to the live database (2026-10-21). Nothing from 14a-14c is verified live yet. Old wording: apply only on the owner's go-ahead, before deploying code that needs it (until then the Posts and Stories tabs use the old capped reads).
 
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests

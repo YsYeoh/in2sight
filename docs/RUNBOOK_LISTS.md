@@ -6,8 +6,7 @@ people into chats or issues.
 
 ## 0. The migration (apply BEFORE or right after deploying; the owner says go)
 
-**Status: written and tested, NOT applied to the live database.** Apply it only on the owner's go-ahead, before deploying
-code that needs it; until then the tabs fall back to the old capped reads (see below).
+**Status: APPLIED to the live database on 2026-10-21** (at the owner's request: `migration list` 11 local / 11 remote / 0 mismatched; anon probe: `post_list` and `story_list` answer 401 `42501`, they exist and anon is denied). The text below stays valid for a fresh environment: apply before deploying code that needs it; without it the tabs fall back to the old capped reads. Still to do: the runtime checks in §1 onwards while signed in, including a non-ASCII search.
 
 `supabase/migrations/20261027000001_post_story_lists.sql` adds two `security invoker` functions, `post_list` and
 `story_list`. Until it is applied, the Posts and Stories tabs fall back to the old capped reads (Posts: every post of
