@@ -186,6 +186,14 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] Not captured (needs a sync change if wanted): engaged-audience demographics; demographics for `last_30_days` / `last_90_days`
 - [ ] Status: Plan 15a is code-complete on local `main`, NOT pushed and nothing verified live; no migration in 15a. Plans 14a-14c are pushed (`origin/main` `b8f723c` + docs `0cee097`) and the 14b migration is applied live (2026-10-21).
 
+## 6l. Followers by name — export upload diff (Plan 15b)
+- [x] Migration `20261028000002_follower_exports.sql` (one row per snapshot, arrays, owner RLS, cascade) _(written and tested; NOT applied to the live database — owner go-ahead, BEFORE deploying code that needs it, docs/RUNBOOK_FOLLOWERS.md §0)_
+- [x] Browser-side parser (size caps, known format variants, error keys) + strict server validation; owner-only capped upload route; delete action; privacy guard test _(code done; NOT verified live)_
+- [x] Followers tab (last tab: Overview, Growth, Posts, Stories, Followers): guide (en/zh-CN), upload dialog, five lists with search and server pages, snapshot list, Excel export of a list; quiet "older than 30 days" line _(code done; NOT verified live; without the migration the tab says "needs a database update" and shows no upload button)_
+- [ ] Owner: apply the migration (runbook §0); **confirm the export format on a real export (RUNBOOK_FOLLOWERS §2 — gate; the folder names, file names and JSON shapes are assumptions until then)**; live and privacy checks (§1, §3–§6); confirm the plan's open questions (50,000 cap, no zip yet, ignore recently-unfollowed/pending, no reminder push, 60 snapshots, fourth tab, owner-picked date, renamed accounts as unfollowers)
+- [ ] Later: .zip upload (DecompressionStream + inflated-size caps), gzip payload for > 50,000 followers, commenters × followers (Plan 15c)
+- [ ] Status: Plan 15b is code-complete on local `main`, NOT pushed and nothing verified live; its migration is NOT applied. Plans 14a-14c are pushed (`origin/main` `b8f723c` + docs `0cee097`) and the 14b migration is applied live (2026-10-21). Plan 15a (Growth) is on local `main`, not pushed.
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
