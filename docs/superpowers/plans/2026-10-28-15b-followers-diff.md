@@ -148,3 +148,130 @@ Zip upload; gzip payload (> 50,000 followers); storing recently-unfollowed / pen
 Run order: **wave A = 1, 2, 3, 4 · wave B = 5, 6 · wave C = 7, 8 · wave D = 9.** Tasks in one wave touch disjoint files. Each task leaves `main` green: the new modules are unused until Task 7 wires the tab (which adds `followers` to `TABS` and its message in the same commit as the page `case`, the skeleton and the three pinned tests); the export route of Task 8 is reachable only from the tab's button (Task 7 builds the URL by string, so 7 and 8 do not import each other).
 
 ---
+
+### Task 1: Migration `20261028000002_follower_exports.sql` + migration test
+
+**Files:**
+- Create: `supabase/migrations/20261028000002_follower_exports.sql`, `tests/followers-migration.test.ts`
+- Existing tests that must keep passing: `tests/migrations.test.ts` (generic rules for every migration).
+
+**Interfaces:**
+- Consumes: `public.accounts (id)`, `public.is_owner()`.
+- Produces (Task 5 reads and writes exactly these): table `public.follower_exports (id uuid, account_id uuid, taken_on date, followers text[], followers_at bigint[], following text[] null, following_at bigint[] null, follower_count int generated, following_count int generated, created_at timestamptz)`; index `follower_exports_account_idx (account_id, taken_on desc, created_at desc)`; policy `follower_exports_owner_all`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/followers-migration.test.ts`:
+
+```ts
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+// comments stripped so the assertions see only SQL
+const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20261028000002_follower_exports.sql'), 'utf8').replace(/--.*$/gm, '');
+/** The given SQL exactly, with any whitespace between tokens. */
+const exact = (s: string) => new RegExp(s.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'i');
+const table = () => sql.match(/create\s+table\s+public\.follower_exports\s*\(([\s\S]*?)\n\);/i)?.[1] ?? '';
+
+describe('follower exports migration', () => {
+  it('is additive: one table, its index, RLS, one policy and a revoke; no other statement; never account_tokens', () => {
+    const statements = sql.split(';').map((s) => s.trim()).filter(Boolean);
+    expect(statements.map((s) => s.split(/\s+/).slice(0, 2).join(' ').toLowerCase())).toEqual(['create table', 'create index', 'alter table', 'create policy', 'revoke all']);
+    expect(sql).not.toMatch(/\b(drop|truncate|security\s+definer|grant)\b/i);
+    expect(sql).not.toMatch(/account_tokens/i);
+    expect(sql).not.toMatch(/^\s*(insert|update|delete)\b/im);
+  });
+
+  it('one row per snapshot: names and timestamps as parallel arrays, following optional, counts generated', () => {
+    const t = table();
+    expect(t).toMatch(exact('id uuid primary key default gen_random_uuid()'));
+    expect(t).toMatch(exact('account_id uuid not null references public.accounts (id) on delete cascade')); // "Delete all data permanently" removes them
+    expect(t).toMatch(exact("taken_on date not null check (taken_on >= date '2010-10-06')"));
+    expect(t).toMatch(exact('followers text[] not null'));
+    expect(t).toMatch(exact('followers_at bigint[] not null'));
+    expect(t).toMatch(/\bfollowing\s+text\[\]\s*,/i); // nullable: an upload without following.json
+    expect(t).toMatch(/\bfollowing_at\s+bigint\[\]\s*,/i);
+    expect(t).toMatch(exact('follower_count int generated always as (cardinality(followers)) stored'));
+    expect(t).toMatch(exact('following_count int generated always as (cardinality(following)) stored'));
+    expect(t).toMatch(exact('created_at timestamptz not null default now()'));
+  });
+
+  it('size sanity in the database too: the caps of lib/followers/parse.ts, equal lengths, no null names', () => {
+    const t = table();
+    expect(t).toMatch(exact('check (cardinality(followers) <= 50000 and cardinality(followers_at) = cardinality(followers) and array_position(followers, null) is null)'));
+    expect(t).toMatch(exact('check ((following is null) = (following_at is null))'));
+    expect(t).toMatch(exact('check (following is null or (cardinality(following) <= 10000 and cardinality(following_at) = cardinality(following) and array_position(following, null) is null))'));
+  });
+
+  it('owner-authored data: RLS on, one policy for the owner session (is_owner, InitPlan form), nothing for anon', () => {
+    expect(sql).toMatch(exact('alter table public.follower_exports enable row level security'));
+    expect(sql).toMatch(exact('create policy follower_exports_owner_all on public.follower_exports for all to authenticated using ((select public.is_owner())) with check ((select public.is_owner()))'));
+    expect(sql).toMatch(exact('revoke all on public.follower_exports from anon'));
+  });
+
+  it('the snapshot list of an account is one index range, newest first', () => {
+    expect(sql).toMatch(exact('create index follower_exports_account_idx on public.follower_exports (account_id, taken_on desc, created_at desc)'));
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/followers-migration.test.ts`
+Expected: FAIL — `ENOENT: no such file or directory … 20261028000002_follower_exports.sql`.
+
+- [ ] **Step 3: Write the migration** — create `supabase/migrations/20261028000002_follower_exports.sql` (exactly this):
+
+```sql
+-- Plan 15b: follower / following snapshots the owner uploads from Instagram's "Download your information" export
+-- (creator-toolkit design §6). No API gives follower names and crawling was declined (design §0b), so this upload is
+-- the only by-name route.
+--
+-- Owner-authored data (like tags and explorer_views): the owner session selects, inserts and deletes under RLS; the
+-- app never uses the admin client for this table, and lib/followers/read.ts is the only module that names it.
+-- Third-party usernames are personal data: owner-only, never logged, deleted with the account (on delete cascade =
+-- SPEC §7c "Delete all data permanently") or one snapshot at a time from the Followers tab.
+--
+-- ONE row per snapshot with array columns instead of one row per username: at 50,000 followers a row per name costs
+-- ~110 bytes each with its index entry (~6 MB per snapshot), the arrays ~1 MB after TOAST compression, read in one
+-- round trip. The arrays are never queried element-wise (the diff is TypeScript, lib/followers/diff.ts).
+-- followers_at / following_at: when each follow happened, seconds since 1970 UTC as in the file, NULL = unknown; same
+-- length and order as the name arrays. following / following_at are NULL when the upload had no following.json.
+-- The caps equal MAX_FOLLOWERS / MAX_FOLLOWING in lib/followers/parse.ts (the app checks them first).
+create table public.follower_exports (
+  id              uuid primary key default gen_random_uuid(),
+  account_id      uuid not null references public.accounts (id) on delete cascade,
+  taken_on        date not null check (taken_on >= date '2010-10-06'),
+  followers       text[] not null,
+  followers_at    bigint[] not null,
+  following       text[],
+  following_at    bigint[],
+  follower_count  int generated always as (cardinality(followers)) stored,
+  following_count int generated always as (cardinality(following)) stored,
+  created_at      timestamptz not null default now(),
+  check (cardinality(followers) <= 50000 and cardinality(followers_at) = cardinality(followers) and array_position(followers, null) is null),
+  check ((following is null) = (following_at is null)),
+  check (following is null or (cardinality(following) <= 10000 and cardinality(following_at) = cardinality(following) and array_position(following, null) is null))
+);
+-- the Followers tab lists an account's snapshots newest first; the cascade from accounts uses it too
+create index follower_exports_account_idx on public.follower_exports (account_id, taken_on desc, created_at desc);
+alter table public.follower_exports enable row level security;
+create policy follower_exports_owner_all on public.follower_exports
+  for all to authenticated
+  using ((select public.is_owner()))
+  with check ((select public.is_owner()));
+revoke all on public.follower_exports from anon;
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/followers-migration.test.ts tests/migrations.test.ts`
+Expected: PASS (5 tests in the new file; the generic suite unchanged — it finds the new table's RLS line and policy, the policy is `to authenticated`). Do NOT apply the migration anywhere (implementer rules §7).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/20261028000002_follower_exports.sql tests/followers-migration.test.ts
+git commit -m "feat(db): follower_exports (owner-uploaded follower/following snapshots, RLS, cascade)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
