@@ -168,6 +168,15 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Fallback to the capped reads while the migration is missing; `Pagination`, `PostedFilter`, `DataTable` server sort; `docs/UI_STANDARDS.md` rules 12–13
 - [ ] Owner: apply the migration (runbook §0), live checks (RUNBOOK_LISTS §1–§6), confirm the plan's open questions (eight sort orders, 50 per page in the automatic view, 7 days / 48 Stories per page, fallback before the migration, plain substring search)
 
+## 6j. App-shell tabs (Plan 14c; UX polish design §4.3)
+- [x] Spike: Sec-Fetch-Dest hint + client-side frame check, per-tab history, service-worker fix, memory (~40 MB per frame of a chart page) — Gate A passed while planning
+- [x] Tabs in the header row: one frame per tab kept alive (8 live, 3 on touch devices, LRU), titles from the page heading, Back/Forward/Refresh per tab, keyboard tablist, phone "Tabs (N)" sheet, saved tab list, address bar follows the active tab _(code done; NOT verified live — docs/RUNBOOK_TABS.md)_
+- [x] Sidebar = jump to the section's tab or open one; bottom bar = navigate the current tab; ctrl/middle-click and the window icon (Overview account cards, Post Lab links) = new tab or jump to that exact page; bell and Web Push open/jump tabs _(code done; NOT verified live — RUNBOOK_TABS §1, §6, §7)_
+- [x] Break-outs (login, 2FA, setup, sign-out, report preview never inside a tab), `frame-ancestors 'self'`, worker leaves tab frames alone _(code done; NOT verified live — RUNBOOK_TABS §2)_
+- [x] Preferences (theme, mode, language, formats) follow across tabs and the shell via `BroadcastChannel` _(code done; NOT verified live — RUNBOOK_TABS §8)_
+- [ ] Owner: run docs/RUNBOOK_TABS.md (Gate B: §1–§3 must pass before relying on the tabs / pushing to production); confirm the plan's open questions (Back re-renders the earlier page, titles from the heading, icon placement, phone Back in the sheet, 30-minute stale mark, live cap 3 on touch devices)
+- [ ] Status: Plans 14a, 14b and 14c are all on local `main`, NOT pushed, nothing deployed. Migration `20261027000001_post_story_lists.sql` (14b) is NOT applied to the live database: apply only on the owner's go-ahead, before deploying code that needs it (until then the Posts and Stories tabs use the old capped reads).
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
