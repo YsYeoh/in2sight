@@ -1322,3 +1322,607 @@ git commit -m "feat(followers): snapshot diff (five lists), search and pages; Fo
 ```
 
 ---
+
+### Task 5: Reads and writes, the upload route, the delete action, the privacy guard
+
+**Files:**
+- Create: `lib/followers/read.ts`, `app/api/accounts/[id]/followers/route.ts`, `app/(app)/accounts/followers-actions.ts`, `tests/followers-read.test.ts`, `tests/followers-route.test.ts`, `tests/followers-actions.test.ts`, `tests/followers-privacy.test.ts`
+- Quote the paths with brackets/parentheses in every shell command.
+
+**Interfaces:**
+- Consumes: Task 1's table and columns (by name only: nothing runs against a database), Task 3's `Upload`, `validateUpload`, `MAX_BODY_BYTES`, `Person`, Task 4's `Snapshot`, `SnapshotMeta` (types); `assertOwner`, `requireOwner`, `createServerSupabase`, `supabaseAccountsStore(db).getById`, `getPrefs`, `localDay`, `isUuid`, `revalidatePath`.
+- Produces:
+  - `lib/followers/read.ts`: `MAX_SNAPSHOTS = 60`, `MISSING_TABLE = ['PGRST205', '42P01']`, `listFollowerSnapshots(db, accountId): Promise<SnapshotMeta[] | null>` (null = migration missing), `loadFollowerSnapshot(db, accountId, id): Promise<Snapshot | null>`, `type SaveResult = 'ok' | 'tooManySnapshots' | 'notReady'`, `saveFollowerSnapshot(db, accountId, u: Upload): Promise<SaveResult>`, `deleteFollowerSnapshot(db, accountId, id): Promise<boolean>`. Thrown errors carry fixed messages `followers <op> failed`.
+  - `POST /api/accounts/[id]/followers` (`export async function POST(request: Request, ctx: { params: Promise<{ id: string }> })`, `export type UploadError`): 201 `{ ok: true }`; errors `{ error: UploadError }` with 401 `unauthorized` (not the owner) · 404 `notFound` (bad id, unknown or archived account) · 403 `unauthorized` (another origin) · 415 `invalid` (not JSON) · 411 `invalid` (no length) · 413 `tooLarge` · 400 `invalid` · 409 `tooManySnapshots` · 503 `notReady` · 500 `unexpected`. Task 6 posts to it.
+  - `app/(app)/accounts/followers-actions.ts`: `deleteFollowerSnapshotAction(accountId, snapshotId): Promise<SnapshotResult>`, `type SnapshotResult = { ok: true } | { ok: false; error: 'notFound' | 'unexpected' }`. Task 7 passes it to the tab.
+
+- [ ] **Step 1: Write the failing tests** — create `tests/followers-read.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { deleteFollowerSnapshot, listFollowerSnapshots, loadFollowerSnapshot, MAX_SNAPSHOTS, saveFollowerSnapshot } from '@/lib/followers/read';
+
+type Op = unknown[];
+const calls: Op[] = [];
+const queue: { data?: unknown; error?: unknown; count?: number | null }[] = [];
+
+/** Owner-session fake: records every call; each awaited query (or maybeSingle) resolves to the next queued result. */
+function fakeDb(): SupabaseClient {
+  return {
+    from(table: string) {
+      calls.push(['from', table]);
+      const chain: Record<string, unknown> = {};
+      for (const op of ['select', 'insert', 'delete', 'eq', 'order', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      const next = () => Promise.resolve(queue.shift() ?? { data: [], error: null });
+      chain.maybeSingle = () => (calls.push(['maybeSingle']), next());
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => next().then(res, rej);
+      return chain;
+    },
+  } as unknown as SupabaseClient;
+}
+
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const SNAP = '00000000-0000-4000-8000-000000000001';
+const SECRET = { code: 'XX000', message: 'row contains alice.secret' };
+
+beforeEach(() => {
+  calls.length = 0;
+  queue.length = 0;
+});
+
+describe('listFollowerSnapshots', () => {
+  it('the account\'s snapshots, newest first, without the arrays', async () => {
+    queue.push({ data: [{ id: SNAP, taken_on: '2026-10-20', follower_count: 3, following_count: null, created_at: '2026-10-20T10:00:00Z' }], error: null });
+    expect(await listFollowerSnapshots(fakeDb(), ACC)).toEqual([{ id: SNAP, takenOn: '2026-10-20', followerCount: 3, followingCount: null, createdAt: '2026-10-20T10:00:00Z' }]);
+    expect(calls).toEqual([
+      ['from', 'follower_exports'],
+      ['select', 'id,taken_on,follower_count,following_count,created_at'],
+      ['eq', 'account_id', ACC],
+      ['order', 'taken_on', { ascending: false }],
+      ['order', 'created_at', { ascending: false }],
+      ['limit', MAX_SNAPSHOTS],
+    ]);
+  });
+
+  it('table missing (migration not applied) → null; any other error → a fixed message that never echoes the database', async () => {
+    for (const code of ['PGRST205', '42P01']) {
+      queue.push({ data: null, error: { code } });
+      expect(await listFollowerSnapshots(fakeDb(), ACC)).toBeNull();
+    }
+    queue.push({ data: null, error: SECRET });
+    const e = await listFollowerSnapshots(fakeDb(), ACC).catch((x: Error) => x);
+    expect((e as Error).message).toBe('followers list failed');
+    expect(String((e as Error).message)).not.toContain('alice');
+  });
+});
+
+describe('loadFollowerSnapshot', () => {
+  it('reads one snapshot of THIS account and pairs names with their times (null kept)', async () => {
+    queue.push({ data: { followers: ['alice', 'bob'], followers_at: [1_700_000_000, null], following: ['carol'], following_at: [1_710_000_000] }, error: null });
+    expect(await loadFollowerSnapshot(fakeDb(), ACC, SNAP)).toEqual({
+      followers: [{ username: 'alice', at: 1_700_000_000 }, { username: 'bob', at: null }],
+      following: [{ username: 'carol', at: 1_710_000_000 }],
+    });
+    expect(calls).toEqual([['from', 'follower_exports'], ['select', 'followers,followers_at,following,following_at'], ['eq', 'id', SNAP], ['eq', 'account_id', ACC], ['maybeSingle']]);
+  });
+
+  it('no following.json → following null; not found → null; an error → fixed message', async () => {
+    queue.push({ data: { followers: [], followers_at: [], following: null, following_at: null }, error: null });
+    expect(await loadFollowerSnapshot(fakeDb(), ACC, SNAP)).toEqual({ followers: [], following: null });
+    queue.push({ data: null, error: null });
+    expect(await loadFollowerSnapshot(fakeDb(), ACC, SNAP)).toBeNull();
+    queue.push({ data: null, error: SECRET });
+    await expect(loadFollowerSnapshot(fakeDb(), ACC, SNAP)).rejects.toThrow(/^followers load failed$/);
+  });
+});
+
+describe('saveFollowerSnapshot', () => {
+  const upload = { takenOn: '2026-10-20', followers: [{ username: 'alice', at: 1_700_000_000 }, { username: 'bob', at: null }], following: null };
+
+  it('counts the account\'s snapshots, then inserts parallel arrays (nothing selected back)', async () => {
+    queue.push({ count: 3, error: null }, { error: null });
+    expect(await saveFollowerSnapshot(fakeDb(), ACC, upload)).toBe('ok');
+    expect(calls).toEqual([
+      ['from', 'follower_exports'],
+      ['select', 'id', { count: 'exact', head: true }],
+      ['eq', 'account_id', ACC],
+      ['from', 'follower_exports'],
+      ['insert', { account_id: ACC, taken_on: '2026-10-20', followers: ['alice', 'bob'], followers_at: [1_700_000_000, null], following: null, following_at: null }],
+    ]);
+  });
+
+  it('at the cap → tooManySnapshots without inserting; table missing → notReady; other errors → fixed messages', async () => {
+    queue.push({ count: MAX_SNAPSHOTS, error: null });
+    expect(await saveFollowerSnapshot(fakeDb(), ACC, upload)).toBe('tooManySnapshots');
+    expect(calls.some((c) => c[0] === 'insert')).toBe(false);
+    queue.push({ count: null, error: { code: 'PGRST205' } });
+    expect(await saveFollowerSnapshot(fakeDb(), ACC, upload)).toBe('notReady');
+    queue.push({ count: 0, error: null }, { error: SECRET });
+    await expect(saveFollowerSnapshot(fakeDb(), ACC, upload)).rejects.toThrow(/^followers insert failed$/);
+  });
+});
+
+describe('deleteFollowerSnapshot', () => {
+  it('deletes by snapshot id AND account id; false when nothing matched', async () => {
+    queue.push({ data: [{ id: SNAP }], error: null });
+    expect(await deleteFollowerSnapshot(fakeDb(), ACC, SNAP)).toBe(true);
+    expect(calls).toEqual([['from', 'follower_exports'], ['delete'], ['eq', 'id', SNAP], ['eq', 'account_id', ACC], ['select', 'id']]);
+    queue.push({ data: [], error: null });
+    expect(await deleteFollowerSnapshot(fakeDb(), ACC, SNAP)).toBe(false);
+  });
+});
+```
+
+`tests/followers-route.test.ts`:
+
+```ts
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_BODY_BYTES, toPayload } from '@/lib/followers/payload';
+
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const state = vi.hoisted(() => ({
+  owner: true,
+  account: { id: '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b', status: 'active' } as { id: string; status: string } | null,
+  save: 'ok' as string | Error,
+  order: [] as string[],
+  saved: [] as unknown[],
+}));
+vi.mock('@/lib/auth/assert-owner', () => ({
+  assertOwner: async (h?: Headers) => {
+    state.order.push('assertOwner');
+    h?.set('x-from-supabase', 'kept');
+    return state.owner;
+  },
+}));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (state.order.push('ownerSession'), {}) }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => state.order.push('ADMIN') }));
+vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (state.order.push('prefs'), (await import('@/lib/prefs')).DEFAULT_PREFS) }));
+vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ getById: async (id: string) => (state.order.push(`account:${id}`), state.account) }) }));
+vi.mock('@/lib/followers/read', () => ({
+  saveFollowerSnapshot: async (_db: unknown, accountId: string, u: unknown) => {
+    state.order.push('save');
+    state.saved.push([accountId, u]);
+    if (state.save instanceof Error) throw state.save;
+    return state.save;
+  },
+}));
+
+import { POST } from '@/app/api/accounts/[id]/followers/route';
+
+const GOOD = toPayload({ takenOn: '2026-10-01', followers: [{ username: 'alice', at: 1_700_000_000 }], following: null });
+const URL_ = `https://app.test/api/accounts/${ACC}/followers`;
+const headersFor = (body: string, extra: Record<string, string> = {}) => ({ origin: 'https://app.test', host: 'app.test', 'content-type': 'application/json', 'content-length': String(new TextEncoder().encode(body).length), ...extra });
+const call = (body: BodyInit | null, headers: Record<string, string>, id = ACC) => POST(new Request(URL_, { method: 'POST', body, headers, ...(body instanceof ReadableStream ? { duplex: 'half' } : {}) } as RequestInit), { params: Promise.resolve({ id }) });
+const err = async (res: Response) => ({ status: res.status, body: await res.json() });
+
+beforeEach(() => {
+  state.owner = true;
+  state.account = { id: ACC, status: 'active' };
+  state.save = 'ok';
+  state.order = [];
+  state.saved = [];
+});
+
+describe('POST /api/accounts/[id]/followers', () => {
+  it('stores a valid upload for the live account: 201, private no-store, nosniff, the owner session headers kept', async () => {
+    const res = await call(GOOD, headersFor(GOOD));
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('x-from-supabase')).toBe('kept');
+    expect(state.order).toEqual(['assertOwner', 'prefs', 'ownerSession', `account:${ACC}`, 'save']);
+    expect(state.saved).toEqual([[ACC, { takenOn: '2026-10-01', followers: [{ username: 'alice', at: 1_700_000_000 }], following: null }]]);
+  });
+
+  it('the owner check comes first: a stranger gets 401 and nothing else runs', async () => {
+    state.owner = false;
+    expect(await err(await call(GOOD, headersFor(GOOD)))).toEqual({ status: 401, body: { error: 'unauthorized' } });
+    expect(state.order).toEqual(['assertOwner']);
+  });
+
+  it('then the account id, the origin and the content type, before the body is touched', async () => {
+    expect(await err(await call(GOOD, headersFor(GOOD), 'not-a-uuid'))).toEqual({ status: 404, body: { error: 'notFound' } });
+    expect(await err(await call(GOOD, headersFor(GOOD, { origin: 'https://evil.example' })))).toEqual({ status: 403, body: { error: 'unauthorized' } });
+    const noOrigin: Record<string, string> = headersFor(GOOD);
+    delete noOrigin.origin;
+    expect(await err(await call(GOOD, noOrigin))).toEqual({ status: 403, body: { error: 'unauthorized' } });
+    expect(await err(await call(GOOD, headersFor(GOOD, { 'content-type': 'text/plain' })))).toEqual({ status: 415, body: { error: 'invalid' } });
+    expect(state.order.every((s) => s === 'assertOwner')).toBe(true);
+  });
+
+  it('behind a proxy the forwarded host is the one compared', async () => {
+    const res = await call(GOOD, headersFor(GOOD, { origin: 'https://in2sight.example', host: 'internal:3000', 'x-forwarded-host': 'in2sight.example' }));
+    expect(res.status).toBe(201);
+  });
+
+  it('size: a declared length over the cap is refused before reading (413); no length → 411', async () => {
+    expect(await err(await call(GOOD, headersFor(GOOD, { 'content-length': String(MAX_BODY_BYTES + 1) })))).toEqual({ status: 413, body: { error: 'tooLarge' } });
+    expect(await err(await call(GOOD, headersFor(GOOD, { 'content-length': '0' })))).toEqual({ status: 411, body: { error: 'invalid' } });
+    expect(state.order).not.toContain('prefs');
+  });
+
+  it('a lying content-length cannot get more in: the reader stops at the cap and nothing is parsed or saved', async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(1024 * 1024).fill(32); // 1 MB of spaces
+    const stream = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        if (pulled > 50) c.close();
+        else c.enqueue(chunk);
+      },
+    });
+    expect(await err(await call(stream, headersFor('', { 'content-length': '100' })))).toEqual({ status: 413, body: { error: 'tooLarge' } });
+    expect(pulled).toBeLessThan(10); // stopped right after passing 4 MB, not after 50 MB
+    expect(state.order).toEqual(['assertOwner']);
+  });
+
+  it('not UTF-8, not JSON or not the exact payload → 400 invalid, nothing saved', async () => {
+    const bytes = new Uint8Array([0x7b, 0xff, 0xfe, 0x7d]);
+    expect(await err(await call(bytes, { ...headersFor(''), 'content-length': '4' }))).toEqual({ status: 400, body: { error: 'invalid' } });
+    for (const body of ['{"v":1', '[]', GOOD.replace('"v":1', '"v":1,"extra":true'), GOOD.replace('alice', 'Alice'), GOOD.replace('2026-10-01', '2099-01-01')])
+      expect(await err(await call(body, headersFor(body))), body.slice(0, 40)).toEqual({ status: 400, body: { error: 'invalid' } });
+    expect(state.order).not.toContain('save');
+  });
+
+  it('unknown or archived account → 404; cap → 409; migration missing → 503', async () => {
+    state.account = null;
+    expect(await err(await call(GOOD, headersFor(GOOD)))).toEqual({ status: 404, body: { error: 'notFound' } });
+    state.account = { id: ACC, status: 'archived' };
+    expect(await err(await call(GOOD, headersFor(GOOD)))).toEqual({ status: 404, body: { error: 'notFound' } });
+    state.account = { id: ACC, status: 'active' };
+    state.save = 'tooManySnapshots';
+    expect(await err(await call(GOOD, headersFor(GOOD)))).toEqual({ status: 409, body: { error: 'tooManySnapshots' } });
+    state.save = 'notReady';
+    expect(await err(await call(GOOD, headersFor(GOOD)))).toEqual({ status: 503, body: { error: 'notReady' } });
+  });
+
+  it('a failure is a fixed 500 and a fixed log line: no error object, no usernames', async () => {
+    state.save = new Error('insert failed for alice');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(await err(await call(GOOD, headersFor(GOOD)))).toEqual({ status: 500, body: { error: 'unexpected' } });
+    expect(log.mock.calls).toEqual([['followers upload failed']]);
+    log.mockRestore();
+  });
+
+  it('never the admin client', async () => {
+    await call(GOOD, headersFor(GOOD));
+    expect(state.order).not.toContain('ADMIN');
+  });
+});
+```
+
+`tests/followers-actions.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { calls, requireOwner, result } = vi.hoisted(() => ({ calls: [] as unknown[][], requireOwner: vi.fn(), result: { deleted: true as boolean | Error } }));
+
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: () => (calls.push(['requireOwner']), requireOwner()) }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push(['session']), { db: true }) }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push(['ADMIN']) }));
+vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => calls.push(['revalidate', ...a]) }));
+vi.mock('@/lib/followers/read', () => ({
+  deleteFollowerSnapshot: async (db: unknown, accountId: string, id: string) => {
+    calls.push(['delete', db, accountId, id]);
+    if (result.deleted instanceof Error) throw result.deleted;
+    return result.deleted;
+  },
+}));
+
+import { deleteFollowerSnapshotAction } from '@/app/(app)/accounts/followers-actions';
+
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const SNAP = '00000000-0000-4000-8000-000000000001';
+
+beforeEach(() => {
+  calls.length = 0;
+  requireOwner.mockReset();
+  result.deleted = true;
+});
+
+describe('deleteFollowerSnapshotAction', () => {
+  it('owner first, then the owner-session delete of THIS account\'s snapshot, then the account page revalidates', async () => {
+    expect(await deleteFollowerSnapshotAction(ACC.toUpperCase(), SNAP)).toEqual({ ok: true });
+    expect(calls).toEqual([['requireOwner'], ['session'], ['delete', { db: true }, ACC, SNAP], ['revalidate', '/accounts/[id]', 'page']]);
+  });
+
+  it('a non-owner never reaches the database (requireOwner redirects by throwing)', async () => {
+    requireOwner.mockRejectedValueOnce(new Error('NEXT_REDIRECT /auth/signout'));
+    await expect(deleteFollowerSnapshotAction(ACC, SNAP)).rejects.toThrow('NEXT_REDIRECT');
+    expect(calls).toEqual([['requireOwner']]);
+  });
+
+  it('bad ids or nothing deleted → notFound; a failure → unexpected; never the admin client', async () => {
+    expect(await deleteFollowerSnapshotAction('x', SNAP)).toEqual({ ok: false, error: 'notFound' });
+    expect(await deleteFollowerSnapshotAction(ACC, "1' or '1'='1")).toEqual({ ok: false, error: 'notFound' });
+    result.deleted = false;
+    expect(await deleteFollowerSnapshotAction(ACC, SNAP)).toEqual({ ok: false, error: 'notFound' });
+    result.deleted = new Error('db down');
+    expect(await deleteFollowerSnapshotAction(ACC, SNAP)).toEqual({ ok: false, error: 'unexpected' });
+    expect(calls.some((c) => c[0] === 'ADMIN' || c[0] === 'revalidate')).toBe(false);
+  });
+});
+```
+
+`tests/followers-privacy.test.ts`:
+
+```ts
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+// Third-party usernames (follower snapshots, Plan 15b) are personal data: owner-only, never logged, never in another
+// export, never through the admin client. These guards hold for every file that exists now and every later one.
+const root = process.cwd();
+function files(dir: string): string[] {
+  return readdirSync(join(root, dir)).flatMap((f) => {
+    const p = `${dir}/${f}`;
+    return statSync(join(root, p)).isDirectory() ? files(p) : /\.tsx?$/.test(f) ? [p] : [];
+  });
+}
+const src = ['app', 'components', 'lib'].flatMap(files).map((f) => [f, readFileSync(join(root, f), 'utf8')] as const);
+/** Files that handle follower lists: lib/followers/* and everything that imports from it. */
+const followerFiles = src.filter(([f, s]) => f.startsWith('lib/followers/') || /from '@\/lib\/followers\//.test(s));
+
+describe('follower lists privacy', () => {
+  it('only lib/followers/read.ts names the follower_exports table in code (comments may mention it)', () => {
+    const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(src.filter(([, s]) => /follower_exports/.test(code(s))).map(([f]) => f)).toEqual(['lib/followers/read.ts']);
+  });
+
+  it('no file that handles follower lists logs anything but one fixed string', () => {
+    expect(followerFiles.length).toBeGreaterThanOrEqual(5);
+    for (const [f, s] of followerFiles) {
+      expect(s, f).not.toMatch(/console\.(log|info|warn|debug|trace|dir|table)\s*\(/);
+      for (const m of s.matchAll(/console\.error\s*\(([^)]*)\)/g)) expect(m[1], f).toMatch(/^'[^'`$]*'$/);
+    }
+  });
+
+  it('never through the admin client', () => {
+    for (const [f, s] of followerFiles) expect(s, f).not.toMatch(/lib\/supabase\/admin|createAdminSupabase|account_tokens/);
+  });
+
+  it('the account exports (Excel workbook, PDF report) and the sync never touch follower lists', () => {
+    for (const [f, s] of src)
+      if (/^lib\/(export\/(read|workbook|report|pdf)|sync\/|alerts\/|push\/)/.test(f) || f.startsWith('app/api/cron/')) expect(s, f).not.toMatch(/lib\/followers\//);
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/followers-read.test.ts tests/followers-route.test.ts tests/followers-actions.test.ts tests/followers-privacy.test.ts`
+Expected: FAIL — the three modules do not resolve; the privacy test fails on "only lib/followers/read.ts names the follower_exports table" (`[]`) and on `followerFiles.length >= 5` (wave A left four files in `lib/followers/`).
+
+- [ ] **Step 3: Write `lib/followers/read.ts`** (exactly this):
+
+```ts
+// Reads and writes of follower_exports (Plan 15b). The ONLY module that names that table (tests/followers-privacy.test.ts).
+// Owner-session client only: RLS (follower_exports_owner_all, is_owner()) applies to every call; never the admin
+// client. Every query is filtered by the account id AND (for one snapshot) the snapshot id. Errors are fixed texts:
+// a Supabase error can echo row values, i.e. third-party usernames.
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Snapshot } from '@/lib/followers/diff';
+import type { Person } from '@/lib/followers/parse';
+import type { Upload } from '@/lib/followers/payload';
+import type { SnapshotMeta } from '@/lib/followers/state';
+
+export const MAX_SNAPSHOTS = 60;
+/** PostgREST / Postgres "table not found": the migration 20261028000002 is not applied yet. */
+export const MISSING_TABLE: readonly string[] = ['PGRST205', '42P01'];
+
+const TABLE = 'follower_exports';
+type Row = Record<string, unknown>;
+const missing = (e: unknown): boolean => MISSING_TABLE.includes(String((e as { code?: unknown } | null)?.code));
+const fail = (op: string): never => {
+  throw new Error(`followers ${op} failed`);
+};
+
+const toMeta = (r: Row): SnapshotMeta => ({
+  id: String(r.id),
+  takenOn: String(r.taken_on),
+  followerCount: Number(r.follower_count),
+  followingCount: r.following_count === null || r.following_count === undefined ? null : Number(r.following_count),
+  createdAt: String(r.created_at),
+});
+
+/** The account's snapshots without their arrays, newest first. null = the table does not exist yet. */
+export async function listFollowerSnapshots(db: SupabaseClient, accountId: string): Promise<SnapshotMeta[] | null> {
+  const { data, error } = await db
+    .from(TABLE)
+    .select('id,taken_on,follower_count,following_count,created_at')
+    .eq('account_id', accountId)
+    .order('taken_on', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(MAX_SNAPSHOTS);
+  if (error) return missing(error) ? null : fail('list');
+  return ((data ?? []) as Row[]).map(toMeta);
+}
+
+const people = (names: unknown, times: unknown): Person[] => {
+  if (!Array.isArray(names)) return [];
+  const at = Array.isArray(times) ? times : [];
+  return names.map((u, i) => ({ username: String(u), at: typeof at[i] === 'number' ? at[i] : null }));
+};
+
+/** One snapshot's lists, only when it belongs to this account; null = no such snapshot. */
+export async function loadFollowerSnapshot(db: SupabaseClient, accountId: string, id: string): Promise<Snapshot | null> {
+  const { data, error } = await db.from(TABLE).select('followers,followers_at,following,following_at').eq('id', id).eq('account_id', accountId).maybeSingle();
+  if (error) return fail('load');
+  if (!data) return null;
+  const r = data as Row;
+  return { followers: people(r.followers, r.followers_at), following: r.following === null ? null : people(r.following, r.following_at) };
+}
+
+export type SaveResult = 'ok' | 'tooManySnapshots' | 'notReady';
+
+/** Stores one validated upload (lib/followers/payload.ts validateUpload) as a snapshot; at most MAX_SNAPSHOTS per account. */
+export async function saveFollowerSnapshot(db: SupabaseClient, accountId: string, u: Upload): Promise<SaveResult> {
+  const { count, error } = await db.from(TABLE).select('id', { count: 'exact', head: true }).eq('account_id', accountId);
+  if (error) return missing(error) ? 'notReady' : fail('count');
+  if ((count ?? 0) >= MAX_SNAPSHOTS) return 'tooManySnapshots';
+  const { error: insertError } = await db.from(TABLE).insert({
+    account_id: accountId,
+    taken_on: u.takenOn,
+    followers: u.followers.map((p) => p.username),
+    followers_at: u.followers.map((p) => p.at),
+    following: u.following ? u.following.map((p) => p.username) : null,
+    following_at: u.following ? u.following.map((p) => p.at) : null,
+  }); // no .select(): nothing comes back
+  if (insertError) return missing(insertError) ? 'notReady' : fail('insert');
+  return 'ok';
+}
+
+/** Deletes one snapshot of this account; false = there was none. */
+export async function deleteFollowerSnapshot(db: SupabaseClient, accountId: string, id: string): Promise<boolean> {
+  const { data, error } = await db.from(TABLE).delete().eq('id', id).eq('account_id', accountId).select('id');
+  if (error) return fail('delete');
+  return (data ?? []).length > 0;
+}
+```
+
+- [ ] **Step 4: Write `app/api/accounts/[id]/followers/route.ts`** (exactly this — the size and order checks are Review Focus 2):
+
+```ts
+import { NextResponse } from 'next/server';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import { assertOwner } from '@/lib/auth/assert-owner';
+import { MAX_BODY_BYTES, validateUpload } from '@/lib/followers/payload';
+import { saveFollowerSnapshot } from '@/lib/followers/read';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { localDay } from '@/lib/sync/time';
+import { isUuid } from '@/lib/tags';
+
+export type UploadError = 'unauthorized' | 'invalid' | 'tooLarge' | 'notFound' | 'notReady' | 'tooManySnapshots' | 'unexpected';
+
+/** The body as bytes, or null as soon as it passes `max` (a missing or lying content-length cannot get more in). */
+async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
+
+/** The browser's Origin must be this host (CSRF: the session cookie is the credential), as Next checks for server actions. */
+function sameOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin');
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  if (!origin || !host) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * POST /api/accounts/[id]/followers — one follower snapshot from the Followers tab's upload dialog (Plan 15b). Owner
+ * session only (proxy + assertOwner; NOT a public exemption). The body is the compact payload of lib/followers/payload.ts
+ * (usernames + follow times; the raw export files never leave the browser). Checked in this order, each failing closed
+ * with a fixed key and nothing echoed: owner → account id → same origin → JSON content type → content-length ≤
+ * MAX_BODY_BYTES → the body read with the same cap → UTF-8 → JSON → validateUpload → the account is live → at most
+ * MAX_SNAPSHOTS → insert (owner session, RLS). Never logs the body, the names or an error object.
+ */
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const h = new Headers({ 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' });
+  const fail = (status: number, error: UploadError) => NextResponse.json({ error }, { status, headers: h });
+  if (!(await assertOwner(h))) return fail(401, 'unauthorized');
+  const { id } = await ctx.params;
+  if (!isUuid(id)) return fail(404, 'notFound');
+  if (!sameOrigin(request)) return fail(403, 'unauthorized');
+  if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return fail(415, 'invalid');
+  const length = Number(request.headers.get('content-length'));
+  if (!Number.isInteger(length) || length <= 0) return fail(411, 'invalid');
+  if (length > MAX_BODY_BYTES) return fail(413, 'tooLarge');
+  try {
+    const bytes = await readCapped(request, MAX_BODY_BYTES);
+    if (!bytes) return fail(413, 'tooLarge');
+    let body: unknown;
+    try {
+      body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    } catch {
+      return fail(400, 'invalid');
+    }
+    const now = new Date();
+    const upload = validateUpload(body, localDay(now, (await getPrefs()).timezone), Math.floor(now.getTime() / 1000));
+    if (!upload) return fail(400, 'invalid');
+    const db = await createServerSupabase({ responseHeaders: h }); // owner session: RLS applies, never the admin client
+    const account = await supabaseAccountsStore(db).getById(id.toLowerCase());
+    if (!account || account.status === 'archived') return fail(404, 'notFound');
+    const saved = await saveFollowerSnapshot(db, account.id, upload);
+    if (saved === 'notReady') return fail(503, 'notReady');
+    if (saved === 'tooManySnapshots') return fail(409, 'tooManySnapshots');
+    return NextResponse.json({ ok: true }, { status: 201, headers: h });
+  } catch {
+    console.error('followers upload failed'); // fixed text: never the error object (it can carry usernames)
+    return fail(500, 'unexpected');
+  }
+}
+```
+
+- [ ] **Step 5: Write `app/(app)/accounts/followers-actions.ts`** (exactly this):
+
+```ts
+'use server';
+
+// Follower snapshots are owner-authored data: this action uses the OWNER-SESSION client, so RLS
+// (follower_exports_owner_all, gated on is_owner()) applies. Never the admin client here. Uploads go through the route
+// handler app/api/accounts/[id]/followers (a server action's 1 MB body limit is too small for big accounts).
+import { revalidatePath } from 'next/cache';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { deleteFollowerSnapshot } from '@/lib/followers/read';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { isUuid } from '@/lib/tags';
+
+export type SnapshotResult = { ok: true } | { ok: false; error: 'notFound' | 'unexpected' };
+
+// Server actions are public endpoints: authorize first (outside try/catch: it redirects by throwing), then validate.
+export async function deleteFollowerSnapshotAction(accountId: string, snapshotId: string): Promise<SnapshotResult> {
+  await requireOwner();
+  if (!isUuid(accountId) || !isUuid(snapshotId)) return { ok: false, error: 'notFound' };
+  try {
+    const db = await createServerSupabase();
+    if (!(await deleteFollowerSnapshot(db, accountId.toLowerCase(), snapshotId.toLowerCase()))) return { ok: false, error: 'notFound' };
+    revalidatePath('/accounts/[id]', 'page');
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
+}
+```
+
+- [ ] **Step 6: Run the tests**
+
+Run: `npx vitest run tests/followers-read.test.ts tests/followers-route.test.ts tests/followers-actions.test.ts tests/followers-privacy.test.ts tests/followers-payload.test.ts`, `npx tsc --noEmit`, `npx eslint lib/followers/read.ts "app/api/accounts/[id]/followers/route.ts" "app/(app)/accounts/followers-actions.ts" tests/followers-read.test.ts tests/followers-route.test.ts tests/followers-actions.test.ts tests/followers-privacy.test.ts`
+Expected: PASS (7 + 10 + 3 + 4 tests in the plan author's scratch run), tsc and eslint clean. The route test runs in the node environment (`// @vitest-environment node`: a real `ReadableStream` body for the "lying content-length" case).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/followers/read.ts "app/api/accounts/[id]/followers/route.ts" "app/(app)/accounts/followers-actions.ts" tests/followers-read.test.ts tests/followers-route.test.ts tests/followers-actions.test.ts tests/followers-privacy.test.ts
+git commit -m "feat(followers): snapshot reads/writes, owner-only capped upload route, delete action, privacy guard" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
