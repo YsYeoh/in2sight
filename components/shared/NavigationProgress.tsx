@@ -36,6 +36,7 @@ export function formHref(form: HTMLFormElement): string {
 }
 
 function clickedLink(e: MouseEvent): string | null {
+  if (e.defaultPrevented) return null; // taken over earlier in the capture phase (the tab shell opens it as a tab): no navigation here
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return null; // new tab/window: no navigation here
   const a = e.target instanceof Element ? e.target.closest('a[href]') : null;
   if (!(a instanceof HTMLAnchorElement) || (a.target && a.target !== '_self') || a.hasAttribute('download')) return null;
