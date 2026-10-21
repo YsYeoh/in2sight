@@ -515,3 +515,810 @@ git commit -m "feat(i18n): Followers tab, export guide, upload and diff lists (e
 ```
 
 ---
+
+### Task 3: Parser and payload (pure) — `lib/followers/parse.ts`, `lib/followers/payload.ts`
+
+**Files:**
+- Create: `lib/followers/parse.ts`, `lib/followers/payload.ts`, `tests/followers-parse.test.ts`, `tests/followers-payload.test.ts`
+
+**Interfaces:**
+- Consumes: nothing from the app (pure; `parse.ts` imports nothing, `payload.ts` imports only `parse.ts`). Both run in the browser AND on the server (no `server-only`, no Node APIs).
+- Produces (exact names later tasks import):
+  - `parse.ts`: `MAX_FILES = 10`, `MAX_FILE_BYTES = 32 MiB`, `MAX_TOTAL_BYTES = 64 MiB`, `MAX_FOLLOWERS = 50_000`, `MAX_FOLLOWING = 10_000`, `MIN_TS`, `USERNAME_RE`; types `FollowKind`, `ParseError`, `Person { username; at }`, `ParseFailure { ok: false; error; file? }`, `Parsed { ok: true; followers; following; skipped; ignored }`; `checkFiles(files: { name; size }[]): ParseFailure | null`; `cleanUsername(v)`, `cleanTimestamp(v, nowSec)`; `parseExportFiles(files: { name; text }[], nowSec: number): Parsed | ParseFailure`.
+  - `payload.ts`: `PAYLOAD_VERSION = 1`, `MAX_BODY_BYTES = 4_000_000`, `FIRST_DAY = '2010-10-06'`, `interface Upload { takenOn; followers: Person[]; following: Person[] | null }`, `toPayload(u: Upload): string`, `validateUpload(body: unknown, today: string, nowSec: number): Upload | null`.
+- Every `ParseError` value is a key of `pages.account.followerDiff.errors` (Task 2).
+
+- [ ] **Step 1: Write the failing tests** — create `tests/followers-parse.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { checkFiles, cleanTimestamp, cleanUsername, MAX_FILE_BYTES, MAX_FOLLOWERS, MAX_FOLLOWING, parseExportFiles, type Parsed } from '@/lib/followers/parse';
+
+const NOW = 1_793_000_000; // 2026-10-26
+const T1 = 1_700_000_000;
+const T2 = 1_710_000_000;
+/** One entry the way followers_1.json writes it (E3). */
+const entry = (name: string, ts: unknown = T1) => ({ title: '', media_list_data: [], string_list_data: [{ href: `https://www.instagram.com/${name}`, value: name, timestamp: ts }] });
+/** One entry the way newer following.json files write it: name in title, no value, /_u/ links (E4). */
+const titled = (name: string, ts: unknown = T2) => ({ title: name, string_list_data: [{ href: `https://www.instagram.com/_u/${name}`, timestamp: ts }] });
+const file = (name: string, json: unknown) => ({ name, text: JSON.stringify(json, null, 2) });
+const ok = (r: ReturnType<typeof parseExportFiles>): Parsed => {
+  expect(r.ok, JSON.stringify(r)).toBe(true);
+  return r as Parsed;
+};
+
+describe('checkFiles (before any byte is read)', () => {
+  it('accepts up to 10 .json files of at most 32 MB each and 64 MB together', () => {
+    expect(checkFiles([{ name: 'followers_1.json', size: 10 }, { name: 'C:\\fakepath\\FOLLOWING.JSON', size: 10 }])).toBeNull();
+    expect(checkFiles([{ name: 'followers_1.json', size: MAX_FILE_BYTES }])).toBeNull();
+  });
+
+  it('names the problem with a key (and the file where there is one)', () => {
+    expect(checkFiles([])).toEqual({ ok: false, error: 'noFiles' });
+    expect(checkFiles(Array.from({ length: 11 }, (_, i) => ({ name: `followers_${i}.json`, size: 1 })))).toEqual({ ok: false, error: 'tooManyFiles' });
+    expect(checkFiles([{ name: 'instagram-me-2026.zip', size: 1 }])).toEqual({ ok: false, error: 'zipNotSupported', file: 'instagram-me-2026.zip' });
+    expect(checkFiles([{ name: 'followers_1.html', size: 1 }])).toEqual({ ok: false, error: 'htmlFormat', file: 'followers_1.html' });
+    expect(checkFiles([{ name: 'followers.txt', size: 1 }])).toEqual({ ok: false, error: 'notJson', file: 'followers.txt' });
+    expect(checkFiles([{ name: 'followers', size: 1 }])).toEqual({ ok: false, error: 'notJson', file: 'followers' });
+    expect(checkFiles([{ name: '/tmp/followers_1.json', size: MAX_FILE_BYTES + 1 }])).toEqual({ ok: false, error: 'fileTooLarge', file: 'followers_1.json' });
+    expect(checkFiles([1, 2, 3].map((i) => ({ name: `followers_${i}.json`, size: 30 * 1024 * 1024 })))).toEqual({ ok: false, error: 'totalTooLarge' });
+  });
+});
+
+describe('cleanUsername / cleanTimestamp', () => {
+  it('usernames: trimmed, no leading @, lower-cased, Instagram alphabet, at most 30 characters', () => {
+    expect(['  @Some.User_1 ', 'abc', 'a'.repeat(30), '__proto__'].map(cleanUsername)).toEqual(['some.user_1', 'abc', 'a'.repeat(30), '__proto__']);
+    for (const bad of ['', '@', 'a'.repeat(31), 'with space', 'ümlaut', 'a/b', '<script>', '名字', 42, null, undefined, {}]) expect(cleanUsername(bad), String(bad)).toBeNull();
+  });
+
+  it('timestamps: whole seconds from 2010-01-01 to one day after now, else unknown', () => {
+    expect(cleanTimestamp(T1, NOW)).toBe(T1);
+    expect(cleanTimestamp(NOW + 86_400, NOW)).toBe(NOW + 86_400);
+    for (const bad of [NOW + 86_401, 1_262_303_999, 1.5e9 + 0.5, '1700000000', -1, null, T1 * 1000]) expect(cleanTimestamp(bad, NOW), String(bad)).toBeNull();
+  });
+});
+
+describe('parseExportFiles: the accepted variants', () => {
+  it('followers_1.json as a bare array (E3): value, timestamp; names lower-cased', () => {
+    const r = ok(parseExportFiles([file('followers_1.json', [entry('alice'), entry('Bob.B', T2)])], NOW));
+    expect(r.followers).toEqual([{ username: 'alice', at: T1 }, { username: 'bob.b', at: T2 }]);
+    expect(r.following).toBeNull();
+    expect(r).toMatchObject({ skipped: 0, ignored: [] });
+  });
+
+  it('the wrapped form {relationships_followers: [...]} and following.json {relationships_following: [...]}', () => {
+    const r = ok(parseExportFiles([file('anything.json', { relationships_followers: [entry('alice')] }), file('following.json', { relationships_following: [entry('carol', T2)] })], NOW));
+    expect(r.followers).toEqual([{ username: 'alice', at: T1 }]);
+    expect(r.following).toEqual([{ username: 'carol', at: T2 }]);
+  });
+
+  it('newer following.json (E4): the name only in title, /_u/ links; a bare following.json array works too', () => {
+    const r = ok(parseExportFiles([file('followers_1.json', [entry('alice')]), file('following.json', { relationships_following: [titled('dave'), titled('Eve')] })], NOW));
+    expect(r.following).toEqual([{ username: 'dave', at: T2 }, { username: 'eve', at: T2 }]);
+    const bare = ok(parseExportFiles([file('followers_1.json', []), file('following.json', [titled('dave')])], NOW));
+    expect(bare.following).toEqual([{ username: 'dave', at: T2 }]);
+  });
+
+  it('the href is the last resort for the name (with or without /_u/, trailing slash, query)', () => {
+    const viaHref = (href: string) => ({ title: '', string_list_data: [{ href, timestamp: T1 }] });
+    const r = ok(parseExportFiles([file('followers_1.json', [viaHref('https://www.instagram.com/frank'), viaHref('https://instagram.com/_u/Gina/'), viaHref('https://www.instagram.com/hank?igsh=x'), viaHref('https://evil.example/ivan')])], NOW));
+    expect(r.followers.map((p) => p.username)).toEqual(['frank', 'gina', 'hank']);
+    expect(r.skipped).toBe(1);
+  });
+
+  it('followers split over followers_1.json, followers_2.json … are merged; a duplicate keeps the first entry and fills a missing time', () => {
+    const r = ok(parseExportFiles([file('followers_1.json', [entry('alice'), entry('bob', 'x')]), file('followers_2.json', [entry('bob', T2), entry('alice', T2), entry('carl')])], NOW));
+    expect(r.followers).toEqual([{ username: 'alice', at: T1 }, { username: 'bob', at: T2 }, { username: 'carl', at: T1 }]);
+  });
+
+  it('odd entries are skipped and counted, never an error; unknown fields are ignored; a BOM is fine', () => {
+    const odd = [null, 42, 'alice', [], {}, { string_list_data: 'x' }, { string_list_data: [null] }, entry('bad name'), entry('a'.repeat(31)), { ...entry('ok.name', 'not a number'), extra: { deep: [1, 2] } }];
+    const r = ok(parseExportFiles([{ name: 'followers_1.json', text: `\uFEFF${JSON.stringify(odd)}` }], NOW));
+    expect(r.followers).toEqual([{ username: 'ok.name', at: null }]);
+    expect(r.skipped).toBe(9);
+  });
+
+  it('other files of the export folder are recognised and skipped, not stored (recently unfollowed, pending requests …)', () => {
+    const r = ok(
+      parseExportFiles(
+        [file('followers_1.json', [entry('alice')]), file('recently_unfollowed_profiles.json', { relationships_unfollowed_users: [entry('zed')] }), file('pending_follow_requests.json', { relationships_follow_requests_sent: [entry('yan')] })],
+        NOW,
+      ),
+    );
+    expect(r.followers).toEqual([{ username: 'alice', at: T1 }]);
+    expect(r.following).toBeNull();
+    expect(r.ignored).toEqual(['recently_unfollowed_profiles.json', 'pending_follow_requests.json']);
+  });
+
+  it('names are plain data: "__proto__" is an ordinary follower and nothing is polluted', () => {
+    const r = ok(parseExportFiles([{ name: 'followers_1.json', text: '[{"string_list_data":[{"value":"__proto__","timestamp":1700000000}]},{"__proto__":{"polluted":1},"title":"x"}]' }], NOW));
+    expect(r.followers).toEqual([{ username: '__proto__', at: T1 }, { username: 'x', at: null }]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+describe('parseExportFiles: rejected input (error key + file)', () => {
+  const err = (files: { name: string; text: string }[]) => parseExportFiles(files, NOW);
+
+  it('HTML exports, broken JSON and other shapes', () => {
+    expect(err([{ name: 'followers_1.json', text: ' <html><body>followers</body></html>' }])).toEqual({ ok: false, error: 'htmlFormat', file: 'followers_1.json' });
+    expect(err([{ name: 'followers_1.json', text: '[{"string_list_data": [' }])).toEqual({ ok: false, error: 'badJson', file: 'followers_1.json' });
+    expect(err([file('close_friends.json', [entry('alice')])])).toEqual({ ok: false, error: 'unknownFile', file: 'close_friends.json' });
+    expect(err([file('followers_1.json', { data: [entry('alice')] })])).toEqual({ ok: false, error: 'unknownFile', file: 'followers_1.json' });
+    expect(err([file('followers_1.json', {})])).toEqual({ ok: false, error: 'unknownFile', file: 'followers_1.json' });
+    expect(err([file('followers_1.json', { relationships_followers: { alice: 1 } })])).toEqual({ ok: false, error: 'badShape', file: 'followers_1.json' });
+    expect(err([file('followers_1.json', 42)])).toEqual({ ok: false, error: 'badShape', file: 'followers_1.json' });
+    expect(err([file('followers_1.json', null)])).toEqual({ ok: false, error: 'badShape', file: 'followers_1.json' });
+  });
+
+  it('the comparison needs a followers list', () => {
+    expect(err([])).toEqual({ ok: false, error: 'noFiles' });
+    expect(err([file('following.json', { relationships_following: [entry('carol')] })])).toEqual({ ok: false, error: 'needFollowers' });
+    expect(err([file('recently_unfollowed_profiles.json', { relationships_unfollowed_users: [] })])).toEqual({ ok: false, error: 'needFollowers' });
+  });
+
+  it('people caps: 50,000 followers and 10,000 following are fine, one more is not (counted across files)', () => {
+    const names = (n: number, p: string) => Array.from({ length: n }, (_, i) => entry(`${p}${i}`));
+    expect(ok(parseExportFiles([file('followers_1.json', names(MAX_FOLLOWERS, 'f'))], NOW)).followers).toHaveLength(MAX_FOLLOWERS);
+    expect(err([file('followers_1.json', names(MAX_FOLLOWERS, 'f')), file('followers_2.json', names(1, 'g'))])).toEqual({ ok: false, error: 'tooManyFollowers' });
+    expect(err([file('followers_1.json', []), file('following.json', names(MAX_FOLLOWING + 1, 'h'))])).toEqual({ ok: false, error: 'tooManyFollowing' });
+  });
+});
+```
+
+and `tests/followers-payload.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { MAX_FOLLOWERS, MAX_FOLLOWING } from '@/lib/followers/parse';
+import { MAX_BODY_BYTES, toPayload, validateUpload, type Upload } from '@/lib/followers/payload';
+
+const NOW = 1_793_000_000;
+const TODAY = '2026-10-26';
+const T1 = 1_700_000_000;
+const upload: Upload = { takenOn: '2026-10-20', followers: [{ username: 'alice', at: T1 }, { username: 'bob', at: null }], following: [{ username: 'carol', at: T1 }] };
+const body = (patch: Record<string, unknown> = {}) => ({ ...JSON.parse(toPayload(upload)), ...patch });
+
+describe('toPayload → validateUpload', () => {
+  it('round-trips the compact form: names with their times as pairs, following optional', () => {
+    expect(JSON.parse(toPayload(upload))).toEqual({ v: 1, takenOn: '2026-10-20', followers: [['alice', T1], ['bob', null]], following: [['carol', T1]] });
+    expect(validateUpload(JSON.parse(toPayload(upload)), TODAY, NOW)).toEqual(upload);
+    const noFollowing = { ...upload, following: null };
+    expect(validateUpload(JSON.parse(toPayload(noFollowing)), TODAY, NOW)).toEqual(noFollowing);
+    expect(validateUpload(body({ followers: [] }), TODAY, NOW)).toEqual({ ...upload, followers: [] });
+  });
+
+  it('both lists at their caps with 30-character names stay under the body cap (and under Vercel\'s 4.5 MB)', () => {
+    const many = (n: number, p: string) => Array.from({ length: n }, (_, i) => ({ username: `${p}${String(i).padStart(29, '0')}`, at: 1_790_000_000 }));
+    const big = toPayload({ takenOn: TODAY, followers: many(MAX_FOLLOWERS, 'a'), following: many(MAX_FOLLOWING, 'b') });
+    expect(new TextEncoder().encode(big).length).toBeLessThan(MAX_BODY_BYTES);
+    expect(MAX_BODY_BYTES).toBeLessThan(4.5 * 1024 * 1024);
+  });
+});
+
+describe('validateUpload rejects anything else (null, nothing repaired)', () => {
+  it.each([
+    ['not an object', null],
+    ['an array', []],
+    ['a string', 'x'],
+    ['an extra key', body({ extra: 1 })],
+    ['a missing key', JSON.parse(toPayload(upload).replace(',"following":[["carol",1700000000]]', ''))],
+    ['a "__proto__" key', JSON.parse(toPayload(upload).replace('{"v":1', '{"__proto__":{"x":1},"v":1'))],
+    ['another version', body({ v: 2 })],
+    ['a date that does not exist', body({ takenOn: '2026-02-30' })],
+    ['a date in the future', body({ takenOn: '2026-10-27' })],
+    ['a date before Instagram', body({ takenOn: '2010-10-05' })],
+    ['a date with a time', body({ takenOn: '2026-10-20T00:00:00Z' })],
+    ['followers not a list', body({ followers: { alice: 1 } })],
+    ['followers null', body({ followers: null })],
+    ['an upper-case name', body({ followers: [['Alice', T1]] })],
+    ['a name with a space', body({ followers: [['al ice', T1]] })],
+    ['a 31-character name', body({ followers: [['a'.repeat(31), T1]] })],
+    ['a duplicate name', body({ followers: [['alice', T1], ['alice', null]] })],
+    ['a pair of three', body({ followers: [['alice', T1, 'x']] })],
+    ['a time as text', body({ followers: [['alice', '1700000000']] })],
+    ['a time in milliseconds', body({ followers: [['alice', T1 * 1000]] })],
+    ['a fractional time', body({ followers: [['alice', T1 + 0.5]] })],
+    ['a time before 2010', body({ followers: [['alice', 1_000_000_000]] })],
+    ['a bad following entry', body({ following: [['carol', T1], 42] })],
+    ['too many followers', body({ followers: Array.from({ length: MAX_FOLLOWERS + 1 }, (_, i) => [`u${i}`, null]) })],
+    ['too many following', body({ following: Array.from({ length: MAX_FOLLOWING + 1 }, (_, i) => [`u${i}`, null]) })],
+  ])('%s', (_name, b) => {
+    expect(validateUpload(b, TODAY, NOW)).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/followers-parse.test.ts tests/followers-payload.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/followers/parse"` (and `…/payload`).
+
+- [ ] **Step 3: Write `lib/followers/parse.ts`** (exactly this; the parser is the algorithm under review — Review Focus 1):
+
+```ts
+// Instagram "Download your information" export → follower / following lists (Plan 15b). Runs in the BROWSER on the
+// files the owner picked; only the result (usernames + follow times) is uploaded. Pure: no I/O, no clock (nowSec is
+// an input). Untrusted input: JSON.parse only (no reviver), nothing is executed or rendered as HTML, names live in
+// Maps (so "__proto__" is a plain key), sizes are capped before reading (checkFiles) and while reading (the people caps).
+// Instagram changes this format without notice: each accepted variant is a fixture in tests/followers-parse.test.ts.
+
+export const MAX_FILES = 10;
+export const MAX_FILE_BYTES = 32 * 1024 * 1024; // a 50,000-follower followers_1.json is ~8–13 MB
+export const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+export const MAX_FOLLOWERS = 50_000; // = the check in supabase/migrations/20261028000002_follower_exports.sql
+export const MAX_FOLLOWING = 10_000; // Instagram caps following at 7,500
+export const MIN_TS = 1_262_304_000; // 2010-01-01T00:00:00Z: no Instagram follow is older
+export const USERNAME_RE = /^[a-z0-9._]{1,30}$/; // Instagram's username alphabet, lower-cased
+
+export type FollowKind = 'followers' | 'following';
+export type ParseError =
+  | 'noFiles'
+  | 'tooManyFiles'
+  | 'notJson'
+  | 'zipNotSupported'
+  | 'htmlFormat'
+  | 'fileTooLarge'
+  | 'totalTooLarge'
+  | 'badJson'
+  | 'badShape'
+  | 'unknownFile'
+  | 'tooManyFollowers'
+  | 'tooManyFollowing'
+  | 'needFollowers';
+/** One person: the lower-cased username and when the follow happened (seconds since 1970 UTC; null = unknown). */
+export interface Person {
+  username: string;
+  at: number | null;
+}
+export interface ParseFailure {
+  ok: false;
+  error: ParseError;
+  file?: string; // the owner's own file name, shown in the message
+}
+export interface Parsed {
+  ok: true;
+  followers: Person[];
+  following: Person[] | null; // null = no following file was chosen
+  skipped: number; // entries without a valid username
+  ignored: string[]; // recognised export files that are not needed (recently_unfollowed_profiles.json, …)
+}
+
+/** "C:\fakepath\followers_1.json" → "followers_1.json". */
+const baseName = (name: string): string => name.split(/[\\/]/).pop() ?? name;
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+// https://www.instagram.com/<name> or …/_u/<name>, optional trailing slash, query or fragment
+const HREF = /^https?:\/\/(?:www\.)?instagram\.com\/(?:_u\/)?([^/?#]+)\/?(?:[?#].*)?$/i;
+
+/** Before a byte is read: how many files, their extensions and sizes. null = fine. */
+export function checkFiles(files: { name: string; size: number }[]): ParseFailure | null {
+  if (files.length === 0) return { ok: false, error: 'noFiles' };
+  if (files.length > MAX_FILES) return { ok: false, error: 'tooManyFiles' };
+  let total = 0;
+  for (const f of files) {
+    const file = baseName(f.name);
+    const ext = file.includes('.') ? file.slice(file.lastIndexOf('.') + 1).toLowerCase() : '';
+    if (ext === 'zip') return { ok: false, error: 'zipNotSupported', file };
+    if (ext === 'html' || ext === 'htm') return { ok: false, error: 'htmlFormat', file };
+    if (ext !== 'json') return { ok: false, error: 'notJson', file };
+    if (f.size > MAX_FILE_BYTES) return { ok: false, error: 'fileTooLarge', file };
+    total += f.size;
+  }
+  return total > MAX_TOTAL_BYTES ? { ok: false, error: 'totalTooLarge' } : null;
+}
+
+/** A username as Instagram allows it (trimmed, without a leading @, lower-cased); null for anything else. */
+export function cleanUsername(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim().replace(/^@/, '').toLowerCase();
+  return USERNAME_RE.test(s) ? s : null;
+}
+
+/** Whole seconds between 2010-01-01 and one day after now; anything else is unknown. */
+export function cleanTimestamp(v: unknown, nowSec: number): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= MIN_TS && v <= nowSec + 86_400 ? v : null;
+}
+
+/** One list entry → a person: the name from string_list_data[0].value, else title, else the href's last segment. */
+function entryPerson(e: unknown, nowSec: number): Person | null {
+  if (!isObject(e)) return null;
+  const list = e.string_list_data;
+  const first = Array.isArray(list) && isObject(list[0]) ? list[0] : {};
+  const fromHref = typeof first.href === 'string' ? HREF.exec(first.href)?.[1] : undefined;
+  const username = cleanUsername(first.value) ?? cleanUsername(e.title) ?? cleanUsername(fromHref);
+  return username ? { username, at: cleanTimestamp(first.timestamp, nowSec) } : null;
+}
+
+type Found = { kind: FollowKind | 'ignored'; entries: unknown };
+
+/** Which list a file holds: a bare array is named by its file name; an object by its relationships_* key. */
+function kindOf(file: string, root: unknown): Found | ParseError {
+  if (Array.isArray(root)) {
+    if (/^followers(_\d+)?\.json$/i.test(file)) return { kind: 'followers', entries: root };
+    if (/^following(_\d+)?\.json$/i.test(file)) return { kind: 'following', entries: root };
+    return 'unknownFile';
+  }
+  if (!isObject(root)) return 'badShape';
+  if ('relationships_followers' in root) return { kind: 'followers', entries: root.relationships_followers };
+  if ('relationships_following' in root) return { kind: 'following', entries: root.relationships_following };
+  const keys = Object.keys(root);
+  // another file of the same export folder (recently unfollowed, pending requests, close friends, blocked …)
+  return keys.length > 0 && keys.every((k) => k.startsWith('relationships_')) ? { kind: 'ignored', entries: [] } : 'unknownFile';
+}
+
+const CAPS: Record<FollowKind, [number, ParseError]> = { followers: [MAX_FOLLOWERS, 'tooManyFollowers'], following: [MAX_FOLLOWING, 'tooManyFollowing'] };
+
+/**
+ * The chosen files (already size-checked by checkFiles) → the followers and following lists. Several followers files
+ * are merged; a duplicate keeps its first entry (and takes a timestamp a later one has); entries without a valid
+ * username are skipped and counted, never an error. Any file that is not a known export file stops everything.
+ */
+export function parseExportFiles(files: { name: string; text: string }[], nowSec: number): Parsed | ParseFailure {
+  if (files.length === 0) return { ok: false, error: 'noFiles' };
+  const lists: Record<FollowKind, Map<string, number | null> | null> = { followers: null, following: null };
+  const ignored: string[] = [];
+  let skipped = 0;
+  for (const f of files) {
+    const file = baseName(f.name);
+    const text = f.text.replace(/^\uFEFF/, '');
+    if (/^\s*</.test(text)) return { ok: false, error: 'htmlFormat', file };
+    let root: unknown;
+    try {
+      root = JSON.parse(text);
+    } catch {
+      return { ok: false, error: 'badJson', file };
+    }
+    const found = kindOf(file, root);
+    if (typeof found === 'string') return { ok: false, error: found, file };
+    if (found.kind === 'ignored') {
+      ignored.push(file);
+      continue;
+    }
+    if (!Array.isArray(found.entries)) return { ok: false, error: 'badShape', file };
+    const map = (lists[found.kind] ??= new Map());
+    const [max, tooMany] = CAPS[found.kind];
+    for (const e of found.entries) {
+      const p = entryPerson(e, nowSec);
+      if (!p) {
+        skipped++;
+        continue;
+      }
+      if (map.has(p.username)) {
+        if (map.get(p.username) === null && p.at !== null) map.set(p.username, p.at);
+        continue;
+      }
+      if (map.size >= max) return { ok: false, error: tooMany };
+      map.set(p.username, p.at);
+    }
+  }
+  if (!lists.followers) return { ok: false, error: 'needFollowers' };
+  const out = (m: Map<string, number | null>): Person[] => [...m].map(([username, at]) => ({ username, at }));
+  return { ok: true, followers: out(lists.followers), following: lists.following ? out(lists.following) : null, skipped, ignored };
+}
+```
+
+- [ ] **Step 4: Write `lib/followers/payload.ts`** (exactly this):
+
+```ts
+// The compact upload of Plan 15b: built in the browser (toPayload) from the parsed export, checked on the server
+// (validateUpload) as untrusted input — exactly four keys, every name and time re-checked, nothing repaired.
+import { MAX_FOLLOWERS, MAX_FOLLOWING, MIN_TS, USERNAME_RE, type Person } from '@/lib/followers/parse';
+
+export const PAYLOAD_VERSION = 1;
+// Vercel Functions reject request bodies over 4.5 MB; both lists at their caps with 30-character names are ≈ 2.8 MB
+export const MAX_BODY_BYTES = 4_000_000;
+export const FIRST_DAY = '2010-10-06'; // Instagram's launch: no export is older
+
+type Pair = [string, number | null];
+export interface Upload {
+  takenOn: string; // YYYY-MM-DD
+  followers: Person[];
+  following: Person[] | null;
+}
+
+/** The request body: `{"v":1,"takenOn":"…","followers":[["name",1690000000],…],"following":[…]|null}`. */
+export function toPayload(u: Upload): string {
+  const pairs = (l: Person[]): Pair[] => l.map((p) => [p.username, p.at]);
+  return JSON.stringify({ v: PAYLOAD_VERSION, takenOn: u.takenOn, followers: pairs(u.followers), following: u.following ? pairs(u.following) : null });
+}
+
+const realDay = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
+
+function people(v: unknown, max: number, nowSec: number): Person[] | null {
+  if (!Array.isArray(v) || v.length > max) return null;
+  const seen = new Set<string>();
+  const out: Person[] = [];
+  for (const p of v) {
+    if (!Array.isArray(p) || p.length !== 2) return null;
+    const [username, at] = p as unknown[];
+    if (typeof username !== 'string' || !USERNAME_RE.test(username) || seen.has(username)) return null;
+    if (at !== null && !(typeof at === 'number' && Number.isInteger(at) && at >= MIN_TS && at <= nowSec + 86_400)) return null;
+    seen.add(username);
+    out.push({ username, at });
+  }
+  return out;
+}
+
+/** Server side: the parsed JSON body → the upload, or null for anything that is not exactly what toPayload builds. */
+export function validateUpload(body: unknown, today: string, nowSec: number): Upload | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+  if (Object.keys(body).sort().join(',') !== 'followers,following,takenOn,v') return null;
+  const b = body as Record<string, unknown>;
+  if (b.v !== PAYLOAD_VERSION || typeof b.takenOn !== 'string' || !realDay(b.takenOn) || b.takenOn < FIRST_DAY || b.takenOn > today) return null;
+  const followers = people(b.followers, MAX_FOLLOWERS, nowSec);
+  if (!followers) return null;
+  if (b.following === null) return { takenOn: b.takenOn, followers, following: null };
+  const following = people(b.following, MAX_FOLLOWING, nowSec);
+  return following ? { takenOn: b.takenOn, followers, following } : null;
+}
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/followers-parse.test.ts tests/followers-payload.test.ts`, then `npx tsc --noEmit` and `npx eslint lib/followers tests/followers-parse.test.ts tests/followers-payload.test.ts`
+Expected: PASS (15 + 27 tests, as in the plan author's scratch run), tsc and eslint clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/followers/parse.ts lib/followers/payload.ts tests/followers-parse.test.ts tests/followers-payload.test.ts
+git commit -m "feat(followers): export parser (size-capped, shape-validated) and the strict upload payload" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Diff and URL state (pure) — `lib/followers/diff.ts`, `lib/followers/state.ts`
+
+**Files:**
+- Create: `lib/followers/diff.ts`, `lib/followers/state.ts`, `tests/followers-diff.test.ts`, `tests/followers-state.test.ts`
+
+**Interfaces:**
+- Consumes: `Person` (type only, `lib/followers/parse.ts` — Task 3, same wave: `import type` is erased, but `tsc` needs the file; if Task 3 has not merged yet when you run `tsc`, the only error is that missing module — merge order A puts 3 before 4; report it rather than stubbing), `isUuid` (`lib/tags.ts`).
+- Produces:
+  - `diff.ts`: `FOLLOWER_LISTS = ['new', 'lost', 'theyDontFollow', 'iDontFollow', 'mutual'] as const`, `type FollowerList`, `FOLLOWER_PAGE = 50`, `SEARCH_MAX = 30`, `interface Snapshot { followers; following }`, `type Diff = Record<FollowerList, Person[] | null>`, `diffSnapshots(newer, older | null): Diff`, `defaultList(d): FollowerList`, `sinceKey(l): 'followedYou' | 'youFollowed'`, `byRecent(a, b)`, `filterList(people, q)`, `interface ListPage { rows; total; page; pages }`, `pageList(people, q, page, size = FOLLOWER_PAGE): ListPage`.
+  - `state.ts`: `interface SnapshotMeta { id; takenOn; followerCount; followingCount: number | null; createdAt }`, `interface FollowerState { snap; vs; list; q; page }`, `STALE_DAYS = 30`, `parseFollowerState(sp, snapshots): FollowerState`, `resolvePair(s, snapshots): { newer; older }`, `followerHref(s, patch, keep = {}): string`, `staleDays(snapshots, today): number | null`.
+
+> **Dependency note for the orchestrator:** Task 4 imports the TYPE `Person` from Task 3's file. Both are wave A; cherry-pick Task 3 before Task 4. An implementer of Task 4 whose worktree lacks `lib/followers/parse.ts` runs the vitest files (they pass: Vitest strips types) and reports the `tsc` error for that one import as expected.
+
+- [ ] **Step 1: Write the failing tests** — create `tests/followers-diff.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { byRecent, defaultList, diffSnapshots, filterList, FOLLOWER_PAGE, pageList, sinceKey, type Snapshot } from '@/lib/followers/diff';
+import type { Person } from '@/lib/followers/parse';
+
+const p = (username: string, at: number | null = null): Person => ({ username, at });
+const names = (l: Person[] | null) => (l === null ? null : l.map((x) => x.username).sort());
+
+// older: a, b, c follow you. newer: b, c, d, e follow you; you follow c, d, x.
+const older: Snapshot = { followers: [p('a', 10), p('b', 20), p('c', 30)], following: [p('c', 5)] };
+const newer: Snapshot = { followers: [p('b', 20), p('c', 30), p('d', 40), p('e', 50)], following: [p('c', 31), p('d', 41), p('x', 42)] };
+
+describe('diffSnapshots', () => {
+  it('the five lists by name', () => {
+    const d = diffSnapshots(newer, older);
+    expect(names(d.new)).toEqual(['d', 'e']);
+    expect(names(d.lost)).toEqual(['a']);
+    expect(names(d.theyDontFollow)).toEqual(['x']);
+    expect(names(d.iDontFollow)).toEqual(['b', 'e']);
+    expect(names(d.mutual)).toEqual(['c', 'd']);
+  });
+
+  it('each person keeps the time from the file the list comes from', () => {
+    const d = diffSnapshots(newer, older);
+    expect(d.lost).toEqual([p('a', 10)]); // when a had followed (older followers)
+    expect(d.theyDontFollow).toEqual([p('x', 42)]); // when you followed x (newer following)
+    expect(d.mutual).toEqual([p('c', 30), p('d', 40)]); // when they followed you
+  });
+
+  it('unavailable lists are null: no older snapshot → no new/lost; no following.json → no follow-back lists', () => {
+    const first = diffSnapshots(newer, null);
+    expect([first.new, first.lost]).toEqual([null, null]);
+    expect(names(first.mutual)).toEqual(['c', 'd']);
+    const noFollowing = diffSnapshots({ followers: newer.followers, following: null }, older);
+    expect([noFollowing.theyDontFollow, noFollowing.iDontFollow, noFollowing.mutual]).toEqual([null, null, null]);
+    expect(names(noFollowing.new)).toEqual(['d', 'e']);
+    // the OLDER snapshot's following.json is never needed
+    expect(names(diffSnapshots(newer, { followers: older.followers, following: null }).lost)).toEqual(['a']);
+  });
+
+  it('identical snapshots: nobody new, nobody lost', () => {
+    const d = diffSnapshots(newer, newer);
+    expect([d.new, d.lost]).toEqual([[], []]);
+  });
+
+  it('defaultList: the changes when there is a comparison, else who doesn\'t follow back; sinceKey per list', () => {
+    expect(defaultList(diffSnapshots(newer, older))).toBe('new');
+    expect(defaultList(diffSnapshots(newer, null))).toBe('theyDontFollow');
+    expect(defaultList(diffSnapshots({ followers: newer.followers, following: null }, null))).toBe('new');
+    expect(sinceKey('theyDontFollow')).toBe('youFollowed');
+    for (const l of ['new', 'lost', 'iDontFollow', 'mutual'] as const) expect(sinceKey(l)).toBe('followedYou');
+  });
+
+  it('50,000 × 50,000 with 7,500 following: correct counts, fast (Sets, no nested loops)', () => {
+    const N = 50_000;
+    const big = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => p(`user.${from + i}`, 1_700_000_000 + from + i));
+    const a: Snapshot = { followers: big(0, N), following: null };
+    const b: Snapshot = { followers: big(1_000, N + 1_000), following: big(40_000, 47_500) };
+    const t0 = performance.now();
+    const d = diffSnapshots(b, a);
+    const page = pageList(d.iDontFollow!, 'user.4', 3);
+    const ms = performance.now() - t0;
+    expect([d.new!.length, d.lost!.length, d.theyDontFollow!.length, d.iDontFollow!.length, d.mutual!.length]).toEqual([1_000, 1_000, 0, 42_500, 7_500]);
+    expect(page.rows).toHaveLength(FOLLOWER_PAGE);
+    expect(ms).toBeLessThan(1_500); // ~30 ms on a laptop; generous for a loaded CI machine
+  });
+});
+
+describe('ordering, search, pages', () => {
+  const people = [p('zoe', 100), p('amy', null), p('bob', 300), p('cat', 300), p('dan', null), p('eve', 200)];
+
+  it('byRecent: newest follow first, unknown times last, ties by name', () => {
+    expect([...people].sort(byRecent).map((x) => x.username)).toEqual(['bob', 'cat', 'eve', 'zoe', 'amy', 'dan']);
+  });
+
+  it('filterList: a substring of the username, sorted; never mutates its input', () => {
+    const before = people.map((x) => x.username);
+    expect(filterList(people, 'a').map((x) => x.username)).toEqual(['cat', 'amy', 'dan']);
+    expect(filterList(people, '').map((x) => x.username)).toEqual(['bob', 'cat', 'eve', 'zoe', 'amy', 'dan']);
+    expect(people.map((x) => x.username)).toEqual(before);
+  });
+
+  it('pageList: pages of the given size, the total after the search, a stale page shows page 1, an empty list is one page', () => {
+    expect(pageList(people, '', 2, 4)).toEqual({ rows: [p('amy', null), p('dan', null)], total: 6, page: 2, pages: 2 });
+    expect(pageList(people, '', 9, 4)).toMatchObject({ page: 1, pages: 2, total: 6 });
+    expect(pageList(people, 'zz', 1, 4)).toEqual({ rows: [], total: 0, page: 1, pages: 1 });
+    expect(pageList(Array.from({ length: 120 }, (_, i) => p(`u${i}`, i)), '', 3)).toMatchObject({ total: 120, page: 3, pages: 3 });
+  });
+});
+```
+
+and `tests/followers-state.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { followerHref, parseFollowerState, resolvePair, staleDays, type FollowerState, type SnapshotMeta } from '@/lib/followers/state';
+
+const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+const meta = (n: number, takenOn: string): SnapshotMeta => ({ id: id(n), takenOn, followerCount: 100 + n, followingCount: n === 2 ? null : 50, createdAt: `${takenOn}T10:00:00Z` });
+// newest first, as listFollowerSnapshots returns them
+const SNAPS = [meta(3, '2026-10-20'), meta(2, '2026-09-20'), meta(1, '2026-08-20')];
+const BASE: FollowerState = { snap: null, vs: null, list: null, q: '', page: 1 };
+
+describe('parseFollowerState', () => {
+  it('nothing in the URL → every default', () => {
+    expect(parseFollowerState({}, SNAPS)).toEqual(BASE);
+  });
+
+  it('keeps valid values (ids lower-cased), drops everything else', () => {
+    expect(parseFollowerState({ snap: id(2).toUpperCase(), vs: id(1), list: 'lost', q: '  @Some.User ', page: '3' }, SNAPS)).toEqual({ snap: id(2), vs: id(1), list: 'lost', q: 'some.user', page: 3 });
+    expect(parseFollowerState({ snap: id(9), vs: 'not-a-uuid', list: 'everyone', page: '0' }, SNAPS)).toEqual(BASE);
+    expect(parseFollowerState({ snap: [id(2), id(1)], list: ['new', 'lost'], page: '1.5' }, SNAPS)).toEqual(BASE);
+    expect(parseFollowerState({ list: '__proto__', page: '-2' }, SNAPS)).toEqual(BASE);
+  });
+
+  it('a snapshot compared with itself is no comparison; the search is cut at 30 characters without spaces', () => {
+    expect(parseFollowerState({ snap: id(2), vs: id(2) }, SNAPS)).toMatchObject({ snap: id(2), vs: null });
+    expect(parseFollowerState({ q: `a b ${'c'.repeat(40)}` }, SNAPS).q).toBe(`ab${'c'.repeat(28)}`);
+  });
+});
+
+describe('resolvePair', () => {
+  const pair = (s: Partial<FollowerState>) => {
+    const r = resolvePair({ ...BASE, ...s }, SNAPS);
+    return [r.newer?.id ?? null, r.older?.id ?? null];
+  };
+
+  it('defaults: the newest against the one just before', () => {
+    expect(pair({})).toEqual([id(3), id(2)]);
+    expect(pair({ snap: id(2) })).toEqual([id(2), id(1)]);
+    expect(pair({ snap: id(1) })).toEqual([id(1), null]); // the oldest has nothing before it
+  });
+
+  it('any two snapshots, always in date order', () => {
+    expect(pair({ snap: id(3), vs: id(1) })).toEqual([id(3), id(1)]);
+    expect(pair({ snap: id(1), vs: id(3) })).toEqual([id(3), id(1)]);
+    expect(pair({ vs: id(1) })).toEqual([id(3), id(1)]);
+    expect(pair({ vs: id(3) })).toEqual([id(3), id(2)]); // vs = the default newer: compare with the one before
+  });
+
+  it('one snapshot → no comparison; none → nothing', () => {
+    expect(resolvePair(BASE, [SNAPS[0]])).toEqual({ newer: SNAPS[0], older: null });
+    expect(resolvePair(BASE, [])).toEqual({ newer: null, older: null });
+  });
+});
+
+describe('followerHref', () => {
+  const keep = { from: '2026-09-01', to: '2026-09-30' };
+
+  it('the tab first, defaults omitted, the Time Scope kept untouched', () => {
+    expect(followerHref(BASE, {}, keep)).toBe('?tab=followers&from=2026-09-01&to=2026-09-30');
+    expect(followerHref({ ...BASE, snap: id(3), vs: id(1), list: 'lost', q: 'ann' }, {}, keep)).toBe(`?tab=followers&snap=${id(3)}&vs=${id(1)}&list=lost&q=ann&from=2026-09-01&to=2026-09-30`);
+  });
+
+  it('any change goes back to page 1; only a page link carries page; the scope never overrides the tab', () => {
+    const s = { ...BASE, list: 'new' as const, page: 4 };
+    expect(followerHref(s, { list: 'mutual' })).toBe('?tab=followers&list=mutual');
+    expect(followerHref(s, { page: 5 })).toBe('?tab=followers&list=new&page=5');
+    expect(followerHref(s, { q: '' }, { tab: 'posts' })).toBe('?tab=followers&list=new');
+  });
+});
+
+describe('staleDays', () => {
+  it('the newest export\'s age when it is more than 30 days, else null', () => {
+    expect(staleDays(SNAPS, '2026-11-19')).toBeNull(); // 30 days
+    expect(staleDays(SNAPS, '2026-11-20')).toBe(31);
+    expect(staleDays([], '2026-11-20')).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/followers-diff.test.ts tests/followers-state.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/followers/diff"` (and `…/state`).
+
+- [ ] **Step 3: Write `lib/followers/diff.ts`** (exactly this; the second algorithm under review — Review Focus 4):
+
+```ts
+// The follower diff of Plan 15b: two snapshots of an account's export → five lists by name. Pure set arithmetic on
+// lower-cased usernames (Sets: 50,000 × 50,000 in milliseconds). Snapshot-based: it only knows the two files, not
+// what happened in between (someone who followed and unfollowed between them appears in neither).
+import type { Person } from '@/lib/followers/parse';
+
+export const FOLLOWER_LISTS = ['new', 'lost', 'theyDontFollow', 'iDontFollow', 'mutual'] as const;
+export type FollowerList = (typeof FOLLOWER_LISTS)[number];
+export const FOLLOWER_PAGE = 50;
+export const SEARCH_MAX = 30; // a username is at most 30 characters
+
+export interface Snapshot {
+  followers: Person[];
+  following: Person[] | null; // null = that upload had no following.json
+}
+/** Each list, or null when it needs data the snapshots don't have (an older snapshot, or following.json). */
+export type Diff = Record<FollowerList, Person[] | null>;
+
+const names = (l: Person[]): Set<string> => new Set(l.map((p) => p.username));
+const minus = (a: Person[], b: Set<string>): Person[] => a.filter((p) => !b.has(p.username));
+
+/**
+ * new = newer.followers − older.followers · lost = older.followers − newer.followers (their time: when they had
+ * followed) · theyDontFollow = newer.following − newer.followers (time: when you followed) · iDontFollow =
+ * newer.followers − newer.following · mutual = newer.followers ∩ newer.following (time: when they followed you).
+ */
+export function diffSnapshots(newer: Snapshot, older: Snapshot | null): Diff {
+  const followers = names(newer.followers);
+  const following = newer.following ? names(newer.following) : null;
+  const before = older ? names(older.followers) : null;
+  return {
+    new: before ? minus(newer.followers, before) : null,
+    lost: older ? minus(older.followers, followers) : null,
+    theyDontFollow: newer.following ? minus(newer.following, followers) : null,
+    iDontFollow: following ? minus(newer.followers, following) : null,
+    mutual: following ? newer.followers.filter((p) => following.has(p.username)) : null,
+  };
+}
+
+/** The list shown when the URL names none: the changes when there is a comparison, else who doesn't follow back. */
+export const defaultList = (d: Diff): FollowerList => (d.new === null && d.theyDontFollow !== null ? 'theyDontFollow' : 'new');
+
+/** Which date the list's time column means (the i18n key under followerDiff.cols). */
+export const sinceKey = (l: FollowerList): 'followedYou' | 'youFollowed' => (l === 'theyDontFollow' ? 'youFollowed' : 'followedYou');
+
+/** Newest follow first, unknown times last, then by name: the order of the screen and of the export. */
+export function byRecent(a: Person, b: Person): number {
+  if (a.at !== b.at) return a.at === null ? 1 : b.at === null ? -1 : b.at - a.at;
+  return a.username < b.username ? -1 : a.username > b.username ? 1 : 0;
+}
+
+/** The list filtered by a (lower-cased) substring of the username, sorted byRecent. A new array. */
+export function filterList(people: Person[], q: string): Person[] {
+  return (q ? people.filter((p) => p.username.includes(q)) : [...people]).sort(byRecent);
+}
+
+export interface ListPage {
+  rows: Person[];
+  total: number; // after the search
+  page: number; // a page past the end shows page 1
+  pages: number;
+}
+
+export function pageList(people: Person[], q: string, page: number, size = FOLLOWER_PAGE): ListPage {
+  const all = filterList(people, q);
+  const pages = Math.max(1, Math.ceil(all.length / size));
+  const p = page > pages ? 1 : page;
+  return { rows: all.slice((p - 1) * size, p * size), total: all.length, page: p, pages };
+}
+```
+
+- [ ] **Step 4: Write `lib/followers/state.ts`** (exactly this):
+
+```ts
+// URL state of the Followers tab (Plan 15b; docs/UI_STANDARDS.md rule 3: the URL is the state). Parsed on the server,
+// every value validated: snapshot ids must belong to this account's list, the list name to the allow-list.
+import { FOLLOWER_LISTS, SEARCH_MAX, type FollowerList } from '@/lib/followers/diff';
+import { isUuid } from '@/lib/tags';
+
+/** One snapshot without its arrays (what the snapshot list and the selects show). */
+export interface SnapshotMeta {
+  id: string;
+  takenOn: string; // YYYY-MM-DD
+  followerCount: number;
+  followingCount: number | null; // null = no following.json
+  createdAt: string; // ISO
+}
+export interface FollowerState {
+  snap: string | null; // the newer snapshot; null = the newest
+  vs: string | null; // the snapshot to compare with; null = the one just before
+  list: FollowerList | null; // null = defaultList()
+  q: string; // lower-cased, no spaces, no leading @, at most 30 characters
+  page: number;
+}
+export const STALE_DAYS = 30;
+
+type Params = Record<string, string | string[] | undefined>;
+const one = (v: string | string[] | undefined): string | null => (typeof v === 'string' ? v : null);
+
+/** `snapshots` newest first (as listFollowerSnapshots returns them). */
+export function parseFollowerState(sp: Params, snapshots: SnapshotMeta[]): FollowerState {
+  const known = (v: string | null): string | null => (v !== null && isUuid(v) && snapshots.some((s) => s.id === v.toLowerCase()) ? v.toLowerCase() : null);
+  const snap = known(one(sp.snap));
+  const vs = known(one(sp.vs));
+  const list = one(sp.list);
+  const q = [...(one(sp.q) ?? '').replace(/\s+/g, '').replace(/^@/, '').toLowerCase()].slice(0, SEARCH_MAX).join('');
+  const n = Number(one(sp.page));
+  return {
+    snap,
+    vs: vs === snap ? null : vs,
+    list: list !== null && (FOLLOWER_LISTS as readonly string[]).includes(list) ? (list as FollowerList) : null,
+    q,
+    page: Number.isInteger(n) && n >= 1 ? n : 1,
+  };
+}
+
+/** The two snapshots to compare: newer = snap (default the newest), older = vs (default the next older one); two given ids are put in date order. */
+export function resolvePair(s: FollowerState, snapshots: SnapshotMeta[]): { newer: SnapshotMeta | null; older: SnapshotMeta | null } {
+  const at = (id: string | null) => (id === null ? -1 : snapshots.findIndex((x) => x.id === id));
+  let a = Math.max(0, at(s.snap));
+  let b = at(s.vs);
+  if (b >= 0 && b < a) [a, b] = [b, a]; // vs is the later export: it becomes the newer one
+  if (b < 0 || b === a) b = a + 1;
+  return { newer: snapshots[a] ?? null, older: snapshots[b] ?? null };
+}
+
+/** A link inside the tab: the patch applied, page back to 1 unless patched, defaults omitted; `keep` = the Time Scope params (they ride along untouched). */
+export function followerHref(s: FollowerState, patch: Partial<FollowerState>, keep: Record<string, string> = {}): string {
+  const n = { ...s, page: 1, ...patch };
+  const p: Record<string, string> = { tab: 'followers' };
+  if (n.snap) p.snap = n.snap;
+  if (n.vs) p.vs = n.vs;
+  if (n.list) p.list = n.list;
+  if (n.q) p.q = n.q;
+  if (n.page > 1) p.page = String(n.page);
+  const q = new URLSearchParams(p);
+  for (const [k, v] of Object.entries(keep)) if (!q.has(k)) q.set(k, v); // never overrides the tab's own params
+  return `?${q}`;
+}
+
+/** Days since the newest export when that is more than 30, else null (the quiet reminder line). */
+export function staleDays(snapshots: SnapshotMeta[], today: string): number | null {
+  const newest = snapshots[0];
+  if (!newest) return null;
+  const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${newest.takenOn}T00:00:00Z`)) / 86_400_000);
+  return days > STALE_DAYS ? days : null;
+}
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/followers-diff.test.ts tests/followers-state.test.ts`, `npx tsc --noEmit`, `npx eslint lib/followers/diff.ts lib/followers/state.ts tests/followers-diff.test.ts tests/followers-state.test.ts`
+Expected: PASS (18 tests), tsc and eslint clean. The 50,000-person test takes well under a second.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/followers/diff.ts lib/followers/state.ts tests/followers-diff.test.ts tests/followers-state.test.ts
+git commit -m "feat(followers): snapshot diff (five lists), search and pages; Followers tab URL state" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
