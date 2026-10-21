@@ -1284,3 +1284,187 @@ Expected: PASS.
 git add components/account/WhyPanel.tsx tests/why-panel.test.tsx
 git commit -m "feat(account): Why panel (unusual days, reasons with evidence and confidence)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+### Task 8: `GrowthTab`
+
+**Files:**
+- Create: `components/account/GrowthTab.tsx`
+- Test: `tests/growth-tab.test.tsx` (new)
+
+**Interfaces:**
+- Consumes: Task 1 keys; Task 5 (`Series.tone`, `formatLabel`, `useKpiDelta` with a `DeltaDef`); Task 6 (`GrowthModel`, `GROWTH_KPI_IDS`, `GROWTH_KPIS`, `parseWhyParams`, `whyHref`, `AudienceDim`, `FlowDay`, `GrowthKpiId`); Task 7 (`WhyPanel`); `StatCard`, `Sparkline`, `ChartCard`, `DataTable`, `SeriesChart`, `useScopeText`, `useBucketFormat`, `usePrefs`, `useSearchParams`, `lib/format.ts`.
+- Produces (Task 9): `export function GrowthTab({ model }: { model: GrowthModel })` — a client component (`'use client'`).
+
+- [ ] **Step 1: Write the failing test** — create `tests/growth-tab.test.tsx`:
+
+```tsx
+import { cleanup, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import type { ReactNode } from 'react';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { GrowthTab } from '@/components/account/GrowthTab';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { DailyRow } from '@/lib/analysis/types';
+import { buildGrowth, type GrowthInput } from '@/lib/dashboard/growth';
+import type { BreakdownRow } from '@/lib/dashboard/growth-read';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { addDays } from '@/lib/sync/time';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
+
+const { push, replace, search } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), search: { value: '' } }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace, prefetch: vi.fn(), refresh: vi.fn(), back: vi.fn() }), useSearchParams: () => new URLSearchParams(search.value) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix and Recharts use; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  search.value = '';
+  window.history.replaceState(null, '', '/accounts/a1?tab=growth&from=7d');
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const KL = 'Asia/Kuala_Lumpur';
+const TODAY = '2026-10-15';
+const g = en.pages.account.growth;
+const row = (day: string, o: Partial<DailyRow> = {}): DailyRow => ({ day, followers: null, reach: null, views: null, accountsEngaged: null, interactions: null, follows: null, unfollows: null, linkTaps: null, ...o });
+const NONE = { first: { age_gender: null, country: null, city: null }, last: { age_gender: null, country: null, city: null } };
+const EMPTY: GrowthInput = { daily: [], breakdown: [], posts: [], stories: { days: {}, from: null }, comments: { days: {}, from: null }, curve: null, audience: NONE };
+/** As tests/dashboard-growth.test.ts `steady`, with a +60 day on Wednesday 14 October and two audience snapshots. */
+function input(): GrowthInput {
+  const days = Array.from({ length: 120 }, (_, i) => addDays(TODAY, i - 119));
+  return {
+    ...EMPTY,
+    daily: days.map((d, i) => row(d, { followers: 1000 + 5 * i, follows: d === '2026-10-14' ? 63 : 8, unfollows: 3, reach: 1000 })),
+    breakdown: days.flatMap((day): BreakdownRow[] => [
+      { day, followType: 'FOLLOWER', productType: 'REEL', value: 600 },
+      { day, followType: 'NON_FOLLOWER', productType: 'REEL', value: 300 },
+      { day, followType: 'FOLLOWER', productType: 'STORY', value: 100 },
+    ]),
+    audience: { first: { age_gender: null, country: { day: '2026-10-09', data: { MY: 60, SG: 40 } }, city: null }, last: { age_gender: null, country: { day: '2026-10-14', data: { MY: 50, SG: 50 } }, city: null } },
+  };
+}
+const model = (q = 'from=7d', i = input()) => buildGrowth(i, { scope: resolveScope(parseTimeScope(new URLSearchParams(q)), TODAY, '2026-06-01'), today: TODAY, tz: KL, weekStart: 'mon' });
+
+function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        {ui}
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('GrowthTab', () => {
+  it('six KPI cards with sparklines; unfollows going up would be bad (lower is better)', () => {
+    const { container } = wrap(<GrowthTab model={model()} />);
+    const kpis = screen.getByRole('region', { name: g.kpis });
+    for (const label of Object.values(g.kpi)) expect(within(kpis).getByText(label)).toBeInTheDocument();
+    expect(kpis.querySelectorAll('[data-slot="sparkline"]').length).toBe(6);
+    expect(container.innerHTML).not.toMatch(/#[0-9a-f]{6}/i); // tokens only
+  });
+
+  it('followers: the change over the range, the projection with its method and confidence', () => {
+    wrap(<GrowthTab model={model()} />);
+    expect(screen.getByText('+30 (+1.9%) in this range')).toBeInTheDocument();
+    expect(screen.getByText(/^In 7 days: about /)).toBeInTheDocument();
+    expect(screen.getByText(/^In 90 days: about /)).toBeInTheDocument();
+    expect(screen.getByText(/the median daily change between every pair of the 28 days/)).toBeInTheDocument();
+    expect(screen.getByText(g.confidence.medium.replace('{n}', '28'))).toBeInTheDocument();
+  });
+
+  it('follow flow: the data source, churn, best days with what was published', () => {
+    wrap(<GrowthTab model={model()} />);
+    expect(screen.getByText(g.flowSource.instagram)).toBeInTheDocument();
+    expect(screen.getByText(/^Churn: /)).toBeInTheDocument();
+    const best = screen.getByRole('heading', { name: g.best }).parentElement!;
+    expect(within(best).getAllByRole('listitem')[0].textContent).toMatch(/: \+60, no posts, no Stories$/);
+  });
+
+  it('loyalty: the per-format table names the formats and the change in points', () => {
+    wrap(<GrowthTab model={model()} />);
+    const table = screen.getByRole('table', { name: g.formatsTitle });
+    expect(within(table).getByText(g.product.REEL)).toBeInTheDocument();
+    expect(within(table).getByText(g.product.STORY)).toBeInTheDocument();
+  });
+
+  it('picking an unusual day explains it and writes ?day= with replaceState (no navigation); other params stay', async () => {
+    const spy = vi.spyOn(window.history, 'replaceState');
+    wrap(<GrowthTab model={model()} />);
+    expect(screen.getByText(g.why.pick)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: /Wednesday/ }));
+    expect(spy).toHaveBeenLastCalledWith(null, '', '?tab=growth&from=7d&day=2026-10-14');
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText(/Net follows on .*: \+60, typical \+5/)).toBeInTheDocument();
+    spy.mockRestore();
+  });
+
+  it('a link with ?day= opens on its explanation; a day outside the range is ignored', () => {
+    search.value = 'tab=growth&day=2026-10-14';
+    wrap(<GrowthTab model={model()} />);
+    expect(screen.getByText(/Net follows on .*: \+60/)).toBeInTheDocument();
+    cleanup();
+    search.value = 'tab=growth&day=2026-01-01';
+    wrap(<GrowthTab model={model()} />);
+    expect(screen.getByText(g.why.pick)).toBeInTheDocument();
+  });
+
+  it('weekly buckets say how to click single days', () => {
+    wrap(<GrowthTab model={model('from=90d&gran=week')} />);
+    expect(screen.getByText(g.dayOnly)).toBeInTheDocument();
+  });
+
+  it('audience: then vs now with notable changes marked', () => {
+    wrap(<GrowthTab model={model()} />);
+    const section = screen.getByRole('heading', { name: g.audienceKind.country }).closest('section')!;
+    const notable = section.querySelectorAll('[data-notable]');
+    expect(notable).toHaveLength(2);
+    expect(within(section).getAllByText(new RegExp(g.notable)).length).toBe(2);
+  });
+
+  it('zh-CN, no data: every reason, no projection, no audience, and no NaN / undefined / raw keys', () => {
+    const { container } = wrap(<GrowthTab model={model('from=7d', { ...EMPTY, daily: [row(TODAY, { followers: 85 })] })} />, 'zh-CN');
+    expect(container.textContent).toContain(zh.pages.account.growth.audienceNone);
+    expect(container.textContent).toContain('暂无预测');
+    expect(container.textContent).not.toMatch(/NaN|undefined|Infinity|pages\.account|\{/);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/growth-tab.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/account/GrowthTab"`.
+
+- [ ] **Step 3: Implement `components/account/GrowthTab.tsx`** (a header comment: what the tab answers, that the picked day is URL state written with `history.replaceState`). Top of the component: `t = useTranslations('pages.account.growth')`, `ta = useTranslations('analysis')`, `to = useTranslations('pages.overview')` (for `points`), `prefs`, `delta = useKpiDelta()`, `{ vs } = useScopeText(model.scope)`, every `useBucketFormat` call at the top (hooks never inside JSX conditions: one for `model.followers.partial`, one for `model.flow.partial`). URL state: `const [pick, setPick] = useState(() => parseWhyParams(new URLSearchParams(search?.toString() ?? ''), model.scope.range))`; `onPick(day, metric)` = `setPick({ day, metric })` + `window.history.replaceState(null, '', whyHref(new URLSearchParams(window.location.search), day, metric))` (never `router.push`/`replace`: no server render, no history entry). `daily = model.scope.gran === 'day'`; `withActivity(day)` = the axis label + `' · ' + t('activity', { posts, stories: stories ?? 0 })` when `model.activity[day]` exists. Layout, top to bottom, inside `grid min-w-0 gap-[var(--gp)]`:
+  1. `<section aria-label={t('kpis')} className="grid grid-cols-2 gap-[var(--gp)] md:grid-cols-3 xl:grid-cols-6">`: a `StatCard` per `GROWTH_KPI_IDS` — label `kpi.<id>`; value: percent kinds `formatPercent`, followers `formatNumber(…, { maximumFractionDigits: 0 })`, the rest `formatCompact`; `delta = delta(GROWTH_KPIS[id], k)`; `comparison = vs`; `note` = `analysis.reasons.<reason>` when the KPI has one; `spark = <Sparkline data={model.sparks[id]} className={tone good → 'text-success', bad → 'text-destructive', else 'text-chart-1'} />`.
+  2. `lg:grid-cols-2` row: **Followers** `ChartCard` (subtitle `followersSource` + ` ` + `followersHourly` when hourly): an area `SeriesChart` of `model.followers.hourly` (`xKey="at"`, label `formatDay(at.slice(0, 10)) + ' ' + formatHour(Number(at.slice(11, 13)))`) or of `model.followers.rows` (`xKey="day"`); below it the change line (`change` with `formatSigned` + `formatDelta`, or `changeNoPct`), `followersSince` when `firstDay` is after `scope.range.from`, an `h3` `projectionTitle` and either `projectionNone` { n } or a `ul` of `projectionRow` (values with `formatNumber`), `projectionMethod` { n, from, to (`formatDay`), perDay (`formatSigned(…, 1)`) } and `confidence.<c>` { n }. **Follows and unfollows** `ChartCard` (subtitle `flowSource.<source ?? 'none'>`): a bar `SeriesChart` of `model.flow.rows` with `[follows (tone good), unfollows (tone bad)]`, or `[net]` alone when the source is `'derived'`; `formatLabel={withActivity}`; `onPointClick` only when `daily` → `onPick(rows[i].day, 'net')`; below: `churn` { rate } when the churn KPI has a value, `best` / `worst` lists (`h3` + `ul` of `dayLine` { day, net: `formatSigned`, activity }, or `noDays`) side by side from `sm`, `dayOnly` when not daily, `storiesFrom` when set.
+  3. `lg:grid-cols-2` row: **Loyalty** `ChartCard` (subtitle `loyaltySource`): a line `SeriesChart` of `model.loyalty.rows` (`follower`, `nonFollower`), `formatLabel={withActivity}`, click → `onPick(day, 'reach')` when daily; `noBreakdown` when no row has a value. **Formats** `ChartCard`: `DataTable` of `model.loyalty.formats` (caption `formatsTitle`, empty `noBreakdown`), columns Format (`product.<type>`, the raw type when `t.has` says no), Followers, Non-followers (`formatCompact`), Non-follower share (`formatPercent`), Change (`pages.overview.points` with `formatSigned(change × 100, 1)`, `—` for null); numeric columns right-aligned and sortable.
+  4. `<WhyPanel days={model.days} unusual={model.unusual} pick={pick} onPick={onPick} />`.
+  5. **Audience** `ChartCard` (subtitle `audienceSource`): `audienceNone` when all four dimensions are null; else `grid min-w-0 gap-[var(--gp)] sm:grid-cols-2 xl:grid-cols-4` of `<section aria-labelledby>` per dimension (`h3` `audienceKind.<dim>`; `audienceNone` when null; else `audienceRange` { from, to } or `audienceSingle` { date }, then a small `table` with a `sr-only` caption, column headers `key` / `then` / `now` / `shareChange`, a `th scope="row"` per key (country → `formatCountry`, gender → `gender.<key>`, else the key; `max-w-0 truncate`), shares with `formatPercent` (`—` for null), the change in points; a notable row gets `data-notable`, `font-medium text-foreground`, an `ArrowUpRight` / `ArrowDownRight` icon (`aria-hidden`) and a `sr-only` "`notable`: " prefix).
+
+- [ ] **Step 4: Run it to verify it passes**
+
+Run: `npx vitest run tests/growth-tab.test.tsx tests/why-panel.test.tsx`
+Expected: PASS. Then `npx tsc --noEmit` and `npx eslint components/account/GrowthTab.tsx tests/growth-tab.test.tsx` (no `react-hooks` warnings).
+
+- [ ] **Step 5: Check the layout by eye (optional for the implementer, required before the owner's live check):** `/styleguide` is not involved; the tab is reachable after Task 9. Responsive rules are in the classes above (no fixed widths; every grid `min-w-0`).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add components/account/GrowthTab.tsx tests/growth-tab.test.tsx
+git commit -m "feat(account): Growth tab (KPIs, followers and projection, follow flow, loyalty, audience change, why)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
