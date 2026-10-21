@@ -37,3 +37,114 @@
 - **Not stored (YAGNI + less personal data):** `recently_unfollowed_profiles.json` (accounts the OWNER unfollowed) and pending follow requests (requests the OWNER sent): they describe the owner's own actions, the five lists do not need them, and storing them would add third-party names with no use. The parser recognises and skips them. Open question 3.
 - **Missing migration = a clear note, not an error page:** PostgREST `PGRST205` / Postgres `42P01` (table not found) → `listFollowerSnapshots` returns `null` → the tab shows the guide plus "Followers needs a database update (docs/RUNBOOK_FOLLOWERS.md §0)" and no upload button; the route answers 503 `notReady`. Every other error → the normal error screen / `unexpected`.
 - **No integration hooks** (commenters × followers is Plan 15c). **No new dependencies, no Meta calls, no sync changes, no new design tokens.**
+
+## Open questions for the owner (the plan implements the default shown)
+
+1. Accounts above **50,000 followers** get "This export has more than 50,000 followers; that is more than in2sight can compare yet"? **Default: yes.** Upgrade path (no dependency): the browser gzips the payload with the native `CompressionStream`, the route inflates with `DecompressionStream` under an inflated-size cap — ~150,000 followers within Vercel's 4.5 MB.
+2. **No .zip upload** for now: unzip, then pick the JSON files? **Default: yes ("later").**
+3. Ignore `recently_unfollowed_profiles.json` and pending follow requests (your own actions, not needed for the five lists)? **Default: yes** (recognised and skipped, never stored).
+4. Reminder: only a quiet line in the Followers tab when the newest export is older than 30 days — no push, no setting? **Default: yes** (spec §0b: reminder off by default).
+5. At most **60 snapshots per account** (delete old ones to upload more)? **Default: yes** (~1 MB each for a 50,000-follower account).
+6. "Followers" as a fourth account tab? **Default: yes.**
+7. The snapshot date is picked in the upload dialog (default today) rather than guessed from the files (the files carry no export date)? **Default: yes.**
+8. Unfollowers include renamed and deactivated accounts (the export only has usernames; there is no way to tell them apart) — labelled on the list? **Default: yes.**
+
+## Assumptions about the Instagram export (UNCONFIRMED until the owner's real export — RUNBOOK_FOLLOWERS §2)
+
+Taken from public descriptions of the "Download your information" JSON export (2023–2026) and the spec §2/§10; Instagram changes this format without notice, which is why the parser is tolerant and every variant is a test fixture:
+
+- E1. Path in the app: profile → menu (☰) → **Accounts Center** → **Your information and permissions** → **Export your information** (older label: "Download your information") → **Create export** → pick the profile → **Export to device** → **Customize information**: only **Followers and following** (under "Connections") → **Date range: All time** → **Format: JSON** → **Start export**; a notification/email when ready; the download link expires after a few days.
+- E2. Inside the zip: `connections/followers_and_following/` (older exports: `followers_and_following/`) holds `followers_1.json` (more files `followers_2.json` … for big accounts), `following.json`, and optional files such as `recently_unfollowed_profiles.json`, `pending_follow_requests.json`, `recent_follow_requests.json`, `close_friends.json`, `blocked_profiles.json`, `restricted_profiles.json`, `removed_suggestions.json`, `hide_story_from.json`.
+- E3. `followers_N.json` = a top-level array of `{ "title": "", "media_list_data": [], "string_list_data": [{ "href": "https://www.instagram.com/<name>", "value": "<name>", "timestamp": <unix seconds> }] }`; some exports wrap it as `{ "relationships_followers": [ … ] }`.
+- E4. `following.json` = `{ "relationships_following": [ … ] }` with the same entries; newer exports put the name in `title` and leave `value` out, with `href` like `https://www.instagram.com/_u/<name>`.
+- E5. The optional files are objects with one `relationships_*` key (`relationships_unfollowed_users`, `relationships_follow_requests_sent`, …).
+- E6. Usernames in the file are already lower-case and match `[a-z0-9._]{1,30}`; timestamps are seconds since 1970 (UTC) of when the follow happened.
+- E7. Text is UTF-8 JSON, sometimes with mojibake in `title` fields (Latin-1 re-encoding of UTF-8) — irrelevant here because usernames are ASCII by Instagram's rules.
+- E8. An HTML-format export has `followers_1.html` etc. → the parser says "choose JSON".
+
+If the real export differs, the fix is a new fixture + a branch in `entryName`/`kindOf` (Task 3), nothing else.
+
+## Assumptions about the current code (`main` at `0cee097`, read for this plan)
+
+- Migrations through `20261027000001_post_story_lists.sql` are applied live (docs/HANDOVER.md). `public.is_owner()` (`20261014000001`), `public.accounts (id uuid pk, username, status 'active'|'needs_reconnect'|'archived', …)` with owner-select RLS (`20261014000002`). Owner-authored tables `tags` (`20261017000001`) and `explorer_views` (`20261024000001`: `for all to authenticated using (public.is_owner()) with check (public.is_owner())`, `revoke all on public.explorer_views from anon`). A table named **`follower_snapshots` already exists** (`20261019000001_capture_v2.sql`: the follower COUNT per sync tick, read-only for the owner) — hence the new name `follower_exports`. `tests/migrations.test.ts` (generic: timestamp names, RLS + a policy per table, policies `to authenticated` only, `(select auth.uid())`) and `tests/post-lab-migration.test.ts` / `tests/lists-migration.test.ts` (text assertions, comments stripped) are the models.
+- "Delete all data permanently" (SPEC §7c) = `deleteAccountPermanently` (`lib/accounts/service.ts`) → `store.remove(id)` → `db.from('accounts').delete().eq('id', id)` (`lib/accounts/supabase-store.ts`, admin client) → every `on delete cascade` child goes with it. There is no app-wide "delete everything" action yet; the Settings "Data & privacy" section (spec §7) must list `follower_exports` when it is built (SPEC note in Task 9).
+- `lib/auth/assert-owner.ts`: `assertOwner(responseHeaders?: Headers): Promise<boolean>` (fail closed). `lib/auth/require-owner.ts`: `requireOwner()` (redirects by throwing; called outside try/catch). `lib/supabase/server.ts`: `createServerSupabase({ responseHeaders }?)` (owner session). Route handler model: `app/api/media/[id]/cover/route.ts` (`ctx: { params: Promise<{ id: string }> }`, `private, no-store` + `nosniff` headers, fixed error JSON) and its test `tests/cover-route.test.ts` (`// @vitest-environment node`, `vi.hoisted` state, mocked `assertOwner` and `createServerSupabase`). Server action model: `app/(app)/tags/actions.ts`, `app/(app)/explorer/actions.ts` (owner session, `isUuid`, `revalidatePath('/accounts/[id]', 'page')`), tested by `tests/tag-actions.test.ts` (chainable fake db with a result queue).
+- **No file upload exists anywhere in the repo** (no `<input type="file">`, no `formData()` / `request.json()` body reads in route handlers; every existing route is GET or a signed Meta callback). This plan adds the first one.
+- `next.config.ts` sets no `serverActions.bodySizeLimit` (default 1 MB) — unchanged by this plan.
+- Export pieces: `lib/export/workbook.ts` (`sheet<R>(name, cols: Col<R>[], rows, { prefs })`, `Col<R> { header; kind: 'text'|'count'|'avg'|'percent'|'date'|'datetime'; width; get }` — text cells go through `safeText` (the formula-injection guard of `lib/export/cells.ts`), `translator(locale)`, `writeWorkbook(sheets)`, `WorkbookSheet`), `lib/export/cells.ts` (`sheetNames`, `safeText`), `lib/export/request.ts` (`exportHeaders()`, `exportError(h, status, error)`, `exportFile(h, body, type, disposition)`), `lib/export/filename.ts` (`contentDisposition(base, 'xlsx')`), `lib/export/download.ts` (`downloadExport(url, 'xlsx')` → `{ ok } | { ok: false; error }` with `export.errors.*` keys `bad_params | unauthorized | not_found | unexpected`). Model route: `app/api/export/explorer/route.ts`; model sheet: `lib/export/explorer.ts`.
+- Account page: `lib/dashboard/account.ts` `TABS = ['overview', 'posts', 'stories'] as const`, `parseTab`; `components/account/AccountView.tsx` maps `TABS` to `TabsList variant="line"` triggers labelled `t(\`tab.${v}\`)` (`pages.account.tab.*`); `components/account/TabSkeleton.tsx` (`switch (tab)`); `app/(app)/accounts/[id]/(tabs)/page.tsx` `TabContent` `switch (tab)` with `case 'posts'` / `case 'stories'` / `default`, the Suspense key ignores `LIST_KEYS` (`lib/dashboard/lists.ts`: `pr, pfrom, pto, q, format, tag, sort, page, measured, view` — so `q` and `page` of this tab also keep the toolbar mounted). Tests pinning the tab list: `tests/dashboard-account.test.ts` ("accepts the three tabs only …"), `tests/account-view.test.tsx` (line 84: `['Overview', 'Posts', 'Stories']`); page tests in `tests/account-page.test.tsx` (mocks `@/lib/dashboard/detail-read`, `@/lib/dashboard/read`, `@/lib/supabase/server`, a `streamTab` helper).
+- Shared UI: `FilterToolbar({ label, children, advanced?, advancedCount?, end?, chips?, clearHref? })`, `FilterSearch({ id, label, value, placeholder?, hrefFor })`, `FilterSelect({ id, label, value, options: FilterOption[], hrefFor })`, `useApply()` (`components/shared/FilterToolbar.tsx`; they call `useRouter`); `Pagination({ page, pages, hrefFor })`; `DataTable({ rows, columns, rowKey, caption, empty, serverSort })` with `ServerSort { current; href(key) }`; `ResponsiveDialog`, `ResponsiveDialogTrigger/Content/Header/Title/Description/Footer/Close`; `ConfirmDialog({ open, title, body, confirmLabel, cancelLabel, busy, error, onConfirm, onClose })`; `EmptyState({ icon?, title, description?, action? })` (role status); `LoadingButton({ pending, … })`; `FormField({ id, label, hint?, error?, required?, children })`; `usePrefs()` → `{ prefs }` (`components/providers/PrefsProvider.tsx`); `startProgress(href)`.
+- Helpers: `isUuid` (`lib/tags.ts`), `localDay(at, tz)` / `addDays(day, n)` (`lib/sync/time.ts`), `getPrefs()` (`lib/prefs.server.ts`, `timezone`, `locale`), `DEFAULT_PREFS` (`lib/prefs.ts`, timezone `Asia/Kuala_Lumpur`), `formatDate(v, prefs)` (accepts epoch **milliseconds**), `formatNumber(n, prefs, { maximumFractionDigits })`, `MISSING_FUNCTION` (`lib/dashboard/read.ts`; this plan needs the TABLE codes instead, `PGRST205` / `42P01`, kept local in `lib/followers/read.ts`).
+- `messages/*.json`: `pages.account.tab` is the one-line object `"tab": { "overview": "Overview", "posts": "Posts", "stories": "Stories" },` (zh-CN: `"tab": { "overview": "概览", "posts": "帖子", "stories": "快拍" },`) at 6-space indentation; `tests/messages.test.ts` (parity, placeholders, no copy-pasted English with 4+ letters), `tests/ui-standards.test.ts` rule 6 (no `\d{1,3}[dwmyh]` in values: write "30 days", never "30d").
+
+## Coordination with Plan 15a (growth analytics, planned in parallel)
+
+The two plans are independent and may run in either order. Shared touch points and the rule for each:
+- **Migration timestamp:** this plan uses `20261028000002_follower_exports.sql` so Plan 15a can use `20261028000001_*`; Supabase orders by the number only (a gap is harmless; an equal number would collide).
+- **`lib/dashboard/account.ts` `TABS`, the page's `switch`, `TabSkeleton`, `AccountView`-pinning tests, the messages files, SPEC/TODO/HANDOVER:** every edit in this plan is an anchored text edit (an exact line to find, the text to put), never a whole-file replacement. If Plan 15a landed first and changed an anchor line, the implementer makes the equivalent edit by hand (implementer rules §3) and lists it as a deviation. If 15a added a tab, `followers` stays LAST in `TABS`.
+
+## Out of scope
+
+Zip upload; gzip payload (> 50,000 followers); storing recently-unfollowed / pending requests; notification or push reminders and their setting; commenters × followers (Plan 15c); follower-count charts and follow-flow analytics (Plan 15a); a portfolio-wide (all accounts) follower view; rename detection; Settings "Data & privacy" (spec §7, later plan).
+
+## Global Constraints
+
+- Ponytail: smallest thing that works. Pure logic in `lib/followers/` with Vitest tests; components wire only. **No new dependencies.** No new design tokens. Inline first: the guide panel and the snapshot list live inside `FollowersTab` (one user each).
+- TypeScript strict. No Meta metric names touched.
+- DB: ONE new migration `supabase/migrations/20261028000002_follower_exports.sql`. **Implementers never apply it** (no `supabase`, `psql`, `db push`); it is applied later on the owner's go-ahead (runbook §0), and the code works before and after.
+- Security (the focus): the route checks the owner FIRST, then origin, type and size BEFORE reading the body; the body is read with a byte cap; nothing from the request or the database is ever echoed in an error or logged; only the OWNER-SESSION client (never `createAdminSupabase`, never `account_tokens`); every query is filtered by the URL's account id AND the snapshot id; error answers are fixed keys (`unauthorized | invalid | tooLarge | notFound | notReady | tooManySnapshots | unexpected`).
+- Every UI string via next-intl; ALL new keys are added by Task 2 in BOTH `messages/en.json` and `messages/zh-CN.json` (real Simplified Chinese, full-width punctuation `，：（）。`). The parser and the route return error KEYS; the UI translates them.
+- UI standards (`docs/UI_STANDARDS.md`): `FilterToolbar` for the list (search + snapshot selects; no range bar), the URL is the state and picks apply at once (search after 400 ms), underline tabs (`TabsList variant="line"`) for the five lists, one control height per row (`size="default"` buttons, `h-[var(--ctl)]` native selects and date input), panels are `ResponsiveDialog`s, server pages with `Pagination` and a count line, full-word labels. Theming: semantic tokens only. Responsive 360 / 768 / 1280: the toolbar wraps, the table becomes cards on phones (`DataTable`), no sideways page scroll, CSS breakpoints only. a11y: the file input has a visible label, errors are `role="alert"`, the parse preview is `aria-live="polite"`, external profile links say they open Instagram.
+- Dates and numbers only via `lib/format.ts` (`formatDate`, `formatDay`, `formatNumber`); pure functions take `today` / `nowSec` as inputs (no `new Date()` inside `lib/followers/*` except where a signature says so).
+- Tests: Vitest timeout 20 s; jsdom 29 (`Blob` has no `.stream()`; `File.text()` exists — the upload component reads files with `file.text()`); route tests run with `// @vitest-environment node`; components that use `FilterToolbar` pieces mock `next/navigation` (below). Never chain a commit after a piped command.
+- `npm run check` passes after every wave. Commits: conventional, `git add` specific paths, `git commit -m "<msg>" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"`. Don't push.
+
+## Review Focus
+
+1. **Untrusted file input:** the parser accepts exactly the documented variants, skips odd entries, rejects everything else with a key, never executes content, caps files/bytes/people before and while parsing → Task 3 tests (`followers-parse`, `followers-payload`).
+2. **DoS and size limits enforced server-side before parsing:** owner → origin → content type → `content-length` → byte-counting reader → decode → parse → validate → cap → insert, each failure a fixed key → Task 5 route tests ("order of checks", "a body larger than the cap is never parsed", "a lying content-length is cut off").
+3. **RLS, deletion and privacy:** the table's policies, cascade, revoke from anon; owner-session client only; one choke point; no logging of names; not in other exports → Task 1 migration test, Task 5 privacy test, runbook §5.
+4. **Diff correctness and honest labelling:** the five set formulas, unavailable lists, sort, search, paging, "snapshot-based" note on screen and in the export → Task 4 tests, Task 7 and Task 8 tests.
+5. **Shippable without the migration:** `PGRST205`/`42P01` → `null` → the tab's "needs a database update" note; the route's 503 `notReady` → Task 5 read/route tests, Task 7 page test.
+
+## File Structure
+
+| File | Responsibility |
+|---|---|
+| `supabase/migrations/20261028000002_follower_exports.sql` (new), `tests/followers-migration.test.ts` (new) | the `follower_exports` table, RLS, index, cascade |
+| `messages/en.json`, `messages/zh-CN.json` | every new key (Task 2 only) |
+| `lib/followers/parse.ts` (new), `tests/followers-parse.test.ts` (new) | limits, `USERNAME_RE`, `checkFiles`, `parseExportFiles` (browser side) |
+| `lib/followers/payload.ts` (new), `tests/followers-payload.test.ts` (new) | `toPayload` (browser), `validateUpload` (server) |
+| `lib/followers/diff.ts` (new), `tests/followers-diff.test.ts` (new) | `diffSnapshots`, `pageList`, `defaultList`, `FOLLOWER_PAGE` |
+| `lib/followers/state.ts` (new), `tests/followers-state.test.ts` (new) | URL state: `parseFollowerState`, `resolvePair`, `followerHref` |
+| `lib/followers/read.ts` (new), `tests/followers-read.test.ts` (new) | the ONLY module that names `follower_exports`: list, load, count, insert, delete |
+| `app/api/accounts/[id]/followers/route.ts` (new), `tests/followers-route.test.ts` (new) | `POST` upload |
+| `app/(app)/accounts/followers-actions.ts` (new), `tests/followers-actions.test.ts` (new) | `deleteFollowerSnapshotAction` |
+| `tests/followers-privacy.test.ts` (new) | choke point + no-logging guard |
+| `components/account/FollowerUpload.tsx` (new), `tests/follower-upload.test.tsx` (new) | the upload dialog |
+| `components/account/FollowersTab.tsx` (new), `tests/followers-tab.test.tsx` (new) | guide, toolbar, list tabs, table, pages, snapshot list, export button |
+| `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | the fourth tab, its skeleton and its `case` |
+| `lib/export/followers.ts` (new), `app/api/export/followers/route.ts` (new), `tests/export-followers.test.ts` (new) | the list export |
+| `docs/RUNBOOK_FOLLOWERS.md` (new), `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/UI_STANDARDS.md` | live + privacy checks, spec section, ticks, lessons, the upload rule |
+
+**Adding i18n keys:** by TEXT INSERTION only (Edit tool: replace the exact anchor line shown with the lines shown), never by loading and re-serialising the JSON (both files are hand-formatted and carry one stray `\r`). Keep every other line byte-identical; both locales get the same keys.
+
+**Mocking the router in component tests** (the `FilterToolbar` pieces and the upload dialog call `useRouter`): `const { push, replace, refresh } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));` and `vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace, refresh, prefetch: vi.fn(), back: vi.fn() }) }));`.
+
+## Tasks
+
+| # | Task | Depends on | Files it owns | Parallel with |
+|---|---|---|---|---|
+| 1 | Migration + migration test | — | `supabase/migrations/20261028000002_follower_exports.sql`, `tests/followers-migration.test.ts` | 2, 3, 4 |
+| 2 | i18n: every new key | — | `messages/en.json`, `messages/zh-CN.json` | 1, 3, 4 |
+| 3 | Parser + payload (pure) | — | `lib/followers/parse.ts`, `lib/followers/payload.ts`, `tests/followers-parse.test.ts`, `tests/followers-payload.test.ts` | 1, 2, 4 |
+| 4 | Diff + URL state (pure) | — | `lib/followers/diff.ts`, `lib/followers/state.ts`, `tests/followers-diff.test.ts`, `tests/followers-state.test.ts` | 1, 2, 3 |
+| 5 | Reads/writes, upload route, delete action, privacy guard | 1 (names), 3 | `lib/followers/read.ts`, `app/api/accounts/[id]/followers/route.ts`, `app/(app)/accounts/followers-actions.ts`, `tests/followers-read.test.ts`, `tests/followers-route.test.ts`, `tests/followers-actions.test.ts`, `tests/followers-privacy.test.ts` | 6 |
+| 6 | Upload dialog | 2, 3 | `components/account/FollowerUpload.tsx`, `tests/follower-upload.test.tsx` | 5 |
+| 7 | Followers tab end to end (component, `TABS`, skeleton, page `case`) | 2, 4, 5, 6 | `components/account/FollowersTab.tsx`, `tests/followers-tab.test.tsx`, `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | 8 |
+| 8 | List export (sheet + route) | 2, 4, 5 | `lib/export/followers.ts`, `app/api/export/followers/route.ts`, `tests/export-followers.test.ts` | 7 |
+| 9 | Docs, final check | all | `docs/RUNBOOK_FOLLOWERS.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/UI_STANDARDS.md` | — |
+
+Run order: **wave A = 1, 2, 3, 4 · wave B = 5, 6 · wave C = 7, 8 · wave D = 9.** Tasks in one wave touch disjoint files. Each task leaves `main` green: the new modules are unused until Task 7 wires the tab (which adds `followers` to `TABS` and its message in the same commit as the page `case`, the skeleton and the three pinned tests); the export route of Task 8 is reachable only from the tab's button (Task 7 builds the URL by string, so 7 and 8 do not import each other).
+
+---
