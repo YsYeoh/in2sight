@@ -15,7 +15,7 @@ export const TAG_LIMIT = 500;
 /** Calendar items (posts + Stories of every account in scope) read for one range, in 1,000-row pages; past this the page says "too many". */
 export const CALENDAR_LIMIT = 5000;
 const ONLINE_LIMIT = 1000;
-const AUDIENCE_KINDS: AudienceKind[] = ['age_gender', 'country', 'city'];
+export const AUDIENCE_KINDS: AudienceKind[] =['age_gender', 'country', 'city'];
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -219,16 +219,20 @@ export async function loadStoryPage(db: SupabaseClient, accountId: string, a: St
 
 const isCounts = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
+/** One audience_snapshots row as { day, data }: null without a row or when `data` is not a plain object; non-numeric counts are dropped. */
+export function audienceRow(r: Row | undefined): { day: string; data: Record<string, number> } | null {
+  if (!r || !isCounts(r.data)) return null;
+  const counts = Object.fromEntries(Object.entries(r.data).flatMap(([k, v]) => (num(v) !== null ? [[k, v as number]] : [])));
+  return { day: String(r.day), data: counts };
+}
+
 /** The latest snapshot of each audience kind (one small query per kind, in parallel). Non-numeric values are dropped. */
 export async function loadAudience(db: SupabaseClient, accountId: string): Promise<AudienceSnapshots> {
   const rows = await Promise.all(
     AUDIENCE_KINDS.map(async (kind) => {
       const { data, error } = await db.from('audience_snapshots').select('day,data').eq('account_id', accountId).eq('kind', kind).order('day', { ascending: false }).limit(1);
       if (error) fail('audience');
-      const r = ((data ?? []) as Row[])[0];
-      if (!r || !isCounts(r.data)) return null;
-      const counts = Object.fromEntries(Object.entries(r.data).flatMap(([k, v]) => (num(v) !== null ? [[k, v as number]] : [])));
-      return { day: String(r.day), data: counts };
+      return audienceRow(((data ?? []) as Row[])[0]);
     }),
   );
   return { age_gender: rows[0], country: rows[1], city: rows[2] };
