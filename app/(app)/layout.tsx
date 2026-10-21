@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { headers } from 'next/headers';
 import { getTranslations } from 'next-intl/server';
 import { InstallPrompt } from '@/components/pwa/InstallPrompt';
 import { AppShell } from '@/components/shared/AppShell';
@@ -18,6 +19,9 @@ async function NotificationsIsland() {
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { email } = await requireOwner(); // shared with the page's own check in this request (React.cache)
+  // A tab's frame (Plan 14c): the page renders without the shell chrome from its first paint. Only a hint: AppShell
+  // re-checks on the client, since a refresh or server action re-renders this layout without the header.
+  const framed = (await headers()).get('sec-fetch-dest') === 'iframe';
   const t = await getTranslations('loading');
   const bellFallback = (
     <span role="status" className="inline-flex">
@@ -27,15 +31,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   );
   return (
     <AppShell
+      framed={framed}
       userEmail={email ?? undefined}
       signOutAction={signOutAction}
+      install={<InstallPrompt />}
       bell={
         <Suspense fallback={bellFallback}>
           <NotificationsIsland />
         </Suspense>
       }
     >
-      <InstallPrompt />
       {children}
     </AppShell>
   );

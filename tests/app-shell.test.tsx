@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { AppShell } from '@/components/shared/AppShell';
@@ -9,7 +9,9 @@ import { DEFAULT_PREFS } from '@/lib/prefs';
 
 let pathname = '/accounts';
 let search = new URLSearchParams();
-vi.mock('next/navigation', () => ({ usePathname: () => pathname, useSearchParams: () => search }));
+vi.mock('next/navigation', () => ({ usePathname: () => pathname, useSearchParams: () => search, useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+const frame = vi.hoisted(() => ({ on: false }));
+vi.mock('@/lib/tabs/protocol', async (orig) => ({ ...(await orig<typeof import('@/lib/tabs/protocol')>()), isFramed: () => frame.on }));
 
 function setup(props: Partial<React.ComponentProps<typeof AppShell>> = {}, persist = vi.fn()) {
   return render(
@@ -23,10 +25,61 @@ function setup(props: Partial<React.ComponentProps<typeof AppShell>> = {}, persi
   );
 }
 
-describe('AppShell', () => {
-  it('renders the page content', () => {
+beforeEach(() => localStorage.clear()); // the shell saves its tab list
+
+describe('AppShell inside a tab frame', () => {
+  afterEach(() => {
+    frame.on = false;
+  });
+
+  it('renders the page only: no sidebar, no header, no bottom bar, no frames', () => {
+    frame.on = true;
     setup();
-    expect(screen.getByText('page content')).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveTextContent('page content');
+    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(screen.queryByRole('banner')).toBeNull();
+    expect(document.querySelector('iframe')).toBeNull();
+  });
+
+  it('the server hint gives the frame its chromeless first paint; the client answer wins afterwards', () => {
+    frame.on = true;
+    setup({ framed: false }); // a refresh re-rendered the layout without Sec-Fetch-Dest: still no chrome
+    expect(screen.queryByRole('banner')).toBeNull();
+  });
+});
+
+describe('AppShell (top window: the shell and its tabs)', () => {
+  it('does not render the page itself: the current URL opens as the first tab frame', () => {
+    pathname = '/explorer';
+    search = new URLSearchParams('m=reach');
+    setup();
+    expect(screen.queryByText('page content')).toBeNull();
+    const frames = document.querySelectorAll('iframe');
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toHaveAttribute('src', '/explorer?m=reach');
+    expect(frames[0]).toHaveAttribute('title', 'Explorer');
+    pathname = '/accounts';
+    search = new URLSearchParams();
+  });
+
+  it('puts the tab strip (md+) and the "Tabs (N)" button (phones) in the header row, left of the bell', () => {
+    setup({ bell: <button>bell</button> });
+    const header = screen.getByRole('banner');
+    expect(within(header).getByRole('tablist', { name: 'Open tabs' })).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Tabs (1)' }).className).toContain('md:hidden');
+    const order = [...header.querySelectorAll('[role="tablist"], button')].map((e) => e.getAttribute('role') ?? e.textContent);
+    expect(order.indexOf('tablist')).toBeLessThan(order.indexOf('bell'));
+  });
+
+  it('marks the sidebar as "jump to the section tab" and the bottom bar as "navigate this tab"', () => {
+    setup();
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })).toHaveAttribute('data-tab-open', 'nav');
+    expect(screen.getByRole('navigation', { name: 'Main tabs' })).toHaveAttribute('data-tab-open', 'current');
+  });
+
+  it('shows the install hint above the frames', () => {
+    setup({ install: <p>install hint</p> });
+    expect(within(screen.getByRole('main')).getByText('install hint')).toBeInTheDocument();
   });
 
   it('has two labelled navigation landmarks (sidebar/rail and bottom tabs) with all four links each', () => {
@@ -78,10 +131,10 @@ describe('AppShell', () => {
     search = new URLSearchParams();
   });
 
-  it('reserves space at the bottom on phones so the tab bar never covers content', () => {
+  it('reserves the height of the bottom bar on phones so it never covers the frame', () => {
     setup();
-    expect(screen.getByRole('main').className).toMatch(/pb-(2[0-9]|24|28|32)/);
-    expect(screen.getByRole('main').className).toMatch(/md:pb-/);
+    expect(screen.getByRole('main').className).toContain('pb-[calc(3.5rem+env(safe-area-inset-bottom))]'); // the bar is min-h-14 + safe area
+    expect(screen.getByRole('main').className).toContain('md:pb-0');
   });
 
   it('shows the sidebar from lg, the icon rail from md and the tab bar only below md (CSS classes)', () => {
