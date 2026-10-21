@@ -126,3 +126,214 @@ Followers diff upload (Plan 15b); comments ingestion changes, top commenters, fa
 Run order: wave A = 1, 2, 3, 4, 5 · wave B = 6, 7 · wave C = 8 · wave D = 9, 10. Tasks in one wave touch disjoint files. Nothing is reachable from the UI before Task 9 (the tab joins `TABS` there), so `main` works after every wave; Task 9 changes `TABS`, its users and the three tests that pin them in one commit. After wave D the orchestrator runs the full `npm run check`.
 
 ---
+
+### Task 1: i18n — every new key
+
+**Files:**
+- Modify: `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/messages.test.ts`, `tests/ui-standards.test.ts` (existing guards)
+
+**Interfaces:**
+- Produces: `pages.account.tab.growth` and the whole `pages.account.growth` namespace below. Tasks 7, 8 and 9 use exactly these keys (placeholders included); Task 8 also uses the existing `metrics.*`, `analysis.format.*`, `analysis.reasons.*`, `pages.overview.points`, `timeScope.partialNote`.
+
+- [ ] **Step 1: Insert the English keys.** In `messages/en.json`, replace the anchor line
+
+```json
+      "tab": { "overview": "Overview", "posts": "Posts", "stories": "Stories" },
+```
+
+with
+
+```json
+      "tab": { "overview": "Overview", "growth": "Growth", "posts": "Posts", "stories": "Stories" },
+      "growth": {
+        "kpis": "Growth numbers",
+        "kpi": { "followers": "Followers", "netFollows": "Net follows", "follows": "Follows", "unfollows": "Unfollows", "churnRate": "Churn rate", "nonFollowerShare": "Non-follower reach" },
+        "table": "Show the numbers",
+        "followersTitle": "Followers",
+        "followersSource": "Your follower count, read about every 30 minutes; one value per day (the day's last count).",
+        "followersHourly": "Hourly points: the last count of each hour.",
+        "followersSince": "Follower history starts {date} (Instagram keeps no earlier counts).",
+        "change": "{abs} ({pct}) in this range",
+        "changeNoPct": "{abs} in this range",
+        "projectionTitle": "Projection",
+        "projectionRow": "In {days, plural, one {# day} other {# days}}: about {value} (between {low} and {high})",
+        "projectionMethod": "How: the median daily change between every pair of the {n} days with a count from {from} to {to} ({perDay} a day), continued. A rough guide, not a promise.",
+        "projectionNone": "No projection yet: it needs at least 14 days of follower counts in the last 28 days (has {n}).",
+        "confidence": { "low": "Low confidence: few days of counts, or the direction is unclear.", "medium": "Medium confidence: a steady direction over {n} days." },
+        "flowTitle": "Follows and unfollows",
+        "flowSource": {
+          "instagram": "Instagram's daily follows and unfollows.",
+          "derived": "Instagram shares follows and unfollows from 100 followers, so this shows the daily change of your follower count (net only).",
+          "mixed": "Instagram's daily follows and unfollows; days without them show the change of your follower count (net only).",
+          "none": "No follow data in this range yet."
+        },
+        "follows": "Follows",
+        "unfollows": "Unfollows",
+        "net": "Net change",
+        "churn": "Churn: {rate} of your followers unfollowed in this range.",
+        "best": "Best days",
+        "worst": "Worst days",
+        "noDays": "None in this range",
+        "dayLine": "{day}: {net}, {activity}",
+        "activity": "{posts, plural, =0 {no posts} one {# post} other {# posts}}, {stories, plural, =0 {no Stories} one {# Story} other {# Stories}}",
+        "storiesFrom": "Story counts are complete from {date} (only the newest Stories were counted).",
+        "dayOnly": "Choose Group by: Day under More ranges to click single days.",
+        "loyaltyTitle": "Followers and non-followers reached",
+        "loyaltySource": "Instagram's daily reach split by followers and non-followers, added up over formats (someone reached by a Story and a Reel counts twice).",
+        "follower": "Followers",
+        "nonFollower": "Non-followers",
+        "noBreakdown": "No follower and non-follower split in this range yet.",
+        "formatsTitle": "Who each format reaches",
+        "format": "Format",
+        "share": "Non-follower share",
+        "shareChange": "Change",
+        "product": { "STORY": "Stories", "REEL": "Reels", "POST": "Posts", "CAROUSEL_CONTAINER": "Carousels", "AD": "Ads" },
+        "audienceTitle": "Audience over time",
+        "audienceSource": "Instagram's follower demographics for the past month, saved once a day; countries and cities: the top 45 only. Changes of 2 points or more are highlighted.",
+        "audienceRange": "{from} compared with {to}",
+        "audienceSingle": "One snapshot in this range ({date}): a change needs two.",
+        "audienceNone": "No demographics in this range (Instagram shares them from 100 followers).",
+        "audienceKind": { "age": "Age", "gender": "Gender", "country": "Countries", "city": "Cities" },
+        "key": "Group",
+        "then": "Then",
+        "now": "Now",
+        "notable": "Notable change",
+        "gender": { "F": "Women", "M": "Men", "U": "Unspecified" },
+        "weekday": { "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday", "5": "Friday", "6": "Saturday" },
+        "why": {
+          "title": "Why did this change?",
+          "source": "Rule-based: what was posted that day and the day before, Stories, who was reached and comments, each compared with the 28 days before. Patterns, not proof.",
+          "unusualTitle": "Unusual days",
+          "unusualHint": "Compared with the same weekday in the 8 weeks before (at least 4 of them).",
+          "noUnusual": "Nothing unusual for this account in this range.",
+          "unusualItem": "{day}: {metric} {value}, usually {typical} on a {weekday}",
+          "metric": { "net": "Net follows", "reach": "Reach" },
+          "pick": "Click a day in a daily chart, or pick an unusual day, to see what changed.",
+          "headline": "{metric} on {day}: {value}, typical {typical} (median of {n} earlier days)",
+          "headlineNoBase": "{metric} on {day}: {value}. Not enough earlier days to say what is typical.",
+          "noValue": "No {metric} figure for {day}.",
+          "none": "No clear reason in the data we have.",
+          "basis": "{confidence} confidence · sample {n}",
+          "confidence": { "low": "Low", "medium": "Medium" },
+          "when": { "same_day": "that day", "day_before": "the day before" },
+          "posts": "Published that day and the day before",
+          "reason": {
+            "posted": "{format} posted {when} at {hour}: reached {reach}, {ratio}× your typical {format}",
+            "postedNoBase": "{format} posted {when} at {hour}: reached {reach} (too few earlier posts of this format to compare)",
+            "no_posts": "Nothing posted that day or the day before; you usually post every {every} days",
+            "stories": "Story reach {reach}, {change} against the typical {typical} ({stories, plural, =0 {no Stories} one {# Story} other {# Stories}} that day)",
+            "non_followers": "Non-followers were {share} of reach, typical {typical}",
+            "time_of_day": "Posts around {hour} usually reach {ratio}× your median post",
+            "comments": "{comments, plural, one {# comment} other {# comments}} that day, typical {typical}"
+          }
+        }
+      },
+```
+
+- [ ] **Step 2: Insert the Simplified Chinese keys.** In `messages/zh-CN.json`, replace the anchor line
+
+```json
+      "tab": { "overview": "概览", "posts": "帖子", "stories": "快拍" },
+```
+
+with
+
+```json
+      "tab": { "overview": "概览", "growth": "增长", "posts": "帖子", "stories": "快拍" },
+      "growth": {
+        "kpis": "增长数据",
+        "kpi": { "followers": "粉丝", "netFollows": "净关注", "follows": "新关注", "unfollows": "取消关注", "churnRate": "流失率", "nonFollowerShare": "非粉丝覆盖占比" },
+        "table": "查看数字",
+        "followersTitle": "粉丝",
+        "followersSource": "粉丝数约每 30 分钟读取一次；每天保留一个值（当天最后一次读数）。",
+        "followersHourly": "按小时显示：每小时的最后一次读数。",
+        "followersSince": "粉丝历史从 {date} 开始（Instagram 不保留更早的数字）。",
+        "change": "本时间范围内 {abs}（{pct}）",
+        "changeNoPct": "本时间范围内 {abs}",
+        "projectionTitle": "预测",
+        "projectionRow": "{days} 天后：约 {value}（介于 {low} 和 {high} 之间）",
+        "projectionMethod": "方法：取 {from} 至 {to} 期间 {n} 个有粉丝数的日子，两两之间每日变化的中位数（每天 {perDay}），并按此延续。仅供粗略参考，不是保证。",
+        "projectionNone": "暂无预测：需要最近 28 天中至少 14 天的粉丝数（目前 {n} 天）。",
+        "confidence": { "low": "可信度低：粉丝数的天数太少，或方向不明确。", "medium": "可信度中等：{n} 天内方向稳定。" },
+        "flowTitle": "新关注与取消关注",
+        "flowSource": {
+          "instagram": "Instagram 提供的每日新关注和取消关注数。",
+          "derived": "Instagram 在 100 位粉丝以上才提供新关注和取消关注数，因此这里显示的是粉丝数的每日变化（仅净值）。",
+          "mixed": "Instagram 提供的每日新关注和取消关注数；没有这些数据的日子显示粉丝数的变化（仅净值）。",
+          "none": "本时间范围内还没有关注数据。"
+        },
+        "follows": "新关注",
+        "unfollows": "取消关注",
+        "net": "净变化",
+        "churn": "流失：本时间范围内 {rate} 的粉丝取消了关注。",
+        "best": "最好的日子",
+        "worst": "最差的日子",
+        "noDays": "本时间范围内没有",
+        "dayLine": "{day}：{net}，{activity}",
+        "activity": "{posts, plural, =0 {没有帖子} other {# 个帖子}}，{stories, plural, =0 {没有快拍} other {# 个快拍}}",
+        "storiesFrom": "快拍数从 {date} 起完整（只统计了最新的快拍）。",
+        "dayOnly": "在「更多时间范围」中选择「分组方式：按天」即可点选单日。",
+        "loyaltyTitle": "覆盖的粉丝与非粉丝",
+        "loyaltySource": "Instagram 每日覆盖人数按粉丝与非粉丝拆分，并把各种格式相加（同时被快拍和 Reels 覆盖的人会算两次）。",
+        "follower": "粉丝",
+        "nonFollower": "非粉丝",
+        "noBreakdown": "本时间范围内还没有粉丝与非粉丝的拆分数据。",
+        "formatsTitle": "各格式覆盖了谁",
+        "format": "格式",
+        "share": "非粉丝占比",
+        "shareChange": "变化",
+        "product": { "STORY": "快拍", "REEL": "Reels 短视频", "POST": "帖子", "CAROUSEL_CONTAINER": "轮播", "AD": "广告" },
+        "audienceTitle": "受众变化",
+        "audienceSource": "Instagram 过去一个月的粉丝人口统计，每天保存一次；国家和城市只有前 45 名。变化达到 2 个百分点或以上时会突出显示。",
+        "audienceRange": "{from} 对比 {to}",
+        "audienceSingle": "本时间范围内只有一个快照（{date}）：比较需要两个。",
+        "audienceNone": "本时间范围内没有人口统计（Instagram 在 100 位粉丝以上才提供）。",
+        "audienceKind": { "age": "年龄", "gender": "性别", "country": "国家", "city": "城市" },
+        "key": "分组",
+        "then": "之前",
+        "now": "现在",
+        "notable": "明显变化",
+        "gender": { "F": "女性", "M": "男性", "U": "未说明" },
+        "weekday": { "0": "星期日", "1": "星期一", "2": "星期二", "3": "星期三", "4": "星期四", "5": "星期五", "6": "星期六" },
+        "why": {
+          "title": "为什么会变化？",
+          "source": "基于规则：当天和前一天发布的内容、快拍、覆盖了谁以及评论，各自与之前 28 天相比。这是规律，不是证明。",
+          "unusualTitle": "异常的日子",
+          "unusualHint": "与之前 8 周中相同的星期几比较（至少 4 个）。",
+          "noUnusual": "本时间范围内这个账号没有异常。",
+          "unusualItem": "{day}：{metric} {value}，{weekday}通常为 {typical}",
+          "metric": { "net": "净关注", "reach": "覆盖人数" },
+          "pick": "点选每日图表中的某一天，或选择一个异常的日子，查看发生了什么变化。",
+          "headline": "{day} 的{metric}：{value}，通常为 {typical}（之前 {n} 天的中位数）",
+          "headlineNoBase": "{day} 的{metric}：{value}。之前的天数不够，无法判断通常水平。",
+          "noValue": "{day} 没有{metric}数据。",
+          "none": "现有数据中没有明显原因。",
+          "basis": "{confidence}可信度 · 样本 {n}",
+          "confidence": { "low": "低", "medium": "中" },
+          "when": { "same_day": "当天", "day_before": "前一天" },
+          "posts": "当天和前一天发布的内容",
+          "reason": {
+            "posted": "{when} {hour} 发布的{format}：覆盖 {reach}，是你通常{format}的 {ratio} 倍",
+            "postedNoBase": "{when} {hour} 发布的{format}：覆盖 {reach}（之前同格式的帖子太少，无法比较）",
+            "no_posts": "当天和前一天都没有发布；你通常每 {every} 天发布一次",
+            "stories": "快拍覆盖 {reach}，相比通常的 {typical} 变化 {change}（当天{stories, plural, =0 {没有快拍} other {# 个快拍}}）",
+            "non_followers": "非粉丝占覆盖人数的 {share}，通常为 {typical}",
+            "time_of_day": "在 {hour} 前后发布的帖子，覆盖通常是你帖子中位数的 {ratio} 倍",
+            "comments": "当天 {comments} 条评论，通常为 {typical}"
+          }
+        }
+      },
+```
+
+- [ ] **Step 3: Run the guards**
+
+Run: `npx vitest run tests/messages.test.ts tests/ui-standards.test.ts`
+Expected: PASS (same keys in both files, matching placeholders — note `projectionRow` keeps `{days}` and `comments` keeps `{comments}` in zh-CN although it uses no plural there; no `7d`-style label).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add messages/en.json messages/zh-CN.json
+git commit -m "feat(i18n): growth tab strings (en, zh-CN)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
