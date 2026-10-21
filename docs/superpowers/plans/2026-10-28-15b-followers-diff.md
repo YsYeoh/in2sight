@@ -516,6 +516,7 @@ git commit -m "feat(i18n): Followers tab, export guide, upload and diff lists (e
 
 ---
 
+
 ### Task 3: Parser and payload (pure) — `lib/followers/parse.ts`, `lib/followers/payload.ts`
 
 **Files:**
@@ -525,7 +526,7 @@ git commit -m "feat(i18n): Followers tab, export guide, upload and diff lists (e
 - Consumes: nothing from the app (pure; `parse.ts` imports nothing, `payload.ts` imports only `parse.ts`). Both run in the browser AND on the server (no `server-only`, no Node APIs).
 - Produces (exact names later tasks import):
   - `parse.ts`: `MAX_FILES = 10`, `MAX_FILE_BYTES = 32 MiB`, `MAX_TOTAL_BYTES = 64 MiB`, `MAX_FOLLOWERS = 50_000`, `MAX_FOLLOWING = 10_000`, `MIN_TS`, `USERNAME_RE`; types `FollowKind`, `ParseError`, `Person { username; at }`, `ParseFailure { ok: false; error; file? }`, `Parsed { ok: true; followers; following; skipped; ignored }`; `checkFiles(files: { name; size }[]): ParseFailure | null`; `cleanUsername(v)`, `cleanTimestamp(v, nowSec)`; `parseExportFiles(files: { name; text }[], nowSec: number): Parsed | ParseFailure`.
-  - `payload.ts`: `PAYLOAD_VERSION = 1`, `MAX_BODY_BYTES = 4_000_000`, `FIRST_DAY = '2010-10-06'`, `interface Upload { takenOn; followers: Person[]; following: Person[] | null }`, `toPayload(u: Upload): string`, `validateUpload(body: unknown, today: string, nowSec: number): Upload | null`.
+  - `payload.ts`: `PAYLOAD_VERSION = 1`, `MAX_BODY_BYTES = 4_000_000`, `FIRST_DAY = '2010-10-06'`, `MAX_SNAPSHOTS = 60` (per account; here so the browser dialog and the server share it without importing the database module), `interface Upload { takenOn; followers: Person[]; following: Person[] | null }`, `toPayload(u: Upload): string`, `validateUpload(body: unknown, today: string, nowSec: number): Upload | null`.
 - Every `ParseError` value is a key of `pages.account.followerDiff.errors` (Task 2).
 
 - [ ] **Step 1: Write the failing tests** — create `tests/followers-parse.test.ts`:
@@ -908,6 +909,7 @@ export const PAYLOAD_VERSION = 1;
 // Vercel Functions reject request bodies over 4.5 MB; both lists at their caps with 30-character names are ≈ 2.8 MB
 export const MAX_BODY_BYTES = 4_000_000;
 export const FIRST_DAY = '2010-10-06'; // Instagram's launch: no export is older
+export const MAX_SNAPSHOTS = 60; // per account: ~1 MB each at 50,000 followers (5 years monthly, ~1 year weekly)
 
 type Pair = [string, number | null];
 export interface Upload {
@@ -1330,9 +1332,9 @@ git commit -m "feat(followers): snapshot diff (five lists), search and pages; Fo
 - Quote the paths with brackets/parentheses in every shell command.
 
 **Interfaces:**
-- Consumes: Task 1's table and columns (by name only: nothing runs against a database), Task 3's `Upload`, `validateUpload`, `MAX_BODY_BYTES`, `Person`, Task 4's `Snapshot`, `SnapshotMeta` (types); `assertOwner`, `requireOwner`, `createServerSupabase`, `supabaseAccountsStore(db).getById`, `getPrefs`, `localDay`, `isUuid`, `revalidatePath`.
+- Consumes: Task 1's table and columns (by name only: nothing runs against a database), Task 3's `Upload`, `validateUpload`, `MAX_BODY_BYTES`, `MAX_SNAPSHOTS`, `Person`, Task 4's `Snapshot`, `SnapshotMeta` (types); `assertOwner`, `requireOwner`, `createServerSupabase`, `supabaseAccountsStore(db).getById`, `getPrefs`, `localDay`, `isUuid`, `revalidatePath`.
 - Produces:
-  - `lib/followers/read.ts`: `MAX_SNAPSHOTS = 60`, `MISSING_TABLE = ['PGRST205', '42P01']`, `listFollowerSnapshots(db, accountId): Promise<SnapshotMeta[] | null>` (null = migration missing), `loadFollowerSnapshot(db, accountId, id): Promise<Snapshot | null>`, `type SaveResult = 'ok' | 'tooManySnapshots' | 'notReady'`, `saveFollowerSnapshot(db, accountId, u: Upload): Promise<SaveResult>`, `deleteFollowerSnapshot(db, accountId, id): Promise<boolean>`. Thrown errors carry fixed messages `followers <op> failed`.
+  - `lib/followers/read.ts` (uses `MAX_SNAPSHOTS` from `payload.ts`): `MISSING_TABLE = ['PGRST205', '42P01']`, `listFollowerSnapshots(db, accountId): Promise<SnapshotMeta[] | null>` (null = migration missing), `loadFollowerSnapshot(db, accountId, id): Promise<Snapshot | null>`, `type SaveResult = 'ok' | 'tooManySnapshots' | 'notReady'`, `saveFollowerSnapshot(db, accountId, u: Upload): Promise<SaveResult>`, `deleteFollowerSnapshot(db, accountId, id): Promise<boolean>`. Thrown errors carry fixed messages `followers <op> failed`.
   - `POST /api/accounts/[id]/followers` (`export async function POST(request: Request, ctx: { params: Promise<{ id: string }> })`, `export type UploadError`): 201 `{ ok: true }`; errors `{ error: UploadError }` with 401 `unauthorized` (not the owner) · 404 `notFound` (bad id, unknown or archived account) · 403 `unauthorized` (another origin) · 415 `invalid` (not JSON) · 411 `invalid` (no length) · 413 `tooLarge` · 400 `invalid` · 409 `tooManySnapshots` · 503 `notReady` · 500 `unexpected`. Task 6 posts to it.
   - `app/(app)/accounts/followers-actions.ts`: `deleteFollowerSnapshotAction(accountId, snapshotId): Promise<SnapshotResult>`, `type SnapshotResult = { ok: true } | { ok: false; error: 'notFound' | 'unexpected' }`. Task 7 passes it to the tab.
 
@@ -1341,7 +1343,8 @@ git commit -m "feat(followers): snapshot diff (five lists), search and pages; Fo
 ```ts
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { deleteFollowerSnapshot, listFollowerSnapshots, loadFollowerSnapshot, MAX_SNAPSHOTS, saveFollowerSnapshot } from '@/lib/followers/read';
+import { MAX_SNAPSHOTS } from '@/lib/followers/payload';
+import { deleteFollowerSnapshot, listFollowerSnapshots, loadFollowerSnapshot, saveFollowerSnapshot } from '@/lib/followers/read';
 
 type Op = unknown[];
 const calls: Op[] = [];
@@ -1708,10 +1711,9 @@ Expected: FAIL — the three modules do not resolve; the privacy test fails on "
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Snapshot } from '@/lib/followers/diff';
 import type { Person } from '@/lib/followers/parse';
-import type { Upload } from '@/lib/followers/payload';
+import { MAX_SNAPSHOTS, type Upload } from '@/lib/followers/payload';
 import type { SnapshotMeta } from '@/lib/followers/state';
 
-export const MAX_SNAPSHOTS = 60;
 /** PostgREST / Postgres "table not found": the migration 20261028000002 is not applied yet. */
 export const MISSING_TABLE: readonly string[] = ['PGRST205', '42P01'];
 
@@ -1923,6 +1925,308 @@ Expected: PASS (7 + 10 + 3 + 4 tests in the plan author's scratch run), tsc and 
 ```bash
 git add lib/followers/read.ts "app/api/accounts/[id]/followers/route.ts" "app/(app)/accounts/followers-actions.ts" tests/followers-read.test.ts tests/followers-route.test.ts tests/followers-actions.test.ts tests/followers-privacy.test.ts
 git commit -m "feat(followers): snapshot reads/writes, owner-only capped upload route, delete action, privacy guard" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: The upload dialog — `components/account/FollowerUpload.tsx`
+
+**Files:**
+- Create: `components/account/FollowerUpload.tsx`, `tests/follower-upload.test.tsx`
+
+**Interfaces:**
+- Consumes: Task 2 keys (`pages.account.followerDiff.upload.*`, `.errors.*`), Task 3 (`checkFiles`, `parseExportFiles`, `MAX_FILES`, `MAX_FOLLOWERS`, `MAX_FOLLOWING`, `ParseError`, `Parsed`, `toPayload`, `FIRST_DAY`, `MAX_BODY_BYTES`, `MAX_SNAPSHOTS`), the route contract of Task 5 (URL `/api/accounts/<id>/followers`, 201 on success, `{ error: <key> }` otherwise — by string, no import), `ResponsiveDialog*`, `FormField`, `LoadingButton`, `Input`, `Button`, `usePrefs`, `formatNumber`, `useRouter().refresh`.
+- Produces: `FollowerUpload({ accountId, username, today }: { accountId: string; username: string; today: string })` — a default-size "Upload export" button that opens the dialog. Task 7 renders it in the tab's toolbar `end` slot.
+- Behaviour: choosing files runs `checkFiles` on names/sizes BEFORE reading (`File.text()` only after it passes), then `parseExportFiles` with the browser clock; the preview is `aria-live="polite"`; Upload is disabled until a parse succeeded; the date input is native (`min` 2010-10-06, `max` today, default today); a payload over `MAX_BODY_BYTES` is refused in the browser too; on 201 the dialog closes, resets and `router.refresh()` shows the new snapshot; a server error key (from the allow-list) is translated, anything else → `unexpected`; numbers in messages go through `formatNumber`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/follower-upload.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const { push, replace, refresh } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace, refresh, prefetch: vi.fn(), back: vi.fn() }) }));
+
+import { FollowerUpload } from '@/components/account/FollowerUpload';
+
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const T = en.pages.account.followerDiff;
+const entry = (name: string) => ({ title: '', media_list_data: [], string_list_data: [{ href: `https://www.instagram.com/${name}`, value: name, timestamp: 1_700_000_000 }] });
+const json = (name: string, v: unknown) => new File([JSON.stringify(v)], name, { type: 'application/json' });
+const fetchMock = vi.fn();
+
+function view(locale: 'en' | 'zh-CN' = 'en') {
+  render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={vi.fn()}>
+        <FollowerUpload accountId={ACC} username="shop.one" today="2026-10-21" />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: locale === 'en' ? T.upload.open : zh.pages.account.followerDiff.upload.open }));
+  return screen.getByRole('dialog');
+}
+const choose = (...files: File[]) => fireEvent.change(screen.getByLabelText(T.upload.files), { target: { files } });
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  vi.stubGlobal('fetch', fetchMock);
+  refresh.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
+
+describe('FollowerUpload', () => {
+  it('a dialog: title, the account in the description, a labelled multi-file JSON input and a date (today, never later)', () => {
+    const dialog = view();
+    expect(dialog).toHaveTextContent(T.upload.title);
+    expect(dialog).toHaveTextContent('@shop.one');
+    const input = screen.getByLabelText(T.upload.files);
+    expect(input).toHaveAttribute('type', 'file');
+    expect(input).toHaveAttribute('multiple');
+    expect(input).toHaveAttribute('accept', '.json,application/json');
+    const date = screen.getByLabelText(T.upload.date);
+    expect(date).toHaveValue('2026-10-21');
+    expect(date).toHaveAttribute('max', '2026-10-21');
+    expect(screen.getByRole('button', { name: T.upload.submit })).toBeDisabled();
+  });
+
+  it('reads the files in the browser and previews the counts, skipped entries and skipped files', async () => {
+    view();
+    choose(json('followers_1.json', [entry('alice'), entry('bob'), { junk: true }]), json('following.json', { relationships_following: [entry('carol')] }), json('recently_unfollowed_profiles.json', { relationships_unfollowed_users: [] }));
+    expect(await screen.findByText('2 followers and 1 account you follow')).toBeInTheDocument();
+    expect(screen.getByText('1 entry is not a valid username and will be skipped.')).toBeInTheDocument();
+    expect(screen.getByText('Not needed, skipped: recently_unfollowed_profiles.json')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: T.upload.submit })).toBeEnabled();
+  });
+
+  it('wrong files are refused before reading, with the file named and the limit formatted', async () => {
+    view();
+    choose(new File(['x'], 'instagram-shop.one.zip'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('instagram-shop.one.zip is a zip file. Unzip it first');
+    choose(...Array.from({ length: 11 }, (_, i) => json(`followers_${i}.json`, [])));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose at most 10 files.');
+    choose(json('following.json', { relationships_following: [entry('carol')] }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.errors.needFollowers);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('uploads ONLY usernames and times to the owner route, then closes and refreshes the page', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 201, headers: { 'content-type': 'application/json' } }));
+    view();
+    choose(json('followers_1.json', [entry('Alice')]));
+    await screen.findByText(/1 follower\./);
+    fireEvent.change(screen.getByLabelText(T.upload.date), { target: { value: '2026-10-01' } });
+    fireEvent.click(screen.getByRole('button', { name: T.upload.submit }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/api/accounts/${ACC}/followers`);
+    expect(init).toMatchObject({ method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin' });
+    expect(JSON.parse(String(init.body))).toEqual({ v: 1, takenOn: '2026-10-01', followers: [['alice', 1_700_000_000]], following: null });
+    expect(String(init.body)).not.toContain('instagram.com'); // the raw file stays on the device
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('a future date is refused; a server error key is shown translated; anything else is "unexpected"', async () => {
+    view();
+    choose(json('followers_1.json', [entry('alice')]));
+    await screen.findByText(/1 follower\./);
+    fireEvent.change(screen.getByLabelText(T.upload.date), { target: { value: '2026-10-22' } });
+    fireEvent.click(screen.getByRole('button', { name: T.upload.submit }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.errors.badDate);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText(T.upload.date), { target: { value: '2026-10-21' } });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'tooManySnapshots' }), { status: 409 }));
+    fireEvent.click(screen.getByRole('button', { name: T.upload.submit }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('This account already has 60 snapshots.');
+    fetchMock.mockResolvedValueOnce(new Response('<html>login</html>', { status: 500 }));
+    fireEvent.click(screen.getByRole('button', { name: T.upload.submit }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(T.errors.unexpected));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('zh-CN: the preview and errors are translated', async () => {
+    view('zh-CN');
+    fireEvent.change(screen.getByLabelText(zh.pages.account.followerDiff.upload.files), { target: { files: [json('followers_1.json', [entry('alice'), entry('bob')])] } });
+    expect(await screen.findByText('2 位粉丝。没有 following.json，因此该快照的回关列表为空。')).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/follower-upload.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/account/FollowerUpload"`.
+
+- [ ] **Step 3: Write `components/account/FollowerUpload.tsx`** (exactly this):
+
+```tsx
+'use client';
+
+// The upload dialog of the Followers tab (Plan 15b). The chosen export files are size-checked BEFORE they are read and
+// parsed HERE, in the browser (lib/followers/parse.ts); only usernames and follow times are posted (as the compact
+// payload of lib/followers/payload.ts) to the owner-only route, which checks everything again. The raw files never
+// leave the device. Errors are keys of pages.account.followerDiff.errors.
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Upload } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import {
+  ResponsiveDialog,
+  ResponsiveDialogClose,
+  ResponsiveDialogContent,
+  ResponsiveDialogDescription,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogTrigger,
+} from '@/components/shared/ResponsiveDialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { formatNumber } from '@/lib/format';
+import { checkFiles, MAX_FILES, MAX_FOLLOWERS, MAX_FOLLOWING, parseExportFiles, type ParseError, type Parsed } from '@/lib/followers/parse';
+import { FIRST_DAY, MAX_BODY_BYTES, MAX_SNAPSHOTS, toPayload } from '@/lib/followers/payload';
+
+type ErrorKey = ParseError | 'badDate' | 'unauthorized' | 'invalid' | 'tooLarge' | 'notFound' | 'notReady' | 'tooManySnapshots' | 'unexpected';
+const SERVER_ERRORS: readonly string[] = ['unauthorized', 'invalid', 'tooLarge', 'notFound', 'notReady', 'tooManySnapshots', 'unexpected'];
+const MAX: Partial<Record<ErrorKey, number>> = { tooManyFiles: MAX_FILES, fileTooLarge: 32, totalTooLarge: 64, tooManyFollowers: MAX_FOLLOWERS, tooManyFollowing: MAX_FOLLOWING, tooManySnapshots: MAX_SNAPSHOTS };
+
+export function FollowerUpload({ accountId, username, today }: { accountId: string; username: string; today: string }) {
+  const t = useTranslations('pages.account.followerDiff');
+  const { prefs } = usePrefs();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [parsed, setParsed] = useState<Parsed | null>(null);
+  const [date, setDate] = useState(today);
+  const [error, setError] = useState<{ key: ErrorKey; file?: string } | null>(null);
+  const [busy, setBusy] = useState<'reading' | 'sending' | null>(null);
+  const n = (v: number) => formatNumber(v, prefs, { maximumFractionDigits: 0 });
+
+  const reset = () => {
+    setParsed(null);
+    setError(null);
+    setDate(today);
+    setBusy(null);
+  };
+
+  async function read(list: File[]) {
+    setParsed(null);
+    setError(null);
+    const bad = checkFiles(list.map((f) => ({ name: f.name, size: f.size }))); // before a byte is read
+    if (bad) return setError({ key: bad.error, file: bad.file });
+    setBusy('reading');
+    try {
+      const files = await Promise.all(list.map(async (f) => ({ name: f.name, text: await f.text() })));
+      const r = parseExportFiles(files, Math.floor(Date.now() / 1000));
+      if (r.ok) setParsed(r);
+      else setError({ key: r.error, file: r.file });
+    } catch {
+      setError({ key: 'badJson' });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function send() {
+    if (!parsed) return setError({ key: 'noFiles' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today || date < FIRST_DAY) return setError({ key: 'badDate' });
+    const body = toPayload({ takenOn: date, followers: parsed.followers, following: parsed.following });
+    if (new TextEncoder().encode(body).length > MAX_BODY_BYTES) return setError({ key: 'tooLarge' });
+    setBusy('sending');
+    setError(null);
+    try {
+      const res = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/followers`, { method: 'POST', headers: { 'content-type': 'application/json' }, body, credentials: 'same-origin' });
+      if (res.status === 201) {
+        setOpen(false);
+        reset();
+        router.refresh(); // the new snapshot appears in the tab
+        return;
+      }
+      const key = ((await res.json().catch(() => null)) as { error?: unknown } | null)?.error;
+      setError({ key: typeof key === 'string' && SERVER_ERRORS.includes(key) ? (key as ErrorKey) : res.redirected ? 'unauthorized' : 'unexpected' });
+    } catch {
+      setError({ key: 'unexpected' });
+    }
+    setBusy(null);
+  }
+
+  const message = error ? t(`errors.${error.key}`, { file: error.file ?? '', max: n(MAX[error.key] ?? 0) }) : null;
+  return (
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) reset();
+      }}
+    >
+      <ResponsiveDialogTrigger asChild>
+        <Button type="button">
+          <Upload aria-hidden="true" />
+          {t('upload.open')}
+        </Button>
+      </ResponsiveDialogTrigger>
+      <ResponsiveDialogContent>
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>{t('upload.title')}</ResponsiveDialogTitle>
+          <ResponsiveDialogDescription>{t('upload.description', { username })}</ResponsiveDialogDescription>
+        </ResponsiveDialogHeader>
+        <div className="grid gap-[var(--gp)]">
+          <FormField id="follower-files" label={t('upload.files')} hint={t('upload.filesHint')}>
+            {(p) => <Input {...p} type="file" multiple accept=".json,application/json" onChange={(e) => void read([...(e.target.files ?? [])])} />}
+          </FormField>
+          <div aria-live="polite" className="grid gap-1 text-sm">
+            {busy === 'reading' ? <p className="text-muted-foreground">{t('upload.reading')}</p> : null}
+            {parsed ? (
+              <>
+                <p>{parsed.following ? t('upload.preview', { followers: parsed.followers.length, following: parsed.following.length }) : t('upload.previewNoFollowing', { followers: parsed.followers.length })}</p>
+                {parsed.skipped ? <p className="text-xs text-muted-foreground">{t('upload.skipped', { count: parsed.skipped })}</p> : null}
+                {parsed.ignored.length ? <p className="text-xs text-muted-foreground">{t('upload.ignored', { files: parsed.ignored.join(', ') })}</p> : null}
+              </>
+            ) : null}
+          </div>
+          <FormField id="follower-date" label={t('upload.date')} hint={t('upload.dateHint')}>
+            {(p) => <Input {...p} type="date" min={FIRST_DAY} max={today} value={date} onChange={(e) => setDate(e.target.value)} />}
+          </FormField>
+          {message ? (
+            <p role="alert" className="text-xs text-destructive">
+              {message}
+            </p>
+          ) : null}
+        </div>
+        <ResponsiveDialogFooter>
+          <ResponsiveDialogClose asChild>
+            <Button type="button" variant="outline">
+              {t('upload.cancel')}
+            </Button>
+          </ResponsiveDialogClose>
+          <LoadingButton type="button" pending={busy === 'sending'} disabled={!parsed || busy !== null} onClick={() => void send()}>
+            {t('upload.submit')}
+          </LoadingButton>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
+  );
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/follower-upload.test.tsx tests/messages.test.ts`, `npx tsc --noEmit`, `npx eslint components/account/FollowerUpload.tsx tests/follower-upload.test.tsx`
+Expected: PASS (6 tests), tsc and eslint clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/account/FollowerUpload.tsx tests/follower-upload.test.tsx
+git commit -m "feat(followers): upload dialog (files parsed on the device, only usernames and dates sent)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
