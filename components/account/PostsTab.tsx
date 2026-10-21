@@ -263,7 +263,7 @@ export function PostsTab({
         columns={columns}
         rowKey={(p) => p.id}
         caption={t('caption')}
-        empty={t('empty')}
+        empty={chips.length ? t('emptyFiltered') : t('empty')}
         tile={tile}
         view={state.view ?? 'auto'}
         serverSort={{

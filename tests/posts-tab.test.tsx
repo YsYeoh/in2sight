@@ -86,6 +86,14 @@ describe('PostsTab: server pages', () => {
   });
 });
 
+describe('PostsTab: empty state', () => {
+  it('no filters set: "No posts yet"; with a filter set: "No posts match these filters"', () => {
+    view([], { total: 0 });
+    expect(screen.getAllByText(en.pages.account.posts.empty).length).toBeGreaterThan(0);
+    expect(screen.queryByText(en.pages.account.posts.emptyFiltered)).toBeNull();
+  });
+});
+
 describe('PostsTab: filters', () => {
   it('a toolbar: search, Posted, Format, Tag, Sort (one control height) and Grid | Table; the current values are shown', () => {
     view([], { state: { ...NEWEST, q: 'cat', format: 'REELS', tag: T1, sort: 'engagement' } });
@@ -97,7 +105,7 @@ describe('PostsTab: filters', () => {
     expect(within(bar).getByRole('combobox', { name: en.pages.account.posts.sort })).toHaveValue('engagement');
     for (const s of within(bar).getAllByRole('combobox')) expect(s).toHaveClass('h-[var(--ctl)]');
     expect(within(bar).getAllByRole('group', { name: en.pages.account.posts.view })[0]).toHaveClass('h-[var(--ctl)]');
-    expect(screen.getAllByText(en.pages.account.posts.empty).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(en.pages.account.posts.emptyFiltered).length).toBeGreaterThan(0); // filters are set in this test
   });
 
   it('every pick applies at once and goes back to page 1, keeping the other filters, the view and the scope', async () => {

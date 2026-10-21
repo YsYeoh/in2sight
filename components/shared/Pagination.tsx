@@ -32,7 +32,7 @@ export function Pagination({ page, pages, hrefFor }: { page: number; pages: numb
     <nav aria-label={t('label')} className="flex flex-wrap items-center justify-center gap-2">
       {step(1, t('first'), ChevronsLeft)}
       {step(page - 1, t('previous'), ChevronLeft)}
-      <span className="px-2 text-sm tabular-nums">{t('status', { page: n(page), pages: n(pages) })}</span>
+      <span className="px-2 text-sm tabular-nums" aria-live="polite">{t('status', { page: n(page), pages: n(pages) })}</span>
       {step(page + 1, t('next'), ChevronRight)}
       {step(pages, t('last'), ChevronsRight)}
     </nav>

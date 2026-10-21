@@ -424,7 +424,8 @@
       "pooled": "{count, plural, other {合并 # 个账号}}",
       "posts": {
         "caption": "帖子",
-        "empty": "没有符合筛选条件的帖子",
+        "empty": "还没有帖子",
+        "emptyFiltered": "没有符合筛选条件的帖子",
         "format": "形式",
         "tag": "标签",
         "all": "全部",
