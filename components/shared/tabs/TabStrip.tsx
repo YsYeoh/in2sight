@@ -57,7 +57,7 @@ export function TabStrip({ className }: { className?: string }) {
   return (
     <div className={cn('min-w-0 items-center gap-1', className)}>
       <TabNavButtons />
-      <div role="tablist" aria-label={t('strip')} className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div role="tablist" aria-label={t('strip')} className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
         {state.tabs.map((tab, i) => {
           const active = tab.id === state.active;
           const name = title(tab);
