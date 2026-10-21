@@ -1468,3 +1468,245 @@ Expected: PASS. Then `npx tsc --noEmit` and `npx eslint components/account/Growt
 git add components/account/GrowthTab.tsx tests/growth-tab.test.tsx
 git commit -m "feat(account): Growth tab (KPIs, followers and projection, follow flow, loyalty, audience change, why)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+### Task 9: Wiring — the Growth tab, the range bar on it, the page reads
+
+**Files:**
+- Modify: `lib/dashboard/account.ts`, `components/account/AccountView.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`
+- Test: `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` (`tests/route-loading.test.tsx` and `tests/ui-standards.test.ts` must keep passing unchanged: `TabSkeleton`'s default branch serves Growth; `AccountView` is already a `<RangeBar` user)
+
+**Interfaces:**
+- Consumes: Task 4 readers, Task 6 `buildGrowth`, `growthReadFrom`, `HOURLY_MAX_DAYS`, Task 8 `GrowthTab`; `loadDaily`, `loadPosts`, `MEDIA_LIMIT`, `daysToIso`, `daysIn`.
+- Produces: `TABS = ['overview', 'growth', 'posts', 'stories']`; `?tab=growth` renders the range bar (with `keep={{ tab: 'growth' }}`) and `<GrowthTab model={…} />`.
+
+The whole change is the patch below (it was produced from a working tree where every test of the repo passed). Apply it as `docs/superpowers/implementer-rules.md` §3 says (write it to a file outside the repo, then `git apply --check --ignore-whitespace <file>` and `git apply --ignore-whitespace <file>`: the checkout has CRLF line endings and the patch LF, verified to apply on `main` at `0cee097` this way; git normalises the endings on commit). The test changes: the tab list and the keyboard test now meet Growth right after Overview; a new `AccountView` test checks the range bar on Growth keeps `tab=growth`; the page test mocks `@/lib/dashboard/growth-read` and checks the reads (the hourly curve only for ≤ 7 days; never the admin client; the readers and the model share the first day).
+
+- [ ] **Step 1: Apply the test half and see it fail.** Apply the patch, then temporarily revert only the three source files (`git checkout -- lib/dashboard/account.ts components/account/AccountView.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx"`), run `npx vitest run tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx` — Expected: FAIL (`TABS` has three entries; no Growth tab; the growth reads are never called). Then re-apply the source hunks (`git apply --ignore-whitespace --include='lib/*' --include='components/*' --include='app/*' <file>`).
+
+- [ ] **Step 2: The patch**
+
+```diff
+diff --git a/app/(app)/accounts/[id]/(tabs)/page.tsx b/app/(app)/accounts/[id]/(tabs)/page.tsx
+index 8720787..a3ee76e 100644
+--- a/app/(app)/accounts/[id]/(tabs)/page.tsx
++++ b/app/(app)/accounts/[id]/(tabs)/page.tsx
+@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
+ import { ExportDialog } from '@/components/export/ExportDialog';
+ import { AccountOverview } from '@/components/account/AccountOverview';
+ import { AccountView } from '@/components/account/AccountView';
++import { GrowthTab } from '@/components/account/GrowthTab';
+ import { PostsTab } from '@/components/account/PostsTab';
+ import { StoriesTab } from '@/components/account/StoriesTab';
+ import { TabSkeleton } from '@/components/account/TabSkeleton';
+@@ -13,6 +14,8 @@ import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboa
+ import { buildAudience } from '@/lib/dashboard/audience';
+ import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
+ import { buildPosts, buildStories, storyView } from '@/lib/dashboard/content';
++import { buildGrowth, growthReadFrom, HOURLY_MAX_DAYS } from '@/lib/dashboard/growth';
++import { loadAudienceEnds, loadCommentDays, loadFollowerCurve, loadReachBreakdown, loadStoryDays } from '@/lib/dashboard/growth-read';
+ import { loadAudience, loadOnline, loadPostPage, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
+ import { LIST_KEYS, listWindow, pagePosts, pageStories, parsePostList, parseStoryList, postPageSize, postSortOf, storyPageSize } from '@/lib/dashboard/lists';
+ import { exportScopes } from '@/lib/export/params';
+@@ -21,6 +24,7 @@ import { getPrefs } from '@/lib/prefs.server';
+ import { createServerSupabase } from '@/lib/supabase/server';
+ import { addDays, dayStart, daysToIso, localDay } from '@/lib/sync/time';
+ import { isUuid } from '@/lib/tags';
++import { daysIn } from '@/lib/time-scope/range';
+ import { parseTimeScope, readFrom, resolveScope, type ResolvedScope } from '@/lib/time-scope/scope';
+ 
+ type SearchParams = Record<string, string | string[] | undefined>;
+@@ -65,6 +69,22 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
+       const { stories, truncated } = await loadStories(db, account.id, fromIso, toIso);
+       return <StoriesTab {...pageStories(buildStories(stories, now), state, tz)} truncated={truncated} {...props} />;
+     }
++    case 'growth': {
++      // the range + 90 days before it (same-weekday history, Why baselines) + the last 28 days (projection); Plan 15a
++      const fromDay = growthReadFrom(scope, today);
++      const { fromIso, toIso } = daysToIso(fromDay, scope.range.to, tz);
++      const range = daysToIso(scope.range.from, scope.range.to, tz);
++      const [daily, posts, breakdown, stories, comments, curve, audience] = await Promise.all([
++        loadDaily(db, account.id, fromDay),
++        loadPosts(db, account.id, MEDIA_LIMIT, fromIso),
++        loadReachBreakdown(db, account.id, fromDay, scope.range.to),
++        loadStoryDays(db, account.id, fromIso, toIso, tz),
++        loadCommentDays(db, account.id, fromIso, toIso, tz),
++        daysIn(scope.range) <= HOURLY_MAX_DAYS ? loadFollowerCurve(db, account.id, range.fromIso, range.toIso, tz) : null,
++        loadAudienceEnds(db, account.id, scope.range.from, scope.range.to),
++      ]);
++      return <GrowthTab model={buildGrowth({ daily, posts, breakdown, stories, comments, curve, audience }, { scope, today, tz, weekStart: prefs.weekStart })} />;
++    }
+     default: {
+       const fromDay = readFrom(scope.scope, today);
+       const pool = poolFor(account, await liveAccounts());
+diff --git a/components/account/AccountView.tsx b/components/account/AccountView.tsx
+index 7b1bc4b..5020063 100644
+--- a/components/account/AccountView.tsx
++++ b/components/account/AccountView.tsx
+@@ -76,7 +76,7 @@ export function AccountView({ account, tab, scope, today, exportButton, children
+           <TabsContent key={v} value={v} aria-busy={pending || undefined} className={cn('min-w-0 pt-[var(--gp)] transition-opacity', pending && 'opacity-60')}>
+             {v === tab ? (
+               <>
+-                {v === 'overview' ? <RangeBar scope={scope} today={today} /> : null}
++                {v === 'overview' || v === 'growth' ? <RangeBar scope={scope} today={today} keep={v === 'growth' ? { tab: v } : undefined} /> : null}
+                 {children}
+               </>
+             ) : null}
+diff --git a/lib/dashboard/account.ts b/lib/dashboard/account.ts
+index 8c1bd42..b694b22 100644
+--- a/lib/dashboard/account.ts
++++ b/lib/dashboard/account.ts
+@@ -13,7 +13,7 @@ import { localDay } from '@/lib/sync/time';
+ import type { ResolvedScope } from '@/lib/time-scope/scope';
+ 
+ // Audience is the last section of Overview (ux-polish design §4.2); ?tab=audience redirects there
+-export const TABS = ['overview', 'posts', 'stories'] as const;
++export const TABS = ['overview', 'growth', 'posts', 'stories'] as const; // Growth: Plan 15a
+ export type Tab = (typeof TABS)[number];
+ 
+ /** ?tab= from the URL. Allow-list only: arrays (?tab=a&tab=b), unknown or hostile values fall back to overview. */
+diff --git a/tests/account-page.test.tsx b/tests/account-page.test.tsx
+index a5eaedc..0dd9b9b 100644
+--- a/tests/account-page.test.tsx
++++ b/tests/account-page.test.tsx
+@@ -1,7 +1,7 @@
+ import { Suspense, isValidElement, type ReactElement } from 'react';
+ import { beforeEach, describe, expect, it, vi } from 'vitest';
+ 
+-const { calls, accounts, fail, since, storiesFrom, storyArgs, postArgs, migrated } = vi.hoisted(() => ({ calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[], storyArgs: [] as Record<string, unknown>[], postArgs: [] as Record<string, unknown>[], migrated: { stories: true, posts: true } }));
++const { calls, accounts, fail, since, storiesFrom, storyArgs, postArgs, migrated, growthArgs } = vi.hoisted(() => ({ growthArgs: { breakdownFrom: [] as string[] }, calls: [] as string[], accounts: [] as Record<string, unknown>[], fail: { postRows: false }, since: [] as (string | null)[], storiesFrom: [] as string[], storyArgs: [] as Record<string, unknown>[], postArgs: [] as Record<string, unknown>[], migrated: { stories: true, posts: true } }));
+ 
+ vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => void calls.push('requireOwner') }));
+ vi.mock('next/navigation', () => ({
+@@ -41,9 +41,17 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
+   loadAudience: async () => (calls.push('audience'), { age_gender: null, country: null, city: null }),
+ }));
+ 
++vi.mock('@/lib/dashboard/growth-read', () => ({
++  loadReachBreakdown: async (_db: unknown, _id: string, from: string) => (calls.push('breakdown'), growthArgs.breakdownFrom.push(from), []),
++  loadFollowerCurve: async () => (calls.push('curve'), []),
++  loadStoryDays: async () => (calls.push('storyDays'), { days: {}, from: null }),
++  loadCommentDays: async () => (calls.push('commentDays'), { days: {}, from: null }),
++  loadAudienceEnds: async () => (calls.push('audienceEnds'), { first: { age_gender: null, country: null, city: null }, last: { age_gender: null, country: null, city: null } }),
++}));
++
+ import AccountPage from '@/app/(app)/accounts/[id]/(tabs)/page';
+ import { DEFAULT_PREFS } from '@/lib/prefs';
+-import { daysToIso } from '@/lib/sync/time';
++import { daysToIso, localDay } from '@/lib/sync/time';
+ 
+ const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+ const acct = (id: string, status = 'active', o: Record<string, unknown> = {}) => ({ id, igUserId: id, username: `u${id.slice(0, 4)}`, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status, archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-09-01T00:00:00Z', ...o });
+@@ -66,6 +74,7 @@ beforeEach(() => {
+   migrated.posts = true;
+   accounts.length = 0;
+   fail.postRows = false;
++  growthArgs.breakdownFrom.length = 0;
+ });
+ 
+ describe('account detail page', () => {
+@@ -256,3 +265,25 @@ describe('account page: Posts list (Plan 14b)', () => {
+     }
+   });
+ });
++
++describe('account page: Growth tab (Plan 15a)', () => {
++  it('reads the scope plus the 90-day look-back with the owner session, builds the model and hands it to the tab', async () => {
++    accounts.push(acct(ID));
++    const el = await run(ID, { tab: 'growth', from: '30d' });
++    const tab = (await streamTab(el)) as ReactElement<{ model: { scope: { range: { to: string } }; days: { day: string }[] } }>;
++    expect(el.props.tab).toBe('growth');
++    expect(calls).toEqual(expect.arrayContaining(['daily', 'posts', 'breakdown', 'storyDays', 'commentDays', 'audienceEnds']));
++    expect(calls).not.toContain('curve'); // 30 days: daily points, no hourly read
++    expect(calls).not.toContain('ADMIN');
++    expect(calls).not.toContain('postPage');
++    const today = localDay(new Date(), DEFAULT_PREFS.timezone);
++    expect(tab.props.model.scope.range.to).toBe(today);
++    expect(tab.props.model.days[0].day).toBe(growthArgs.breakdownFrom[0]); // the readers and the model use the same first day
++  });
++
++  it('ranges of 7 days or less also read the hourly follower curve', async () => {
++    accounts.push(acct(ID));
++    await streamTab(await run(ID, { tab: 'growth', from: '7d' }));
++    expect(calls).toContain('curve');
++  });
++});
+diff --git a/tests/account-view.test.tsx b/tests/account-view.test.tsx
+index 1d5e4f7..0186da5 100644
+--- a/tests/account-view.test.tsx
++++ b/tests/account-view.test.tsx
+@@ -58,7 +58,7 @@ function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
+ 
+ describe('AccountView', () => {
+   const head = { id: ID, username: 'brand.one', displayName: 'Brand One', groupName: 'Brand X' };
+-  const frame = (tab: 'overview' | 'posts' | 'stories', q = '', children = <p>panel</p>) => (
++  const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories', q = '', children = <p>panel</p>) => (
+     <AccountView account={head} tab={tab} scope={scopeOf(q)} today={TODAY}>
+       {children}
+     </AccountView>
+@@ -81,7 +81,7 @@ describe('AccountView', () => {
+     wrap(frame('posts', '', <p>posts panel</p>));
+     const list = screen.getByRole('tablist', { name: en.pages.account.tabs });
+     const tabs = within(list).getAllByRole('tab');
+-    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Posts', 'Stories']);
++    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories']);
+     expect(list).toHaveAttribute('data-variant', 'line');
+     expect(within(list).getByRole('tab', { name: 'Posts' })).toHaveAttribute('aria-selected', 'true');
+     expect(screen.getByRole('tabpanel')).toHaveTextContent('posts panel');
+@@ -94,10 +94,10 @@ describe('AccountView', () => {
+     expect(push).toHaveBeenCalledWith('?tab=stories', { scroll: false });
+     screen.getByRole('tab', { name: 'Overview' }).focus();
+     await user.keyboard('{ArrowRight}'); // manual activation: arrows move focus only
+-    expect(screen.getByRole('tab', { name: 'Posts' })).toHaveFocus();
++    expect(screen.getByRole('tab', { name: 'Growth' })).toHaveFocus();
+     expect(push).toHaveBeenCalledTimes(1);
+     await user.keyboard('{Enter}');
+-    expect(push).toHaveBeenLastCalledWith('?tab=posts', { scroll: false });
++    expect(push).toHaveBeenLastCalledWith('?tab=growth', { scroll: false });
+   });
+ 
+   it('the time scope travels (tabs, back link, calendar link); the range bar shows on Overview only, inside its panel', async () => {
+@@ -116,6 +116,14 @@ describe('AccountView', () => {
+       expect(screen.queryByRole('navigation', { name: en.timeScope.presets })).toBeNull();
+     }
+   });
++
++  it('Growth: the range bar shows inside its panel and every range link keeps the tab (a range change stays on Growth, drops ?day)', () => {
++    wrap(frame('growth', 'from=90d'));
++    const panel = screen.getByRole('tabpanel');
++    expect(within(panel).getByRole('navigation', { name: en.timeScope.presets })).toBeInTheDocument();
++    expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?tab=growth&from=7d');
++    expect(screen.getByRole('tab', { name: 'Growth' })).toHaveAttribute('aria-selected', 'true');
++  });
+ });
+ 
+ describe('AccountOverview', () => {
+diff --git a/tests/dashboard-account.test.ts b/tests/dashboard-account.test.ts
+index 80b3404..49baac6 100644
+--- a/tests/dashboard-account.test.ts
++++ b/tests/dashboard-account.test.ts
+@@ -16,9 +16,9 @@ const optsOf = (q: string) => ({ scope: resolveScope(parseTimeScope(new URLSearc
+ const opts = optsOf('from=7d');
+ 
+ describe('parseTab', () => {
+-  it('accepts the three tabs only; the old Audience tab and injections fall back to overview', () => {
+-    expect(TABS).toEqual(['overview', 'posts', 'stories']);
+-    expect(['overview', 'posts', 'stories', 'audience'].map(parseTab)).toEqual(['overview', 'posts', 'stories', 'overview']);
++  it('accepts the four tabs only; the old Audience tab and injections fall back to overview', () => {
++    expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories']);
++    expect(['overview', 'growth', 'posts', 'stories', 'audience', 'GROWTH'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'overview', 'overview']);
+     for (const bad of [undefined, '', 'POSTS', 'settings', '<script>alert(1)</script>', 'posts ', ['posts', 'audience'], 42, '__proto__', 'constructor']) expect(parseTab(bad)).toBe('overview');
+   });
+ });
+```
+
+- [ ] **Step 3: Run the tests**
+
+Run: `npx vitest run tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx tests/route-loading.test.tsx tests/ui-standards.test.ts tests/growth-tab.test.tsx`
+Expected: PASS. Then `npx tsc --noEmit` and `npx eslint "app/(app)/accounts/[id]/(tabs)/page.tsx" components/account/AccountView.tsx lib/dashboard/account.ts tests/account-page.test.tsx tests/account-view.test.tsx tests/dashboard-account.test.ts`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add lib/dashboard/account.ts components/account/AccountView.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx
+git commit -m "feat(account): Growth tab on the account page (range bar, owner-session reads)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
