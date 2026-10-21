@@ -9,14 +9,18 @@ vi.mock('@/lib/alerts/read', () => ({ loadNotifications: async () => (calls.push
 vi.mock('next-intl/server', () => ({ getTranslations: async () => (key: string) => `loading.${key}` }));
 vi.mock('@/app/login/actions', () => ({ signOutAction: vi.fn() }));
 vi.mock('@/app/(app)/notifications/actions', () => ({ markReadAction: vi.fn(), markAllReadAction: vi.fn() }));
+const req = vi.hoisted(() => ({ dest: 'document' as string | null }));
+vi.mock('next/headers', () => ({ headers: async () => new Headers(req.dest ? { 'sec-fetch-dest': req.dest } : {}) }));
 
 import AppLayout from '@/app/(app)/layout';
+import { InstallPrompt } from '@/components/pwa/InstallPrompt';
 
 type Bell = ReactElement<{ fallback: ReactElement; children: ReactElement<Record<string, unknown>> }>;
-const layout = () => AppLayout({ children: <p>page</p> }) as Promise<ReactElement<{ userEmail: string; bell: Bell }>>;
+const layout = () => AppLayout({ children: <p>page</p> }) as Promise<ReactElement<{ userEmail: string; bell: Bell; framed: boolean; install: ReactElement; children: ReactElement }>>;
 
 beforeEach(() => {
   calls.length = 0;
+  req.dest = 'document';
 });
 
 describe('(app) layout', () => {
@@ -25,6 +29,20 @@ describe('(app) layout', () => {
     expect(calls).toEqual(['owner']);
     expect(el.props.userEmail).toBe('a@b.c');
     expect(el.props.bell.type).toBe(Suspense);
+  });
+
+  it('tells the shell whether this request is a tab frame (Sec-Fetch-Dest: iframe)', async () => {
+    expect((await layout()).props.framed).toBe(false);
+    req.dest = 'iframe';
+    expect((await layout()).props.framed).toBe(true);
+    req.dest = null; // a browser that does not send it: the shell decides on the client
+    expect((await layout()).props.framed).toBe(false);
+  });
+
+  it('passes the install hint to the shell (only the top window gets the install event); the page is the only child', async () => {
+    const el = await layout();
+    expect(el.props.install.type).toBe(InstallPrompt);
+    expect(el.props.children).toEqual(<p>page</p>);
   });
 
   it('the bell fallback is an announced skeleton of the bell button size', async () => {
