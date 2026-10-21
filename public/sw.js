@@ -41,6 +41,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // Supabase, Instagram, fonts: straight to the network
 
+  // A tab's frame (Plan 14c) is left to the browser: a fetch() from here would drop its `Sec-Fetch-Dest: iframe`, which
+  // the app reads to render the page without the shell chrome. Offline, that frame shows the browser's own error.
+  if (req.mode === 'navigate' && req.destination === 'iframe') return;
   if (req.mode === 'navigate') {
     // pages are always fetched live; only when the network is down do we show the public offline page
     event.respondWith(fetch(req).catch(() => caches.match(OFFLINE).then((hit) => hit || Response.error())));
@@ -74,6 +77,8 @@ const safePath = (u) => {
     return '/overview';
   }
 };
+/** The app's tab pages (the shell lives on them): the same sections as NAV_ITEMS in lib/nav.ts (the worker test checks). */
+const TAB_PAGE = /^\/(overview|accounts|tags|calendar|explorer|settings)(\/|$)/;
 const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 
 self.addEventListener('push', (event) => {
@@ -97,11 +102,15 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = new URL(safePath(event.notification.data && event.notification.data.url), self.location.origin).href;
+  const path = safePath(event.notification.data && event.notification.data.url);
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
-      const open = wins.find((w) => w.url === target);
-      return open ? open.focus() : self.clients.openWindow(target);
+      // The app's frames (tabs, Plan 14c) are window clients too: talk to a top-level window showing the app shell only.
+      // It opens the page as a tab, or jumps to the tab that already shows it; without one the page opens in a new window.
+      const top = wins.find((w) => w.frameType === 'top-level' && TAB_PAGE.test(new URL(w.url).pathname));
+      if (!top) return self.clients.openWindow(new URL(path, self.location.origin).href);
+      top.postMessage({ type: 'in2sight:open', url: path });
+      return top.focus();
     }),
   );
 });
