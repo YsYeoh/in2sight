@@ -18,8 +18,10 @@ const nextConfig: NextConfig = {
     "/api/export/pdf": ["./node_modules/@sparticuz/chromium/bin/**"],
   },
   // The service worker must always be revalidated (a stale sw.js would pin an old worker) and may control the whole site.
+  // Every route may be framed by the app itself only (its tabs, Plan 14c), never by another site.
   async headers() {
     return [
+      { source: "/:path*", headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self'" }] },
       {
         source: "/sw.js",
         headers: [

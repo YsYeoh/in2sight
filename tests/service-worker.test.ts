@@ -3,11 +3,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
+import { NAV_ITEMS } from '@/lib/nav';
 
 const SRC = readFileSync(join(process.cwd(), 'public/sw.js'), 'utf8');
 const ORIGIN = 'https://app.test';
 type Handler = (e: Record<string, unknown>) => void;
-type Req = { url: string; method: string; mode: string };
+type Req = { url: string; method: string; mode: string; destination?: string };
+type Win = { url: string; frameType: string; focus: () => void; postMessage: (m: unknown) => void };
 
 const basic = (body: string, status = 200) => Object.defineProperty(new Response(body, { status }), 'type', { value: 'basic' }); // like a same-origin fetch
 
@@ -35,7 +37,7 @@ function load(o: { offline?: boolean; status?: number } = {}) {
     addEventListener: (t: string, fn: Handler) => void (handlers[t] = fn),
     location: { origin: ORIGIN },
     skipWaiting: vi.fn(async () => {}),
-    clients: { claim: vi.fn(async () => {}), matchAll: vi.fn(async () => [] as { url: string; focus: () => void }[]), openWindow: vi.fn(async () => null) },
+    clients: { claim: vi.fn(async () => {}), matchAll: vi.fn(async () => [] as Win[]), openWindow: vi.fn(async () => null) },
     registration: { showNotification: vi.fn(async () => {}) },
   };
   runInNewContext(SRC, { self, caches, fetch, Response, URL, Promise, console });
@@ -164,15 +166,37 @@ describe('service worker', () => {
     expect(call[1].data.url).toBe('/accounts/a1?tab=posts#top');
   });
 
-  it('notification click focuses an open window on that page, else opens one', async () => {
+  it('a tab frame’s navigation is left to the browser (keeps Sec-Fetch-Dest: iframe); a top-level navigation is still answered', async () => {
+    const sw = load();
+    expect(sw.fire('fetch', { request: req('/overview', { mode: 'navigate', destination: 'iframe' }) }).responded).toBeUndefined();
+    expect(sw.fire('fetch', { request: req('/overview', { mode: 'navigate', destination: 'document' }) }).responded).toBeDefined();
+  });
+
+  it('notification click without an app window opens one at the page', async () => {
     const sw = load();
     const close = vi.fn();
     await sw.fire('notificationclick', { notification: { close, data: { url: '/accounts' } } }).settled();
     expect(close).toHaveBeenCalled();
     expect(sw.self.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/accounts`);
-    const focus = vi.fn();
-    sw.self.clients.matchAll.mockResolvedValueOnce([{ url: `${ORIGIN}/accounts`, focus }]);
-    await sw.fire('notificationclick', { notification: { close, data: { url: '/accounts' } } }).settled();
-    expect(focus).toHaveBeenCalled();
+  });
+
+  it('notification click asks the top-level app window to open the page as a tab and focuses it; frames and other pages are ignored', async () => {
+    const sw = load();
+    const win = (path: string, frameType: string): Win => ({ url: `${ORIGIN}${path}`, frameType, focus: vi.fn(), postMessage: vi.fn() });
+    const frame = win('/accounts/a1?tab=posts', 'nested');
+    const report = win('/report?scope=all', 'top-level');
+    const shell = win('/explorer', 'top-level');
+    sw.self.clients.matchAll.mockResolvedValueOnce([frame, report, shell]);
+    await sw.fire('notificationclick', { notification: { close: vi.fn(), data: { url: '/accounts/a1?tab=posts' } } }).settled();
+    expect(shell.postMessage).toHaveBeenCalledWith({ type: 'in2sight:open', url: '/accounts/a1?tab=posts' });
+    expect(shell.focus).toHaveBeenCalled();
+    for (const w of [frame, report]) expect(w.postMessage).not.toHaveBeenCalled();
+    expect(sw.self.clients.openWindow).not.toHaveBeenCalled();
+  });
+
+  it('the worker knows the same tab pages as the app navigation', () => {
+    const re = SRC.match(/const TAB_PAGE = (\/.+\/);/)![1];
+    for (const { href } of NAV_ITEMS) expect(new RegExp(re.slice(1, -1)).test(href), href).toBe(true);
+    expect(re).toContain(NAV_ITEMS.map((i) => i.href.slice(1)).join('|'));
   });
 });
