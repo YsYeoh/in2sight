@@ -337,3 +337,199 @@ Expected: PASS (same keys in both files, matching placeholders — note `project
 git add messages/en.json messages/zh-CN.json
 git commit -m "feat(i18n): growth tab strings (en, zh-CN)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+### Task 2: Trend maths — robust z-score, same-weekday anomaly, follower projection
+
+**Files:**
+- Create: `lib/analysis/trend.ts`
+- Test: `tests/analysis-trend.test.ts` (new)
+
+**Interfaces:**
+- Consumes: `median` (`lib/analysis/posts.ts`), `addDays` (`lib/sync/time.ts`), `daysBetween` (`lib/time-scope/range.ts`).
+- Produces (Task 6 uses all of them):
+  - `export const ANOMALY = { weeks: 8, minSamples: 4, threshold: 3.5, minAbs: 3, minRel: 0.1 } as const;`
+  - `export const PROJECTION = { days: 28, minPoints: 14, mediumPoints: 21, horizons: [7, 30, 90] } as const;`
+  - `export function robustZ(v: number, history: number[]): number | null`
+  - `export interface Anomaly { value: number; median: number; n: number; z: number | null; unusual: boolean; direction: 'up' | 'down' | 'flat' }`, `export type AnomalyResult = Anomaly | { reason: 'few_samples'; n: number };`
+  - `export function weekdayAnomaly(series: Record<string, number | null>, day: string): AnomalyResult | null` (null = the day has no value)
+  - `export interface Projection { method: 'median_slope'; n: number; from: string; to: string; last: number; perDay: number; confidence: 'low' | 'medium'; horizons: { days: number; value: number; low: number; high: number }[] }`, `export type ProjectionResult = Projection | { reason: 'not_enough_history'; n: number };`
+  - `export function projectFollowers(points: { day: string; value: number }[]): ProjectionResult`
+
+- [ ] **Step 1: Write the failing test** — create `tests/analysis-trend.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { ANOMALY, PROJECTION, projectFollowers, robustZ, weekdayAnomaly, type Anomaly, type Projection } from '@/lib/analysis/trend';
+import { addDays } from '@/lib/sync/time';
+
+const WED = '2026-10-14'; // a Wednesday
+/** The same weekday 1, 2, 3 … weeks before WED get vals[0], vals[1], vals[2] …; `extra` sets any other day. */
+const weekly = (vals: (number | null)[], extra: Record<string, number | null> = {}) => ({ ...Object.fromEntries(vals.map((v, i) => [addDays(WED, -7 * (i + 1)), v])), ...extra });
+const series = (start: string, vals: number[]) => vals.map((value, i) => ({ day: addDays(start, i), value }));
+const NORMAL = [10, 12, 11, 13, 9, 10, 12, 11]; // median 11, MAD 1
+
+describe('robustZ', () => {
+  it('is the modified z-score: (v − median) / (1.4826 × MAD)', () => {
+    expect(robustZ(30, NORMAL)).toBeCloseTo(12.815, 3);
+    expect(robustZ(11, NORMAL)).toBe(0);
+  });
+
+  it('a MAD of 0 falls back to 1.2533 × the mean absolute deviation; an identical or empty history has no z', () => {
+    expect(robustZ(9, [5, 5, 5, 5, 9])).toBeCloseTo(3.989, 3);
+    expect(robustZ(9, [5, 5, 5, 5])).toBeNull();
+    expect(robustZ(5, [])).toBeNull();
+  });
+});
+
+describe('weekdayAnomaly', () => {
+  it('a value far above the same weekday of the 8 weeks before is unusual; other weekdays and older weeks are ignored', () => {
+    const r = weekdayAnomaly(weekly(NORMAL, { [WED]: 30, [addDays(WED, -1)]: 1000, [addDays(WED, -63)]: 500 }), WED) as Anomaly;
+    expect(r).toMatchObject({ value: 30, median: 11, n: 8, unusual: true, direction: 'up' });
+    expect(r.z).toBeCloseTo(12.815, 3);
+  });
+
+  it('far below is unusual too (direction down); a usual value is not', () => {
+    expect(weekdayAnomaly(weekly(NORMAL, { [WED]: 0 }), WED)).toMatchObject({ unusual: true, direction: 'down' });
+    const r = weekdayAnomaly(weekly(NORMAL, { [WED]: 12 }), WED) as Anomaly;
+    expect(r).toMatchObject({ unusual: false, direction: 'up' });
+    expect(r.z).toBeCloseTo(0.674, 3);
+  });
+
+  it('no value on the day → null; fewer than 4 same-weekday values (nulls skipped) → few_samples', () => {
+    expect(weekdayAnomaly(weekly(NORMAL), WED)).toBeNull();
+    expect(weekdayAnomaly(weekly(NORMAL, { [WED]: null }), WED)).toBeNull();
+    expect(weekdayAnomaly(weekly([10, null, 12, null, 11], { [WED]: 50 }), WED)).toEqual({ reason: 'few_samples', n: 3 });
+    expect(ANOMALY.minSamples).toBe(4);
+  });
+
+  it('tiny or relatively small changes are never unusual: |v − median| must reach max(3, 10 % of the median)', () => {
+    expect(weekdayAnomaly(weekly([0, 0, 0, 0, 1, 0, 0, 0], { [WED]: 2 }), WED)).toMatchObject({ unusual: false }); // z ≈ 12.8 but only +2
+    expect(weekdayAnomaly(weekly([0, 0, 0, 0], { [WED]: 3 }), WED)).toMatchObject({ z: null, unusual: true, direction: 'up' }); // identical history, +3
+    expect(weekdayAnomaly(weekly([1000, 1000, 1010, 990, 1000, 1005, 995, 1000], { [WED]: 1080 }), WED)).toMatchObject({ median: 1000, unusual: false }); // z ≈ 21.6 but +80 < 100
+  });
+});
+
+describe('projectFollowers', () => {
+  it('a steady line: the exact numbers, no band, medium confidence', () => {
+    expect(projectFollowers(series('2026-09-17', Array.from({ length: 28 }, (_, i) => 1000 + 10 * i)))).toEqual({
+      method: 'median_slope',
+      n: 28,
+      from: '2026-09-17',
+      to: '2026-10-14',
+      last: 1270,
+      perDay: 10,
+      confidence: 'medium',
+      horizons: [
+        { days: 7, value: 1340, low: 1340, high: 1340 },
+        { days: 30, value: 1570, low: 1570, high: 1570 },
+        { days: 90, value: 2170, low: 2170, high: 2170 },
+      ],
+    });
+  });
+
+  it('noisy growth: the band is the 25th–75th percentile of the pair slopes, rounded to the band’s precision', () => {
+    const noise = [0, 4, -3, 6, -5, 2, 0, -4, 7, -1, 3, -6, 5, 0, -2, 4, -3, 1, 6, -4, 0];
+    const p = projectFollowers(series('2026-09-24', noise.map((x, i) => 1000 + 10 * i + x))) as Projection;
+    expect(p).toMatchObject({ n: 21, from: '2026-09-24', to: '2026-10-14', last: 1200, perDay: 10, confidence: 'medium' });
+    expect(p.horizons).toEqual([
+      { days: 7, value: 1270, low: 1265, high: 1275 },
+      { days: 30, value: 1500, low: 1480, high: 1520 },
+      { days: 90, value: 2100, low: 2000, high: 2200 },
+    ]);
+  });
+
+  it('no clear direction (the middle half of the slopes spans zero) → low confidence', () => {
+    const p = projectFollowers(series('2026-09-24', Array.from({ length: 21 }, (_, i) => 1000 + (i % 2 ? 8 : -8)))) as Projection;
+    expect(p).toMatchObject({ n: 21, last: 992, perDay: 0, confidence: 'low' });
+    expect(p.horizons).toEqual([
+      { days: 7, value: 990, low: 980, high: 1000 },
+      { days: 30, value: 990, low: 960, high: 1030 },
+      { days: 90, value: 1000, low: 900, high: 1100 },
+    ]);
+  });
+
+  it('uses only the 28 days ending on the latest count (any order); under 14 counts → not enough history', () => {
+    const steady = series('2026-09-17', Array.from({ length: 28 }, (_, i) => 1000 + 10 * i));
+    const withOld = [...steady, { day: '2026-09-15', value: 0 }, { day: '2026-09-16', value: 5000 }].reverse();
+    expect(projectFollowers(withOld)).toMatchObject({ n: 28, from: '2026-09-17', perDay: 10 });
+    expect(projectFollowers(steady.slice(0, 13))).toEqual({ reason: 'not_enough_history', n: 13 });
+    expect(projectFollowers([])).toEqual({ reason: 'not_enough_history', n: 0 });
+    expect(PROJECTION.minPoints).toBe(14);
+  });
+
+  it('never projects below zero; 14–20 counts are low confidence', () => {
+    const p = projectFollowers(series('2026-10-01', Array.from({ length: 14 }, (_, i) => 100 - 7 * i))) as Projection;
+    expect(p).toMatchObject({ n: 14, last: 9, perDay: -7, confidence: 'low' });
+    expect(p.horizons.map((h) => [h.value, h.low, h.high])).toEqual([[0, 0, 0], [0, 0, 0], [0, 0, 0]]);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/analysis-trend.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/analysis/trend"`.
+
+- [ ] **Step 3: Implement `lib/analysis/trend.ts`** — a header comment naming both methods (Iglewicz–Hoaglin modified z-score; Theil–Sen median slope) and why (robust to the odd viral day; never a fake precise number). The algorithms, exactly:
+
+```ts
+/** Modified z-score (Iglewicz & Hoaglin): robust to outliers in the history itself. */
+export function robustZ(v: number, history: number[]): number | null {
+  const m = median(history);
+  if (m === null) return null;
+  const dev = history.map((x) => Math.abs(x - m));
+  const mad = median(dev)!;
+  if (mad > 0) return (v - m) / (1.4826 * mad);
+  const meanDev = dev.reduce((a, d) => a + d, 0) / dev.length;
+  return meanDev > 0 ? (v - m) / (1.2533 * meanDev) : null;
+}
+
+export function weekdayAnomaly(series: Record<string, number | null>, day: string): AnomalyResult | null {
+  const value = series[day];
+  if (typeof value !== 'number') return null;
+  const history = Array.from({ length: ANOMALY.weeks }, (_, i) => series[addDays(day, -7 * (i + 1))]).filter((x): x is number => typeof x === 'number');
+  if (history.length < ANOMALY.minSamples) return { reason: 'few_samples', n: history.length };
+  const m = median(history)!;
+  const z = robustZ(value, history);
+  const diff = value - m;
+  const big = Math.abs(diff) >= Math.max(ANOMALY.minAbs, ANOMALY.minRel * Math.abs(m));
+  return { value, median: m, n: history.length, z, unusual: big && (z === null ? diff !== 0 : Math.abs(z) >= ANOMALY.threshold), direction: diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat' };
+}
+
+/** Nearest-rank percentile of a sorted list. */
+const rank = (sorted: number[], p: number) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+
+export function projectFollowers(points: { day: string; value: number }[]): ProjectionResult {
+  const sorted = [...points].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  const last = sorted[sorted.length - 1];
+  const w = last ? sorted.filter((p) => p.day >= addDays(last.day, -(PROJECTION.days - 1))) : [];
+  if (w.length < PROJECTION.minPoints) return { reason: 'not_enough_history', n: w.length };
+  const slopes: number[] = [];
+  for (let i = 0; i < w.length; i++) for (let j = i + 1; j < w.length; j++) slopes.push((w[j].value - w[i].value) / daysBetween(w[i].day, w[j].day));
+  slopes.sort((a, b) => a - b);
+  const perDay = median(slopes)!;
+  const q25 = rank(slopes, 0.25);
+  const q75 = rank(slopes, 0.75);
+  const horizons = PROJECTION.horizons.map((days) => {
+    const at = (s: number) => Math.max(0, last.value + s * days);
+    const step = 10 ** Math.max(0, Math.floor(Math.log10(Math.max(1, at(q75) - at(q25)))));
+    return { days, value: Math.round(at(perDay) / step) * step, low: Math.floor(at(q25) / step) * step, high: Math.ceil(at(q75) / step) * step };
+  });
+  const clear = q25 >= 0 === q75 >= 0;
+  return { method: 'median_slope', n: w.length, from: w[0].day, to: last.day, last: last.value, perDay, confidence: w.length >= PROJECTION.mediumPoints && clear ? 'medium' : 'low', horizons };
+}
+```
+
+`ponytail:` the pair-slope loop is O(n²) on at most 28 points (378 slopes); never run it on longer series.
+
+- [ ] **Step 4: Run it to verify it passes**
+
+Run: `npx vitest run tests/analysis-trend.test.ts`
+Expected: PASS (11 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/analysis/trend.ts tests/analysis-trend.test.ts
+git commit -m "feat(analysis): robust z-score, same-weekday anomaly and median-slope follower projection" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
