@@ -843,3 +843,56 @@ Expected: PASS (both files; `loadAudience`'s existing test is unchanged and gree
 git add lib/dashboard/growth-read.ts lib/dashboard/detail-read.ts tests/growth-read.test.ts
 git commit -m "feat(dashboard): growth readers (reach breakdown, hourly followers, story and comment days, audience ends)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+### Task 5: Chart tone and tooltip label; `deltaView` with a definition
+
+**Files:**
+- Modify: `components/charts/SeriesChart.tsx`, `lib/metrics.ts`, `components/shared/useKpiDelta.ts`
+- Test: `tests/charts.test.tsx`, `tests/metrics.test.ts` (append)
+
+**Interfaces:**
+- Produces (Task 8):
+  - `Series` gains `tone?: 'good' | 'bad'` — the series is drawn (line/area stroke, bar fill, legend dot) in `var(--success)` / `var(--danger)` instead of `seriesColor(i)`; `export const toneColor = { good: 'var(--success)', bad: 'var(--danger)' } as const;`
+  - `SeriesChart` gains `formatLabel?: (v: string) => string` — the tooltip's label (defaults to `formatX`), so a tooltip can say "14 Oct 2026 · 2 posts, 3 Stories" while the axis says "14 Oct 2026".
+  - `lib/metrics.ts`: `export type DeltaDef = Pick<MetricDef, 'kind' | 'higherIsBetter'>;` and `deltaView(id: MetricId | DeltaDef, k: Kpi, p: FormatPrefs): DeltaView | null` (a string id reads `METRICS[id]` as before; an object is used as the definition).
+  - `useKpiDelta()` returns `(id: MetricId | DeltaDef, k: Kpi | undefined) => StatDelta | null`.
+
+- [ ] **Step 1: Write the failing tests.** Append to `tests/charts.test.tsx` inside `describe('SeriesChart', …)`:
+
+```tsx
+  it('a series with a tone uses the success / danger token (legend and marks); the others keep their chart colour', () => {
+    const { container } = render(<SeriesChart kind="bar" data={rows} xKey="day" series={[{ key: 'a', label: 'Follows', tone: 'good' }, { key: 'b', label: 'Unfollows', tone: 'bad' }, { key: 'a', label: 'Plain' }]} title="Flow" formatLabel={(v) => `${v} · 2 posts`} />);
+    const dots = [...container.querySelectorAll('[data-slot="series-chart"] li > span[aria-hidden="true"]')].map((s) => (s as HTMLElement).style.background);
+    expect(dots).toEqual(['var(--success)', 'var(--danger)', 'var(--chart-3)']);
+    expect(toneColor).toEqual({ good: 'var(--success)', bad: 'var(--danger)' });
+  });
+```
+
+and change the file's import to `import { SeriesChart, seriesColor, toneColor } from '@/components/charts/SeriesChart';`. Append to `tests/metrics.test.ts` inside `describe('deltaView', …)`:
+
+```ts
+  it('takes a { kind, higherIsBetter } definition for numbers outside the registry (lower-is-better turns a rise bad)', () => {
+    expect(deltaView({ kind: 'count', higherIsBetter: false }, k({ diff: 5, change: 0.5 }), P)).toEqual({ text: '+50.0%', unit: 'relative', direction: 'up', tone: 'bad' });
+    expect(deltaView({ kind: 'percent', higherIsBetter: false }, k({ diff: -0.01, change: -0.2 }), P)).toEqual({ text: '-1.0', unit: 'points', direction: 'down', tone: 'good' });
+    expect(deltaView({ kind: 'count', higherIsBetter: true }, k({ diff: null }), P)).toBeNull();
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/charts.test.tsx tests/metrics.test.ts`
+Expected: FAIL — `toneColor` is not exported / the legend shows `var(--chart-1)`, `var(--chart-2)`; `deltaView` with an object throws reading `METRICS[...]`.
+
+- [ ] **Step 3: Implement.** `SeriesChart.tsx`: add `tone?: 'good' | 'bad'` to `Series` (comment: "up/down meaning, e.g. follows vs unfollows: drawn in the success / danger token"), export `toneColor`, a local `colorOf = (s: Series, i: number) => (s.tone ? toneColor[s.tone] : seriesColor(i))` used by the legend dot, `Line` `stroke`, `Area` `stroke` + gradient stops, `Bar` `fill`; add the `formatLabel` prop and pass `labelFormatter={(v) => (formatLabel ?? formatX)(String(v))}` to the `Tooltip`. `lib/metrics.ts`: add `DeltaDef`, widen `deltaView`'s first parameter and start it with `const def = typeof id === 'string' ? METRICS[id] : id;`. `useKpiDelta.ts`: widen the returned function's `id` parameter to `MetricId | DeltaDef` (import the type).
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/charts.test.tsx tests/metrics.test.ts tests/charts-drill.test.tsx tests/stat-card.test.tsx`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/charts/SeriesChart.tsx lib/metrics.ts components/shared/useKpiDelta.ts tests/charts.test.tsx tests/metrics.test.ts
+git commit -m "feat(charts): good/bad series tone and tooltip label; deltaView takes a metric definition" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
