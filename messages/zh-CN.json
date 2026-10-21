@@ -46,6 +46,20 @@
     "settings": "设置",
     "signOut": "退出登录"
   },
+  "tabs": {
+    "strip": "已打开的标签页",
+    "newTab": "新建标签页",
+    "close": "关闭{title}",
+    "back": "后退",
+    "forward": "前进",
+    "refresh": "刷新此标签页",
+    "refreshStale": "刷新此标签页：已超过 30 分钟未查看，数字可能已过时",
+    "button": "标签页（{count}）",
+    "sheetTitle": "已打开的标签页",
+    "sheetHint": "切换、关闭或新建标签页。",
+    "openInTab": "在新标签页中打开 {name}",
+    "openLabInTab": "在新标签页中打开「{post}」的帖子实验室"
+  },
   "prefs": {
     "theme": "主题",
     "mode": "模式",

@@ -46,6 +46,20 @@
     "settings": "Settings",
     "signOut": "Sign out"
   },
+  "tabs": {
+    "strip": "Open tabs",
+    "newTab": "New tab",
+    "close": "Close {title}",
+    "back": "Back",
+    "forward": "Forward",
+    "refresh": "Refresh this tab",
+    "refreshStale": "Refresh this tab: not viewed for over 30 minutes, the numbers may be out of date",
+    "button": "Tabs ({count})",
+    "sheetTitle": "Open tabs",
+    "sheetHint": "Switch, close or open tabs.",
+    "openInTab": "Open {name} in a new tab",
+    "openLabInTab": "Open the Post Lab of {post} in a new tab"
+  },
   "prefs": {
     "theme": "Theme",
     "mode": "Mode",
