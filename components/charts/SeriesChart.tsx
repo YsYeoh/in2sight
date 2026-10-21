@@ -10,11 +10,14 @@ export interface Series {
   key: string; // property name in each data row
   label: string; // legend + tooltip name (already translated)
   muted?: boolean; // a secondary series (the comparison period): dashed line, lighter bar
+  tone?: 'good' | 'bad'; // up/down meaning, e.g. follows vs unfollows: drawn in the success / danger token
 }
 
 export type ChartRow = Record<string, string | number | null>;
 
 export const seriesColor = (i: number) => `var(--chart-${(i % 6) + 1})`;
+export const toneColor = { good: 'var(--success)', bad: 'var(--danger)' } as const;
+const colorOf = (s: Series, i: number) => (s.tone ? toneColor[s.tone] : seriesColor(i));
 
 /** The data index a chart click landed on. Recharts 3 reports it as a number or a numeric string; anything else is null. */
 export function clickedIndex(s: { activeTooltipIndex?: number | string | null } | null | undefined): number | null {
@@ -36,6 +39,7 @@ export function SeriesChart({
   height = 220,
   formatX = String,
   formatY = String,
+  formatLabel,
   animate = true,
   onPointClick,
 }: {
@@ -48,6 +52,7 @@ export function SeriesChart({
   height?: number;
   formatX?: (v: string) => string;
   formatY?: (v: number) => string;
+  formatLabel?: (v: string) => string; // the tooltip's label (defaults to formatX): "14 Oct 2026 · 2 posts" while the axis says "14 Oct 2026"
   animate?: boolean; // false for print/PDF: the snapshot must show the finished chart
   onPointClick?: (index: number) => void; // drill-down: a click on a bar / point. Mouse only: the linked table holds the keyboard path
 }) {
@@ -64,7 +69,7 @@ export function SeriesChart({
     <CartesianGrid key="grid" vertical={false} stroke="var(--border)" strokeDasharray="3 4" />,
     <XAxis key="x" dataKey={xKey} tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={(v) => formatX(String(v))} minTickGap={24} />,
     <YAxis key="y" tick={AXIS_TICK} tickLine={false} axisLine={false} width={44} tickFormatter={(v) => formatY(Number(v))} />,
-    <Tooltip key="tip" contentStyle={TOOLTIP_STYLE} labelStyle={{ fontWeight: 500 }} labelFormatter={(v) => formatX(String(v))} formatter={(v) => (typeof v === 'number' ? formatY(v) : String(v ?? ''))} />,
+    <Tooltip key="tip" contentStyle={TOOLTIP_STYLE} labelStyle={{ fontWeight: 500 }} labelFormatter={(v) => (formatLabel ?? formatX)(String(v))} formatter={(v) => (typeof v === 'number' ? formatY(v) : String(v ?? ''))} />,
   ];
 
   return (
@@ -72,7 +77,7 @@ export function SeriesChart({
       <ul className="mb-2 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
         {series.map((s, i) => (
           <li key={s.key} className="inline-flex min-w-0 items-center gap-1.5">
-            <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ background: seriesColor(i) }} />
+            <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ background: colorOf(s, i) }} />
             <span className="max-w-48 truncate">{s.label}</span>
           </li>
         ))}
@@ -81,7 +86,7 @@ export function SeriesChart({
         <LineChart {...common}>
           {parts}
           {series.map((s, i) => (
-            <Line key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} strokeDasharray={s.muted ? '4 3' : undefined} dot={false} activeDot={{ r: 4, fill: 'var(--surface)', strokeWidth: 2 }} connectNulls={false} isAnimationActive={anim} />
+            <Line key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={colorOf(s, i)} strokeWidth={2} strokeDasharray={s.muted ? '4 3' : undefined} dot={false} activeDot={{ r: 4, fill: 'var(--surface)', strokeWidth: 2 }} connectNulls={false} isAnimationActive={anim} />
           ))}
         </LineChart>
       ) : kind === 'area' ? (
@@ -89,21 +94,21 @@ export function SeriesChart({
           <defs>
             {series.map((s, i) => (
               <linearGradient key={s.key} id={`${gid}-${i}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stopColor={seriesColor(i)} stopOpacity={0.3} />
-                <stop offset="1" stopColor={seriesColor(i)} stopOpacity={0} />
+                <stop offset="0" stopColor={colorOf(s, i)} stopOpacity={0.3} />
+                <stop offset="1" stopColor={colorOf(s, i)} stopOpacity={0} />
               </linearGradient>
             ))}
           </defs>
           {parts}
           {series.map((s, i) => (
-            <Area key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={seriesColor(i)} strokeWidth={2} fill={`url(#${gid}-${i})`} connectNulls={false} isAnimationActive={anim} />
+            <Area key={s.key} dataKey={s.key} name={s.label} type="monotone" stroke={colorOf(s, i)} strokeWidth={2} fill={`url(#${gid}-${i})`} connectNulls={false} isAnimationActive={anim} />
           ))}
         </AreaChart>
       ) : (
         <BarChart {...common}>
           {parts}
           {series.map((s, i) => (
-            <Bar key={s.key} dataKey={s.key} name={s.label} fill={seriesColor(i)} fillOpacity={s.muted ? 0.45 : 1} radius={[4, 4, 0, 0]} maxBarSize={30} isAnimationActive={anim} />
+            <Bar key={s.key} dataKey={s.key} name={s.label} fill={colorOf(s, i)} fillOpacity={s.muted ? 0.45 : 1} radius={[4, 4, 0, 0]} maxBarSize={30} isAnimationActive={anim} />
           ))}
         </BarChart>
       )}

@@ -98,13 +98,16 @@ export interface DeltaView {
   tone: 'good' | 'bad' | 'neutral';
 }
 
+/** A definition for a number that is not a registry metric (the Growth tab's follows, unfollows, churn rate). */
+export type DeltaDef = Pick<MetricDef, 'kind' | 'higherIsBetter'>;
+
 /**
  * How a KPI's comparison is shown. Percent metrics change in percentage points; counts change relatively, or
  * absolutely when the previous value was 0 (no meaningful %). Null when there is nothing to compare.
  */
-export function deltaView(id: MetricId, k: Kpi, p: FormatPrefs): DeltaView | null {
+export function deltaView(id: MetricId | DeltaDef, k: Kpi, p: FormatPrefs): DeltaView | null {
   if (k.diff === null) return null;
-  const def = METRICS[id];
+  const def = typeof id === 'string' ? METRICS[id] : id;
   const points = def.kind === 'percent';
   const shown = points ? Number((k.diff * 100).toFixed(1)) : k.change !== null ? Number((k.change * 100).toFixed(1)) : Math.round(k.diff);
   const direction = shown > 0 ? 'up' : shown < 0 ? 'down' : 'flat';
