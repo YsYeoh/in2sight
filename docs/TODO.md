@@ -177,6 +177,15 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] Owner: run docs/RUNBOOK_TABS.md (Gate B: §1–§3 must pass before relying on the tabs / pushing to production); confirm the plan's open questions (Back re-renders the earlier page, titles from the heading, icon placement, phone Back in the sheet, 30-minute stale mark, live cap 3 on touch devices)
 - [ ] Status: Plans 14a, 14b and 14c are pushed to `main` (2026-10-21, `b8f723c`; Vercel deploys it). Migration `20261027000001_post_story_lists.sql` (14b) is APPLIED to the live database (2026-10-21). Nothing from 14a-14c is verified live yet. Old wording: apply only on the owner's go-ahead, before deploying code that needs it (until then the Posts and Stories tabs use the old capped reads).
 
+## 6k. Growth tab (Plan 15a; creator-toolkit design §6)
+- [x] Followers (daily, hourly for ≤ 7 days), change over the range, 7/30/90-day projection with method and confidence _(code done; NOT verified live — docs/RUNBOOK_GROWTH.md §3)_
+- [x] Follows vs unfollows (Instagram's, or the follower-count change under 100 followers), churn, best and worst days with what was published _(code done; NOT verified live)_
+- [x] Followers vs non-followers reached over time and per format; audience then vs now with highlighted changes _(code done; NOT verified live)_
+- [x] "Why did this change?": unusual days (same-weekday robust z-score) and rule-based reasons with evidence, sample and confidence; `?day`/`?why` in the URL _(code done; NOT verified live — RUNBOOK_GROWTH §4)_
+- [ ] Owner: run docs/RUNBOOK_GROWTH.md (§2 checks the uncertain FOLLOWER/NON_FOLLOWER mapping first); confirm the plan's open questions (own tab, no Overview roll-up, reach summed over formats, projection method, anomaly thresholds, then-vs-now audience, follow mapping check, no SQL)
+- [ ] Not captured (needs a sync change if wanted): engaged-audience demographics; demographics for `last_30_days` / `last_90_days`
+- [ ] Status: Plan 15a is code-complete on local `main`, NOT pushed and nothing verified live; no migration in 15a. Plans 14a-14c are pushed (`origin/main` `b8f723c` + docs `0cee097`) and the 14b migration is applied live (2026-10-21).
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
