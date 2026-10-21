@@ -12,6 +12,7 @@ import { FilterSearch, FilterSelect, FilterToolbar, type FilterChip } from '@/co
 import { MediaDrawer } from '@/components/shared/MediaDrawer';
 import { MediaThumb } from '@/components/shared/MediaThumb';
 import { NavLink } from '@/components/shared/NavLink';
+import { OpenInTab } from '@/components/shared/OpenInTab';
 import { Pagination } from '@/components/shared/Pagination';
 import { TagBadge } from '@/components/shared/TagBadge';
 import { Button } from '@/components/ui/button';
@@ -79,6 +80,7 @@ export function PostsTab({
   const ta = useTranslations('analysis');
   const tx = useTranslations('media');
   const tl = useTranslations('postLab');
+  const tTab = useTranslations('tabs');
   const { prefs } = usePrefs();
   const posted = usePostedName(state.dates, today);
   const count = (n: number | null) => formatNumber(n, prefs, { maximumFractionDigits: 0 });
@@ -98,9 +100,12 @@ export function PostsTab({
   /** The post's Post Lab: a small flask link next to the title / date (accessible name = "Open the Post Lab of …"). */
   const labLink = (p: PostView) =>
     accountId ? (
-      <Link href={postLabHref(accountId, p.id)} aria-label={tl('openFor', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
-        <FlaskConical aria-hidden="true" className="size-3.5" />
-      </Link>
+      <>
+        <Link href={postLabHref(accountId, p.id)} aria-label={tl('openFor', { post: label(p) })} className="shrink-0 text-muted-foreground hover:text-foreground">
+          <FlaskConical aria-hidden="true" className="size-3.5" />
+        </Link>
+        <OpenInTab href={postLabHref(accountId, p.id)} label={tTab('openLabInTab', { post: label(p) })} />
+      </>
     ) : null;
 
   // one drawer per post (content mounts only while open), opened by the cover button of a tile or a table row
