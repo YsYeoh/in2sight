@@ -92,6 +92,14 @@ describe('GrowthTab', () => {
     expect(within(best).getAllByRole('listitem')[0].textContent).toMatch(/: \+60, no posts, no Stories$/);
   });
 
+  it('a day before the first captured Story shows an unknown Story count, never "no Stories"', () => {
+    wrap(<GrowthTab model={model('from=7d', { ...input(), stories: { days: { [TODAY]: 1 }, from: null } })} />);
+    const best = screen.getByRole('heading', { name: g.best }).parentElement!;
+    const first = within(best).getAllByRole('listitem')[0].textContent!;
+    expect(first).toMatch(/: \+60, no posts, Story count unknown$/);
+    expect(first).not.toMatch(/no Stories/);
+  });
+
   it('loyalty: the per-format table names the formats and the change in points', () => {
     wrap(<GrowthTab model={model()} />);
     const table = screen.getByRole('table', { name: g.formatsTitle });

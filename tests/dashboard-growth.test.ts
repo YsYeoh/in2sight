@@ -70,6 +70,47 @@ describe('buildGrowth', () => {
     expect(m.flow.best[0]).toMatchObject({ day: '2026-10-14', net: 60, follows: 63, unfollows: 3 });
   });
 
+  it('today (only a part-day follower count, no follows/unfollows/reach) is not an unusual day, not in the flow and not in its source or best/worst', () => {
+    // eight steady Thursdays at +5, then today at 09:00 with +1 so far
+    const m = buildGrowth(steady({ [TODAY]: { followers: 1591, follows: null, unfollows: null, reach: null } }), opts());
+    expect(m.days.at(-1)).toMatchObject({ day: TODAY, net: 1, netSource: 'derived' });
+    expect(m.unusual.filter((u) => u.day === TODAY)).toEqual([]);
+    expect(m.unusual).toEqual([]);
+    expect(m.flow.source).toBe('instagram');
+    expect(m.flow.rows.at(-1)!.day).toBe('2026-10-14');
+    expect(m.flow.best.map((d) => d.day)).toEqual(['2026-10-14', '2026-10-13', '2026-10-12']);
+    expect(m.flow.worst).toEqual([]);
+    expect(m.followers.rows.at(-1)).toEqual({ day: TODAY, followers: 1591 }); // the count itself still shows today
+  });
+
+  it('an account whose every included day is derived says so, and today (derived from a part-day count) does not mix it in', () => {
+    const daily = ['2026-10-12', '2026-10-13', '2026-10-14', TODAY].map((d, i) => row(d, { followers: 80 + i }));
+    expect(buildGrowth({ ...EMPTY, daily }, opts()).flow.source).toBe('derived');
+  });
+
+  it('a day before the first captured Story is unknown (null), never "no Stories"; a later day with none is 0', () => {
+    const m = buildGrowth({ ...steady(), stories: { days: { '2026-10-12': 2 }, from: null } }, opts());
+    expect(m.days.find((d) => d.day === '2026-10-11')!.stories).toBeNull();
+    expect(m.days.find((d) => d.day === '2026-10-12')!.stories).toBe(2);
+    expect(m.days.find((d) => d.day === '2026-10-13')!.stories).toBe(0);
+    expect(m.activity['2026-10-11']).toMatchObject({ stories: null });
+    expect(m.activity['2026-10-13']).toMatchObject({ stories: 0 });
+  });
+
+  it('a flat-history spike is not cut off by 12 milder days (a null z is scaled by the smallest reportable change)', () => {
+    // Wednesdays are flat (net 5); every other weekday alternates 5 / 6 by week, and 12 of them in the last 30 days jump to +11
+    const base = steady();
+    const mild = new Set(base.daily.filter((r) => r.day > '2026-09-14' && r.day < '2026-10-14' && new Date(`${r.day}T00:00:00Z`).getUTCDay() !== 3).slice(0, 12).map((r) => r.day));
+    const daily = base.daily.map((r, i) => {
+      const wed = new Date(`${r.day}T00:00:00Z`).getUTCDay() === 3;
+      const follows = r.day === '2026-10-14' ? 63 : mild.has(r.day) ? 14 : wed ? 8 : 8 + (Math.floor(i / 7) % 2);
+      return { ...r, follows };
+    });
+    const m = buildGrowth({ ...base, daily }, opts('from=30d'));
+    expect(m.unusual).toHaveLength(10);
+    expect(m.unusual[0]).toMatchObject({ day: '2026-10-14', metric: 'net', value: 60, typical: 5, z: null });
+  });
+
   it('a new small account: no follow data (net derived from the count), no split, no projection, every KPI with a reason, nothing NaN', () => {
     const daily = [row('2026-10-13', { followers: 80 }), row('2026-10-14', { followers: 82, reach: 50 }), row(TODAY, { followers: 85 })];
     const m = buildGrowth({ ...EMPTY, daily }, opts());

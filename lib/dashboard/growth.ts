@@ -2,7 +2,7 @@
 import { bucketize } from '@/lib/analysis/buckets';
 import { toKpi } from '@/lib/analysis/explorer';
 import { MIN_COVERAGE, kpis, summarize, type Kpi } from '@/lib/analysis/growth';
-import { PROJECTION, projectFollowers, weekdayAnomaly, type ProjectionResult } from '@/lib/analysis/trend';
+import { ANOMALY, PROJECTION, projectFollowers, weekdayAnomaly, type ProjectionResult } from '@/lib/analysis/trend';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 import { WHY_METRICS, type DayPost, type FeedKind, type GrowthDay, type UnusualDay, type WhyMetric } from '@/lib/analysis/why';
 import type { AudienceSnapshots } from '@/lib/dashboard/detail-read';
@@ -61,6 +61,8 @@ export interface GrowthModel {
   days: GrowthDay[];
   unusual: UnusualDay[];
   storiesFrom: string | null;
+  /** The settled end day (what the KPIs end on): later days are partial and stay out of flow, best/worst and unusual days; a post younger than a week at this day is too recent to compare. */
+  settled: string;
 }
 
 /** The first day the tab reads: the scope's own read window, 90 days before the range (same-weekday history, Why baselines) and the last 28 days (projection). */
@@ -99,6 +101,10 @@ export function buildGrowth(input: GrowthInput, o: GrowthOptions): GrowthModel {
     postsByDay.set(day, [...(postsByDay.get(day) ?? []), { id: p.id, mediaType: p.mediaType as FeedKind, postedAt: p.postedAt, hour: localHour(at, tz), reach: p.reach, permalink: p.permalink }]);
   }
   const counted = (c: DayCounts, day: string): number | null => (c.from !== null && day < c.from ? null : (c.days[day] ?? 0));
+  // Stories are only listed while live, so days before the first captured Story are unknown: the backfilled Story reach there is not a count of Stories.
+  // ponytail: an account that never had a Story has no first day and keeps 0; the first captured day is the best signal without another read.
+  const firstStory = input.stories.from === null ? Object.keys(input.stories.days).sort()[0] ?? null : null;
+  const storyCount = (day: string): number | null => (firstStory !== null && day < firstStory ? null : counted(input.stories, day));
   const start = growthReadFrom(scope, today);
   const days: GrowthDay[] = Array.from({ length: daysBetween(start, range.to) + 1 }, (_, i) => {
     const day = addDays(start, i);
@@ -115,7 +121,7 @@ export function buildGrowth(input: GrowthInput, o: GrowthOptions): GrowthModel {
     return {
       day, followers, follows, unfollows, net, netSource, reach: r?.reach ?? null,
       reachFollower: b ? b.f : null, reachNonFollower: b ? b.nf : null, storyReach: b ? b.story : null,
-      posts: postsByDay.get(day) ?? [], stories: counted(input.stories, day), comments: counted(input.comments, day),
+      posts: postsByDay.get(day) ?? [], stories: storyCount(day), comments: counted(input.comments, day),
     };
   });
   const dayOf = new Map(days.map((d) => [d.day, d]));
@@ -189,10 +195,12 @@ export function buildGrowth(input: GrowthInput, o: GrowthOptions): GrowthModel {
   const projection = projectFollowers(counts.map((r) => ({ day: r.day, value: r.followers! })));
 
   // 6. flow
-  const fl = bucketize(rangeDays.map((d) => ({ day: d.day, follows: d.follows, unfollows: d.unfollows, net: d.net })), scope.gran, weekStart, { follows: 'sum', unfollows: 'sum', net: 'sum' });
-  const sources = new Set(rangeDays.map((d) => d.netSource).filter(Boolean));
+  // A day after the settled end day (today) only has a part-day follower count, so its net is partial: it counts only when Instagram itself gave that day's follows and unfollows.
+  const settledDays = rangeDays.filter((d) => d.day <= s.endDay || d.netSource === 'instagram');
+  const fl = bucketize(settledDays.map((d) => ({ day: d.day, follows: d.follows, unfollows: d.unfollows, net: d.net })), scope.gran, weekStart, { follows: 'sum', unfollows: 'sum', net: 'sum' });
+  const sources = new Set(settledDays.map((d) => d.netSource).filter(Boolean));
   const flowDay = (d: GrowthDay): FlowDay => ({ day: d.day, net: d.net!, follows: d.follows, unfollows: d.unfollows, posts: d.posts.length, stories: d.stories });
-  const netDays = rangeDays.filter((d) => d.net !== null && d.net !== 0);
+  const netDays = settledDays.filter((d) => d.net !== null && d.net !== 0);
   const top = (dir: 1 | -1) => netDays.filter((d) => d.net! * dir > 0).sort((a, b) => (b.net! - a.net!) * dir || (a.day < b.day ? 1 : -1)).slice(0, TOP_DAYS).map(flowDay);
   const flow: GrowthModel['flow'] = {
     rows: fl.rows, partial: fl.partial,
@@ -237,18 +245,20 @@ export function buildGrowth(input: GrowthInput, o: GrowthOptions): GrowthModel {
   const unusual: UnusualDay[] = [];
   for (const metric of WHY_METRICS) {
     const series = Object.fromEntries(days.map((d) => [d.day, d[metric]]));
-    for (const d of rangeDays) {
+    for (const d of settledDays) {
       const a = weekdayAnomaly(series, d.day);
       if (a && 'unusual' in a && a.unusual) unusual.push({ day: d.day, metric, value: a.value, typical: a.median, z: a.z, direction: a.direction });
     }
   }
-  unusual.sort((a, b) => ((a.z === null ? 1 : 0) - (b.z === null ? 1 : 0) || (a.z !== null && b.z !== null ? Math.abs(b.z) - Math.abs(a.z) : 0)) || (a.day < b.day ? 1 : -1));
+  // |z|; a null z (flat history, the most extreme spikes) is the deviation in units of the smallest reportable change, scaled so that smallest change equals the z threshold
+  const severity = (u: UnusualDay) => (u.z !== null ? Math.abs(u.z) : (ANOMALY.threshold * Math.abs(u.value - u.typical)) / Math.max(ANOMALY.minAbs, ANOMALY.minRel * Math.abs(u.typical)));
+  unusual.sort((a, b) => severity(b) - severity(a) || (a.day < b.day ? 1 : -1));
 
   return {
     scope, kpis: kpiMap, sparks, followers, projection, flow,
     loyalty: { rows: lb.rows, partial: lb.partial, formats },
     activity, audience: audienceChange(input.audience.first, input.audience.last),
-    days, unusual: unusual.slice(0, MAX_UNUSUAL), storiesFrom: input.stories.from,
+    days, unusual: unusual.slice(0, MAX_UNUSUAL), storiesFrom: input.stories.from, settled: s.endDay,
   };
 }
 
