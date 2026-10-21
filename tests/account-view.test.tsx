@@ -58,7 +58,7 @@ function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
 
 describe('AccountView', () => {
   const head = { id: ID, username: 'brand.one', displayName: 'Brand One', groupName: 'Brand X' };
-  const frame = (tab: 'overview' | 'posts' | 'stories', q = '', children = <p>panel</p>) => (
+  const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories', q = '', children = <p>panel</p>) => (
     <AccountView account={head} tab={tab} scope={scopeOf(q)} today={TODAY}>
       {children}
     </AccountView>
@@ -81,7 +81,7 @@ describe('AccountView', () => {
     wrap(frame('posts', '', <p>posts panel</p>));
     const list = screen.getByRole('tablist', { name: en.pages.account.tabs });
     const tabs = within(list).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Posts', 'Stories']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories']);
     expect(list).toHaveAttribute('data-variant', 'line');
     expect(within(list).getByRole('tab', { name: 'Posts' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel')).toHaveTextContent('posts panel');
@@ -94,10 +94,10 @@ describe('AccountView', () => {
     expect(push).toHaveBeenCalledWith('?tab=stories', { scroll: false });
     screen.getByRole('tab', { name: 'Overview' }).focus();
     await user.keyboard('{ArrowRight}'); // manual activation: arrows move focus only
-    expect(screen.getByRole('tab', { name: 'Posts' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Growth' })).toHaveFocus();
     expect(push).toHaveBeenCalledTimes(1);
     await user.keyboard('{Enter}');
-    expect(push).toHaveBeenLastCalledWith('?tab=posts', { scroll: false });
+    expect(push).toHaveBeenLastCalledWith('?tab=growth', { scroll: false });
   });
 
   it('the time scope travels (tabs, back link, calendar link); the range bar shows on Overview only, inside its panel', async () => {
@@ -115,6 +115,14 @@ describe('AccountView', () => {
       wrap(frame(tab, 'from=90d'));
       expect(screen.queryByRole('navigation', { name: en.timeScope.presets })).toBeNull();
     }
+  });
+
+  it('Growth: the range bar shows inside its panel and every range link keeps the tab (a range change stays on Growth, drops ?day)', () => {
+    wrap(frame('growth', 'from=90d'));
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).getByRole('navigation', { name: en.timeScope.presets })).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?tab=growth&from=7d');
+    expect(screen.getByRole('tab', { name: 'Growth' })).toHaveAttribute('aria-selected', 'true');
   });
 });
 
