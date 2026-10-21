@@ -896,3 +896,267 @@ Expected: PASS.
 git add components/charts/SeriesChart.tsx lib/metrics.ts components/shared/useKpiDelta.ts tests/charts.test.tsx tests/metrics.test.ts
 git commit -m "feat(charts): good/bad series tone and tooltip label; deltaView takes a metric definition" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
+
+### Task 6: The Growth model
+
+**Files:**
+- Create: `lib/dashboard/growth.ts`
+- Test: `tests/dashboard-growth.test.ts` (new)
+
+**Interfaces:**
+- Consumes: Task 2 (`projectFollowers`, `PROJECTION`, `weekdayAnomaly`, `ProjectionResult`), Task 3 (`GrowthDay`, `DayPost`, `FeedKind`, `UnusualDay`, `WhyMetric`, `WHY_METRICS`), Task 4 (`BreakdownRow`, `DayCounts`), Task 5 (`DeltaDef` — a type only; if Task 5 is not merged yet when this runs, it is: `Pick<MetricDef, 'kind' | 'higherIsBetter'>`), `summarize`, `kpis`, `MIN_COVERAGE` (`lib/analysis/growth.ts`), `toKpi` (`lib/analysis/explorer.ts`), `bucketize`, `bucketStart`, `daysIn`, `isDay`, `minDay`, `readFrom`, `addDays`, `localDay`, `localHour`, `AudienceSnapshots`.
+- Produces (Tasks 8 and 9) — exactly these names and shapes:
+
+```ts
+export type GrowthKpiId = 'followers' | 'netFollows' | 'follows' | 'unfollows' | 'churnRate' | 'nonFollowerShare';
+export const GROWTH_KPI_IDS: GrowthKpiId[] = ['followers', 'netFollows', 'follows', 'unfollows', 'churnRate', 'nonFollowerShare'];
+export const GROWTH_KPIS: Record<GrowthKpiId, DeltaDef> = {
+  followers: { kind: 'count', higherIsBetter: true },
+  netFollows: { kind: 'count', higherIsBetter: true },
+  follows: { kind: 'count', higherIsBetter: true },
+  unfollows: { kind: 'count', higherIsBetter: false },
+  churnRate: { kind: 'percent', higherIsBetter: false },
+  nonFollowerShare: { kind: 'percent', higherIsBetter: true },
+};
+export const HOURLY_MAX_DAYS = 7;
+export const LOOKBACK_DAYS = 90;
+export const TOP_DAYS = 3;
+export const MAX_UNUSUAL = 10;
+export const AUDIENCE_TOP = 8;
+export const NOTABLE_PP = 0.02;
+export const MIN_AUDIENCE = 100;
+
+export interface GrowthInput {
+  daily: DailyRow[];
+  breakdown: BreakdownRow[];
+  posts: Post[];
+  stories: DayCounts;
+  comments: DayCounts;
+  curve: { at: string; followers: number }[] | null;
+  audience: { first: AudienceSnapshots; last: AudienceSnapshots };
+}
+export interface GrowthOptions { scope: ResolvedScope; today: string; tz: string; weekStart: WeekStart }
+export interface FlowDay { day: string; net: number; follows: number | null; unfollows: number | null; posts: number; stories: number | null }
+export interface FormatSplit { productType: string; follower: number; nonFollower: number; share: number | null; priorShare: number | null; change: number | null }
+export interface ShareRow { key: string; then: number | null; now: number; change: number | null; notable: boolean }
+export type AudienceDim = 'age' | 'gender' | 'country' | 'city';
+export interface DimChange { from: string | null; to: string; total: number; rows: ShareRow[] }
+export type AudienceChange = Record<AudienceDim, DimChange | null>;
+export interface GrowthModel {
+  scope: ResolvedScope;
+  kpis: Record<GrowthKpiId, Kpi>;
+  sparks: Record<GrowthKpiId, (number | null)[]>;
+  followers: { rows: { day: string; followers: number | null }[]; partial: string[]; hourly: { at: string; followers: number }[] | null; change: { from: string; to: string; abs: number; pct: number | null } | null; firstDay: string | null };
+  projection: ProjectionResult;
+  flow: { rows: { day: string; follows: number | null; unfollows: number | null; net: number | null }[]; partial: string[]; source: 'instagram' | 'derived' | 'mixed' | null; best: FlowDay[]; worst: FlowDay[] };
+  loyalty: { rows: { day: string; follower: number | null; nonFollower: number | null }[]; partial: string[]; formats: FormatSplit[] };
+  activity: Record<string, { posts: number; stories: number | null }>;
+  audience: AudienceChange;
+  days: GrowthDay[];
+  unusual: UnusualDay[];
+  storiesFrom: string | null;
+}
+
+
+/** The first day the tab reads: the scope's own read window, 90 days before the range (same-weekday history, Why baselines) and the last 28 days (projection). */
+export function growthReadFrom(scope: ResolvedScope, today: string): string;
+export function buildGrowth(input: GrowthInput, o: GrowthOptions): GrowthModel;
+export function audienceChange(first: AudienceSnapshots, last: AudienceSnapshots): AudienceChange;
+/** ?day (one real day inside the range, else null) and ?why ('reach', else 'net'). */
+export function parseWhyParams(sp: URLSearchParams, range: DayRange): { day: string | null; metric: WhyMetric };
+/** The same URL with day set and why set ('reach') or removed ('net'); every other param kept. Returns '?…'. */
+export function whyHref(sp: URLSearchParams, day: string, metric: WhyMetric): string;
+```
+
+- [ ] **Step 1: Write the failing test** — create `tests/dashboard-growth.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import type { DailyRow, Post } from '@/lib/analysis/types';
+import { audienceChange, buildGrowth, growthReadFrom, parseWhyParams, whyHref, type GrowthInput } from '@/lib/dashboard/growth';
+import type { BreakdownRow } from '@/lib/dashboard/growth-read';
+import { addDays } from '@/lib/sync/time';
+import { daysBetween } from '@/lib/time-scope/range';
+import { parseTimeScope, resolveScope } from '@/lib/time-scope/scope';
+
+const KL = 'Asia/Kuala_Lumpur'; // UTC+8, no DST
+const TODAY = '2026-10-15'; // a Thursday
+const scopeOf = (q: string) => resolveScope(parseTimeScope(new URLSearchParams(q)), TODAY, '2026-06-01');
+const opts = (q = 'from=7d') => ({ scope: scopeOf(q), today: TODAY, tz: KL, weekStart: 'mon' as const });
+const row = (day: string, o: Partial<DailyRow> = {}): DailyRow => ({ day, followers: null, reach: null, views: null, accountsEngaged: null, interactions: null, follows: null, unfollows: null, linkTaps: null, ...o });
+const NONE = { first: { age_gender: null, country: null, city: null }, last: { age_gender: null, country: null, city: null } };
+const EMPTY: GrowthInput = { daily: [], breakdown: [], posts: [], stories: { days: {}, from: null }, comments: { days: {}, from: null }, curve: null, audience: NONE };
+const post = (id: string, postedAt: string, o: Partial<Post> = {}): Post => ({ id, accountId: 'a1', mediaType: 'REELS', postedAt, permalink: null, reach: 1000, views: null, likes: null, comments: null, shares: null, saves: null, ...o });
+
+/** 120 days ending TODAY: +5 followers a day (8 follows, 3 unfollows), reach 1000, reach split 700 followers / 300 non-followers (Reels 600/300, Stories 100/0). */
+function steady(over: Record<string, Partial<DailyRow>> = {}): GrowthInput {
+  const days = Array.from({ length: 120 }, (_, i) => addDays(TODAY, i - 119));
+  return {
+    ...EMPTY,
+    daily: days.map((d, i) => row(d, { followers: 1000 + 5 * i, follows: 8, unfollows: 3, reach: 1000, ...over[d] })),
+    breakdown: days.flatMap((day): BreakdownRow[] => [
+      { day, followType: 'FOLLOWER', productType: 'REEL', value: 600 },
+      { day, followType: 'NON_FOLLOWER', productType: 'REEL', value: 300 },
+      { day, followType: 'FOLLOWER', productType: 'STORY', value: 100 },
+    ]),
+  };
+}
+/** Every number in the model is finite (no NaN / Infinity hiding in a nested field). */
+const finite = (v: unknown): boolean => (typeof v === 'number' ? Number.isFinite(v) : Array.isArray(v) ? v.every(finite) : v !== null && typeof v === 'object' ? Object.values(v).every(finite) : true);
+
+describe('growthReadFrom', () => {
+  it('reads the range, the comparison and 90 days before the range (same-weekday history, baselines)', () => {
+    expect(growthReadFrom(scopeOf('from=7d'), TODAY)).toBe('2026-07-11');
+    expect(growthReadFrom(scopeOf('from=2026-09-01&to=2026-09-30'), TODAY)).toBe('2026-06-03');
+  });
+});
+
+describe('buildGrowth', () => {
+  it('a steady account: KPIs as the Overview computes them, follows/unfollows/churn/non-follower share with comparisons', () => {
+    const m = buildGrowth(steady(), opts());
+    expect(m.kpis.followers).toMatchObject({ value: 1595, reason: null });
+    expect(m.kpis.netFollows).toMatchObject({ value: 35, prior: 35, change: 0 });
+    expect(m.kpis.follows).toMatchObject({ value: 56, prior: 56, change: 0, reason: null });
+    expect(m.kpis.unfollows).toMatchObject({ value: 21, prior: 21 });
+    expect(m.kpis.churnRate.value).toBeCloseTo(21 / 1555, 6); // the count on 7 October, the day before the KPI window
+    expect(m.kpis.nonFollowerShare).toMatchObject({ value: 0.3, prior: 0.3, diff: 0, reason: null });
+    expect(m.sparks.followers).toHaveLength(7);
+    expect(m.days[0].day).toBe('2026-07-11');
+    expect(m.days).toHaveLength(daysBetween('2026-07-11', TODAY) + 1);
+    expect(m.days.at(-1)).toMatchObject({ day: TODAY, net: 5, netSource: 'instagram', reachFollower: 700, reachNonFollower: 300, storyReach: 100, stories: 0, comments: 0 });
+    expect(m.flow.source).toBe('instagram');
+    expect(m.flow.best.map((d) => d.day)).toEqual(['2026-10-15', '2026-10-14', '2026-10-13']); // equal nets: newest first
+    expect(m.flow.worst).toEqual([]);
+    expect(m.followers.change).toEqual({ from: '2026-10-09', to: '2026-10-15', abs: 30, pct: 30 / 1565 });
+    expect(m.projection).toMatchObject({ method: 'median_slope', n: 28, perDay: 5, confidence: 'medium' });
+    expect(m.loyalty.formats).toEqual([
+      { productType: 'REEL', follower: 4200, nonFollower: 2100, share: 1 / 3, priorShare: 1 / 3, change: 0 },
+      { productType: 'STORY', follower: 700, nonFollower: 0, share: 0, priorShare: 0, change: 0 },
+    ]);
+    expect(m.unusual).toEqual([]);
+    expect(finite(m)).toBe(true);
+  });
+
+  it('a spike on a Wednesday is an unusual day (identical history, so no z); the Overview-style comparison still holds', () => {
+    const m = buildGrowth(steady({ '2026-10-14': { follows: 63 } }), opts());
+    expect(m.unusual).toEqual([{ day: '2026-10-14', metric: 'net', value: 60, typical: 5, z: null, direction: 'up' }]);
+    expect(m.flow.best[0]).toMatchObject({ day: '2026-10-14', net: 60, follows: 63, unfollows: 3 });
+  });
+
+  it('a new small account: no follow data (net derived from the count), no split, no projection, every KPI with a reason, nothing NaN', () => {
+    const daily = [row('2026-10-13', { followers: 80 }), row('2026-10-14', { followers: 82, reach: 50 }), row(TODAY, { followers: 85 })];
+    const m = buildGrowth({ ...EMPTY, daily }, opts());
+    expect(m.kpis.follows).toMatchObject({ value: null, reason: 'needs_100_followers' });
+    expect(m.kpis.churnRate).toMatchObject({ value: null, reason: 'needs_100_followers' });
+    expect(m.kpis.nonFollowerShare).toMatchObject({ value: null, reason: 'no_data' });
+    expect(m.flow.source).toBe('derived');
+    expect(m.days.find((d) => d.day === '2026-10-14')).toMatchObject({ net: 2, netSource: 'derived', follows: null, reachFollower: null });
+    expect(m.projection).toEqual({ reason: 'not_enough_history', n: 3 });
+    expect(m.followers.firstDay).toBe('2026-10-13');
+    expect(m.audience).toEqual({ age: null, gender: null, country: null, city: null });
+    expect(m.loyalty.formats).toEqual([]);
+    expect(finite(m)).toBe(true);
+  });
+
+  it('posts land on their owner-timezone day and hour; capped counts are unknown before their first complete day', () => {
+    const m = buildGrowth({ ...steady(), posts: [post('late', '2026-10-13T15:30:00Z'), post('s', '2026-10-13T15:40:00Z', { mediaType: 'STORY' })], stories: { days: { '2026-10-14': 3 }, from: '2026-10-12' } }, opts());
+    const d13 = m.days.find((d) => d.day === '2026-10-13')!;
+    expect(d13.posts).toEqual([{ id: 'late', mediaType: 'REELS', postedAt: '2026-10-13T15:30:00Z', hour: 23, reach: 1000, permalink: null }]);
+    expect(m.days.find((d) => d.day === '2026-10-14')).toMatchObject({ posts: [], stories: 3 });
+    expect(m.days.find((d) => d.day === '2026-10-12')!.stories).toBe(0);
+    expect(m.days.find((d) => d.day === '2026-10-11')!.stories).toBeNull();
+    expect(m.storiesFrom).toBe('2026-10-12');
+    expect(m.activity['2026-10-13']).toEqual({ posts: 1, stories: 0 });
+  });
+
+  it('the non-follower share compares only with 80 % coverage on both sides', () => {
+    const input = steady();
+    input.breakdown = input.breakdown.filter((b) => b.day >= '2026-10-12' || b.day < '2026-10-01');
+    const m = buildGrowth(input, opts());
+    expect(m.kpis.nonFollowerShare).toMatchObject({ value: 0.3, prior: null, diff: null, reason: 'not_enough_history' });
+  });
+
+  it('hourly points only for ranges of 7 days or less', () => {
+    const curve = [{ at: '2026-10-15T09:00', followers: 1595 }];
+    expect(buildGrowth({ ...steady(), curve }, opts('from=7d')).followers.hourly).toEqual(curve);
+    expect(buildGrowth({ ...steady(), curve }, opts('from=14d')).followers.hourly).toBeNull();
+  });
+
+  it('weekly buckets: follows and reach add up, followers take the last count, partial weeks are listed', () => {
+    const m = buildGrowth(steady(), opts('from=90d&gran=week'));
+    const full = m.flow.rows.find((r) => !m.flow.partial.includes(r.day))!;
+    expect(full).toMatchObject({ follows: 56, unfollows: 21, net: 35 });
+    expect(m.loyalty.rows.find((r) => r.day === full.day)).toMatchObject({ follower: 4900, nonFollower: 2100 });
+    expect(m.flow.partial.length).toBeGreaterThan(0);
+  });
+});
+
+describe('audienceChange', () => {
+  const snap = (day: string, data: Record<string, number>) => ({ day, data });
+  it('then vs now per dimension: top keys of now, shares, change in points, notable from 2 points with 100+ people on both sides', () => {
+    const a = audienceChange(
+      { age_gender: snap('2026-09-16', { '18-24|F': 30, '18-24|M': 20, '25-34|F': 50 }), country: snap('2026-09-16', { MY: 60, SG: 40 }), city: null },
+      { age_gender: snap('2026-10-14', { '18-24|F': 40, '18-24|M': 20, '25-34|F': 40 }), country: snap('2026-10-14', { MY: 50, ID: 50 }), city: null },
+    );
+    expect(a.age).toMatchObject({ from: '2026-09-16', to: '2026-10-14', total: 100 });
+    expect(a.age!.rows.map((r) => [r.key, r.then, r.now, r.notable])).toEqual([['18-24', 0.5, 0.6, true], ['25-34', 0.5, 0.4, true]]);
+    expect(a.gender!.rows.map((r) => [r.key, r.now, r.change, r.notable])).toEqual([['F', 0.8, 0, false], ['M', 0.2, 0, false]]);
+    expect(a.country!.rows.map((r) => [r.key, r.then, r.now])).toEqual([['ID', null, 0.5], ['MY', 0.6, 0.5]]); // ID was outside the top-45 list: unknown, not 0
+    expect(a.city).toBeNull();
+  });
+
+  it('one snapshot (same day) has no "then"; fewer than 100 people is never notable', () => {
+    const one = snap('2026-10-14', { MY: 30, SG: 20 });
+    expect(audienceChange({ age_gender: null, country: one, city: null }, { age_gender: null, country: one, city: null }).country).toMatchObject({ from: null, rows: [{ key: 'MY', then: null, change: null, notable: false }, { key: 'SG', then: null }] });
+    const small = audienceChange({ age_gender: null, country: snap('2026-09-16', { MY: 10, SG: 40 }), city: null }, { age_gender: null, country: snap('2026-10-14', { MY: 40, SG: 10 }), city: null });
+    expect(small.country!.rows.every((r) => !r.notable)).toBe(true);
+  });
+});
+
+describe('parseWhyParams / whyHref', () => {
+  const range = { from: '2026-10-09', to: '2026-10-15' };
+  it('a real day inside the range and why=reach are kept; anything else is ignored', () => {
+    expect(parseWhyParams(new URLSearchParams('day=2026-10-12&why=reach'), range)).toEqual({ day: '2026-10-12', metric: 'reach' });
+    for (const q of ['day=2026-10-30', 'day=2026-10-08', 'day=12-10-2026', 'day=2026-02-30', 'day=2026-10-12&day=2026-10-13', 'day=<script>']) expect(parseWhyParams(new URLSearchParams(q), range).day, q).toBeNull();
+    expect(parseWhyParams(new URLSearchParams('why=junk'), range).metric).toBe('net');
+    expect(parseWhyParams(new URLSearchParams('why=reach&why=reach'), range).metric).toBe('net');
+  });
+
+  it('keeps every other param (tab, range); net is the default and is left out', () => {
+    const sp = new URLSearchParams('tab=growth&from=7d&why=reach');
+    expect(whyHref(sp, '2026-10-12', 'net')).toBe('?tab=growth&from=7d&day=2026-10-12');
+    expect(whyHref(sp, '2026-10-12', 'reach')).toBe('?tab=growth&from=7d&why=reach&day=2026-10-12');
+  });
+});
+
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/dashboard-growth.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/dashboard/growth"`.
+
+- [ ] **Step 3: Implement `lib/dashboard/growth.ts`** (header: "the Growth tab model; pure: today/tz/weekStart are inputs; a missing number is null with a reason, never 0"). Exactly:
+  1. `growthReadFrom` = the earliest of `readFrom(scope.scope, today)`, `addDays(scope.range.from, −LOOKBACK_DAYS)` and `addDays(today, −(PROJECTION.days − 1))`.
+  2. **Per-day facts** (`days`): one `GrowthDay` for every day from `growthReadFrom(scope, today)` to `scope.range.to`, oldest first. `followers`, `follows`, `unfollows`, `reach` from the `DailyRow` of that day (null without one). `net`: follows − unfollows when both are non-null (`netSource 'instagram'`); else the day's followers − the previous day's followers when both are non-null (`'derived'`); else null / null. Breakdown: a day with ANY breakdown row gets `reachFollower` = Σ FOLLOWER values, `reachNonFollower` = Σ NON_FOLLOWER values, `storyReach` = Σ values with `productType 'STORY'` (every follow type) — 0 where Instagram sent no row for a combination (it omits zeros); a day without rows gets null for all three. `posts` = `input.posts` without Stories, grouped by `localDay(postedAt, tz)`, as `DayPost` with `hour = localHour(postedAt, tz)`. `stories` / `comments` = `counts.from !== null && day < counts.from ? null : (counts.days[day] ?? 0)`.
+  3. **KPIs:** `s = summarize(input.daily, input.posts, scope.window, today, tz, scope.scope.cmp)`, `base = kpis(s)`; `followers` and `netFollows` = `base`'s. Over the KPI window `[s.from, s.endDay]` and `s.compare`: follows / unfollows = sums over daily rows that have BOTH follows and unfollows (null when none); churn = Σ unfollows ÷ the follower count before the window (the last non-null count on a day before `from`; else the first non-null count inside the window), null when either is missing or the base ≤ 0. `follows`, `unfollows`, `churnRate` = `like(base.netFollows, current, prior)`: current null → `{ value: null, prior: null, diff: null, change: null, reason: ref.reason ?? 'no_data' }`; `ref.prior === null` → the value with no delta and `ref.reason`; else `toKpi(current, prior)`. `nonFollowerShare`: per window Σ non-follower ÷ Σ (follower + non-follower) over the days that have breakdown rows, and coverage = those days ÷ the window's days; null share → `reason 'no_data'`; no comparison asked → `toKpi(share, null)`; either coverage < `MIN_COVERAGE` or no prior share → the value with `reason 'not_enough_history'`; else `toKpi`.
+  4. **Sparks:** one value per day of `[s.from, s.endDay]` from `days`: followers, net, follows, unfollows, churn (the day's unfollows ÷ the previous day's followers), non-follower share (as in Task 3's `share`).
+  5. **Followers:** `rows` = `bucketize` of the range days' followers with `'last'`; `hourly` = `input.curve` when `daysIn(scope.range) ≤ HOURLY_MAX_DAYS`, else null; `change` = from the first to the last day of the range that has a count (`abs`, `pct = abs / first` when first > 0, else null), null with fewer than two such days; `firstDay` = the first day of `input.daily` with a count; `projection = projectFollowers(every daily row with a count)`.
+  6. **Flow:** `rows` = `bucketize` of the range days' follows / unfollows / net with `'sum'`; `source` = from the range days' `netSource`s: none → null, only instagram → `'instagram'`, only derived → `'derived'`, both → `'mixed'`; `best` = up to `TOP_DAYS` range days with net > 0, largest first, ties newest first; `worst` = up to `TOP_DAYS` with net < 0, most negative first, ties newest first; as `FlowDay` (`posts` = the day's post count).
+  7. **Loyalty:** `rows` = `bucketize` of the range days' `reachFollower` / `reachNonFollower` with `'sum'`; `formats` = per `productType` the FOLLOWER and NON_FOLLOWER sums of the breakdown rows inside `scope.range` (rows with both 0 dropped), `share = nonFollower ÷ (follower + nonFollower)`, `priorShare` the same inside `scope.compare` (null without a comparison or rows), `change = share − priorShare` (null when either is null); sorted by follower + nonFollower descending, ties by productType.
+  8. **Activity:** for each range day, keyed by `bucketStart(day, scope.gran, weekStart)`: posts added up; stories added up, null as soon as one day of the bucket is null.
+  9. **Unusual:** for each metric of `WHY_METRICS` (`net` → `GrowthDay.net`, `reach` → `GrowthDay.reach`) and each range day, `weekdayAnomaly(series of all days, day)`; keep the unusual ones as `UnusualDay` (`typical` = the anomaly's median); sort by |z| descending with null z last, then newest first; keep `MAX_UNUSUAL`.
+  10. **Audience:** `audienceChange(input.audience.first, input.audience.last)`: per dimension (`age` = the age part of `age_gender` keys `'<age>|<gender>'` added over genders; `gender` = `F` / `M`, anything else `U`; `country` = upper-cased trimmed key; `city` = trimmed key), tally positive finite counts. No "now" snapshot or a total ≤ 0 → null. `then` only when the first snapshot exists and its day differs from the last one's. `rows` = the top `AUDIENCE_TOP` keys of "now" (largest first, ties by key): `now` share; `then` share — for age and gender a missing key is 0 (complete breakdowns), for country and city a missing key is null (Instagram lists only the top 45); `change = now − then` (null without then); `notable = change !== null && |change| ≥ NOTABLE_PP && total ≥ MIN_AUDIENCE && thenTotal ≥ MIN_AUDIENCE`. `from` = then's day or null, `to` = now's day.
+  11. `storiesFrom = input.stories.from`.
+
+- [ ] **Step 4: Run it to verify it passes**
+
+Run: `npx vitest run tests/dashboard-growth.test.ts`
+Expected: PASS (12 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/dashboard/growth.ts tests/dashboard-growth.test.ts
+git commit -m "feat(dashboard): growth tab model (KPIs, follower curve and projection, follow flow, loyalty, audience change, unusual days)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
