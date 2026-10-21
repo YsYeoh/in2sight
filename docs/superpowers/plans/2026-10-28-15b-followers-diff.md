@@ -517,6 +517,7 @@ git commit -m "feat(i18n): Followers tab, export guide, upload and diff lists (e
 ---
 
 
+
 ### Task 3: Parser and payload (pure) — `lib/followers/parse.ts`, `lib/followers/payload.ts`
 
 **Files:**
@@ -977,8 +978,8 @@ git commit -m "feat(followers): export parser (size-capped, shape-validated) and
 **Interfaces:**
 - Consumes: `Person` (type only, `lib/followers/parse.ts` — Task 3, same wave: `import type` is erased, but `tsc` needs the file; if Task 3 has not merged yet when you run `tsc`, the only error is that missing module — merge order A puts 3 before 4; report it rather than stubbing), `isUuid` (`lib/tags.ts`).
 - Produces:
-  - `diff.ts`: `FOLLOWER_LISTS = ['new', 'lost', 'theyDontFollow', 'iDontFollow', 'mutual'] as const`, `type FollowerList`, `FOLLOWER_PAGE = 50`, `SEARCH_MAX = 30`, `interface Snapshot { followers; following }`, `type Diff = Record<FollowerList, Person[] | null>`, `diffSnapshots(newer, older | null): Diff`, `defaultList(d): FollowerList`, `sinceKey(l): 'followedYou' | 'youFollowed'`, `byRecent(a, b)`, `filterList(people, q)`, `interface ListPage { rows; total; page; pages }`, `pageList(people, q, page, size = FOLLOWER_PAGE): ListPage`.
-  - `state.ts`: `interface SnapshotMeta { id; takenOn; followerCount; followingCount: number | null; createdAt }`, `interface FollowerState { snap; vs; list; q; page }`, `STALE_DAYS = 30`, `parseFollowerState(sp, snapshots): FollowerState`, `resolvePair(s, snapshots): { newer; older }`, `followerHref(s, patch, keep = {}): string`, `staleDays(snapshots, today): number | null`.
+  - `diff.ts`: `FOLLOWER_LISTS = ['new', 'lost', 'theyDontFollow', 'iDontFollow', 'mutual'] as const`, `type FollowerList`, `FOLLOWER_PAGE = 50`, `SEARCH_MAX = 30`, `interface Snapshot { followers; following }`, `type Diff = Record<FollowerList, Person[] | null>`, `diffSnapshots(newer, older | null): Diff`, `defaultList(d): FollowerList`, `sinceKey(l): 'followedYou' | 'youFollowed'`, `byRecent(a, b)`, `filterList(people, q)`, `interface ListPage { rows; total; page; pages }`, `pageList(people, q, page, size = FOLLOWER_PAGE): ListPage`, `interface FollowersView { list; counts: Record<FollowerList, number | null>; page: ListPage | null }`, `followersView(newer, older | null, { list, q, page }): FollowersView` (the page passes its result to the tab).
+  - `state.ts`: `interface SnapshotMeta { id; takenOn; followerCount; followingCount: number | null; createdAt }`, `interface FollowerState { snap; vs; list; q; page }`, `STALE_DAYS = 30`, `FOLLOWER_KEYS = ['snap', 'vs', 'list', 'q', 'page'] as const` (the account page's Suspense key ignores them, Task 7), `parseFollowerState(sp, snapshots): FollowerState`, `resolvePair(s, snapshots): { newer; older }`, `followerHref(s, patch, keep = {}): string`, `staleDays(snapshots, today): number | null`.
 
 > **Dependency note for the orchestrator:** Task 4 imports the TYPE `Person` from Task 3's file. Both are wave A; cherry-pick Task 3 before Task 4. An implementer of Task 4 whose worktree lacks `lib/followers/parse.ts` runs the vitest files (they pass: Vitest strips types) and reports the `tsc` error for that one import as expected.
 
@@ -986,7 +987,7 @@ git commit -m "feat(followers): export parser (size-capped, shape-validated) and
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { byRecent, defaultList, diffSnapshots, filterList, FOLLOWER_PAGE, pageList, sinceKey, type Snapshot } from '@/lib/followers/diff';
+import { byRecent, defaultList, diffSnapshots, filterList, FOLLOWER_PAGE, followersView, pageList, sinceKey, type Snapshot } from '@/lib/followers/diff';
 import type { Person } from '@/lib/followers/parse';
 
 const p = (username: string, at: number | null = null): Person => ({ username, at });
@@ -1073,13 +1074,32 @@ describe('ordering, search, pages', () => {
     expect(pageList(Array.from({ length: 120 }, (_, i) => p(`u${i}`, i)), '', 3)).toMatchObject({ total: 120, page: 3, pages: 3 });
   });
 });
+
+describe('followersView', () => {
+  it('the default list, the size of every list (null = unavailable) and one page of the chosen list', () => {
+    expect(followersView(newer, older, { list: null, q: '', page: 1 })).toEqual({
+      list: 'new',
+      counts: { new: 2, lost: 1, theyDontFollow: 1, iDontFollow: 2, mutual: 2 },
+      page: { rows: [p('e', 50), p('d', 40)], total: 2, page: 1, pages: 1 },
+    });
+    expect(followersView(newer, null, { list: 'mutual', q: 'c', page: 1 })).toEqual({
+      list: 'mutual',
+      counts: { new: null, lost: null, theyDontFollow: 1, iDontFollow: 2, mutual: 2 },
+      page: { rows: [p('c', 30)], total: 1, page: 1, pages: 1 },
+    });
+  });
+
+  it('a list the snapshots cannot answer has no page', () => {
+    expect(followersView(newer, null, { list: 'lost', q: '', page: 1 })).toMatchObject({ list: 'lost', page: null });
+  });
+});
 ```
 
 and `tests/followers-state.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { followerHref, parseFollowerState, resolvePair, staleDays, type FollowerState, type SnapshotMeta } from '@/lib/followers/state';
+import { FOLLOWER_KEYS, followerHref, parseFollowerState, resolvePair, staleDays, type FollowerState, type SnapshotMeta } from '@/lib/followers/state';
 
 const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
 const meta = (n: number, takenOn: string): SnapshotMeta => ({ id: id(n), takenOn, followerCount: 100 + n, followingCount: n === 2 ? null : 50, createdAt: `${takenOn}T10:00:00Z` });
@@ -1136,6 +1156,11 @@ describe('followerHref', () => {
   it('the tab first, defaults omitted, the Time Scope kept untouched', () => {
     expect(followerHref(BASE, {}, keep)).toBe('?tab=followers&from=2026-09-01&to=2026-09-30');
     expect(followerHref({ ...BASE, snap: id(3), vs: id(1), list: 'lost', q: 'ann' }, {}, keep)).toBe(`?tab=followers&snap=${id(3)}&vs=${id(1)}&list=lost&q=ann&from=2026-09-01&to=2026-09-30`);
+  });
+
+  it('writes only FOLLOWER_KEYS (and tab) of its own', () => {
+    const href = followerHref({ snap: id(3), vs: id(1), list: 'lost', q: 'ann', page: 2 }, { page: 2 });
+    expect([...new URLSearchParams(href.slice(1)).keys()]).toEqual(['tab', ...FOLLOWER_KEYS]);
   });
 
   it('any change goes back to page 1; only a page link carries page; the scope never overrides the tab', () => {
@@ -1231,6 +1256,21 @@ export function pageList(people: Person[], q: string, page: number, size = FOLLO
   const p = page > pages ? 1 : page;
   return { rows: all.slice((p - 1) * size, p * size), total: all.length, page: p, pages };
 }
+
+/** What the tab shows for one comparison: the chosen list (or the default), every list's size, and one page of the chosen one. */
+export interface FollowersView {
+  list: FollowerList;
+  counts: Record<FollowerList, number | null>; // null = unavailable
+  page: ListPage | null; // null = the chosen list is unavailable
+}
+
+export function followersView(newer: Snapshot, older: Snapshot | null, s: { list: FollowerList | null; q: string; page: number }): FollowersView {
+  const d = diffSnapshots(newer, older);
+  const list = s.list ?? defaultList(d);
+  const people = d[list];
+  const counts = Object.fromEntries(FOLLOWER_LISTS.map((l) => [l, d[l]?.length ?? null])) as Record<FollowerList, number | null>;
+  return { list, counts, page: people ? pageList(people, s.q, s.page) : null };
+}
 ```
 
 - [ ] **Step 4: Write `lib/followers/state.ts`** (exactly this):
@@ -1257,6 +1297,8 @@ export interface FollowerState {
   page: number;
 }
 export const STALE_DAYS = 30;
+/** The tab's own URL keys: the account page's Suspense key ignores them, so the toolbar stays mounted while a page streams. */
+export const FOLLOWER_KEYS = ['snap', 'vs', 'list', 'q', 'page'] as const;
 
 type Params = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined): string | null => (typeof v === 'string' ? v : null);
@@ -1314,7 +1356,7 @@ export function staleDays(snapshots: SnapshotMeta[], today: string): number | nu
 - [ ] **Step 5: Run the tests**
 
 Run: `npx vitest run tests/followers-diff.test.ts tests/followers-state.test.ts`, `npx tsc --noEmit`, `npx eslint lib/followers/diff.ts lib/followers/state.ts tests/followers-diff.test.ts tests/followers-state.test.ts`
-Expected: PASS (18 tests), tsc and eslint clean. The 50,000-person test takes well under a second.
+Expected: PASS (11 + 10 tests), tsc and eslint clean. The 50,000-person test takes well under a second.
 
 - [ ] **Step 6: Commit**
 
@@ -2227,6 +2269,884 @@ Expected: PASS (6 tests), tsc and eslint clean.
 ```bash
 git add components/account/FollowerUpload.tsx tests/follower-upload.test.tsx
 git commit -m "feat(followers): upload dialog (files parsed on the device, only usernames and dates sent)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: The Followers tab end to end — component, `TABS`, skeleton, the page's `case 'followers'`
+
+**Files:**
+- Create: `components/account/FollowersTab.tsx`, `tests/followers-tab.test.tsx`
+- Modify (anchored text edits below): `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx`
+- Existing tests that must keep passing: `tests/account-page.test.tsx`, `tests/account-view.test.tsx`, `tests/dashboard-account.test.ts`, `tests/ui-standards.test.ts` (rule 7: the new `TabsList` is `variant="line"`; rule 4: no `RangeBar` added), `tests/followers-privacy.test.ts` (the new files import `lib/followers` and log nothing), `tests/route-loading.test.tsx`.
+
+**Interfaces:**
+- Consumes: Task 2 keys; Task 4 (`FOLLOWER_LISTS`, `FOLLOWER_PAGE`, `sinceKey`, `followersView`, `FollowersView`, `FollowerList`, `parseFollowerState`, `resolvePair`, `followerHref`, `staleDays`, `FOLLOWER_KEYS`, `FollowerState`, `SnapshotMeta`); Task 5 (`listFollowerSnapshots`, `loadFollowerSnapshot`, `deleteFollowerSnapshotAction`); Task 6 (`FollowerUpload`); shared `FilterToolbar`/`FilterSearch`/`FilterSelect`/`useApply`/`FilterChip`, `DataTable` (`serverSort` mode: rows as given, phone cards), `Pagination`, `EmptyState`, `ConfirmDialog`, `LoadingButton`, `Tabs*`, `downloadExport`, `formatDate`/`formatDateTime`/`formatDay`/`formatNumber`. The export URL `/api/export/followers?account&snap&vs&list&q` is Task 8's contract (by string; no import).
+- Produces: `FollowersTab(props: FollowersTabProps)`, `interface FollowersTabProps { accountId; username; today; scope?; ready; snapshots; state; newer; older; view; deleteSnapshot }`; `TABS = ['overview', 'posts', 'stories', 'followers']`; `TabSkeleton` `case 'followers'`.
+- Screen (mobile-first, one column; every row wraps): intro line → the guide as a native `<details>` (open while there is no snapshot; seven numbered steps naming the account; the privacy note) → the quiet "export is N days old" line when > 30 days → `FilterToolbar` (search, Snapshot, Compare with — only with 2+ snapshots; `end`: Export list + Upload export; a search chip + Clear all) → the five lists as underline tabs "New followers (2)" … (manual activation, a click navigates with the progress bar) → the list's hint with both dates, the snapshot-based note on New/Unfollowed, the count line, the table (Username links to `https://www.instagram.com/<name>/` in a new tab with `rel="noopener noreferrer"`; the date column named by `sinceKey`), `Pagination` → "Your snapshots" (date, followers, following or "Not uploaded", uploaded at, a Delete icon button with a full-sentence label → `ConfirmDialog` → `deleteSnapshot` → `router.refresh()`). Without the migration: intro + guide + "needs a database update". Without snapshots: intro + guide + the empty state with the Upload button.
+
+- [ ] **Step 1: Write the failing component test** — create `tests/followers-tab.test.tsx`:
+
+```tsx
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { FollowersTab, type FollowersTabProps } from '@/components/account/FollowersTab';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { followersView, type Snapshot } from '@/lib/followers/diff';
+import { parseFollowerState, type SnapshotMeta } from '@/lib/followers/state';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const { push, replace, refresh } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace, refresh, prefetch: vi.fn(), back: vi.fn() }) }));
+const { download } = vi.hoisted(() => ({ download: vi.fn() }));
+vi.mock('@/lib/export/download', () => ({ downloadExport: download }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  for (const f of [push, replace, refresh, download]) f.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const T = en.pages.account.followerDiff;
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+const meta = (n: number, takenOn: string, followers: number, following: number | null): SnapshotMeta => ({ id: id(n), takenOn, followerCount: followers, followingCount: following, createdAt: `${takenOn}T10:00:00Z` });
+const NEW_META = meta(2, '2026-10-20', 4, 3);
+const OLD_META = meta(1, '2026-09-20', 3, null);
+const at = (d: string) => Date.parse(`${d}T12:00:00Z`) / 1000;
+const NEWER: Snapshot = {
+  followers: [{ username: 'bob', at: at('2026-01-02') }, { username: 'cat', at: at('2026-01-03') }, { username: 'dan', at: at('2026-10-05') }, { username: 'eve', at: null }],
+  following: [{ username: 'cat', at: at('2025-05-01') }, { username: 'dan', at: at('2025-06-01') }, { username: 'xavier', at: at('2025-07-01') }],
+};
+const OLDER: Snapshot = { followers: [{ username: 'amy', at: at('2025-12-01') }, { username: 'bob', at: at('2026-01-02') }, { username: 'cat', at: at('2026-01-03') }], following: null };
+const SCOPE = { from: '2026-09-01', to: '2026-09-30' };
+/** The list's table (the snapshot list below is a second table). */
+const listTable = () => within(screen.getByRole('tabpanel')).getByRole('table');
+
+function props(sp: Record<string, string> = {}, o: Partial<FollowersTabProps> = {}): FollowersTabProps {
+  const snapshots = [NEW_META, OLD_META];
+  const state = parseFollowerState(sp, snapshots);
+  return { accountId: ACC, username: 'shop.one', today: '2026-10-21', scope: SCOPE, ready: true, snapshots, state, newer: NEW_META, older: OLD_META, view: followersView(NEWER, OLDER, state), deleteSnapshot: vi.fn(async () => ({ ok: true as const })), ...o };
+}
+function view(p: FollowersTabProps, locale: 'en' | 'zh-CN' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale, dateFormat: 'YYYY-MM-DD' }} persist={vi.fn()}>
+        <FollowersTab {...p} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('FollowersTab', () => {
+  it('migration missing: the guide and the "needs a database update" note, no upload', () => {
+    view(props({}, { ready: false, snapshots: [], newer: null, older: null, view: null }));
+    expect(screen.getByText(T.notReady)).toBeInTheDocument();
+    expect(screen.getByText(T.guide.title)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: T.upload.open })).toBeNull();
+  });
+
+  it('no snapshot yet: the guide is open with the exact steps for this account, and the upload button', () => {
+    view(props({}, { snapshots: [], newer: null, older: null, view: null }));
+    const guide = screen.getByText(T.guide.title).closest('details')!;
+    expect(guide).toHaveAttribute('open');
+    const steps = within(guide).getAllByRole('listitem').map((li) => li.textContent);
+    expect(steps).toHaveLength(7);
+    expect(steps[0]).toContain('@shop.one');
+    expect(steps[4]).toContain('JSON');
+    expect(screen.getByText(T.empty)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: T.upload.open })).toBeInTheDocument();
+  });
+
+  it('the five lists as underline tabs with their sizes; New followers by default, newest follow first, snapshot-based note', () => {
+    view(props());
+    const tabs = within(screen.getByRole('tablist', { name: T.lists.label })).getAllByRole('tab');
+    expect(screen.getByRole('tablist', { name: T.lists.label })).toHaveAttribute('data-variant', 'line');
+    expect(tabs.map((t) => t.textContent)).toEqual(['New followers (2)', 'Unfollowed you (1)', "Don't follow you back (1)", "You don't follow back (2)", 'Mutuals (2)']);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveTextContent('They follow you in the export of 2026-10-20 but not in the one of 2026-09-20.');
+    expect(panel).toHaveTextContent(T.snapshotBased);
+    expect(panel).toHaveTextContent('1–2 of 2 people');
+    const table = within(panel).getByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
+    expect(rows).toEqual([['@dan', '2026-10-05'], ['@eve', '—']]);
+    expect(within(table).getByRole('columnheader', { name: T.cols.followedYou })).toBeInTheDocument();
+  });
+
+  it('names link to Instagram in a new tab, safely', () => {
+    view(props());
+    const link = within(listTable()).getByRole('link', { name: 'Open @dan on Instagram' });
+    expect(link).toHaveAttribute('href', 'https://www.instagram.com/dan/');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('choosing a list navigates (scope kept, page dropped); the time column follows the list', async () => {
+    const user = userEvent.setup();
+    view(props({ list: 'theyDontFollow', page: '1' }));
+    expect(within(listTable()).getByRole('columnheader', { name: T.cols.youFollowed })).toBeInTheDocument();
+    expect(within(listTable()).getByText('@xavier')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Mutuals (2)' }));
+    expect(push).toHaveBeenCalledWith('?tab=followers&list=mutual&from=2026-09-01&to=2026-09-30', { scroll: false });
+  });
+
+  it('toolbar: search, the snapshot and the comparison (named by date and size), export and upload; a search chip', () => {
+    view(props({ q: 'da' }));
+    const toolbar = screen.getByRole('group', { name: T.toolbar });
+    expect(within(toolbar).getByRole('searchbox', { name: T.search })).toHaveValue('da');
+    const snap = within(toolbar).getByLabelText(T.snapshot);
+    expect(within(snap).getAllByRole('option').map((o) => o.textContent)).toEqual(['2026-10-20 · 4 followers', '2026-09-20 · 3 followers']);
+    expect(within(toolbar).getByLabelText(T.compare)).toHaveValue(id(1));
+    expect(within(toolbar).getByRole('button', { name: T.export })).toBeEnabled();
+    expect(within(toolbar).getByRole('button', { name: T.upload.open })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Remove filter Search: da' })).toHaveAttribute('href', '?tab=followers&from=2026-09-01&to=2026-09-30');
+    expect(within(listTable()).getAllByRole('row')).toHaveLength(2); // header + dan
+  });
+
+  it('a list the snapshots cannot answer says why (no second export / no following.json)', async () => {
+    const state = parseFollowerState({ list: 'lost' }, [NEW_META]);
+    view(props({}, { snapshots: [NEW_META], older: null, state, view: followersView(NEWER, null, state) }));
+    expect(screen.getByRole('tabpanel')).toHaveTextContent(T.needTwo);
+    expect(screen.queryByLabelText(T.compare)).toBeNull(); // one snapshot: nothing to compare with
+    expect(screen.getByRole('button', { name: T.export })).toBeDisabled();
+  });
+
+  it('export downloads the current list through the safe xlsx route; an error key is shown translated', async () => {
+    const user = userEvent.setup();
+    download.mockResolvedValueOnce({ ok: false, error: 'unauthorized' });
+    view(props({ list: 'lost', q: 'am' }));
+    await user.click(screen.getByRole('button', { name: T.export }));
+    expect(download).toHaveBeenCalledWith(`/api/export/followers?account=${ACC}&snap=${id(2)}&vs=${id(1)}&list=lost&q=am`, 'xlsx');
+    expect(await screen.findByRole('alert')).toHaveTextContent(en.export.errors.unauthorized);
+  });
+
+  it('snapshots: date, counts, "Not uploaded" without following.json; delete asks first, then refreshes', async () => {
+    const user = userEvent.setup();
+    const p = props();
+    view(p);
+    const section = screen.getByRole('region', { name: T.snapshots.title });
+    expect(section).toHaveTextContent(T.snapshots.notUploaded);
+    await user.click(within(section).getAllByRole('button', { name: 'Delete the snapshot of 2026-09-20' })[0]); // the table and the phone cards both render it
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('The usernames of the export of 2026-09-20 are removed for good.');
+    await user.click(within(dialog).getByRole('button', { name: T.snapshots.confirm }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(p.deleteSnapshot).toHaveBeenCalledWith(ACC, id(1));
+  });
+
+  it('an export older than 30 days gets one quiet line, nothing more', () => {
+    view(props({}, { today: '2026-11-25' }));
+    expect(screen.getByText('Your newest export is 36 days old. Upload a new one to see recent changes.')).toBeInTheDocument();
+  });
+
+  it('zh-CN', () => {
+    view(props(), 'zh-CN');
+    expect(screen.getByRole('tab', { name: '新粉丝（2）' })).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/followers-tab.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/account/FollowersTab"`.
+
+- [ ] **Step 3: Write `components/account/FollowersTab.tsx`** (exactly this):
+
+```tsx
+'use client';
+
+// The Followers tab (Plan 15b): follower lists BY NAME from Instagram exports the owner uploads (no API gives names).
+// Guide → toolbar (search, the two snapshots, export, upload) → the five lists as underline tabs with counts → one
+// server page of the chosen list → the snapshot list (delete). Everything is URL state (lib/followers/state.ts); the
+// server computed the page (lib/followers/diff.ts followersView), so at most FOLLOWER_PAGE names reach the browser.
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Download, ExternalLink, Trash2, Users } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { FollowerUpload } from '@/components/account/FollowerUpload';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { DataTable, type Column } from '@/components/shared/DataTable';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { FilterSearch, FilterSelect, FilterToolbar, useApply, type FilterChip } from '@/components/shared/FilterToolbar';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import { Pagination } from '@/components/shared/Pagination';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { downloadExport } from '@/lib/export/download';
+import { formatDate, formatDateTime, formatDay, formatNumber } from '@/lib/format';
+import { FOLLOWER_LISTS, FOLLOWER_PAGE, sinceKey, type FollowerList, type FollowersView } from '@/lib/followers/diff';
+import type { Person } from '@/lib/followers/parse';
+import { followerHref, staleDays, type FollowerState, type SnapshotMeta } from '@/lib/followers/state';
+
+const GUIDE_STEPS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'] as const;
+
+export interface FollowersTabProps {
+  accountId: string;
+  username: string;
+  today: string;
+  scope?: Record<string, string>; // the Time Scope params: carried in every link, never used here
+  ready: boolean; // false = the migration is not applied yet
+  snapshots: SnapshotMeta[]; // newest first
+  state: FollowerState;
+  newer: SnapshotMeta | null;
+  older: SnapshotMeta | null;
+  view: FollowersView | null;
+  deleteSnapshot: (accountId: string, snapshotId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+}
+
+export function FollowersTab({ accountId, username, today, scope = {}, ready, snapshots, state, newer, older, view, deleteSnapshot }: FollowersTabProps) {
+  const t = useTranslations('pages.account.followerDiff');
+  const te = useTranslations('export.errors');
+  const { prefs } = usePrefs();
+  const router = useRouter();
+  const apply = useApply();
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [target, setTarget] = useState<SnapshotMeta | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const n = (v: number) => formatNumber(v, prefs, { maximumFractionDigits: 0 });
+  const day = (d: string) => formatDay(d, prefs);
+  const href = (patch: Partial<FollowerState>) => followerHref(state, patch, scope);
+
+  const guide = (
+    <details open={snapshots.length === 0} className="rounded-md border bg-card p-[var(--gp)] text-sm">
+      <summary className="cursor-pointer font-medium">{t('guide.title')}</summary>
+      <ol className="mt-2 grid list-decimal gap-1.5 ps-5">
+        {GUIDE_STEPS.map((s) => (
+          <li key={s}>{t(`guide.${s}`, { username })}</li>
+        ))}
+      </ol>
+      <p className="mt-2 text-xs text-muted-foreground">{t('guide.privacy')}</p>
+    </details>
+  );
+  const intro = <p className="max-w-prose text-sm text-muted-foreground">{t('intro')}</p>;
+
+  if (!ready)
+    return (
+      <div className="grid min-w-0 gap-[var(--gp)]">
+        {intro}
+        {guide}
+        <EmptyState icon={<Users aria-hidden="true" />} title={t('notReady')} description={t('notReadyHint')} />
+      </div>
+    );
+  const upload = <FollowerUpload accountId={accountId} username={username} today={today} />;
+  if (!newer || !view)
+    return (
+      <div className="grid min-w-0 gap-[var(--gp)]">
+        {intro}
+        {guide}
+        <EmptyState icon={<Users aria-hidden="true" />} title={t('empty')} description={t('emptyHint')} action={upload} />
+      </div>
+    );
+
+  const stale = staleDays(snapshots, today);
+  const option = (s: SnapshotMeta) => ({ value: s.id, label: t('snapshotOption', { date: day(s.takenOn), count: s.followerCount }) });
+  const chips: FilterChip[] = state.q ? [{ id: 'q', label: t('searchChip', { q: state.q }), href: href({ q: '' }) }] : [];
+  const exportQuery = new URLSearchParams({ account: accountId, snap: newer.id, ...(older ? { vs: older.id } : {}), list: view.list, ...(state.q ? { q: state.q } : {}) });
+  const exportButton = (
+    <LoadingButton
+      type="button"
+      variant="outline"
+      pending={exporting}
+      disabled={!view.page?.total}
+      onClick={async () => {
+        setExporting(true);
+        const r = await downloadExport(`/api/export/followers?${exportQuery}`, 'xlsx');
+        setExporting(false);
+        setExportError(r.ok ? null : te(r.error));
+      }}
+    >
+      <Download aria-hidden="true" />
+      {t('export')}
+    </LoadingButton>
+  );
+  const columns: Column<Person>[] = [
+    {
+      key: 'username',
+      header: t('cols.username'),
+      cell: (p) => (
+        <a href={`https://www.instagram.com/${encodeURIComponent(p.username)}/`} target="_blank" rel="noopener noreferrer" aria-label={t('openProfile', { username: p.username })} className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline">
+          @{p.username}
+          <ExternalLink aria-hidden="true" className="size-3.5 text-muted-foreground" />
+        </a>
+      ),
+    },
+    { key: 'at', header: t(`cols.${sinceKey(view.list)}`), cell: (p) => formatDate(p.at === null ? null : p.at * 1000, prefs) },
+  ];
+  const label = (l: FollowerList) => (view.counts[l] === null ? t(`lists.${l}`) : t('withCount', { label: t(`lists.${l}`), count: n(view.counts[l]!) }));
+  const unavailable = (l: FollowerList) => (l === 'new' || l === 'lost' ? t('needTwo') : t('needFollowing'));
+  const page = view.page;
+  const dates = { newer: day(newer.takenOn), older: older ? day(older.takenOn) : '' };
+
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      {intro}
+      {guide}
+      {stale !== null ? <p className="text-sm text-muted-foreground">{t('stale', { days: n(stale) })}</p> : null}
+      <FilterToolbar label={t('toolbar')} chips={chips} clearHref={state.q ? href({ q: '' }) : undefined} end={<>{exportButton}{upload}</>}>
+        <FilterSearch id="followers-q" label={t('search')} placeholder={t('search')} value={state.q} hrefFor={(q) => href({ q })} />
+        <FilterSelect id="followers-snap" label={t('snapshot')} value={newer.id} options={snapshots.map(option)} hrefFor={(v) => href({ snap: v })} />
+        {snapshots.length > 1 ? <FilterSelect id="followers-vs" label={t('compare')} value={older?.id ?? ''} options={snapshots.filter((s) => s.id !== newer.id).map(option)} hrefFor={(v) => href({ vs: v })} /> : null}
+      </FilterToolbar>
+      {exportError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {exportError}
+        </p>
+      ) : null}
+      <Tabs value={view.list} activationMode="manual" onValueChange={(v) => apply(href({ list: v as FollowerList }))} className="min-w-0">
+        <TabsList variant="line" aria-label={t('lists.label')}>
+          {FOLLOWER_LISTS.map((l) => (
+            <TabsTrigger key={l} value={l} className="flex-none">
+              {label(l)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {FOLLOWER_LISTS.map((l) => (
+          <TabsContent key={l} value={l} className="grid min-w-0 gap-2 pt-[var(--gp)]">
+            {l !== view.list ? null : !page ? (
+              <p className="text-sm text-muted-foreground">{unavailable(l)}</p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">{t(`hints.${l}`, dates)}</p>
+                {l === 'new' || l === 'lost' ? <p className="text-xs text-muted-foreground">{t('snapshotBased')}</p> : null}
+                {page.total > 0 ? (
+                  <p className="text-xs text-muted-foreground" aria-live="polite">
+                    {t('range', { first: n((page.page - 1) * FOLLOWER_PAGE + 1), last: n((page.page - 1) * FOLLOWER_PAGE + page.rows.length), total: n(page.total) })}
+                  </p>
+                ) : null}
+                <DataTable
+                  rows={page.rows}
+                  columns={columns}
+                  rowKey={(p) => p.username}
+                  caption={t(`lists.${l}`)}
+                  empty={<EmptyState title={state.q ? t('emptySearch') : t('emptyList')} />}
+                  serverSort={{ current: null, href: () => null }}
+                />
+                <Pagination page={page.page} pages={page.pages} hrefFor={(p) => href({ page: p })} />
+              </>
+            )}
+          </TabsContent>
+        ))}
+      </Tabs>
+      <section aria-labelledby="follower-snapshots" className="grid min-w-0 gap-2">
+        <h2 id="follower-snapshots" className="text-sm font-medium">
+          {t('snapshots.title')}
+        </h2>
+        <DataTable
+          rows={snapshots}
+          rowKey={(s) => s.id}
+          caption={t('snapshots.title')}
+          serverSort={{ current: null, href: () => null }}
+          columns={[
+            { key: 'date', header: t('snapshots.date'), cell: (s) => day(s.takenOn) },
+            { key: 'followers', header: t('snapshots.followers'), align: 'right', cell: (s) => n(s.followerCount) },
+            { key: 'following', header: t('snapshots.following'), align: 'right', cell: (s) => (s.followingCount === null ? t('snapshots.notUploaded') : n(s.followingCount)) },
+            { key: 'uploaded', header: t('snapshots.uploaded'), cell: (s) => formatDateTime(s.createdAt, prefs) },
+            {
+              key: 'delete',
+              header: t('snapshots.delete'),
+              cell: (s) => (
+                <Button type="button" variant="ghost" size="icon" aria-label={t('snapshots.deleteLabel', { date: day(s.takenOn) })} onClick={() => (setDeleteError(null), setTarget(s))}>
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              ),
+            },
+          ]}
+        />
+      </section>
+      <ConfirmDialog
+        open={target !== null}
+        title={t('snapshots.deleteTitle')}
+        body={target ? t('snapshots.deleteBody', { date: day(target.takenOn) }) : ''}
+        confirmLabel={t('snapshots.confirm')}
+        cancelLabel={t('snapshots.cancel')}
+        busy={deleting}
+        error={deleteError}
+        onClose={() => setTarget(null)}
+        onConfirm={async () => {
+          if (!target) return;
+          setDeleting(true);
+          const r = await deleteSnapshot(accountId, target.id);
+          setDeleting(false);
+          if (!r.ok) return setDeleteError(t(`errors.${r.error === 'notFound' ? 'notFound' : 'unexpected'}`, { max: '', file: '' }));
+          setTarget(null);
+          router.refresh();
+        }}
+      />
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Run it**
+
+Run: `npx vitest run tests/followers-tab.test.tsx` → PASS (11 tests).
+
+- [ ] **Step 5: Add the tab** — four anchored edits (Edit tool; each anchor occurs once).
+
+`lib/dashboard/account.ts` — replace
+```ts
+// Audience is the last section of Overview (ux-polish design §4.2); ?tab=audience redirects there
+export const TABS = ['overview', 'posts', 'stories'] as const;
+```
+with
+```ts
+// Audience is the last section of Overview (ux-polish design §4.2); ?tab=audience redirects there. Followers (Plan 15b) = the
+// by-name lists from uploaded Instagram exports; it stays the LAST tab.
+export const TABS = ['overview', 'posts', 'stories', 'followers'] as const;
+```
+(If Plan 15a already added a tab, keep its entry and put `'followers'` last; list it as a deviation.)
+
+`components/account/TabSkeleton.tsx` — insert directly before the line `    default:` (the only one):
+```tsx
+    case 'followers':
+      return (
+        <div aria-busy="true" className="grid min-w-0 gap-[var(--gp)]">
+          <SkeletonGrid count={1} itemClassName="h-[calc(var(--ctl)*1.8)] rounded-md" />
+          <SkeletonTable rows={8} />
+        </div>
+      );
+```
+
+`tests/dashboard-account.test.ts` — replace
+```ts
+  it('accepts the three tabs only; the old Audience tab and injections fall back to overview', () => {
+    expect(TABS).toEqual(['overview', 'posts', 'stories']);
+    expect(['overview', 'posts', 'stories', 'audience'].map(parseTab)).toEqual(['overview', 'posts', 'stories', 'overview']);
+```
+with
+```ts
+  it('accepts the four tabs only; the old Audience tab and injections fall back to overview', () => {
+    expect(TABS).toEqual(['overview', 'posts', 'stories', 'followers']);
+    expect(['overview', 'posts', 'stories', 'followers', 'audience'].map(parseTab)).toEqual(['overview', 'posts', 'stories', 'followers', 'overview']);
+```
+
+`tests/account-view.test.tsx` — three one-line replacements:
+- `  const frame = (tab: 'overview' | 'posts' | 'stories', q = '', children = <p>panel</p>) => (` → `  const frame = (tab: 'overview' | 'posts' | 'stories' | 'followers', q = '', children = <p>panel</p>) => (`
+- `    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Posts', 'Stories']);` → `    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Posts', 'Stories', 'Followers']);`
+- `    for (const tab of ['posts', 'stories'] as const) {` → `    for (const tab of ['posts', 'stories', 'followers'] as const) {` (no range bar on the Followers tab either)
+
+- [ ] **Step 6: Wire the page** — `app/(app)/accounts/[id]/(tabs)/page.tsx`, five anchored edits:
+
+(a) after the line `import { AccountView } from '@/components/account/AccountView';` insert
+```tsx
+import { FollowersTab } from '@/components/account/FollowersTab';
+```
+(b) after the line `import { setPostTagsAction } from '@/app/(app)/tags/actions';` insert
+```tsx
+import { deleteFollowerSnapshotAction } from '@/app/(app)/accounts/followers-actions';
+```
+(c) after the line `import { exportScopes } from '@/lib/export/params';` insert
+```tsx
+import { followersView } from '@/lib/followers/diff';
+import { listFollowerSnapshots, loadFollowerSnapshot } from '@/lib/followers/read';
+import { FOLLOWER_KEYS, parseFollowerState, resolvePair } from '@/lib/followers/state';
+```
+(d) insert directly before the line `    default: {` in `TabContent`:
+```tsx
+    case 'followers': {
+      // by-name lists from uploaded exports (Plan 15b): the snapshot list, then the two compared snapshots, diffed here;
+      // only one page of names goes to the browser. The Time Scope is carried in links, never used.
+      const snapshots = await listFollowerSnapshots(db, account.id);
+      const props = { accountId: account.id, username: account.username, today, scope: scope.params, deleteSnapshot: deleteFollowerSnapshotAction };
+      const state = parseFollowerState(sp, snapshots ?? []);
+      // before migration 20261028000002 is applied: the guide and a "needs a database update" note, no upload
+      if (!snapshots) return <FollowersTab ready={false} snapshots={[]} state={state} newer={null} older={null} view={null} {...props} />;
+      const pair = resolvePair(state, snapshots);
+      const [newer, older] = await Promise.all([pair.newer && loadFollowerSnapshot(db, account.id, pair.newer.id), pair.older && loadFollowerSnapshot(db, account.id, pair.older.id)]);
+      const view = pair.newer && newer ? followersView(newer, older ?? null, state) : null;
+      return <FollowersTab ready snapshots={snapshots} state={state} newer={view ? pair.newer : null} older={older ? pair.older : null} view={view} {...props} />;
+    }
+```
+(e) the Suspense key ignores the tab's own params too (the search box keeps focus while a page streams): replace
+`      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries(LIST_KEYS.map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>`
+with
+`      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries([...LIST_KEYS, ...FOLLOWER_KEYS].map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>`
+and in the comment above it `params of Posts/Stories (LIST_KEYS, incl. the Grid/Table view): the toolbar stays mounted` → `params of Posts/Stories/Followers (LIST_KEYS, incl. the Grid/Table view, and FOLLOWER_KEYS): the toolbar stays mounted`.
+
+- [ ] **Step 7: Page tests** — `tests/account-page.test.tsx`, two insertions:
+
+(a) after the line `vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push('ADMIN') }));` insert
+```tsx
+const followers = vi.hoisted(() => ({ snapshots: [] as Record<string, unknown>[] | null, data: {} as Record<string, unknown>, loads: [] as string[] }));
+vi.mock('@/lib/followers/read', () => ({
+  listFollowerSnapshots: async (_db: unknown, accountId: string) => (calls.push(`followerSnapshots:${accountId}`), followers.snapshots),
+  loadFollowerSnapshot: async (_db: unknown, _accountId: string, id: string) => (calls.push('followerSnapshot'), followers.loads.push(id), followers.data[id] ?? null),
+}));
+```
+(b) append at the end of the file (after the last `});`):
+```tsx
+
+describe('account page: the Followers tab (Plan 15b)', () => {
+  const S1 = '00000000-0000-4000-8000-000000000001';
+  const S2 = '00000000-0000-4000-8000-000000000002';
+  const meta = (id: string, takenOn: string) => ({ id, takenOn, followerCount: 2, followingCount: 1, createdAt: `${takenOn}T10:00:00Z` });
+  type FollowersProps = { ready: boolean; snapshots: unknown[]; newer: { id: string } | null; older: { id: string } | null; view: { list: string; counts: Record<string, number | null>; page: { rows: { username: string }[] } | null } | null; scope: Record<string, string>; deleteSnapshot: unknown; username: string };
+  const followersTab = async (sp: Record<string, string> = {}) => ((await streamTab(await run(ID, { tab: 'followers', ...sp }))) as ReactElement<FollowersProps>).props;
+
+  beforeEach(() => {
+    followers.snapshots = [meta(S2, '2026-10-20'), meta(S1, '2026-09-20')];
+    followers.data = { [S2]: { followers: [{ username: 'bob', at: null }, { username: 'cat', at: null }], following: [{ username: 'cat', at: null }] }, [S1]: { followers: [{ username: 'amy', at: null }, { username: 'bob', at: null }], following: null } };
+    followers.loads = [];
+    accounts.push(acct(ID));
+  });
+
+  it('reads the snapshot list, then the two compared snapshots with the owner session, and hands one diffed page to the tab', async () => {
+    const p = await followersTab();
+    expect(p.ready).toBe(true);
+    expect(followers.loads).toEqual([S2, S1]);
+    expect([p.newer?.id, p.older?.id]).toEqual([S2, S1]);
+    expect(p.view?.list).toBe('new');
+    expect(p.view?.counts).toEqual({ new: 1, lost: 1, theyDontFollow: 0, iDontFollow: 1, mutual: 1 });
+    expect(p.view?.page?.rows.map((r) => r.username)).toEqual(['cat']);
+    expect(p.username).toBe(acct(ID).username);
+    expect(typeof p.deleteSnapshot).toBe('function');
+    expect(calls).toContain(`followerSnapshots:${ID}`);
+    expect(calls).not.toContain('ADMIN');
+  });
+
+  it('URL state: a chosen list, a search; invalid snapshot ids fall back to the newest pair', async () => {
+    const p = await followersTab({ list: 'lost', q: 'AM', snap: 'not-a-uuid' });
+    expect(p.view?.list).toBe('lost');
+    expect(p.view?.page?.rows.map((r) => r.username)).toEqual(['amy']);
+    expect([p.newer?.id, p.older?.id]).toEqual([S2, S1]);
+  });
+
+  it('before migration 20261028000002 (table missing): the tab says so, nothing else is read', async () => {
+    followers.snapshots = null;
+    const p = await followersTab();
+    expect(p.ready).toBe(false);
+    expect(p.view).toBeNull();
+    expect(followers.loads).toEqual([]);
+  });
+
+  it('no snapshot yet → no view; one snapshot → no comparison', async () => {
+    followers.snapshots = [];
+    expect((await followersTab()).view).toBeNull();
+    followers.snapshots = [meta(S2, '2026-10-20')];
+    const one = await followersTab();
+    expect(one.older).toBeNull();
+    expect(one.view?.list).toBe('theyDontFollow');
+  });
+
+  it('the Suspense key ignores the follower params (the toolbar stays mounted); the scope rides along to the tab', async () => {
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    expect(await key({ tab: 'followers', snap: S1, vs: S2, list: 'mutual', q: 'x', page: '2' })).toBe(await key({ tab: 'followers' }));
+    expect((await followersTab({ from: '2026-09-01', to: '2026-09-30' })).scope).toEqual({ from: '2026-09-01', to: '2026-09-30' });
+  });
+});
+```
+
+- [ ] **Step 8: Run the tests**
+
+Run: `npx vitest run tests/followers-tab.test.tsx tests/account-page.test.tsx tests/account-view.test.tsx tests/dashboard-account.test.ts tests/ui-standards.test.ts tests/followers-privacy.test.ts tests/route-loading.test.tsx`, `npx tsc --noEmit`, `npx eslint components/account/FollowersTab.tsx components/account/TabSkeleton.tsx lib/dashboard/account.ts "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/followers-tab.test.tsx tests/account-page.test.tsx tests/account-view.test.tsx tests/dashboard-account.test.ts`
+Expected: PASS (the page test file gains 5 tests; in the plan author's scratch run `account-page` + `account-view` + `dashboard-account` = 36 passed), tsc and eslint clean.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add components/account/FollowersTab.tsx tests/followers-tab.test.tsx lib/dashboard/account.ts components/account/TabSkeleton.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx
+git commit -m "feat(followers): Followers account tab (guide, lists by name, server pages, snapshots)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: The list export — `lib/export/followers.ts`, `GET /api/export/followers`
+
+**Files:**
+- Create: `lib/export/followers.ts`, `app/api/export/followers/route.ts`, `tests/export-followers.test.ts`
+- Existing tests that must keep passing: `tests/followers-privacy.test.ts` (both files import `lib/followers`; one fixed `console.error` line), `tests/export-workbook.test.ts`, `tests/export-cells.test.ts`.
+
+**Interfaces:**
+- Consumes: Task 2 keys (`pages.account.followerDiff.lists.*`, `.cols.*`, `.hints.*`, `.snapshotBased`, `.sheet.*`); Task 4 (`diffSnapshots`, `filterList`, `sinceKey`, `FOLLOWER_LISTS`, `parseFollowerState`, `resolvePair`); Task 5 (`listFollowerSnapshots`, `loadFollowerSnapshot`); `sheet`, `translator`, `writeWorkbook`, `WorkbookSheet`, `Translate` (`lib/export/workbook.ts`), `sheetNames` (`lib/export/cells.ts`), `exportHeaders`/`exportError`/`exportFile` (`lib/export/request.ts`), `contentDisposition`, `assertOwner`, `supabaseAccountsStore`, `getPrefs`, `formatDay`, `isUuid`.
+- Produces: `buildFollowerSheets(d: FollowerSheetInput, t: Translate, prefs: FormatPrefs): WorkbookSheet[]` (the list sheet: Username, the list's date column, Profile link; an "About" sheet: account, list, both export dates, the list hint + the snapshot-based note); `GET /api/export/followers?account=<uuid>&snap=<uuid>[&vs=<uuid>]&list=<list>[&q=<text>]` → 200 xlsx (`private, no-store`, `nosniff`, `in2sight-<account>-<list>-<newer day>.xlsx`) · 401 `unauthorized` · 400 `bad_params` (unknown/repeated key, bad id, unknown list, a list the snapshots cannot answer) · 404 `not_found` (archived/unknown account, unknown snapshot, migration missing) · 500 `unexpected` — the `export.errors.*` keys `downloadExport` already knows.
+
+- [ ] **Step 1: Write the failing test** — create `tests/export-followers.test.ts`:
+
+```ts
+// @vitest-environment node
+import { NextRequest } from 'next/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CellObject } from 'write-excel-file/node';
+import { buildFollowerSheets } from '@/lib/export/followers';
+import type { WorkbookSheet } from '@/lib/export/workbook';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const S1 = '00000000-0000-4000-8000-000000000001';
+const S2 = '00000000-0000-4000-8000-000000000002';
+const state = vi.hoisted(() => ({
+  owner: true,
+  account: null as Record<string, unknown> | null,
+  snapshots: null as Record<string, unknown>[] | null,
+  data: {} as Record<string, unknown>,
+  written: [] as WorkbookSheet[][],
+  order: [] as string[],
+}));
+vi.mock('@/lib/auth/assert-owner', () => ({ assertOwner: async () => (state.order.push('assertOwner'), state.owner) }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (state.order.push('ownerSession'), {}) }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => state.order.push('ADMIN') }));
+vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => ({ ...(await import('@/lib/prefs')).DEFAULT_PREFS, dateFormat: 'YYYY-MM-DD' }) }));
+vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ getById: async () => state.account }) }));
+vi.mock('@/lib/followers/read', () => ({
+  listFollowerSnapshots: async () => state.snapshots,
+  loadFollowerSnapshot: async (_db: unknown, _a: string, id: string) => state.data[id] ?? null,
+}));
+vi.mock('@/lib/export/workbook', async (orig) => ({
+  ...(await orig<object>()),
+  writeWorkbook: async (sheets: WorkbookSheet[]) => (state.written.push(sheets), Buffer.from('xlsx')),
+}));
+
+import { GET } from '@/app/api/export/followers/route';
+import { translator } from '@/lib/export/workbook';
+
+const PREFS = { ...DEFAULT_PREFS, dateFormat: 'YYYY-MM-DD' as const };
+const T1 = Date.parse('2026-10-05T04:00:00Z') / 1000;
+const values = (s: WorkbookSheet) => s.data.map((r) => (r as (CellObject | null)[]).map((c) => (c === null ? null : c.value instanceof Date ? c.value.toISOString() : c.value)));
+const call = (q: string) => GET(new NextRequest(`https://app.test/api/export/followers?${q}`));
+const meta = (id: string, takenOn: string) => ({ id, takenOn, followerCount: 2, followingCount: 1, createdAt: `${takenOn}T10:00:00Z` });
+
+beforeEach(() => {
+  state.owner = true;
+  state.account = { id: ACC, username: 'shop.one', status: 'active' };
+  state.snapshots = [meta(S2, '2026-10-20'), meta(S1, '2026-09-20')];
+  state.data = {
+    [S2]: { followers: [{ username: 'bob', at: null }, { username: 'dan', at: T1 }, { username: 'ann.b', at: T1 - 60 }], following: [{ username: 'dan', at: T1 }] },
+    [S1]: { followers: [{ username: 'amy', at: T1 - 999 }, { username: 'bob', at: null }], following: null },
+  };
+  state.written = [];
+  state.order = [];
+});
+
+describe('buildFollowerSheets', () => {
+  it('the list sheet: username text cells, real date-time cells (empty when unknown), a profile link; an About sheet', () => {
+    const [list, about] = buildFollowerSheets({ account: '=evil', list: 'new', newer: '2026-10-20', older: '2026-09-20', people: [{ username: 'dan', at: T1 }, { username: 'eve', at: null }] }, translator('en'), PREFS);
+    expect(list.sheet).toBe('New followers');
+    expect(list.stickyRowsCount).toBe(1);
+    expect(values(list)).toEqual([
+      ['Username', 'Followed you on', 'Profile link'],
+      ['dan', '2026-10-05T12:00:00.000Z', 'https://www.instagram.com/dan/'], // the owner's wall clock (Kuala Lumpur, UTC+8) as the cell value
+      ['eve', null, 'https://www.instagram.com/eve/'],
+    ]);
+    expect((list.data[1] as CellObject[])[1]).toMatchObject({ type: Date, format: 'yyyy-mm-dd hh:mm' });
+    expect(about.sheet).toBe('About');
+    const rows = values(about);
+    expect(rows[1]).toEqual(['Account', "'=evil"]); // the formula-injection guard of lib/export/cells.ts
+    expect(rows[5][1]).toBe('They follow you in the export of 2026-10-20 but not in the one of 2026-09-20. Snapshot-based: only people who followed or unfollowed between these two files, not everything in between.');
+  });
+
+  it('the time column follows the list; zh-CN sheet names', () => {
+    const [list] = buildFollowerSheets({ account: 'a', list: 'theyDontFollow', newer: 'x', older: null, people: [] }, translator('en'), PREFS);
+    expect(values(list)[0][1]).toBe('You followed on');
+    const zh = buildFollowerSheets({ account: 'a', list: 'mutual', newer: 'x', older: null, people: [] }, translator('zh-CN'), { ...PREFS, locale: 'zh-CN' });
+    expect(zh.map((s) => s.sheet)).toEqual(['互相关注', '说明']);
+  });
+});
+
+describe('GET /api/export/followers', () => {
+  it('the whole filtered list as xlsx: private, nosniff, a clean file name; owner first, never the admin client', async () => {
+    const res = await call(`account=${ACC}&snap=${S2}&vs=${S1}&list=new&q=NN`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-disposition')).toContain('in2sight-shop.one-new-2026-10-20.xlsx');
+    expect(values(state.written[0][0]).slice(1).map((r) => r[0])).toEqual(['ann.b']); // "NN" → lower-cased search; dan and ann.b are new, only ann.b matches
+    expect(state.order[0]).toBe('assertOwner');
+    expect(state.order).not.toContain('ADMIN');
+  });
+
+  it('every list, sorted as on screen (newest follow first, unknown last)', async () => {
+    await call(`account=${ACC}&snap=${S2}&list=iDontFollow`);
+    expect(values(state.written[0][0]).slice(1).map((r) => r[0])).toEqual(['ann.b', 'bob']);
+  });
+
+  it('a stranger gets 401 before anything is read', async () => {
+    state.owner = false;
+    const res = await call(`account=${ACC}&snap=${S2}&list=new`);
+    expect([res.status, await res.json()]).toEqual([401, { error: 'unauthorized' }]);
+    expect(state.order).toEqual(['assertOwner']);
+  });
+
+  it.each([
+    ['no parameters', ''],
+    ['an unknown key', `account=${ACC}&snap=${S2}&list=new&from=2026-01-01`],
+    ['a repeated key', `account=${ACC}&snap=${S2}&list=new&list=lost`],
+    ['a bad account id', `account=x&snap=${S2}&list=new`],
+    ['a bad snapshot id', `account=${ACC}&snap=${S2}'--&list=new`],
+    ['an unknown list', `account=${ACC}&snap=${S2}&list=everyone`],
+    ['a list these snapshots cannot answer', `account=${ACC}&snap=${S1}&list=mutual`],
+  ])('%s → 400 bad_params', async (_n, q) => {
+    const res = await call(q);
+    expect([res.status, await res.json()]).toEqual([400, { error: 'bad_params' }]);
+    expect(state.written).toEqual([]);
+  });
+
+  it('another account, an archived one, an unknown snapshot or the migration missing → 404', async () => {
+    const q = `account=${ACC}&snap=${S2}&list=new`;
+    state.account = { id: ACC, username: 'shop.one', status: 'archived' };
+    expect((await call(q)).status).toBe(404);
+    state.account = { id: ACC, username: 'shop.one', status: 'active' };
+    expect((await call(`account=${ACC}&snap=00000000-0000-4000-8000-000000000009&list=new`)).status).toBe(404);
+    state.snapshots = null;
+    expect((await call(q)).status).toBe(404);
+    state.account = null;
+    expect((await call(q)).status).toBe(404);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/export-followers.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/export/followers"`.
+
+- [ ] **Step 3: Write `lib/export/followers.ts`** (exactly this):
+
+```ts
+// The Excel export of ONE follower list (Plan 15b), on the owner's explicit click in the Followers tab; follower names
+// are never part of the account workbook/PDF exports. Same cell rules as every export sheet (lib/export/workbook.ts):
+// text goes through safeText (the formula-injection guard), follow times are real date-time cells in the owner's
+// format, an unknown time is an EMPTY cell. A second sheet says what the list is and that it is snapshot-based.
+import { sheetNames } from '@/lib/export/cells';
+import { sheet, type Translate, type WorkbookSheet } from '@/lib/export/workbook';
+import type { FormatPrefs } from '@/lib/format';
+import { sinceKey, type FollowerList } from '@/lib/followers/diff';
+import type { Person } from '@/lib/followers/parse';
+
+export interface FollowerSheetInput {
+  account: string; // the account's username
+  list: FollowerList;
+  newer: string; // the newer export's date, already formatted (lib/format.ts formatDay)
+  older: string | null; // the older one's, null = no comparison
+  people: Person[]; // already filtered and sorted (lib/followers/diff.ts filterList)
+}
+
+type AboutRow = { field: string; value: string | null };
+
+export function buildFollowerSheets(d: FollowerSheetInput, t: Translate, prefs: FormatPrefs): WorkbookSheet[] {
+  const k = (key: string, values?: Record<string, string | number>) => t(`pages.account.followerDiff.${key}`, values);
+  const listName = k(`lists.${d.list}`);
+  const people = sheet<Person>(
+    listName,
+    [
+      { header: k('cols.username'), kind: 'text', width: 32, get: (p) => p.username },
+      { header: k(`cols.${sinceKey(d.list)}`), kind: 'datetime', width: 18, get: (p) => (p.at === null ? null : new Date(p.at * 1000).toISOString()) },
+      { header: k('sheet.profile'), kind: 'text', width: 44, get: (p) => `https://www.instagram.com/${p.username}/` },
+    ],
+    d.people,
+    { prefs },
+  );
+  const hint = d.older === null && (d.list === 'new' || d.list === 'lost') ? '' : k(`hints.${d.list}`, { newer: d.newer, older: d.older ?? '' });
+  const about = sheet<AboutRow>(
+    k('sheet.about'),
+    [
+      { header: k('sheet.field'), kind: 'text', width: 18, get: (r) => r.field },
+      { header: k('sheet.value'), kind: 'text', width: 90, get: (r) => r.value },
+    ],
+    [
+      { field: k('sheet.account'), value: d.account },
+      { field: k('sheet.list'), value: listName },
+      { field: k('sheet.newer'), value: d.newer },
+      { field: k('sheet.older'), value: d.older },
+      { field: k('sheet.note'), value: `${hint} ${k('snapshotBased')}`.trim() },
+    ],
+    { prefs },
+  );
+  const names = sheetNames([people.name, about.name]);
+  return [people, about].map((s, i) => ({ sheet: names[i], data: s.data, columns: s.columns, stickyRowsCount: s.stickyRowsCount }));
+}
+```
+
+- [ ] **Step 4: Write `app/api/export/followers/route.ts`** (exactly this):
+
+```ts
+import type { NextRequest } from 'next/server';
+import { supabaseAccountsStore } from '@/lib/accounts/supabase-store';
+import { assertOwner } from '@/lib/auth/assert-owner';
+import { buildFollowerSheets } from '@/lib/export/followers';
+import { contentDisposition } from '@/lib/export/filename';
+import { exportError, exportFile, exportHeaders } from '@/lib/export/request';
+import { translator, writeWorkbook } from '@/lib/export/workbook';
+import { formatDay } from '@/lib/format';
+import { diffSnapshots, filterList, FOLLOWER_LISTS, type FollowerList } from '@/lib/followers/diff';
+import { listFollowerSnapshots, loadFollowerSnapshot } from '@/lib/followers/read';
+import { parseFollowerState, resolvePair } from '@/lib/followers/state';
+import { getPrefs } from '@/lib/prefs.server';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { isUuid } from '@/lib/tags';
+
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const KEYS = new Set(['account', 'snap', 'vs', 'list', 'q']);
+
+/**
+ * GET /api/export/followers?account=<uuid>&snap=<uuid>[&vs=<uuid>]&list=<list>[&q=<search>] — one follower list of the
+ * Followers tab as Excel (Plan 15b). Owner session only (assertOwner first; RLS on every read; never the admin
+ * client). Only these keys, each once; the snapshots must belong to the live account. The whole filtered list, sorted
+ * as on screen. Never logs names or error objects.
+ */
+export async function GET(request: NextRequest) {
+  const h = exportHeaders();
+  try {
+    if (!(await assertOwner(h))) return exportError(h, 401, 'unauthorized');
+    const q = request.nextUrl.searchParams;
+    const keys = [...q.keys()];
+    if (keys.some((k) => !KEYS.has(k)) || new Set(keys).size !== keys.length) return exportError(h, 400, 'bad_params');
+    const [account, snap, vs, list] = [q.get('account'), q.get('snap'), q.get('vs'), q.get('list')];
+    if (!isUuid(account) || !isUuid(snap) || (vs !== null && !isUuid(vs)) || !(FOLLOWER_LISTS as readonly (string | null)[]).includes(list)) return exportError(h, 400, 'bad_params');
+    const prefs = await getPrefs();
+    const db = await createServerSupabase({ responseHeaders: h }); // owner session: RLS applies
+    const acct = await supabaseAccountsStore(db).getById(account.toLowerCase());
+    if (!acct || acct.status === 'archived') return exportError(h, 404, 'not_found');
+    const snapshots = await listFollowerSnapshots(db, acct.id);
+    const state = parseFollowerState({ snap, vs: vs ?? undefined, list: list ?? undefined, q: q.get('q') ?? undefined }, snapshots ?? []);
+    if (!snapshots || !state.snap || (vs !== null && !state.vs)) return exportError(h, 404, 'not_found');
+    const pair = resolvePair(state, snapshots);
+    const [newer, older] = await Promise.all([pair.newer && loadFollowerSnapshot(db, acct.id, pair.newer.id), pair.older && loadFollowerSnapshot(db, acct.id, pair.older.id)]);
+    if (!pair.newer || !newer) return exportError(h, 404, 'not_found');
+    const people = diffSnapshots(newer, older ?? null)[list as FollowerList];
+    if (!people) return exportError(h, 400, 'bad_params'); // a list these snapshots cannot answer
+    const sheets = buildFollowerSheets(
+      { account: acct.username, list: list as FollowerList, newer: formatDay(pair.newer.takenOn, prefs), older: older && pair.older ? formatDay(pair.older.takenOn, prefs) : null, people: filterList(people, state.q) },
+      translator(prefs.locale),
+      prefs,
+    );
+    return exportFile(h, await writeWorkbook(sheets), XLSX, contentDisposition(`in2sight-${acct.username}-${list}-${pair.newer.takenOn}`, 'xlsx'));
+  } catch {
+    console.error('followers export failed'); // fixed text: never the error object (it can carry usernames)
+    return exportError(h, 500, 'unexpected');
+  }
+}
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/export-followers.test.ts tests/followers-privacy.test.ts tests/export-workbook.test.ts`, `npx tsc --noEmit`, `npx eslint lib/export/followers.ts app/api/export/followers/route.ts tests/export-followers.test.ts`
+Expected: PASS (13 tests in the new file), tsc and eslint clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/export/followers.ts app/api/export/followers/route.ts tests/export-followers.test.ts
+git commit -m "feat(followers): export one follower list to Excel (owner-only, formula-guarded, snapshot-based note)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
