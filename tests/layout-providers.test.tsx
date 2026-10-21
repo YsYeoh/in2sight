@@ -19,6 +19,11 @@ describe('root layout providers', () => {
     expect(layout.indexOf('<NavigationProgress')).toBeGreaterThan(layout.indexOf('<PrefsProvider'));
   });
 
+  it('mounts the frame break-out in the root layout (login, setup and the report live outside the (app) group)', () => {
+    expect(layout).toContain("import { FrameBreakout } from '@/components/shared/FrameBreakout';");
+    expect(layout).toMatch(/<\/Suspense>\s*<FrameBreakout \/>/);
+  });
+
   it('a Tooltip shows its content on hover inside TooltipProvider', async () => {
     // jsdom has no ResizeObserver; Radix Popper needs one.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });

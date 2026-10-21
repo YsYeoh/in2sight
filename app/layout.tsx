@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import { ServiceWorker } from '@/components/pwa/ServiceWorker';
+import { FrameBreakout } from '@/components/shared/FrameBreakout';
 import { NavigationProgress } from '@/components/shared/NavigationProgress';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -40,6 +41,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Suspense fallback={null}>
               <NavigationProgress />
             </Suspense>
+            <FrameBreakout />
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster position="bottom-right" />
             <ServiceWorker enabled={process.env.NODE_ENV === 'production'} />

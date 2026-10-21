@@ -154,6 +154,17 @@ describe('NavigationProgress', () => {
     expect(bar()).toHaveAttribute('data-state', 'loading');
   });
 
+  it('ignores a click that was already taken over in the capture phase (the tab shell opened it as a tab)', () => {
+    const { bar } = setup();
+    const takeOver = (e: Event) => e.preventDefault();
+    window.addEventListener('click', takeOver, true); // window capture runs before the bar's document listener
+    fireEvent.click(link('internal'));
+    window.removeEventListener('click', takeOver, true);
+    expect(bar()).toBeNull();
+    fireEvent.click(link('internal'));
+    expect(bar()).not.toBeNull(); // a normal click still starts it
+  });
+
   it('removes its listeners on unmount', () => {
     const { bar, unmount } = setup();
     unmount();
