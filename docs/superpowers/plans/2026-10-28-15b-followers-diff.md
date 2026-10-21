@@ -275,3 +275,243 @@ git commit -m "feat(db): follower_exports (owner-uploaded follower/following sna
 ```
 
 ---
+
+### Task 2: i18n — every new key (additions only)
+
+**Files:**
+- Modify: `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/messages.test.ts` (parity, non-empty, placeholders, no copy-pasted English) and `tests/ui-standards.test.ts` (rule 6) must pass.
+
+**Interfaces:**
+- Produces (exact keys later tasks read): `pages.account.tab.followers`; the new object `pages.account.followerDiff` with `intro`, `guide.{title,s1…s7,privacy}`, `upload.{open,title,description,files,filesHint,date,dateHint,reading,preview,previewNoFollowing,skipped,ignored,submit,cancel,done}`, `errors.{notJson,zipNotSupported,htmlFormat,badJson,badShape,unknownFile,tooManyFiles,fileTooLarge,totalTooLarge,tooManyFollowers,tooManyFollowing,needFollowers,noFiles,badDate,unauthorized,invalid,tooLarge,notFound,notReady,tooManySnapshots,unexpected}`, `lists.{label,new,lost,theyDontFollow,iDontFollow,mutual}`, `withCount`, `hints.{new,lost,theyDontFollow,iDontFollow,mutual}`, `snapshotBased`, `needTwo`, `needFollowing`, `toolbar`, `search`, `searchChip`, `snapshot`, `compare`, `snapshotOption`, `cols.{username,followedYou,youFollowed}`, `range`, `emptyList`, `emptySearch`, `openProfile`, `export`, `stale`, `empty`, `emptyHint`, `notReady`, `notReadyHint`, `snapshots.{title,date,followers,following,uploaded,delete,deleteLabel,deleteTitle,deleteBody,confirm,cancel,notUploaded}`, `sheet.{about,field,value,account,list,newer,older,note,profile}`. (Named `followerDiff`, not `followers`, so it cannot collide with anything Plan 15a adds for follower counts.)
+- Placeholders: `{username}` (guide s1, s3; upload.description; openProfile), `{file}` (the file errors), `{max}` (tooManyFiles, fileTooLarge, totalTooLarge, tooManyFollowers, tooManyFollowing, tooManySnapshots), `{followers}`/`{following}`/`{count}` plurals, `{files}`, `{label}`, `{older}`/`{newer}`, `{q}`, `{date}`, `{first}`/`{last}`/`{total}`, `{days}`. Every number passed in is already formatted by `formatNumber` (CLAUDE.md formats rule), except the plural selectors.
+
+- [ ] **Step 1: Insert the keys** — one text edit per file (Edit tool; the anchor line occurs once; every other line stays byte-identical).
+
+`messages/en.json` — anchor (line 383, 6-space indentation):
+```json
+      "tab": { "overview": "Overview", "posts": "Posts", "stories": "Stories" },
+```
+replace with:
+```json
+      "tab": { "overview": "Overview", "posts": "Posts", "stories": "Stories", "followers": "Followers" },
+      "followerDiff": {
+        "intro": "Compare two exports of your follower list to see who followed, who unfollowed and who doesn't follow back. Instagram shares no follower names through its API, so this works only with files you download from Instagram yourself.",
+        "guide": {
+          "title": "How to get the files",
+          "s1": "On your phone, open Instagram as @{username}, go to your profile and tap the menu (☰), then Accounts Center.",
+          "s2": "Tap Your information and permissions, then Export your information (older versions: Download your information).",
+          "s3": "Tap Create export, choose @{username}, then Export to device.",
+          "s4": "Tap Customize information, clear everything, then tick only Followers and following.",
+          "s5": "Set Date range to All time and Format to JSON (not HTML), then tap Start export.",
+          "s6": "Instagram tells you when the file is ready (minutes to a few days). Download the .zip before the link expires and unzip it.",
+          "s7": "Open the folder connections › followers_and_following and upload followers_1.json (plus followers_2.json and so on, if there are more) and following.json here.",
+          "privacy": "The files are read on this device. Only usernames and follow dates are sent to in2sight; only you can see them, and they are deleted with the account or when you delete the snapshot."
+        },
+        "upload": {
+          "open": "Upload export",
+          "title": "Upload an Instagram export",
+          "description": "Choose followers_1.json (and followers_2.json and so on, if there are more) and following.json from the unzipped export of @{username}.",
+          "files": "Export files",
+          "filesHint": "JSON files from the unzipped export. Choose several at once.",
+          "date": "Export date",
+          "dateHint": "The day you requested the export. It puts your snapshots in order.",
+          "reading": "Reading the files…",
+          "preview": "{followers, plural, one {# follower} other {# followers}} and {following, plural, one {# account} other {# accounts}} you follow",
+          "previewNoFollowing": "{followers, plural, one {# follower} other {# followers}}. No following.json, so the follow-back lists stay empty for this snapshot.",
+          "skipped": "{count, plural, one {# entry is} other {# entries are}} not a valid username and will be skipped.",
+          "ignored": "Not needed, skipped: {files}",
+          "submit": "Upload",
+          "cancel": "Cancel",
+          "done": "Snapshot saved"
+        },
+        "errors": {
+          "notJson": "{file} is not a JSON file. Choose the .json files from the export.",
+          "zipNotSupported": "{file} is a zip file. Unzip it first, then choose the JSON files inside (connections › followers_and_following).",
+          "htmlFormat": "{file} comes from an HTML export. Create the export again with Format: JSON.",
+          "badJson": "{file} could not be read as JSON. Download the export again.",
+          "badShape": "{file} doesn't look like a followers or following file.",
+          "unknownFile": "{file} is not a followers or following file. Choose followers_1.json and following.json.",
+          "tooManyFiles": "Choose at most {max} files.",
+          "fileTooLarge": "{file} is larger than {max} MB.",
+          "totalTooLarge": "The files together are larger than {max} MB.",
+          "tooManyFollowers": "This export has more than {max} followers. in2sight can compare up to {max} for now.",
+          "tooManyFollowing": "This export follows more than {max} accounts, more than Instagram allows. Check the files.",
+          "needFollowers": "Add followers_1.json: the comparison needs the followers list.",
+          "noFiles": "Choose the export files first.",
+          "badDate": "Choose an export date that is not in the future.",
+          "unauthorized": "Your session has ended. Sign in again.",
+          "invalid": "The upload was not accepted. Choose the files again.",
+          "tooLarge": "The upload is too large.",
+          "notFound": "This account no longer exists.",
+          "notReady": "Followers needs a database update first.",
+          "tooManySnapshots": "This account already has {max} snapshots. Delete old ones to upload more.",
+          "unexpected": "Something went wrong. Try again."
+        },
+        "lists": { "label": "Follower lists", "new": "New followers", "lost": "Unfollowed you", "theyDontFollow": "Don't follow you back", "iDontFollow": "You don't follow back", "mutual": "Mutuals" },
+        "withCount": "{label} ({count})",
+        "hints": {
+          "new": "They follow you in the export of {newer} but not in the one of {older}.",
+          "lost": "They followed you in the export of {older} but not in the one of {newer}. Renamed and deactivated accounts show up here too.",
+          "theyDontFollow": "You follow them in the export of {newer}; they don't follow you.",
+          "iDontFollow": "They follow you in the export of {newer}; you don't follow them.",
+          "mutual": "You follow each other in the export of {newer}."
+        },
+        "snapshotBased": "Snapshot-based: only people who followed or unfollowed between these two files, not everything in between.",
+        "needTwo": "Upload a second export later to see who followed and unfollowed in between.",
+        "needFollowing": "This snapshot has no following.json, so this list is empty. Upload both files next time.",
+        "toolbar": "Follower list filters",
+        "search": "Search usernames",
+        "searchChip": "Search: {q}",
+        "snapshot": "Snapshot",
+        "compare": "Compare with",
+        "snapshotOption": "{date} · {count, plural, one {# follower} other {# followers}}",
+        "cols": { "username": "Username", "followedYou": "Followed you on", "youFollowed": "You followed on" },
+        "range": "{first}–{last} of {total} people",
+        "emptyList": "Nobody in this list",
+        "emptySearch": "No usernames match this search",
+        "openProfile": "Open @{username} on Instagram",
+        "export": "Export list",
+        "stale": "Your newest export is {days} days old. Upload a new one to see recent changes.",
+        "empty": "No exports uploaded yet",
+        "emptyHint": "Follow the steps above, then upload the files.",
+        "notReady": "Followers needs a database update",
+        "notReadyHint": "Ask the assistant to apply the migration (docs/RUNBOOK_FOLLOWERS.md §0).",
+        "snapshots": {
+          "title": "Your snapshots",
+          "date": "Export date",
+          "followers": "Followers",
+          "following": "Following",
+          "uploaded": "Uploaded",
+          "delete": "Delete",
+          "deleteLabel": "Delete the snapshot of {date}",
+          "deleteTitle": "Delete this snapshot?",
+          "deleteBody": "The usernames of the export of {date} are removed for good. Other snapshots stay.",
+          "confirm": "Delete snapshot",
+          "cancel": "Cancel",
+          "notUploaded": "Not uploaded"
+        },
+        "sheet": { "about": "About", "field": "Field", "value": "Value", "account": "Account", "list": "List", "newer": "Newer export", "older": "Older export", "note": "Note", "profile": "Profile link" }
+      },
+```
+
+`messages/zh-CN.json` — anchor (line 383):
+```json
+      "tab": { "overview": "概览", "posts": "帖子", "stories": "快拍" },
+```
+replace with:
+```json
+      "tab": { "overview": "概览", "posts": "帖子", "stories": "快拍", "followers": "粉丝" },
+      "followerDiff": {
+        "intro": "比较两份粉丝列表导出文件，查看谁关注了你、谁取消了关注、谁没有回关。Instagram 的 API 不提供粉丝名单，所以这里只能使用你自己从 Instagram 下载的文件。",
+        "guide": {
+          "title": "如何获取文件",
+          "s1": "在手机上以 @{username} 打开 Instagram，进入个人主页，点按菜单（☰），然后点按“账户中心”。",
+          "s2": "点按“你的信息和权限”，然后点按“导出你的信息”（旧版本：“下载你的信息”）。",
+          "s3": "点按“创建导出”，选择 @{username}，然后点按“导出到设备”。",
+          "s4": "点按“自定义信息”，取消全部勾选，然后只勾选“粉丝和关注”。",
+          "s5": "将“日期范围”设为“所有时间”，“格式”设为 JSON（不要选 HTML），然后点按“开始导出”。",
+          "s6": "文件准备好后 Instagram 会通知你（几分钟到几天不等）。请在链接过期前下载 .zip 文件并解压。",
+          "s7": "打开 connections › followers_and_following 文件夹，在这里上传 followers_1.json（如还有 followers_2.json 等，也一起上传）和 following.json。",
+          "privacy": "文件在本设备上读取。只有用户名和关注日期会发送到 in2sight；只有你能看到它们，删除账号或删除该快照时会一并删除。"
+        },
+        "upload": {
+          "open": "上传导出文件",
+          "title": "上传 Instagram 导出文件",
+          "description": "从 @{username} 解压后的导出文件中选择 followers_1.json（如还有 followers_2.json 等，也一起选择）和 following.json。",
+          "files": "导出文件",
+          "filesHint": "解压后导出文件中的 JSON 文件，可一次选择多个。",
+          "date": "导出日期",
+          "dateHint": "你申请导出的日期，用于给快照排序。",
+          "reading": "正在读取文件…",
+          "preview": "{followers, plural, other {# 位粉丝}}，你关注了 {following, plural, other {# 个账号}}",
+          "previewNoFollowing": "{followers, plural, other {# 位粉丝}}。没有 following.json，因此该快照的回关列表为空。",
+          "skipped": "{count, plural, other {# 条记录}}不是有效的用户名，将被跳过。",
+          "ignored": "不需要，已跳过：{files}",
+          "submit": "上传",
+          "cancel": "取消",
+          "done": "快照已保存"
+        },
+        "errors": {
+          "notJson": "{file} 不是 JSON 文件。请选择导出中的 .json 文件。",
+          "zipNotSupported": "{file} 是压缩文件。请先解压，再选择其中的 JSON 文件（connections › followers_and_following）。",
+          "htmlFormat": "{file} 来自 HTML 格式的导出。请重新创建导出，并将格式设为 JSON。",
+          "badJson": "无法将 {file} 读取为 JSON。请重新下载导出文件。",
+          "badShape": "{file} 看起来不是粉丝或关注文件。",
+          "unknownFile": "{file} 不是粉丝或关注文件。请选择 followers_1.json 和 following.json。",
+          "tooManyFiles": "最多选择 {max} 个文件。",
+          "fileTooLarge": "{file} 超过 {max} MB。",
+          "totalTooLarge": "文件总大小超过 {max} MB。",
+          "tooManyFollowers": "该导出的粉丝超过 {max} 位。in2sight 目前最多可比较 {max} 位。",
+          "tooManyFollowing": "该导出关注的账号超过 {max} 个，超出了 Instagram 的上限。请检查文件。",
+          "needFollowers": "请加上 followers_1.json：比较需要粉丝列表。",
+          "noFiles": "请先选择导出文件。",
+          "badDate": "请选择不晚于今天的导出日期。",
+          "unauthorized": "你的会话已结束，请重新登录。",
+          "invalid": "上传未被接受。请重新选择文件。",
+          "tooLarge": "上传的内容太大。",
+          "notFound": "该账号已不存在。",
+          "notReady": "粉丝功能需要先更新数据库。",
+          "tooManySnapshots": "该账号已有 {max} 个快照。请删除旧快照后再上传。",
+          "unexpected": "出了点问题，请重试。"
+        },
+        "lists": { "label": "粉丝列表", "new": "新粉丝", "lost": "取消关注你的人", "theyDontFollow": "没有回关你的人", "iDontFollow": "你没有回关的人", "mutual": "互相关注" },
+        "withCount": "{label}（{count}）",
+        "hints": {
+          "new": "在 {newer} 的导出中关注了你，但在 {older} 的导出中没有。",
+          "lost": "在 {older} 的导出中关注了你，但在 {newer} 的导出中没有。改名或停用的账号也会出现在这里。",
+          "theyDontFollow": "在 {newer} 的导出中你关注了他们，但他们没有关注你。",
+          "iDontFollow": "在 {newer} 的导出中他们关注了你，但你没有关注他们。",
+          "mutual": "在 {newer} 的导出中你们互相关注。"
+        },
+        "snapshotBased": "基于快照：只显示这两份文件之间关注或取消关注的人，不包括期间的所有变化。",
+        "needTwo": "以后再上传一份导出文件，即可查看期间谁关注了你、谁取消了关注。",
+        "needFollowing": "该快照没有 following.json，因此这个列表为空。下次请同时上传两个文件。",
+        "toolbar": "粉丝列表筛选",
+        "search": "搜索用户名",
+        "searchChip": "搜索：{q}",
+        "snapshot": "快照",
+        "compare": "对比快照",
+        "snapshotOption": "{date} · {count, plural, other {# 位粉丝}}",
+        "cols": { "username": "用户名", "followedYou": "关注你的日期", "youFollowed": "你关注的日期" },
+        "range": "第 {first}–{last} 位，共 {total} 位",
+        "emptyList": "这个列表里没有人",
+        "emptySearch": "没有符合搜索的用户名",
+        "openProfile": "在 Instagram 上打开 @{username}",
+        "export": "导出列表",
+        "stale": "你最新的导出已是 {days} 天前的。上传新的导出即可查看最近的变化。",
+        "empty": "还没有上传任何导出",
+        "emptyHint": "按照上面的步骤操作，然后上传文件。",
+        "notReady": "粉丝功能需要更新数据库",
+        "notReadyHint": "请让助手应用数据库迁移（docs/RUNBOOK_FOLLOWERS.md §0）。",
+        "snapshots": {
+          "title": "你的快照",
+          "date": "导出日期",
+          "followers": "粉丝",
+          "following": "关注",
+          "uploaded": "上传时间",
+          "delete": "删除",
+          "deleteLabel": "删除 {date} 的快照",
+          "deleteTitle": "删除这个快照？",
+          "deleteBody": "{date} 导出中的用户名将被永久删除，其他快照保留。",
+          "confirm": "删除快照",
+          "cancel": "取消",
+          "notUploaded": "未上传"
+        },
+        "sheet": { "about": "说明", "field": "项目", "value": "内容", "account": "账号", "list": "列表", "newer": "较新的导出", "older": "较早的导出", "note": "备注", "profile": "主页链接" }
+      },
+```
+
+- [ ] **Step 2: Run the catalog tests**
+
+Run: `npx vitest run tests/messages.test.ts tests/ui-standards.test.ts` and `node -e "JSON.parse(require('fs').readFileSync('messages/en.json','utf8'));JSON.parse(require('fs').readFileSync('messages/zh-CN.json','utf8'))"`
+Expected: PASS; the parse prints nothing. `git diff --stat messages` shows insertions plus the one changed `"tab"` line per file.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add messages/en.json messages/zh-CN.json
+git commit -m "feat(i18n): Followers tab, export guide, upload and diff lists (en, zh-CN)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
