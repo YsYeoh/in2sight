@@ -106,7 +106,7 @@ function PanelCard({ p, account, busy, onRetry }: { p: AccountProgress; account:
             ) : null}
             {p.phase === 'needs_reconnect' ? (
               <Button size="sm" asChild>
-                <a href={connectHref(account.groupName)}>{t('reconnect')}</a>
+                <a href={connectHref(account.groupName)} target="_top">{t('reconnect')}</a>
               </Button>
             ) : null}
             {done ? (

@@ -34,6 +34,7 @@ describe('ConnectDialog', () => {
   it('without a group the continue link goes straight to the connect route', async () => {
     await open();
     expect(screen.getByRole('link', { name: 'Continue with Instagram' })).toHaveAttribute('href', '/api/instagram/connect');
+    expect(screen.getByRole('link', { name: 'Continue with Instagram' })).toHaveAttribute('target', '_top'); // inside a tab frame: Instagram cannot be framed
   });
 
   it('a typed group is URL-encoded into the link', async () => {

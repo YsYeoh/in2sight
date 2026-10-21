@@ -33,7 +33,10 @@ describe('"Reconnect to enable comments" hint', () => {
     view([acct({ id: '1', username: 'old', groupName: 'Brand X', grantedScopes: ALL.slice(0, 2) })]);
     const links = screen.getAllByRole('link', { name: 'Reconnect to enable comments' }); // table (desktop) + card (phone)
     expect(links.length).toBeGreaterThan(0);
-    for (const l of links) expect(l).toHaveAttribute('href', '/api/instagram/connect?group=Brand%20X');
+    for (const l of links) {
+      expect(l).toHaveAttribute('href', '/api/instagram/connect?group=Brand%20X');
+      expect(l).toHaveAttribute('target', '_top');
+    }
   });
 
   it('unknown scopes (null) also show the hint; a granted scope hides it', () => {

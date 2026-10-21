@@ -21,6 +21,7 @@ export function pageTitle(root: ParentNode, pathname: string): string {
   return section ? `${h1} · ${section}` : h1;
 }
 
+const TEXT_FIELD = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 const post = (m: FrameMessage) => window.parent.postMessage(m, window.location.origin);
 
 export function FrameBridge() {
@@ -64,6 +65,7 @@ export function FrameBridge() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      if (e.target instanceof Element && e.target.closest(TEXT_FIELD)) return; // Option+arrows is word-jump (Mac)
       e.preventDefault();
       post({ type: 'in2sight:history', dir: e.key === 'ArrowLeft' ? -1 : 1 });
     };

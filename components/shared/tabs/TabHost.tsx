@@ -133,7 +133,7 @@ export function TabsProvider({ initialUrl, children }: { initialUrl: string; chi
       if (m?.type === 'in2sight:open') dispatch({ type: 'open', url: m.url, mode: 'exact', now: Date.now() });
     };
     const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      if (e.defaultPrevented || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
       e.preventDefault();
       dispatch({ type: 'step', id: activeRef.current, dir: e.key === 'ArrowLeft' ? -1 : 1 });
     };
