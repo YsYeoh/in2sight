@@ -6,7 +6,7 @@ Never paste usernames, export files or screenshots of the lists into chats, issu
 designed to report counts and structure only.
 
 **Status (2026-10-28):** Plan 15b is code-complete on local `main`, NOT pushed, and NOTHING in it is verified live.
-The migration `supabase/migrations/20261028000002_follower_exports.sql` is NOT applied to the live database (apply it
+The migration `supabase/migrations/20261028000002_follower_exports.sql` is APPLIED to the live database on 2026-10-22 at the owner's request (`migration list`: 12 local, 12 remote, 0 mismatched; anon probe: `follower_exports` went from 404 `PGRST205` to 401 `42501`: the table exists and anon is denied); the old wording that follows ("NOT applied", "apply it") stays valid for a fresh environment only. It was NOT applied when this paragraph was written (apply it
 only on the owner's go-ahead, BEFORE deploying code that needs it). The export-file format assumptions (folder names,
 file names, JSON shapes) can only be confirmed with a real export: §2 is the gate. Plans 14a-14c are pushed
 (`origin/main` `b8f723c` + docs `0cee097`) and the 14b migration is applied live (2026-10-21). Plan 15a (Growth) is on
