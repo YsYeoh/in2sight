@@ -1,5 +1,10 @@
 # in2sight — TODO
 
+> **NEXT UP (2026-10-23; full picture in [PROGRESS.md](PROGRESS.md)).** Plans 1 to 15b are built, pushed, and all 12 migrations are applied. Nothing from Plans 11b to 15b is verified live yet.
+> 1. Owner live checks, in this order: RUNBOOK_TABS §1-§3 (Gate B) -> RUNBOOK_GROWTH §2 -> RUNBOOK_FOLLOWERS §2 (real export file) -> RUNBOOK_LISTS, TIMESCOPE, COVERS, POSTLAB, EXPLORER, CAPTURE (PROGRESS §6).
+> 2. Build next, in the owner's order: Plan 15c comments, fans and moderation -> Settings redesign + change/forgot password -> weekly planning tools -> later items (AI summary, report links, Today briefing, auto-tagging) (PROGRESS §7).
+> 3. Owner idea, not designed: make the product impressive for investors (demo mode with sample data, Today briefing): brainstorm first (PROGRESS §7.5).
+
 Status: all roadmap plans 1–9 built and live on https://in2sight.yongsen.space; Supabase migrations applied (5/5); cron-job.org tick configured. Now building the creator toolkit (docs/superpowers/specs/2026-10-15-creator-toolkit-design.md): Plan 10 loading → 11 covers → 12 Post Lab → 13 toolkit → 14 settings. "code done; live verification pending" means the owner still has to look at it on the deployed site. Check items off as done.
 
 ## 0. Owner actions (Claude can't do these)
@@ -175,7 +180,7 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Break-outs (login, 2FA, setup, sign-out, report preview never inside a tab), `frame-ancestors 'self'`, worker leaves tab frames alone _(code done; NOT verified live — RUNBOOK_TABS §2)_
 - [x] Preferences (theme, mode, language, formats) follow across tabs and the shell via `BroadcastChannel` _(code done; NOT verified live — RUNBOOK_TABS §8)_
 - [ ] Owner: run docs/RUNBOOK_TABS.md (Gate B: §1–§3 must pass before relying on the tabs / pushing to production); confirm the plan's open questions (Back re-renders the earlier page, titles from the heading, icon placement, phone Back in the sheet, 30-minute stale mark, live cap 3 on touch devices)
-- [ ] Status: Plans 14a, 14b and 14c are pushed to `main` (2026-10-21, `b8f723c`; Vercel deploys it). Migration `20261027000001_post_story_lists.sql` (14b) is APPLIED to the live database (2026-10-21). Nothing from 14a-14c is verified live yet. Old wording: apply only on the owner's go-ahead, before deploying code that needs it (until then the Posts and Stories tabs use the old capped reads).
+- [x] Status (2026-10-23): Plans 14a, 14b and 14c are pushed to `main` and the 14b migration `20261027000001_post_story_lists.sql` is APPLIED to the live database (2026-10-21). Nothing from 14a-14c is verified live yet: the owner's checks are the open items above (tabs first).
 
 ## 6k. Growth tab (Plan 15a; creator-toolkit design §6)
 - [x] Followers (daily, hourly for ≤ 7 days), change over the range, 7/30/90-day projection with method and confidence _(code done; NOT verified live — docs/RUNBOOK_GROWTH.md §3)_
@@ -184,7 +189,7 @@ Follow-ups from the Plan 12b review (not done):
 - [x] "Why did this change?": unusual days (same-weekday robust z-score) and rule-based reasons with evidence, sample and confidence; `?day`/`?why` in the URL _(code done; NOT verified live — RUNBOOK_GROWTH §4)_
 - [ ] Owner: run docs/RUNBOOK_GROWTH.md (§2 checks the uncertain FOLLOWER/NON_FOLLOWER mapping first); confirm the plan's open questions (own tab, no Overview roll-up, reach summed over formats, projection method, anomaly thresholds, then-vs-now audience, follow mapping check, no SQL)
 - [ ] Not captured (needs a sync change if wanted): engaged-audience demographics; demographics for `last_30_days` / `last_90_days`
-- [ ] Status: Plan 15a is code-complete on local `main`, NOT pushed and nothing verified live; no migration in 15a. Plans 14a-14c are pushed (`origin/main` `b8f723c` + docs `0cee097`) and the 14b migration is applied live (2026-10-21).
+- [x] Status (2026-10-23): Plan 15a is pushed to `main` (2026-10-22, `77a5db0`); no migration in 15a; nothing verified live yet (RUNBOOK_GROWTH §2 first).
 
 ## 6l. Followers by name — export upload diff (Plan 15b)
 - [x] Migration `20261028000002_follower_exports.sql` (one row per snapshot, arrays, owner RLS, cascade) _(written and tested; APPLIED to the live database 2026-10-22; older wording: NOT applied to the live database — owner go-ahead, BEFORE deploying code that needs it, docs/RUNBOOK_FOLLOWERS.md §0)_
@@ -192,7 +197,7 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Followers tab (last tab: Overview, Growth, Posts, Stories, Followers): guide (en/zh-CN), upload dialog, five lists with search and server pages, snapshot list, Excel export of a list; quiet "older than 30 days" line _(code done; NOT verified live; without the migration the tab says "needs a database update" and shows no upload button)_
 - [ ] Owner: apply the migration (runbook §0); **confirm the export format on a real export (RUNBOOK_FOLLOWERS §2 — gate; the folder names, file names and JSON shapes are assumptions until then)**; live and privacy checks (§1, §3–§6); confirm the plan's open questions (50,000 cap, no zip yet, ignore recently-unfollowed/pending, no reminder push, 60 snapshots, fourth tab, owner-picked date, renamed accounts as unfollowers)
 - [ ] Later: .zip upload (DecompressionStream + inflated-size caps), gzip payload for > 50,000 followers, commenters × followers (Plan 15c)
-- [ ] Status: Plan 15b is code-complete on local `main`, NOT pushed and nothing verified live; its migration is NOT applied. Plans 14a-14c are pushed (`origin/main` `b8f723c` + docs `0cee097`) and the 14b migration is applied live (2026-10-21). Plan 15a (Growth) is on local `main`, not pushed.
+- [x] Status (2026-10-23): Plan 15b is pushed to `main` (2026-10-22, `77a5db0`) and its migration `20261028000002_follower_exports.sql` is APPLIED to the live database (2026-10-22); nothing verified live yet (RUNBOOK_FOLLOWERS §2 with a real export is the gate).
 
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
