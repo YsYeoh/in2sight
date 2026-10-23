@@ -1,5 +1,7 @@
 # Owner actions — everything still to do by hand
 
+> **Newest (2026-10-23):** the ordered list of live checks for Plans 11b to 15b is in [PROGRESS.md §6](PROGRESS.md) (tabs, then Growth, then Followers with a real export, then the rest). Tick items here as you go.
+
 One checklist for the whole project. Claude cannot do these (they need your logins, phone or browser). Tick them off
 here as you go. **No secrets belong in this file** (no passwords, tokens, keys, comment texts, CDN links): write only
 "done" and a date.
