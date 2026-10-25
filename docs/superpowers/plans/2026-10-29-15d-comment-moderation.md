@@ -88,4 +88,287 @@ At the time of writing, `docs/superpowers/plans/2026-10-29-15c-comment-insights.
 
 Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagram (P5); replies list / threads; private replies (DMs); Simplified ⇄ Traditional folding; regex rules typed by the owner (ReDoS risk; the four built-in patterns cover spam); per-rule thresholds; moderation across all accounts at once; AI classification; changes to `COMMENT_FIELDS` or the comments job; deleting by automation (never).
 
+## Global Constraints
+
+- Ponytail: smallest thing that works. Pure logic in `lib/moderation/rules.ts` with Vitest tests; SQL only in `lib/moderation/store.ts` (plus the one `moderation_settings` read in `lib/alerts/store.ts`); components wire only. **No new dependencies, no new design tokens.** Inline first: the rules editor, the preview and the log live inside `ModerationTab` (one user each).
+- TypeScript strict. No Meta METRIC names touched; the write endpoints live in `lib/instagram/moderation.ts` (a comment block cites the Meta docs and the date they were read).
+- DB: ONE new migration `supabase/migrations/20261029000002_comment_moderation.sql`. **Implementers never apply it** (no `supabase`, `psql`, `db push`); it is applied later on the owner's go-ahead (runbook §0), and the code works before and after: a missing table (`PGRST205` / `42P01`) → readers return `null`, actions `not_ready`, the tick pass does nothing.
+- **Writes to a third-party platform on the owner's accounts — the focus.** Owner first (`requireOwner()` outside try/catch), then validation, then the account and the comment re-read with BOTH ids through the owner session, then the log row, and only then the token (admin client, read inside the call, never returned, never logged, never in an error) and Meta. Tokens never leave the server: no `NEXT_PUBLIC_`, no token in any return value, the admin client only inside `token()` and the tick. Every Instagram error becomes a fixed key (no Meta message text, no URL, no body).
+- **Privacy:** comment text, commenter names and reply text are third-party/owner personal data: never logged (`console.error` with one fixed string literal only, nothing interpolated), never in `sync_runs` (the tick summary holds counts only), never in notifications (payload `{ username }` = the account's own name), never stored in the log table. Owner-only RLS; deleted with the account (cascade).
+- Every UI string via next-intl; ALL new keys are added by Task 2 in BOTH catalogs (real Simplified Chinese, full-width punctuation `，：（）。`). Services return error KEYS; the UI translates them.
+- UI standards (`docs/UI_STANDARDS.md`): one control height per row (`size="default"` in the tab's forms and header rows; the per-row "Moderate" menu button is `size="sm"` inside the dense comment list — rule 5 allows it there and nowhere else), panels and confirms are dialogs (`ConfirmDialog`, `ResponsiveDialog`; bottom sheet on phones), underline tabs only for page sections, server pages with `Pagination` and a count line for the log, no range bar on the Moderation tab, full-word labels ("30 minutes", never "30m"). Theming: semantic tokens only (`text-destructive`, `bg-muted`, …). Responsive 360 / 768 / 1280: cards stack, rows wrap, no sideways page scroll, CSS breakpoints only. a11y: every dialog traps focus and returns it to the row's menu button; results are announced (`role="status"`), errors `role="alert"`; switches and the word input have visible labels.
+- Dates and numbers only via `lib/format.ts`. Pure functions take `now` as an input.
+- Tests: Vitest timeout 20 s; Meta calls ONLY through mocked `fetch` (no network); server-action tests use `// @vitest-environment node` and the hoisted fake db of `tests/tag-actions.test.ts`; component tests mock the actions as `vi.fn()` props and `next/navigation` (below). Never chain a commit after a piped command.
+- `npm run check` passes after every wave. Commits: conventional, `git add` specific paths, `git commit -m "<msg>" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"`. Don't push.
+
+## Review Focus
+
+1. **Wrong account / wrong comment:** the comment is re-read with `id` AND `account_id`; the token is the account's; undo targets come from the stored row only → Task 7 tests "a comment of another account is not_found and nothing is sent", "undo uses the stored comment and reply ids, never the browser's".
+2. **Double submit / replays:** unique `request_id` → the second call returns `duplicate` with no Meta call; the dialog keeps one id per opening and disables the button while busy → Task 7 "the same requestId twice sends once", Task 10 "a double click sends once".
+3. **Stale comment id:** `100/33` → `comment_gone`, log row records it, local row removed → Task 4 classifier, Task 7.
+4. **Partial failure:** log insert fails → no Meta call; Meta ok + log update fails → `{ ok: true, logged: false }`, row stays `pending` → "Outcome unknown"; Meta fails + log update fails → still the Meta error key → Task 7 tests for each order, Task 5 `displayResult`.
+5. **Automation loops and storms:** never twice per comment (touched set), never after an owner action, max 3 retries only for retryable errors, ≤ 20 per account per tick, stop on rate limit, stop the whole pass on an app-wide limit, pause after a permission error or 3 failures in a row, one notification per pause → Task 3 `touchedIds`/`pickAutoHide`, Task 8 lane tests, Task 6 alert rule.
+6. **Token / scope loss:** no scope or not active → `reconnect`/`not_active` without a call; a permission answer → `reconnect` (manual) or pause (auto); the account's sync status is never changed by moderation → Task 7, Task 8.
+7. **Sync isolation:** the pass runs after alerts with its own window, never throws, per-account try/catch, tick summary counts only, a missing migration does nothing → Task 8 tick tests.
+8. **Privacy:** no text/names in log rows, notifications, `sync_runs` or console → Task 9 privacy guard, Task 1 migration test.
+
+## File Structure
+
+| File | Responsibility |
+|---|---|
+| `supabase/migrations/20261029000002_comment_moderation.sql` (new), `tests/moderation-migration.test.ts` (new) | `moderation_settings`, `moderation_rules`, `moderation_log`, owner update/delete on `comments`, the `notifications` kind list |
+| `messages/en.json`, `messages/zh-CN.json` | every new key (Task 2 only) |
+| `lib/moderation/rules.ts` (new), `tests/moderation-rules.test.ts` (new) | `fold`, `matchRule`, `validateWord`, `touchedIds`, `pickAutoHide`, the constants |
+| `lib/instagram/moderation.ts` (new), `tests/instagram-moderation.test.ts` (new) | `igModeration` (hide, reply, remove), `classifyModerationError`, `REPLY_MAX`, `MODERATION_TIMEOUT_MS` |
+| `lib/moderation/store.ts` (new), `tests/moderation-store.test.ts` (new) | the ONLY module naming `moderation_log` / `moderation_rules` (and writing `comments`); `loadModeration`, log writes, rule/settings writes, the tick reads; pure `undoKind`, `displayResult` |
+| `lib/moderation/service.ts` (new), `tests/moderation-service.test.ts` (new) | `moderate`, `undoAction`, `saveWordRule`, `setSpamRule`, `deleteRule`, `setAutoHide` |
+| `lib/moderation/auto.ts` (new), `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts` (new) | `runAutoHide` and its place in the tick |
+| `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`, `tests/alerts-moderation.test.ts` (new) | the `moderation_paused` kind, rule, read and link |
+| `app/(app)/accounts/moderation-actions.ts` (new), `tests/moderation-actions.test.ts` (new), `tests/moderation-privacy.test.ts` (new) | the server actions; choke point + no-logging guard |
+| `components/account/CommentActions.tsx` (new), `tests/comment-actions.test.tsx` (new) | the per-comment menu and its three dialogs; `ModeratedCommentsTab` wrapper is added in Task 12 |
+| `components/account/ModerationTab.tsx` (new), `tests/moderation-tab.test.tsx` (new) | auto-hide, preview, rules, log |
+| `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | the `moderation` tab, the actions in the Comments tab |
+| `docs/RUNBOOK_MODERATION.md` (new), `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md`, `docs/META_SETUP.md` | live checks, spec section, ticks, handover lines, rule 16, the write-permission note |
+
+**Adding i18n keys:** by TEXT INSERTION only (Edit tool: replace the exact anchor line shown with the lines shown), never by loading and re-serialising the JSON (both files are hand-formatted and carry one stray `\r`). Keep every other line byte-identical; both locales get the same keys. If Plan 15c changed an anchor line (it adds `"comments"` to the `tab` object), find the CURRENT `"tab": {` line of `pages.account` and add `"moderation"` as its last entry by hand (deviation).
+
+**Mocking the router in component tests:** `const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));` and `vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh, prefetch: vi.fn(), back: vi.fn() }) }));`. Component tests render inside `NextIntlClientProvider locale="en" messages={en}` and the prefs provider the same way `tests/followers-tab.test.tsx` does (copy its `renderWith` helper).
+
+## Tasks
+
+| # | Task | Depends on | Files it owns | Parallel with |
+|---|---|---|---|---|
+| 1 | Migration + migration test | — | `supabase/migrations/20261029000002_comment_moderation.sql`, `tests/moderation-migration.test.ts` | 2, 3, 4 |
+| 2 | i18n: every new key | 15c merged (anchor) | `messages/en.json`, `messages/zh-CN.json` | 1, 3, 4 |
+| 3 | Rule matching (pure) | — | `lib/moderation/rules.ts`, `tests/moderation-rules.test.ts` | 1, 2, 4 |
+| 4 | Meta write client + error classifier | — | `lib/instagram/moderation.ts`, `tests/instagram-moderation.test.ts` | 1, 2, 3 |
+| 5 | Store (the SQL choke point) | 1 (names), 3 | `lib/moderation/store.ts`, `tests/moderation-store.test.ts` | 6 |
+| 6 | Alerts: `moderation_paused` | 1 (names), 2 | `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`, `tests/alerts-moderation.test.ts` | 5 |
+| 7 | Service: moderate, undo, rules, auto-hide switch | 3, 4, 5 | `lib/moderation/service.ts`, `tests/moderation-service.test.ts` | 8 |
+| 8 | Auto-hide pass in the tick | 3, 4, 5 | `lib/moderation/auto.ts`, `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts` | 7 |
+| 9 | Server actions + privacy guard | 7, 8 | `app/(app)/accounts/moderation-actions.ts`, `tests/moderation-actions.test.ts`, `tests/moderation-privacy.test.ts` | 10, 11 |
+| 10 | Comment row menu + dialogs | 2, 7 (types) | `components/account/CommentActions.tsx`, `tests/comment-actions.test.tsx` | 9, 11 |
+| 11 | Moderation tab component | 2, 5, 7 (types) | `components/account/ModerationTab.tsx`, `tests/moderation-tab.test.tsx` | 9, 10 |
+| 12 | Wiring: tab, page cases, Comments tab actions | 9, 10, 11 (+ 15c) | `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | — |
+| 13 | Docs, final check | all | `docs/RUNBOOK_MODERATION.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md`, `docs/META_SETUP.md` | — |
+
+Run order: **wave A = 1, 2, 3, 4 · wave B = 5, 6 · wave C = 7, 8 · wave D = 9, 10, 11 · wave E = 12 · wave F = 13.** Tasks in one wave touch disjoint files. Each task leaves `main` green: the new modules are unused until Task 12 wires them (Task 8 wires the tick pass, which does nothing until the migration exists AND the owner switches auto-hide on; Task 6's alert kind needs its messages from Task 2, hence wave B). Tasks 10 and 11 take the server actions as PROPS (the page passes them, like `deleteSnapshot` in 15b), so they import only types from Task 7 and run beside Task 9.
+
+---
+
+### Task 1: Migration `20261029000002_comment_moderation.sql` + migration test
+
+**Files:**
+- Create: `supabase/migrations/20261029000002_comment_moderation.sql`, `tests/moderation-migration.test.ts`
+- Existing tests that must keep passing: `tests/migrations.test.ts` (generic rules), `tests/alerts-migration.test.ts` (reads only `20261018000001_alerts.sql`: unaffected).
+
+**Interfaces:**
+- Consumes: `public.accounts (id)`, `public.comments (id, account_id, hidden)`, `public.notifications (kind)`, `public.is_owner()`.
+- Produces (Task 5 and Task 6 use exactly these): `moderation_settings (account_id pk, auto_hide, paused_at, pause_reason, updated_at)`, `moderation_rules (id, account_id, kind, pattern, whole_word, created_at)`, `moderation_log (id bigint, account_id, comment_id, action, actor, request_id, result, target_id, undo_of, created_at, undone_at)`; owner `update (hidden)` and `delete` on `comments`; kind `moderation_paused` allowed in `notifications`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/moderation-migration.test.ts`:
+
+```ts
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+// comments stripped so the assertions see only SQL
+const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20261029000002_comment_moderation.sql'), 'utf8').replace(/--.*$/gm, '');
+/** The given SQL exactly, with any whitespace between tokens. */
+const exact = (s: string) => new RegExp(s.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'i');
+const table = (name: string) => sql.match(new RegExp(`create\\s+table\\s+public\\.${name}\\s*\\(([\\s\\S]*?)\\n\\);`, 'i'))?.[1] ?? '';
+
+describe('comment moderation migration', () => {
+  it('is additive: three tables, no drop except the one notifications check it re-creates, never account_tokens', () => {
+    expect(sql.match(/create\s+table/gi)).toHaveLength(3);
+    expect(sql.match(/\bdrop\b/gi)).toHaveLength(1);
+    expect(sql).toMatch(exact('alter table public.notifications drop constraint notifications_kind_check'));
+    expect(sql).not.toMatch(/\b(truncate|security\s+definer)\b/i);
+    expect(sql).not.toMatch(/account_tokens/i);
+    expect(sql).not.toMatch(/^\s*(insert|update|delete)\b/im);
+  });
+
+  it('settings: one row per account, off by default, a pause always has a reason', () => {
+    const t = table('moderation_settings');
+    expect(t).toMatch(exact('account_id uuid primary key references public.accounts (id) on delete cascade'));
+    expect(t).toMatch(exact('auto_hide boolean not null default false'));
+    expect(t).toMatch(exact("pause_reason text check (pause_reason in ('reconnect', 'failing'))"));
+    expect(t).toMatch(exact('check ((paused_at is null) = (pause_reason is null))'));
+  });
+
+  it('rules: words with a pattern, spam kinds without, each spam kind at most once per account', () => {
+    const t = table('moderation_rules');
+    expect(t).toMatch(exact('account_id uuid not null references public.accounts (id) on delete cascade'));
+    expect(t).toMatch(exact("kind text not null check (kind in ('word', 'link', 'mentions', 'repeat', 'emoji'))"));
+    expect(t).toMatch(exact('pattern text check (char_length(pattern) between 1 and 50)'));
+    expect(t).toMatch(exact("check ((kind = 'word') = (pattern is not null))"));
+    expect(sql).toMatch(exact("create unique index moderation_rules_spam_once on public.moderation_rules (account_id, kind) where kind <> 'word'"));
+  });
+
+  it('log: ids only (no comment text, no author, no reply text), constrained actions and actors, unique request id', () => {
+    const t = table('moderation_log');
+    expect(t).not.toMatch(/\b(text|author|username|message)\b\s+text/i);
+    expect(t).toMatch(exact('account_id uuid not null references public.accounts (id) on delete cascade'));
+    expect(t).toMatch(exact("action text not null check (action in ('reply', 'hide', 'unhide', 'delete', 'delete_reply'))"));
+    expect(t).toMatch(exact("actor text not null check (actor = 'owner' or actor ~ '^rule:[0-9a-f-]{36}$')"));
+    expect(t).toMatch(exact('request_id uuid not null unique'));
+    expect(t).toMatch(exact("result text not null default 'pending' check (result ~ '^[a-z_]{1,40}$')"));
+    expect(t).toMatch(exact('undo_of bigint references public.moderation_log (id) on delete set null'));
+    expect(sql).toMatch(exact('create index moderation_log_account_idx on public.moderation_log (account_id, created_at desc)'));
+    expect(sql).toMatch(exact('create index moderation_log_comment_idx on public.moderation_log (account_id, comment_id)'));
+  });
+
+  it('owner-authored settings and rules: RLS, one policy for the owner (InitPlan form), nothing for anon', () => {
+    for (const t of ['moderation_settings', 'moderation_rules']) {
+      expect(sql).toMatch(exact(`alter table public.${t} enable row level security`));
+      expect(sql).toMatch(exact(`create policy ${t}_owner_all on public.${t} for all to authenticated using ((select public.is_owner())) with check ((select public.is_owner()))`));
+      expect(sql).toMatch(exact(`revoke all on public.${t} from anon`));
+    }
+  });
+
+  it('log is append-only for the owner: select + insert (as owner only) + update of three columns, no delete', () => {
+    expect(sql).toMatch(exact('alter table public.moderation_log enable row level security'));
+    expect(sql).toMatch(exact('create policy moderation_log_owner_select on public.moderation_log for select to authenticated using ((select public.is_owner()))'));
+    expect(sql).toMatch(exact("create policy moderation_log_owner_insert on public.moderation_log for insert to authenticated with check ((select public.is_owner()) and actor = 'owner')"));
+    expect(sql).toMatch(exact('create policy moderation_log_owner_update on public.moderation_log for update to authenticated using ((select public.is_owner())) with check ((select public.is_owner()))'));
+    expect(sql).toMatch(exact('revoke all on public.moderation_log from anon, authenticated'));
+    expect(sql).toMatch(exact('grant select, insert on public.moderation_log to authenticated'));
+    expect(sql).toMatch(exact('grant update (result, target_id, undone_at) on public.moderation_log to authenticated'));
+    expect(sql).not.toMatch(/grant[^;]*delete[^;]*moderation_log/i);
+  });
+
+  it('comments: the owner may flip hidden and remove a deleted comment, nothing else', () => {
+    expect(sql).toMatch(exact('create policy comments_owner_update on public.comments for update to authenticated using ((select public.is_owner())) with check ((select public.is_owner()))'));
+    expect(sql).toMatch(exact('create policy comments_owner_delete on public.comments for delete to authenticated using ((select public.is_owner()))'));
+    expect(sql).toMatch(exact('grant update (hidden) on public.comments to authenticated'));
+    expect(sql).toMatch(exact('grant delete on public.comments to authenticated'));
+    expect(sql).not.toMatch(/grant\s+(insert|update\s+on|all)[^;]*public\.comments/i);
+  });
+
+  it('notifications accept the new kind next to the five existing ones', () => {
+    expect(sql).toMatch(exact("alter table public.notifications add constraint notifications_kind_check check (kind in ('token_expiring', 'needs_reconnect', 'sync_failing', 'reach_drop', 'taking_off', 'moderation_paused'))"));
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/moderation-migration.test.ts`
+Expected: FAIL — `ENOENT: no such file or directory … 20261029000002_comment_moderation.sql`.
+
+- [ ] **Step 3: Write the migration** — create `supabase/migrations/20261029000002_comment_moderation.sql` (exactly this):
+
+```sql
+-- Plan 15d: comment moderation (reply / hide / delete from the app, banned-word and spam auto-hide, undo log).
+-- Creator-toolkit design §0b: every action confirmed and logged; hide is reversible (unhide), a reply can be deleted,
+-- delete is irreversible on Instagram and never automated.
+--
+-- Owner-authored settings and rules (like tags): the owner session reads and writes them under RLS; the sync tick
+-- (admin client) reads them and sets paused_at. lib/moderation/store.ts is the only app module that names these tables
+-- (plus the paused_at read in lib/alerts/store.ts).
+
+create table public.moderation_settings (
+  account_id   uuid primary key references public.accounts (id) on delete cascade,
+  auto_hide    boolean not null default false,
+  paused_at    timestamptz,
+  pause_reason text check (pause_reason in ('reconnect', 'failing')),
+  updated_at   timestamptz not null default now(),
+  check ((paused_at is null) = (pause_reason is null))
+);
+alter table public.moderation_settings enable row level security;
+create policy moderation_settings_owner_all on public.moderation_settings
+  for all to authenticated
+  using ((select public.is_owner()))
+  with check ((select public.is_owner()));
+revoke all on public.moderation_settings from anon;
+
+-- word = a banned word or phrase (pattern, as typed; matched folded, lib/moderation/rules.ts); the spam kinds have no
+-- pattern and exist at most once per account (a row = switched on). The caps match PATTERN_MAX / MAX_WORD_RULES.
+create table public.moderation_rules (
+  id         uuid primary key default gen_random_uuid(),
+  account_id uuid not null references public.accounts (id) on delete cascade,
+  kind       text not null check (kind in ('word', 'link', 'mentions', 'repeat', 'emoji')),
+  pattern    text check (char_length(pattern) between 1 and 50),
+  whole_word boolean not null default false,
+  created_at timestamptz not null default now(),
+  check ((kind = 'word') = (pattern is not null))
+);
+create index moderation_rules_account_idx on public.moderation_rules (account_id, created_at);
+create unique index moderation_rules_spam_once on public.moderation_rules (account_id, kind) where kind <> 'word';
+alter table public.moderation_rules enable row level security;
+create policy moderation_rules_owner_all on public.moderation_rules
+  for all to authenticated
+  using ((select public.is_owner()))
+  with check ((select public.is_owner()));
+revoke all on public.moderation_rules from anon;
+
+-- One row per action, written BEFORE the Instagram call (result 'pending', request_id from the dialog = the
+-- double-submit guard) and finished after it ('ok' or an error key). Ids only: no comment text, no commenter name, no
+-- reply text (third-party / personal data). target_id = the reply's id (Undo deletes it). comment_id has no foreign key:
+-- the comment may be gone (deleted on Instagram) while its log row stays. Append-only for the app: no delete grant;
+-- rows go with the account (cascade). Owner inserts must be actor 'owner'; rule rows come from the tick (admin client).
+create table public.moderation_log (
+  id         bigint generated always as identity primary key,
+  account_id uuid not null references public.accounts (id) on delete cascade,
+  comment_id text not null check (comment_id ~ '^\w{1,64}$'),
+  action     text not null check (action in ('reply', 'hide', 'unhide', 'delete', 'delete_reply')),
+  actor      text not null check (actor = 'owner' or actor ~ '^rule:[0-9a-f-]{36}$'),
+  request_id uuid not null unique,
+  result     text not null default 'pending' check (result ~ '^[a-z_]{1,40}$'),
+  target_id  text check (target_id ~ '^\w{1,64}$'),
+  undo_of    bigint references public.moderation_log (id) on delete set null,
+  created_at timestamptz not null default now(),
+  undone_at  timestamptz
+);
+-- the log page (newest first) and "was this comment touched?" (auto-hide)
+create index moderation_log_account_idx on public.moderation_log (account_id, created_at desc);
+create index moderation_log_comment_idx on public.moderation_log (account_id, comment_id);
+alter table public.moderation_log enable row level security;
+create policy moderation_log_owner_select on public.moderation_log
+  for select to authenticated
+  using ((select public.is_owner()));
+create policy moderation_log_owner_insert on public.moderation_log
+  for insert to authenticated
+  with check ((select public.is_owner()) and actor = 'owner');
+create policy moderation_log_owner_update on public.moderation_log
+  for update to authenticated
+  using ((select public.is_owner()))
+  with check ((select public.is_owner()));
+revoke all on public.moderation_log from anon, authenticated;
+grant select, insert on public.moderation_log to authenticated;
+grant update (result, target_id, undone_at) on public.moderation_log to authenticated;
+
+-- comments (Plan 11b: owner select only): after a hide/unhide the owner session sets hidden; after a delete on
+-- Instagram (or a "comment gone" answer) it removes the row. Nothing else becomes writable.
+create policy comments_owner_update on public.comments
+  for update to authenticated
+  using ((select public.is_owner()))
+  with check ((select public.is_owner()));
+create policy comments_owner_delete on public.comments
+  for delete to authenticated
+  using ((select public.is_owner()));
+grant update (hidden) on public.comments to authenticated;
+grant delete on public.comments to authenticated;
+
+-- One notification per auto-hide pause (lib/alerts/rules.ts, dedupe key moderation_paused:<account>:<paused_at>).
+alter table public.notifications drop constraint notifications_kind_check;
+alter table public.notifications add constraint notifications_kind_check
+  check (kind in ('token_expiring', 'needs_reconnect', 'sync_failing', 'reach_drop', 'taking_off', 'moderation_paused'));
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/moderation-migration.test.ts tests/migrations.test.ts tests/alerts-migration.test.ts`
+Expected: PASS (8 tests in the new file; the generic suite finds RLS + a policy for each new table, every policy `to authenticated`). Do NOT apply the migration anywhere (implementer rules §7).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/20261029000002_comment_moderation.sql tests/moderation-migration.test.ts
+git commit -m "feat(db): comment moderation tables (settings, rules, append-only log), owner hide/delete on comments, moderation_paused kind" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
 <!-- PLAN CONTINUES -->
