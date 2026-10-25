@@ -128,7 +128,7 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 | `app/(app)/accounts/moderation-actions.ts` (new), `tests/moderation-actions.test.ts` (new), `tests/moderation-privacy.test.ts` (new) | the server actions; choke point + no-logging guard |
 | `components/account/CommentActions.tsx` (new), `tests/comment-actions.test.tsx` (new) | the per-comment menu and its three dialogs; `ModeratedCommentsTab` wrapper is added in Task 12 |
 | `components/account/ModerationTab.tsx` (new), `tests/moderation-tab.test.tsx` (new) | auto-hide, preview, rules, log |
-| `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | the `moderation` tab, the actions in the Comments tab |
+| `lib/dashboard/account.ts`, `lib/dashboard/lists.ts` (export `parsePage`), `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | the `moderation` tab, the actions in the Comments tab |
 | `docs/RUNBOOK_MODERATION.md` (new), `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md`, `docs/META_SETUP.md` | live checks, spec section, ticks, handover lines, rule 16, the write-permission note |
 
 **Adding i18n keys:** by TEXT INSERTION only (Edit tool: replace the exact anchor line shown with the lines shown), never by loading and re-serialising the JSON (both files are hand-formatted and carry one stray `\r`). Keep every other line byte-identical; both locales get the same keys. If Plan 15c changed an anchor line (it adds `"comments"` to the `tab` object), find the CURRENT `"tab": {` line of `pages.account` and add `"moderation"` as its last entry by hand (deviation).
@@ -150,7 +150,7 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 | 9 | Server actions + privacy guard | 7, 8 | `app/(app)/accounts/moderation-actions.ts`, `tests/moderation-actions.test.ts`, `tests/moderation-privacy.test.ts` | 10 |
 | 10 | Comment row menu + dialogs (+ the shared `useModerationRun` hook) | 2, 7 (types) | `components/account/CommentActions.tsx`, `tests/comment-actions.test.tsx` | 9 |
 | 11 | Moderation tab component | 2, 5, 7 (types), 10 (`useModerationRun`) | `components/account/ModerationTab.tsx`, `tests/moderation-tab.test.tsx` | — |
-| 12 | Wiring: tab, page cases, Comments tab actions | 9, 10, 11 (+ 15c) | `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | — |
+| 12 | Wiring: tab, page cases, Comments tab actions | 9, 10, 11 (+ 15c) | `lib/dashboard/account.ts`, `lib/dashboard/lists.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | — |
 | 13 | Docs, final check | all | `docs/RUNBOOK_MODERATION.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md`, `docs/META_SETUP.md` | — |
 
 Run order: **wave A = 1, 2, 3, 4 · wave B = 5, 6 · wave C = 7, 8 · wave D = 9, 10 · wave E = 11 · wave F = 12 · wave G = 13.** Tasks in one wave touch disjoint files. Each task leaves `main` green: the new modules are unused until Task 12 wires them (Task 8 wires the tick pass, which does nothing until the migration exists AND the owner switches auto-hide on; Task 6's alert kind needs its messages from Task 2, hence wave B). Tasks 10 and 11 take the server actions as PROPS (the page passes them, like `deleteSnapshot` in 15b), so they import only types from Tasks 5/7 and Task 10 runs beside Task 9; Task 11 reuses Task 10's `useModerationRun` hook (CLAUDE.md: extract on the second use), hence its own wave.
@@ -4132,13 +4132,306 @@ Notes for the implementer: `ConfirmDialog`'s confirm button and the row's Undo b
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/moderation-tab.test.tsx tests/comment-actions.test.tsx tests/moderation-privacy.test.ts tests/ui-standards.test.ts`, `npx tsc --noEmit`, `npx eslint components/account/ModerationTab.tsx tests/moderation-tab.test.tsx`.
-Expected: PASS (12 tests in the new file; the privacy guard now also scans both components).
+Expected: PASS (11 tests in the new file; the privacy guard now also scans both components).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add components/account/ModerationTab.tsx tests/moderation-tab.test.tsx
 git commit -m "feat(moderation): Moderation tab (auto-hide with preview, rules, log with undo and pages)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 12: Wiring — the `moderation` tab, its page `case`, and the actions in the Comments tab
+
+**Files:**
+- Modify: `lib/dashboard/account.ts`, `lib/dashboard/lists.ts` (export `parsePage` only), `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx` (adds `ModeratedCommentsTab`), `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx`
+- Existing tests that must keep passing: `tests/route-loading.test.tsx` (`it.each(TABS)`: the new tab needs its skeleton), `tests/comments-tab.test.tsx` (15c), `tests/comment-actions.test.tsx`, `tests/moderation-tab.test.tsx`.
+
+**First:** read the merged 15c files `components/account/CommentsTab.tsx`, `lib/comments/view.ts`, the page's `case 'comments'` and the CURRENT `TABS` line. Adapt every name below to what 15c actually exported (list each adaptation as a deviation). If `CommentsTab` does NOT start with `'use client'` (a server component), skip the wrapper and pass `renderActions` directly from the page (a server component may pass a function to a server component) — same props as below.
+
+**Interfaces:**
+- `TABS` = 15c's list with `'moderation'` inserted right after `'comments'` (Followers stays LAST): `['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers']`.
+- `ModeratedCommentsTab(props: ComponentProps<typeof CommentsTab> & { moderation: ModerationRowActions | null })` with `ModerationRowActions = { ownUsername: string } & Pick<CommentActionsProps, 'hide' | 'reply' | 'remove'>`; `moderation = null` (no scope / not active) renders the plain `CommentsTab` (no menu at all).
+
+- [ ] **Step 1: Update the pinned tests first (they fail until Step 2)**
+
+`tests/dashboard-account.test.ts` — the two `TABS` lines (as 15c left them) gain `'moderation'` after `'comments'`:
+```ts
+    expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers']);
+    expect(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers', 'audience', 'GROWTH'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers', 'overview', 'overview']);
+```
+`tests/account-view.test.tsx` — the tab names line gains `'Moderation'` after `'Comments'` (`[…, 'Comments', 'Moderation', 'Followers']`); add to its "no range bar on list tabs" assertion (15c added `comments` there) the `moderation` tab the same way.
+
+`tests/account-page.test.tsx` — add the hoisted state and mocks next to the followers ones:
+```ts
+const moderation = vi.hoisted(() => ({ data: null as Record<string, unknown> | null, loads: [] as unknown[][] }));
+vi.mock('@/lib/moderation/store', () => ({
+  loadModeration: async (...a: unknown[]) => (calls.push('moderation'), moderation.loads.push(a.slice(1)), moderation.data),
+}));
+```
+and a describe block at the end:
+```ts
+describe('moderation tab (Plan 15d)', () => {
+  const SCOPED = { grantedScopes: ['instagram_business_basic', 'instagram_business_manage_comments'] };
+  type ModProps = { accountId: string; allowed: boolean; data: unknown; actions: Record<string, unknown>; scope?: Record<string, string> };
+  const modTab = async (sp: Record<string, string> = {}) => ((await streamTab(await run(ID, { tab: 'moderation', ...sp }))) as ReactElement<ModProps>).props;
+  beforeEach(() => {
+    moderation.data = { settings: {}, rules: [], log: { rows: [], total: 0, page: 1, pages: 1, size: 50 }, preview: { count: 0, scanned: 0, sample: [] } };
+    moderation.loads = [];
+  });
+
+  it('with the scope: one owner-session read (account, own name, page, now) and the five actions passed straight through', async () => {
+    accounts.push(acct(ID, 'active', SCOPED));
+    const p = await modTab({ page: '2' });
+    expect(p.allowed).toBe(true);
+    expect(p.data).toBe(moderation.data);
+    expect(moderation.loads[0].slice(0, 3)).toEqual([ID, `u${ID.slice(0, 4)}`, 2]);
+    expect(Object.keys(p.actions).sort()).toEqual(['deleteRule', 'saveWord', 'setAutoHide', 'setSpam', 'undo']);
+    expect(calls).not.toContain('ADMIN');
+  });
+
+  it('without the comments scope: no read, the reconnect state', async () => {
+    accounts.push(acct(ID));
+    const p = await modTab();
+    expect(p.allowed).toBe(false);
+    expect(p.data).toBeNull();
+    expect(calls).not.toContain('moderation');
+  });
+
+  it('a bad ?page= reads page 1; the Suspense key ignores page', async () => {
+    accounts.push(acct(ID, 'active', SCOPED));
+    await modTab({ page: 'x' });
+    expect(moderation.loads[0][2]).toBe(1);
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    expect(await key({ tab: 'moderation', page: '3' })).toBe(await key({ tab: 'moderation' }));
+  });
+});
+```
+and, inside 15c's comments-tab tests of this file, one more test (adapt the helper name 15c used, e.g. `commentsTab`):
+```ts
+  it('the Comments tab gets the moderation menu only with the scope, with the account name for "own" comments', async () => {
+    accounts.push(acct(ID, 'active', { grantedScopes: ['instagram_business_manage_comments'] }));
+    const withScope = (await streamTab(await run(ID, { tab: 'comments' }))) as ReactElement<{ moderation: { ownUsername: string; hide: unknown } | null }>;
+    expect(withScope.props.moderation?.ownUsername).toBe(`u${ID.slice(0, 4)}`);
+    expect(typeof withScope.props.moderation?.hide).toBe('function');
+    accounts.length = 0;
+    accounts.push(acct(ID));
+    const without = (await streamTab(await run(ID, { tab: 'comments' }))) as ReactElement<{ moderation: unknown }>;
+    expect(without.props.moderation).toBeNull();
+  });
+```
+
+Run: `npx vitest run tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx` → FAIL (the tab does not exist yet).
+
+- [ ] **Step 2: Make the edits**
+
+`lib/dashboard/account.ts` — the `TABS` line: insert `'moderation'` after `'comments'`; extend its trailing comment with `Moderation (Plan 15d): rules, auto-hide, log`.
+
+`lib/dashboard/lists.ts` — `const parsePage = …` becomes `export const parsePage = …` (nothing else).
+
+`components/account/TabSkeleton.tsx` — add `case 'moderation':` directly above `case 'followers':` so both share the followers shape (cards and a list).
+
+`components/account/CommentActions.tsx` — append (adapt the import path / prop names to 15c):
+```tsx
+import type { ComponentProps } from 'react';
+import { CommentsTab } from '@/components/account/CommentsTab';
+
+export type ModerationRowActions = { ownUsername: string } & Pick<CommentActionsProps, 'hide' | 'reply' | 'remove'>;
+
+/** The Comments tab with the moderation menu on every row (a client wrapper: functions cannot come from the server page). */
+export function ModeratedCommentsTab({ moderation, ...props }: ComponentProps<typeof CommentsTab> & { moderation: ModerationRowActions | null }) {
+  if (!moderation) return <CommentsTab {...props} />;
+  const own = moderation.ownUsername.toLowerCase();
+  return (
+    <CommentsTab
+      {...props}
+      renderActions={(c) => (
+        <CommentActions accountId={props.accountId} commentId={c.id} authorUsername={c.authorUsername} hidden={c.hidden} own={c.authorUsername?.toLowerCase() === own} hide={moderation.hide} reply={moderation.reply} remove={moderation.remove} />
+      )}
+    />
+  );
+}
+```
+(`import` lines go to the top of the file with the others.)
+
+`app/(app)/accounts/[id]/(tabs)/page.tsx`:
+- imports:
+```ts
+import { ModeratedCommentsTab } from '@/components/account/CommentActions';
+import { ModerationTab } from '@/components/account/ModerationTab';
+import { deleteCommentAction, deleteRuleAction, hideCommentAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction } from '@/app/(app)/accounts/moderation-actions';
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
+import { loadModeration } from '@/lib/moderation/store';
+```
+  and add `parsePage` to the existing `@/lib/dashboard/lists` import.
+- in `TabContent`, right after `const tz = prefs.timezone;`:
+```ts
+  const canModerate = account.status === 'active' && hasScope(account, COMMENTS_SCOPE); // Plan 15d: the server checks again
+```
+- 15c's `case 'comments'`: render `ModeratedCommentsTab` instead of `CommentsTab`, with every prop 15c passes plus
+```tsx
+moderation={canModerate ? { ownUsername: account.username, hide: hideCommentAction, reply: replyCommentAction, remove: deleteCommentAction } : null}
+```
+- a new case before `case 'followers'`:
+```tsx
+    case 'moderation': {
+      // Plan 15d: auto-hide, rules, preview and the log (owner session; nothing is read without the scope). The imported
+      // server actions are passed straight to the client component (never wrapped in a closure here).
+      const data = canModerate ? await loadModeration(db, account.id, account.username, parsePage(sp.page), now) : null;
+      const actions = { saveWord: saveWordRuleAction, setSpam: setSpamRuleAction, deleteRule: deleteRuleAction, setAutoHide: setAutoHideAction, undo: undoModerationAction };
+      return <ModerationTab accountId={account.id} allowed={canModerate} data={data} scope={scope.params} actions={actions} />;
+    }
+```
+- the `CommentsTab` import 15c added stays only if still used elsewhere in the file; otherwise remove it (eslint `no-unused-vars`).
+
+Note: `ModerationTab` receives `data = null` for "not ready" AND for "not allowed"; it checks `allowed` first, so the reconnect state wins.
+
+- [ ] **Step 3: Run the tests**
+
+Run: `npx vitest run tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx tests/route-loading.test.tsx tests/comments-tab.test.tsx tests/comment-actions.test.tsx tests/moderation-tab.test.tsx tests/moderation-privacy.test.ts`, `rm -rf .next` is NOT needed (no route moved), `npx tsc --noEmit`, `npx eslint lib/dashboard/account.ts lib/dashboard/lists.ts components/account/TabSkeleton.tsx components/account/CommentActions.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx`.
+Expected: PASS.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add lib/dashboard/account.ts lib/dashboard/lists.ts components/account/TabSkeleton.tsx components/account/CommentActions.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx
+git commit -m "feat(moderation): Moderation tab and the comment menu in the Comments tab" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 13: Docs, final check
+
+**Files:**
+- Create: `docs/RUNBOOK_MODERATION.md`
+- Modify: `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md`, `docs/META_SETUP.md`
+
+- [ ] **Step 1: `docs/RUNBOOK_MODERATION.md`** (new; use the Write tool; CRLF like the other docs is fine either way):
+
+```markdown
+# Runbook — Comment moderation (Plan 15d)
+
+Reply, hide/unhide and delete from the app, banned-word and spam auto-hide, the moderation log with Undo. Every check
+below is done WITH the owner (2FA login, real Instagram accounts). Never paste comment texts, commenter names, tokens or
+URLs with `access_token` into chat, tickets or this file: write yes/no, counts and error keys only.
+
+## 0. The migration (apply BEFORE deploying the code that needs it; the owner says go)
+File `supabase/migrations/20261029000002_comment_moderation.sql` (needs 15c's `20261029000001` applied first or in the same push).
+```
+node --env-file=.env.local scripts/sb.mjs migration list        # expect only the new file(s) pending
+node --env-file=.env.local scripts/db-probe.mjs table:moderation_log table:moderation_rules table:moderation_settings   # before: 404 PGRST205
+node --env-file=.env.local scripts/sb.mjs db push --dry-run
+node --env-file=.env.local scripts/sb.mjs db push --yes
+node --env-file=.env.local scripts/sb.mjs migration list        # N local / N remote / 0 mismatched
+node --env-file=.env.local scripts/db-probe.mjs table:moderation_log table:moderation_rules table:moderation_settings   # after: 401 / 42501 (exists, anon denied)
+```
+Before the migration the Moderation tab says "needs a database update", the row menu answers `not_ready`, the tick skips auto-hide.
+
+## 1. Live probes on a THROWAWAY comment first (gate: before trusting anything below, and before auto-hide)
+Use the owner's own test post (or a new post you delete afterwards). From a SECOND Instagram account (or ask a friend),
+write three comments: "probe one", "probe two www.example.com", "probe three". Wait for the hourly comments read (or
+Sync now), then in in2sight → the account → Comments:
+| # | Probe (Open question) | Do | Expect | Result |
+|---|---|---|---|---|
+| P1 | write permission | Hide "probe one" | "Comment hidden."; on Instagram (the app, logged in as the owner) the comment shows as hidden; the log shows Hidden · By you · Done | |
+| P3 | hide twice | Instagram app: unhide it there; in2sight: Hide again | either "Already done" (our state) or Done; never an error page | |
+| P1 | unhide | Log → Unhide | visible again on Instagram; the log row says "Undone …" | |
+| P6/P7 | reply | Reply "thanks 🙏 @ownaccount #test" to "probe two" | "Reply posted."; the reply appears on Instagram with the emoji, mention and hashtag | |
+| P8 | undo a reply | Log → Delete reply | the reply is gone on Instagram | |
+| P1 | delete | Delete "probe three" (type DELETE) | gone on Instagram; the row disappears from Comments; the log shows Deleted (no Undo) | |
+| P5 | hidden in reads | after hiding "probe one" again, Sync now; Supabase SQL: `select hidden from comments where id = '<id>'` | true (our value survives the re-read); note whether the comment still came back in the read (count only) | |
+| P4 | reply counted | `select comments_count, comments_synced_count from media where id = '<post id>'` before and after the reply | write down whether comments_count changed | |
+| — | stale id | delete a comment in the Instagram app, then Hide it in in2sight (before the next sync) | "This comment no longer exists on Instagram."; the row disappears | |
+| — | permission loss | (only if the owner agrees) remove the comments permission in Instagram → Settings → Website permissions → in2sight, then Hide | "Instagram did not allow this. Reconnect …"; the account's sync status is unchanged; Reconnect restores it | |
+Record any answer that differs in `docs/META_PROBE_RESULTS.md` ("Moderation writes", counts and codes only).
+
+## 2. Layout: 360 / 768 / 1280 × light/dark, keyboard
+| Check | 360 | 768 | 1280 |
+|---|---|---|---|
+| Comment row: the Moderate (⋯) button is visible, does not push the text sideways | | | |
+| The three dialogs: bottom sheet / dialog; Esc and Cancel close; focus returns to the ⋯ button | | | |
+| Delete dialog: the confirm stays disabled until DELETE / 删除 is typed | | | |
+| Moderation tab: cards stack on phones, two columns from 1024; no sideways page scroll; no range bar | | | |
+| Switches and the word form keyboard-operable; errors read by a screen reader (role alert) | | | |
+| zh-CN: all strings Chinese, full-width punctuation | | | |
+
+## 3. Rules, preview and auto-hide (after §1 passed)
+1. Moderation tab → Rules: add "probe" (not whole word). The preview counts the visible probe comments (count only).
+2. Switch on "Links": the preview count rises if "probe two www.example.com" is visible.
+3. Switch auto-hide ON: the confirm shows the same count. Confirm. Within one tick (≤ 30 min): those comments are hidden
+   on Instagram; the log shows "Hidden · By rule: …".
+4. Unhide one of them from the log: it stays visible after the next two ticks (never re-hidden).
+5. Remove the rules, switch auto-hide off.
+
+## 4. Failure handling
+- Rate limits: after a busy day, `select result, count(*) from moderation_log where created_at > now() - interval '1 day' group by 1;`
+  — any `rate_limited` → lower `AUTO_HIDE_PER_TICK` / `MANUAL_PER_MINUTE` (Open question P2) and tell the assistant.
+- Pause: if auto-hide pauses, ONE notification "Auto-hide paused" arrives (not one per comment); switching it on again lifts the pause.
+- `pending` rows older than 2 minutes show "Outcome unknown — check on Instagram": check that comment on Instagram by hand.
+- Sync isolation: `select summary->'moderation' from sync_runs order by started_at desc limit 5;` → counts only; sync outcomes unaffected.
+
+## 5. Privacy and security (report yes/no and counts only)
+- `select column_name from information_schema.columns where table_name = 'moderation_log';` → no text/author/message column.
+- `select count(*) from notifications where kind = 'moderation_paused' and payload::text ~ '[^@]text';` → the payload has only `username`.
+- Vercel logs for a day of moderation: no comment text, no names, no `access_token` (search for the probe words: 0 hits).
+- Logged out (private window): every server action answers a redirect to /login; nothing changes.
+- Deleting an account permanently removes its `moderation_*` rows (cascade): `select count(*) from moderation_log where account_id = '<id>';` → 0.
+
+## 6. Known limits (by design)
+Hides and unhides done inside the Instagram app are not seen (P5); replies are not listed as threads (15c reads top-level
+comments only); Simplified/Traditional Chinese are different words; delete is never automated and never undoable;
+auto-hide sees only comments the hourly read stored (posts of the last 30 days).
+
+## What to send if it fails
+The step number, the error text shown, the `moderation_log.result` value, and the time. Never the comment text or names.
+```
+
+- [ ] **Step 2: `docs/SPEC.md`** — add after the last 7-section (15c adds `7i`; use the next letter, `7j`):
+```markdown
+## 7j. Comment moderation (Plan 15d; creator-toolkit design §0b, round 3)
+Reply / hide / unhide / delete from the Comments tab (one ⋯ menu per row, a confirm for each; delete needs the typed word
+and says it cannot be undone). Server actions: requireOwner → validation → the comment re-read with comment id AND
+account id (owner session) → per-minute cap (30) → `moderation_log` row FIRST (`pending`, unique `request_id` from the
+dialog) → token (admin, server only) → Instagram (`POST /{comment-id}?hide=`, `POST /{comment-id}/replies`,
+`DELETE /{comment-id}`; `lib/instagram/moderation.ts`) → result → local mirror (`comments.hidden`, row removed after a
+delete). Undo: hide → unhide, reply → delete the reply; delete is irreversible and never automated. Rules per account
+(`moderation_rules`: banned words, built-in link / mentions ≥ 4 / repeat ≥ 8 / emoji ≥ 10 patterns; NFKC + case + zero-width
+folding; CJK words match inside text) with a live preview; auto-hide (`moderation_settings`, default off) runs after the
+alerts in the tick (≤ 20 per account per tick, own 5 s window, never re-hides, never acts after the owner, pauses on a
+permission answer or 3 failures in a row → one `moderation_paused` notification). The Moderation tab shows the rules,
+the preview and the log (50 per page, Undo). Log rows hold ids only (no text, no names). Runbook: `docs/RUNBOOK_MODERATION.md`.
+```
+and in §5 (data model) one line: "`moderation_settings`, `moderation_rules` (owner-authored), `moderation_log` (append-only, ids only) — Plan 15d; `comments` gains owner update (`hidden`) and delete."
+
+- [ ] **Step 3: `docs/TODO.md`** — a new section after 15c's (`6m` → use `6n`):
+```markdown
+## 6n. Comment moderation (Plan 15d)
+- [x] Migration `20261029000002_comment_moderation.sql` (code done; NOT applied: owner go-ahead, RUNBOOK_MODERATION §0)
+- [x] Meta write client + error keys; service (log first, double-submit guard, wrong-account guard); server actions
+- [x] Rules (words + 4 spam patterns), preview, auto-hide pass in the tick (capped, idempotent, pauses), `moderation_paused` alert
+- [x] Comment row menu (reply / hide / unhide / delete), Moderation tab (auto-hide, rules, log with Undo and pages)
+- [ ] Live probes P1–P8 on a throwaway comment (RUNBOOK_MODERATION §1) — BEFORE switching auto-hide on
+- [ ] Layout, rules/auto-hide and privacy checks (RUNBOOK_MODERATION §2–§5)
+- Known: hides done in the Instagram app are not seen (P5); no Simplified/Traditional folding; auto-hide only sees stored comments (last 30 days of posts).
+```
+and remove "moderation" from the still-open comments bullet of `docs/PROGRESS.md` §7 item 1 (it is built: "code done; live verification pending").
+
+- [ ] **Step 4: `docs/UI_STANDARDS.md`** — add rule 16:
+```markdown
+16. **Writes to Instagram are confirmed, logged and reversible where Instagram allows.** Every action that changes something on Instagram opens a confirm (`ConfirmDialog`; an irreversible one needs a typed word via `requireText` and says it cannot be undone), sends one request per dialog opening (a request id the server refuses to repeat), keeps the button busy while it runs, announces the result (`role="status"`), shows errors as translated keys (`role="alert"`), returns focus to the button that opened it, and appears in the moderation log with Undo where possible. Automation never deletes. → `components/account/CommentActions.tsx` (`useModerationRun`), `lib/moderation/service.ts`.
+```
+
+- [ ] **Step 5: `docs/META_SETUP.md`** — in Part 5b add: "Plan 15d uses the same permission for WRITES (reply, hide, delete) on the owner's own media; no extra permission, no App Review (Standard Access). Probe it on a throwaway comment first: `docs/RUNBOOK_MODERATION.md` §1." **`docs/HANDOVER.md`** / **`docs/PROGRESS.md`**: one line each in the "what is built" list ("15d: comment moderation — reply/hide/delete with confirms, rules + auto-hide in the tick, undo log; RUNBOOK_MODERATION; migration 20261029000002 NOT applied"), the migration table row, and §6 live checks item "RUNBOOK_MODERATION §1 probes BEFORE auto-hide".
+
+- [ ] **Step 6: Final check** (orchestrator, after all waves merged and worktrees removed): `rm -rf .next`, `npm run check > log 2>&1; rc=$?; echo "CHECK_EXIT=$rc" >> log`, READ the log. Expected: lint, tsc, all tests, build green.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add docs/RUNBOOK_MODERATION.md docs/SPEC.md docs/TODO.md docs/HANDOVER.md docs/PROGRESS.md docs/UI_STANDARDS.md docs/META_SETUP.md
+git commit -m "docs(moderation): runbook (live probes first), SPEC 7j, TODO 6n, UI standard 16, handover lines" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
