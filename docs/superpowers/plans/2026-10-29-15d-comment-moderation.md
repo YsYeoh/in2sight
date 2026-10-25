@@ -371,4 +371,626 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
 
 ---
 
+### Task 2: i18n — every new key (additions only)
+
+**Files:**
+- Modify: `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/messages.test.ts` (parity, non-empty, placeholders, no copy-pasted English) and `tests/ui-standards.test.ts` (rule 6) must pass.
+
+**Interfaces:**
+- Produces (exact keys later tasks read): `pages.account.tab.moderation`; the object `pages.account.moderation` (menu, row actions, the three dialogs, `done.*`, `errors.*` = every `ModerationError` and `RuleError` key, `intro`, `noScope.*`, `notReady.*`, `auto.*`, `preview.*`, `rules.*`, `ruleLabel.*`, `log.*`); `notifications.kinds.moderation_paused.{title,body}`.
+- Placeholders: `{username}`, `{count}` (plural selectors and formatted counts), `{max}`, `{word}`, `{rule}`, `{date}`, `{first}`/`{last}`/`{total}`. Numbers passed in are formatted with `formatNumber` (except plural selectors).
+
+- [ ] **Step 1: Insert the account keys** — one text edit per file. Anchor = the `"tab": {` line of `pages.account` (after 15c it ends with `"comments": "…" },`). Add `, "moderation": "Moderation"` (zh-CN `, "moderation": "评论管理"`) as its last entry and insert the object below directly AFTER that line (6-space indentation).
+
+`messages/en.json` — the inserted object:
+```json
+      "moderation": {
+        "menu": "Moderate comment",
+        "reply": "Reply",
+        "hide": "Hide",
+        "unhide": "Unhide",
+        "delete": "Delete",
+        "ownHint": "Instagram always shows your own comments, so they can't be hidden.",
+        "cancel": "Cancel",
+        "replyDialog": {
+          "title": "Reply to @{username}",
+          "titleNoName": "Reply to this comment",
+          "description": "Your reply appears under this comment on Instagram. You can delete it later from the moderation log.",
+          "label": "Your reply",
+          "count": "{count} of {max} characters",
+          "send": "Send reply"
+        },
+        "hideDialog": {
+          "title": "Hide this comment?",
+          "body": "A hidden comment stays on Instagram, but only you and the person who wrote it can see it. You can unhide it at any time.",
+          "confirm": "Hide"
+        },
+        "unhideDialog": {
+          "title": "Unhide this comment?",
+          "body": "Everyone can see this comment again. Auto-hide will never hide it again.",
+          "confirm": "Unhide"
+        },
+        "deleteDialog": {
+          "title": "Delete this comment for good?",
+          "body": "Deleting removes the comment from Instagram for everyone. It cannot be undone, not on Instagram and not here. To keep it out of sight but recoverable, hide it instead. Type {word} to confirm.",
+          "word": "DELETE",
+          "confirm": "Delete permanently"
+        },
+        "done": { "hide": "Comment hidden.", "unhide": "Comment visible again.", "delete": "Comment deleted.", "reply": "Reply posted.", "undo": "Undone." },
+        "errors": {
+          "invalid": "Something in this request is not valid. Reload the page and try again.",
+          "not_found": "This comment is no longer here. Reload the page.",
+          "not_active": "This account is archived. Restore it to moderate comments.",
+          "reconnect": "Instagram did not allow this. Reconnect the account on the Accounts page, then try again.",
+          "duplicate": "This was already sent.",
+          "too_many": "Too many actions in a minute. Wait a moment, then try again.",
+          "already_done": "Already done. The page now shows the current state.",
+          "cannot_undo": "This action cannot be undone.",
+          "not_ready": "Moderation needs a database update first.",
+          "rate_limited": "Instagram is limiting requests right now. Try again later.",
+          "comment_gone": "This comment no longer exists on Instagram.",
+          "not_allowed": "Instagram does not allow this for this comment.",
+          "instagram_unavailable": "Instagram did not answer. Try again in a moment.",
+          "unknown_outcome": "Instagram did not confirm. The reply may have been posted: check on Instagram before sending it again.",
+          "unexpected": "Something went wrong. Nothing was changed here; check on Instagram before trying again.",
+          "invalid_word": "Enter a word or phrase of 1 to 50 characters.",
+          "duplicate_rule": "This word is already on the list.",
+          "too_many_rules": "You have reached the limit of banned words for this account."
+        },
+        "intro": "Reply to, hide and delete comments from the Comments tab. Here you set the rules that hide spam automatically and see everything that was done.",
+        "noScope": {
+          "title": "Reconnect to enable comments",
+          "body": "This account was connected before in2sight asked for the comments permission, or Instagram no longer accepts the connection. Reconnect it once on the Accounts page to reply, hide and delete.",
+          "link": "Open Accounts"
+        },
+        "notReady": {
+          "title": "Moderation needs a database update",
+          "body": "Apply the moderation migration first (docs/RUNBOOK_MODERATION.md §0)."
+        },
+        "auto": {
+          "title": "Auto-hide",
+          "description": "Hides comments that match your rules, up to 20 every 30 minutes. It never deletes anything and never hides a comment you have unhidden.",
+          "switch": "Hide matching comments automatically",
+          "pausedReconnect": "Auto-hide is paused: Instagram refused the permission. Reconnect the account, then switch it on again.",
+          "pausedFailing": "Auto-hide is paused after repeated errors from Instagram. Switch it on again to retry.",
+          "pausedSince": "Paused since {date}",
+          "enableTitle": "Switch on auto-hide?",
+          "enableBody": "{count, plural, =0 {No comment matches your rules right now.} one {# comment that is already here will be hidden.} other {# comments that are already here will be hidden.}} After that, new matching comments are hidden within about an hour, up to 20 every 30 minutes. Every hide is listed in the log and can be undone.",
+          "enableConfirm": "Switch on",
+          "noRules": "Add a banned word or switch on a spam pattern first."
+        },
+        "preview": {
+          "title": "Matching now",
+          "count": "{count, plural, =0 {No visible comment matches your rules.} one {# visible comment matches your rules.} other {# visible comments match your rules.}}",
+          "basis": "Checked against the newest {count} stored comments.",
+          "by": "Matches: {rule}"
+        },
+        "rules": {
+          "title": "Rules",
+          "description": "Words and patterns that mark a comment as spam. Upper and lower case and full-width characters count as the same.",
+          "spamTitle": "Spam patterns",
+          "link": { "label": "Links", "hint": "Web addresses such as www…, https://… or name.com" },
+          "mentions": { "label": "Many mentions", "hint": "4 or more @mentions in one comment" },
+          "repeat": { "label": "Repeated characters", "hint": "The same character 8 or more times in a row" },
+          "emoji": { "label": "Emoji floods", "hint": "10 or more emoji with almost no text" },
+          "wordsTitle": "Banned words",
+          "wordLabel": "Word or phrase",
+          "wordHint": "Up to 50 characters. Chinese, Japanese and Korean words always match inside longer text.",
+          "wholeWord": "Whole word only",
+          "add": "Add",
+          "remove": "Remove {word}",
+          "empty": "No banned words yet.",
+          "count": "{count} of {max} words",
+          "wholeBadge": "whole word"
+        },
+        "ruleLabel": { "word": "“{word}”", "link": "Links", "mentions": "Many mentions", "repeat": "Repeated characters", "emoji": "Emoji floods", "removed": "a removed rule" },
+        "log": {
+          "title": "Moderation log",
+          "description": "Every reply, hide, unhide and delete, by you or by a rule. The comment is shown only while it is still stored.",
+          "empty": "Nothing has been done yet.",
+          "range": "{first}–{last} of {total}",
+          "actions": { "reply": "Replied", "hide": "Hidden", "unhide": "Unhidden", "delete": "Deleted", "delete_reply": "Reply deleted" },
+          "byOwner": "By you",
+          "byRule": "By rule: {rule}",
+          "results": { "ok": "Done", "pending": "In progress", "unknown": "Outcome unknown — check on Instagram" },
+          "gone": "Comment no longer stored",
+          "undone": "Undone {date}",
+          "undo": { "unhide": "Unhide", "delete_reply": "Delete reply" },
+          "undoTitle": { "unhide": "Unhide this comment?", "delete_reply": "Delete your reply?" },
+          "undoBody": {
+            "unhide": "Everyone can see this comment again. Auto-hide will never hide it again.",
+            "delete_reply": "Your reply is removed from Instagram. This cannot be undone."
+          }
+        }
+      },
+```
+
+`messages/zh-CN.json` — the inserted object:
+```json
+      "moderation": {
+        "menu": "管理评论",
+        "reply": "回复",
+        "hide": "隐藏",
+        "unhide": "取消隐藏",
+        "delete": "删除",
+        "ownHint": "Instagram 总会显示你自己的评论，因此无法隐藏。",
+        "cancel": "取消",
+        "replyDialog": {
+          "title": "回复 @{username}",
+          "titleNoName": "回复这条评论",
+          "description": "你的回复会显示在 Instagram 上这条评论的下方。之后可以在管理记录中删除。",
+          "label": "你的回复",
+          "count": "{count} / {max} 个字符",
+          "send": "发送回复"
+        },
+        "hideDialog": {
+          "title": "隐藏这条评论？",
+          "body": "被隐藏的评论仍留在 Instagram 上，但只有你和评论者本人能看到。你可以随时取消隐藏。",
+          "confirm": "隐藏"
+        },
+        "unhideDialog": {
+          "title": "取消隐藏这条评论？",
+          "body": "所有人都会再次看到这条评论。自动隐藏不会再隐藏它。",
+          "confirm": "取消隐藏"
+        },
+        "deleteDialog": {
+          "title": "永久删除这条评论？",
+          "body": "删除会让所有人在 Instagram 上都看不到这条评论，且无法撤销（Instagram 和这里都不能）。如果只想让它不被看到并可以恢复，请改用隐藏。输入 {word} 以确认。",
+          "word": "删除",
+          "confirm": "永久删除"
+        },
+        "done": { "hide": "评论已隐藏。", "unhide": "评论已重新显示。", "delete": "评论已删除。", "reply": "回复已发布。", "undo": "已撤销。" },
+        "errors": {
+          "invalid": "此请求中有无效内容。请刷新页面后重试。",
+          "not_found": "这条评论已不在这里。请刷新页面。",
+          "not_active": "此账号已归档。恢复后才能管理评论。",
+          "reconnect": "Instagram 不允许此操作。请在“账号”页面重新连接此账号后重试。",
+          "duplicate": "已经发送过了。",
+          "too_many": "一分钟内的操作过多。请稍候再试。",
+          "already_done": "已经完成。页面现在显示的是最新状态。",
+          "cannot_undo": "此操作无法撤销。",
+          "not_ready": "评论管理需要先更新数据库。",
+          "rate_limited": "Instagram 目前正在限制请求。请稍后再试。",
+          "comment_gone": "这条评论在 Instagram 上已不存在。",
+          "not_allowed": "Instagram 不允许对这条评论执行此操作。",
+          "instagram_unavailable": "Instagram 没有响应。请稍后重试。",
+          "unknown_outcome": "Instagram 没有确认。回复可能已经发布：再次发送前请先在 Instagram 上查看。",
+          "unexpected": "出了点问题。这里没有任何改动；重试前请先在 Instagram 上查看。",
+          "invalid_word": "请输入 1 到 50 个字符的词或短语。",
+          "duplicate_rule": "这个词已在列表中。",
+          "too_many_rules": "此账号的屏蔽词已达上限。"
+        },
+        "intro": "在“评论”标签页中回复、隐藏和删除评论。在这里设置自动隐藏垃圾评论的规则，并查看所有已执行的操作。",
+        "noScope": {
+          "title": "重新连接以启用评论功能",
+          "body": "此账号连接时 in2sight 尚未请求评论权限，或 Instagram 已不再接受此连接。请在“账号”页面重新连接一次，即可回复、隐藏和删除评论。",
+          "link": "打开账号页面"
+        },
+        "notReady": {
+          "title": "评论管理需要更新数据库",
+          "body": "请先应用评论管理的数据库迁移（docs/RUNBOOK_MODERATION.md §0）。"
+        },
+        "auto": {
+          "title": "自动隐藏",
+          "description": "隐藏符合规则的评论，每 30 分钟最多 20 条。它从不删除任何内容，也不会隐藏你已取消隐藏的评论。",
+          "switch": "自动隐藏符合规则的评论",
+          "pausedReconnect": "自动隐藏已暂停：Instagram 拒绝了权限。请重新连接此账号，然后再次开启。",
+          "pausedFailing": "Instagram 多次返回错误，自动隐藏已暂停。再次开启即可重试。",
+          "pausedSince": "暂停于 {date}",
+          "enableTitle": "开启自动隐藏？",
+          "enableBody": "{count, plural, =0 {目前没有评论符合你的规则。} other {现有的 # 条评论将被隐藏。}}之后，新的符合规则的评论会在大约一小时内被隐藏，每 30 分钟最多 20 条。每次隐藏都会记录在管理记录中，并可撤销。",
+          "enableConfirm": "开启",
+          "noRules": "请先添加屏蔽词或开启一种垃圾评论模式。"
+        },
+        "preview": {
+          "title": "当前符合的评论",
+          "count": "{count, plural, =0 {没有可见评论符合你的规则。} other {有 # 条可见评论符合你的规则。}}",
+          "basis": "已检查最新存储的 {count} 条评论。",
+          "by": "符合：{rule}"
+        },
+        "rules": {
+          "title": "规则",
+          "description": "把评论标记为垃圾评论的词和模式。大小写和全角字符视为相同。",
+          "spamTitle": "垃圾评论模式",
+          "link": { "label": "链接", "hint": "网址，例如 www…、https://… 或 name.com" },
+          "mentions": { "label": "大量提及", "hint": "一条评论中有 4 个或更多 @提及" },
+          "repeat": { "label": "重复字符", "hint": "同一个字符连续出现 8 次或更多" },
+          "emoji": { "label": "表情刷屏", "hint": "10 个或更多表情，几乎没有文字" },
+          "wordsTitle": "屏蔽词",
+          "wordLabel": "词或短语",
+          "wordHint": "最多 50 个字符。中文、日文和韩文词语在较长的文字中也会匹配。",
+          "wholeWord": "仅匹配完整单词",
+          "add": "添加",
+          "remove": "删除 {word}",
+          "empty": "还没有屏蔽词。",
+          "count": "{count} / {max} 个词",
+          "wholeBadge": "完整单词"
+        },
+        "ruleLabel": { "word": "“{word}”", "link": "链接", "mentions": "大量提及", "repeat": "重复字符", "emoji": "表情刷屏", "removed": "已删除的规则" },
+        "log": {
+          "title": "管理记录",
+          "description": "你或规则执行的每一次回复、隐藏、取消隐藏和删除。仅在评论仍被存储时显示评论内容。",
+          "empty": "还没有任何操作。",
+          "range": "第 {first}–{last} 条，共 {total} 条",
+          "actions": { "reply": "已回复", "hide": "已隐藏", "unhide": "已取消隐藏", "delete": "已删除", "delete_reply": "回复已删除" },
+          "byOwner": "由你执行",
+          "byRule": "由规则执行：{rule}",
+          "results": { "ok": "完成", "pending": "进行中", "unknown": "结果未知——请在 Instagram 上查看" },
+          "gone": "评论已不再存储",
+          "undone": "已于 {date} 撤销",
+          "undo": { "unhide": "取消隐藏", "delete_reply": "删除回复" },
+          "undoTitle": { "unhide": "取消隐藏这条评论？", "delete_reply": "删除你的回复？" },
+          "undoBody": {
+            "unhide": "所有人都会再次看到这条评论。自动隐藏不会再隐藏它。",
+            "delete_reply": "你的回复会从 Instagram 上删除。此操作无法撤销。"
+          }
+        }
+      },
+```
+
+Note: `ruleLabel.word` is identical in both files (`“{word}”`) but has no 4-letter English run, so the copy-paste guard ignores it.
+
+- [ ] **Step 2: Insert the notification kind** — anchor (both files, lines 840–843, 6/8-space indentation): the `"taking_off": { … }` block followed by `    }`. Replace the closing `      }` of `taking_off` with `      },` and add after it:
+
+`messages/en.json`:
+```json
+      "moderation_paused": {
+        "title": "Auto-hide paused",
+        "body": "Auto-hide for @{username} is paused because Instagram refused to hide a comment. Open Moderation to see why and switch it on again."
+      }
+```
+`messages/zh-CN.json`:
+```json
+      "moderation_paused": {
+        "title": "自动隐藏已暂停",
+        "body": "Instagram 拒绝隐藏评论，@{username} 的自动隐藏已暂停。打开“评论管理”查看原因并重新开启。"
+      }
+```
+
+- [ ] **Step 3: Run the tests**
+
+Run: `npx vitest run tests/messages.test.ts tests/ui-standards.test.ts tests/alert-message.test.ts`
+Expected: PASS (parity holds: both files got the same keys; `alert-message` iterates `ALERT_KINDS`, which does not list the new kind until Task 6). Also run `node -e "JSON.parse(require('fs').readFileSync('messages/en.json','utf8'));JSON.parse(require('fs').readFileSync('messages/zh-CN.json','utf8'))"` → no output.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add messages/en.json messages/zh-CN.json
+git commit -m "feat(i18n): comment moderation strings (en, zh-CN)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3: Rule matching (pure) — `lib/moderation/rules.ts`
+
+**Files:**
+- Create: `lib/moderation/rules.ts`, `tests/moderation-rules.test.ts`
+
+**Interfaces (Produces):**
+```ts
+export const RULE_KINDS = ['word', 'link', 'mentions', 'repeat', 'emoji'] as const;
+export type RuleKind = (typeof RULE_KINDS)[number];
+export const SPAM_KINDS = ['link', 'mentions', 'repeat', 'emoji'] as const satisfies readonly RuleKind[];
+export type SpamKind = (typeof SPAM_KINDS)[number];
+export const PATTERN_MAX = 50, MAX_WORD_RULES = 200, REPEAT_MIN = 8, MENTIONS_MIN = 4, EMOJI_MIN = 10, EMOJI_TEXT_MAX = 3, MAX_AUTO_TRIES = 3;
+export const RETRYABLE: readonly string[]; // ['rate_limited', 'instagram_unavailable']
+export interface ModerationRule { id: string; kind: RuleKind; pattern: string | null; wholeWord: boolean }
+export interface Candidate { id: string; authorUsername: string | null; text: string | null; hidden: boolean }
+export interface LogMark { commentId: string; actor: string; result: string }
+export function fold(s: string): string;
+export function matchRule(text: string | null, rules: readonly ModerationRule[]): ModerationRule | null;
+export function validateWord(raw: unknown, existing: readonly ModerationRule[]): { ok: true; pattern: string } | { ok: false; error: 'invalid_word' | 'duplicate_rule' | 'too_many_rules' };
+export function touchedIds(marks: readonly LogMark[]): Set<string>;
+export function pickAutoHide(cands: readonly Candidate[], rules: readonly ModerationRule[], opts: { ownUsername: string; touched: ReadonlySet<string>; limit: number }): { comment: Candidate; rule: ModerationRule }[];
+```
+
+- [ ] **Step 1: Write the failing test** — create `tests/moderation-rules.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { fold, matchRule, MAX_WORD_RULES, pickAutoHide, touchedIds, validateWord, type Candidate, type ModerationRule } from '@/lib/moderation/rules';
+
+const R = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const word = (pattern: string, wholeWord = false, id = R): ModerationRule => ({ id, kind: 'word', pattern, wholeWord });
+const spam = (kind: ModerationRule['kind'], id = R): ModerationRule => ({ id, kind, pattern: null, wholeWord: false });
+const c = (id: string, text: string | null, o: Partial<Candidate> = {}): Candidate => ({ id, authorUsername: 'fan', text, hidden: false, ...o });
+
+describe('fold', () => {
+  it('NFKC (full-width to ASCII), lower case, zero-width removed, whitespace collapsed', () => {
+    expect(fold('ＦＲＥＥ　ｆｏｌｌｏｗｅｒｓ！')).toBe('free followers!');
+    expect(fold('Fr​ee⁠ \n\t  Gift﻿')).toBe('free gift');
+    expect(fold('  ＣＬＩＣＫ  ')).toBe('click');
+  });
+});
+
+describe('matchRule', () => {
+  it('null text or no rules never match', () => {
+    expect(matchRule(null, [word('spam')])).toBeNull();
+    expect(matchRule('spam', [])).toBeNull();
+  });
+
+  it('a word is a substring match by default, on folded text', () => {
+    expect(matchRule('Buy CHEAP followers', [word('cheap')])?.kind).toBe('word');
+    expect(matchRule('ｃｈｅａｐ!!', [word('Cheap')])).not.toBeNull();
+    expect(matchRule('cheapest', [word('cheap')])).not.toBeNull();
+  });
+
+  it('whole word only: no letter, digit or underscore directly before or after', () => {
+    const r = [word('cheap', true)];
+    expect(matchRule('so cheap!', r)).not.toBeNull();
+    expect(matchRule('cheap', r)).not.toBeNull();
+    expect(matchRule('cheapest deal', r)).toBeNull();
+    expect(matchRule('xcheap', r)).toBeNull();
+    expect(matchRule('cheap_deal', r)).toBeNull();
+    expect(matchRule('cheap123', r)).toBeNull();
+    expect(matchRule('(cheap)', r)).not.toBeNull();
+    expect(matchRule('très cheap.', r)).not.toBeNull();
+  });
+
+  it('CJK patterns always match inside longer text, whole word or not', () => {
+    expect(matchRule('这个代购很便宜', [word('代购', true)])).not.toBeNull();
+    expect(matchRule('全場代購', [word('代购')])).toBeNull(); // no Simplified/Traditional folding (Open question 7)
+    expect(matchRule('ﾌｫﾛﾜｰ', [word('フォロワー')])).not.toBeNull(); // half-width katakana folds to full-width
+  });
+
+  it('regex characters in a pattern are literal', () => {
+    expect(matchRule('a.b', [word('.')])).not.toBeNull();
+    expect(matchRule('ab', [word('a.b')])).toBeNull();
+    expect(matchRule('price $$$ now', [word('$$$', true)])).not.toBeNull();
+  });
+
+  it('link: scheme, www., or a bare domain with a common ending; full-width folded; e-mail-like and decimals are not links', () => {
+    const r = [spam('link')];
+    for (const t of ['see https://x.co', 'go to www.spam', 'bit.ly/abc', 'DM t.me/deals', 'ｗｗｗ．ｓｐａｍ．ｃｏｍ', 'shop at Cheap-Deals.SHOP now'])
+      expect(matchRule(t, r), t).not.toBeNull();
+    for (const t of ['hello.world', 'pi is 3.14', 'mail me at me@mail.com', 'great.....', 'nice pic'])
+      expect(matchRule(t, r), t).toBeNull();
+  });
+
+  it('mentions: 4 or more @names; e-mail addresses do not count', () => {
+    const r = [spam('mentions')];
+    expect(matchRule('@a @b @c @d', r)).not.toBeNull();
+    expect(matchRule('@a @b @c love it', r)).toBeNull();
+    expect(matchRule('x@a.com y@b.com z@c.com w@d.com', r)).toBeNull();
+  });
+
+  it('repeat: the same character 8 or more times in a row', () => {
+    const r = [spam('repeat')];
+    expect(matchRule('wowwwwwwww', r)).not.toBeNull();
+    expect(matchRule('!!!!!!!!', r)).not.toBeNull();
+    expect(matchRule('哈哈哈哈哈哈哈哈', r)).not.toBeNull();
+    expect(matchRule('!!!!!!!', r)).toBeNull();
+    expect(matchRule('hahahahahahaha', r)).toBeNull();
+    expect(matchRule('        spaced', r)).toBeNull(); // whitespace is collapsed by fold
+  });
+
+  it('emoji: 10 or more emoji with at most 3 letters or digits', () => {
+    const r = [spam('emoji')];
+    expect(matchRule('🔥'.repeat(10), r)).not.toBeNull();
+    expect(matchRule('❤️'.repeat(10) + ' wow', r)).not.toBeNull();
+    expect(matchRule('🔥'.repeat(9), r)).toBeNull();
+    expect(matchRule('🔥'.repeat(12) + ' love this so much', r)).toBeNull();
+  });
+
+  it('first match wins: words (in the given order) before link, mentions, repeat, emoji', () => {
+    const w1 = word('free', false, 'w1');
+    const w2 = word('gift', false, 'w2');
+    expect(matchRule('free gift www.x.com', [spam('link', 'l'), w2, w1])?.id).toBe('w2');
+    expect(matchRule('@a @b @c @d www.x.com', [spam('mentions', 'm'), spam('link', 'l')])?.id).toBe('l');
+  });
+});
+
+describe('validateWord', () => {
+  it('trims, requires 1–50 folded characters, rejects non-strings', () => {
+    expect(validateWord('  Spam  ', [])).toEqual({ ok: true, pattern: 'Spam' });
+    expect(validateWord('   ', [])).toEqual({ ok: false, error: 'invalid_word' });
+    expect(validateWord('x'.repeat(51), [])).toEqual({ ok: false, error: 'invalid_word' });
+    expect(validateWord(42, [])).toEqual({ ok: false, error: 'invalid_word' });
+    expect(validateWord('​', [])).toEqual({ ok: false, error: 'invalid_word' });
+  });
+
+  it('duplicates are compared folded; the cap counts word rules only', () => {
+    expect(validateWord('ＳＰＡＭ', [word('spam')])).toEqual({ ok: false, error: 'duplicate_rule' });
+    const many = Array.from({ length: MAX_WORD_RULES }, (_, i) => word(`w${i}`));
+    expect(validateWord('new', many)).toEqual({ ok: false, error: 'too_many_rules' });
+    expect(validateWord('new', [...many.slice(1), spam('link')])).toEqual({ ok: true, pattern: 'new' });
+  });
+});
+
+describe('touchedIds (auto-hide never acts twice, never after the owner)', () => {
+  const rule = `rule:${R}`;
+  it('any owner row, any non-retryable result, or 3 rule attempts mark a comment as touched', () => {
+    const t = touchedIds([
+      { commentId: 'owner', actor: 'owner', result: 'rate_limited' },
+      { commentId: 'ok', actor: rule, result: 'ok' },
+      { commentId: 'pending', actor: rule, result: 'pending' },
+      { commentId: 'refused', actor: rule, result: 'not_allowed' },
+      { commentId: 'retry', actor: rule, result: 'rate_limited' },
+      { commentId: 'retry', actor: rule, result: 'instagram_unavailable' },
+      { commentId: 'three', actor: rule, result: 'rate_limited' },
+      { commentId: 'three', actor: rule, result: 'rate_limited' },
+      { commentId: 'three', actor: rule, result: 'instagram_unavailable' },
+    ]);
+    expect([...t].sort()).toEqual(['ok', 'owner', 'pending', 'refused', 'three']);
+  });
+});
+
+describe('pickAutoHide', () => {
+  const rules = [word('spam')];
+  it('visible, not the account itself (any case), not touched, matching; in input order, capped', () => {
+    const cands = [
+      c('1', 'spam one'),
+      c('2', 'nice'),
+      c('3', 'spam hidden', { hidden: true }),
+      c('4', 'SPAM by me', { authorUsername: 'MyShop' }),
+      c('5', 'spam touched'),
+      c('6', null),
+      c('7', 'spam two'),
+      c('8', 'spam three'),
+    ];
+    const out = pickAutoHide(cands, rules, { ownUsername: 'myshop', touched: new Set(['5']), limit: 2 });
+    expect(out.map((p) => p.comment.id)).toEqual(['1', '7']);
+    expect(out[0].rule.id).toBe(R);
+  });
+
+  it('a comment without an author name is still checked', () => {
+    expect(pickAutoHide([c('1', 'spam', { authorUsername: null })], rules, { ownUsername: 'me', touched: new Set(), limit: 20 })).toHaveLength(1);
+  });
+
+  it('no rules: nothing', () => {
+    expect(pickAutoHide([c('1', 'spam')], [], { ownUsername: 'me', touched: new Set(), limit: 20 })).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/moderation-rules.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/moderation/rules"`.
+
+- [ ] **Step 3: Write the module** — create `lib/moderation/rules.ts` (use the Write tool: regexes and non-ASCII):
+
+```ts
+// Banned words and spam patterns (Plan 15d). Pure: no I/O, no clock. The tick (lib/moderation/auto.ts) and the
+// Moderation tab's preview use the same functions, so the preview shows exactly what auto-hide would do.
+// Comment text is third-party personal data: it is only compared here, never logged or returned in errors.
+
+export const RULE_KINDS = ['word', 'link', 'mentions', 'repeat', 'emoji'] as const;
+export type RuleKind = (typeof RULE_KINDS)[number];
+/** Built-in patterns, checked after the words in this order. A row of the kind = switched on. */
+export const SPAM_KINDS = ['link', 'mentions', 'repeat', 'emoji'] as const satisfies readonly RuleKind[];
+export type SpamKind = (typeof SPAM_KINDS)[number];
+
+export const PATTERN_MAX = 50; // = the migration's check
+export const MAX_WORD_RULES = 200;
+export const REPEAT_MIN = 8; // the same character this many times in a row
+export const MENTIONS_MIN = 4; // @mentions in one comment
+export const EMOJI_MIN = 10; // emoji in one comment ...
+export const EMOJI_TEXT_MAX = 3; // ... with at most this many letters or digits
+export const MAX_AUTO_TRIES = 3; // rule attempts per comment (only retryable failures get a second one)
+/** Rule attempts that ended like this are tried again on a later tick; everything else is final. */
+export const RETRYABLE: readonly string[] = ['rate_limited', 'instagram_unavailable'];
+
+export interface ModerationRule {
+  id: string;
+  kind: RuleKind;
+  pattern: string | null; // words only, as the owner typed it (trimmed)
+  wholeWord: boolean;
+}
+
+export interface Candidate {
+  id: string;
+  authorUsername: string | null;
+  text: string | null;
+  hidden: boolean;
+}
+
+/** One moderation_log row, as far as auto-hide cares. */
+export interface LogMark {
+  commentId: string;
+  actor: string; // 'owner' | 'rule:<uuid>'
+  result: string;
+}
+
+const ZERO_WIDTH = /[​-‍⁠﻿]/g;
+/** NFKC (full-width -> ASCII, half-width katakana -> full-width), lower case, zero-width removed, whitespace collapsed. */
+export const fold = (s: string): string => s.normalize('NFKC').toLowerCase().replace(ZERO_WIDTH, '').replace(/\s+/g, ' ').trim();
+
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const WORD_CHAR = '[\\p{L}\\p{N}_]';
+/** A scheme or www., or a bare domain ending in a common TLD (not preceded by a letter, digit, @ . _ or -). */
+const LINK = /(?:https?:\/\/|www\.)\S|(?<![\p{L}\p{N}@._-])[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})*\.(?:com|net|org|info|biz|io|co|me|ly|xyz|top|shop|store|site|online|link|click|app|live|vip|club|cn|ru|my|sg)(?![\p{L}\p{N}])/u;
+const MENTION = /(?<![\p{L}\p{N}_.])@[a-z0-9._]{1,30}/gu;
+const REPEAT = new RegExp(`(\\S)\\1{${REPEAT_MIN - 1},}`, 'u');
+const EMOJI = /\p{Extended_Pictographic}/gu;
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
+
+const count = (re: RegExp, s: string) => s.match(re)?.length ?? 0;
+
+function wordMatches(text: string, rule: ModerationRule): boolean {
+  const p = rule.pattern === null ? '' : fold(rule.pattern);
+  if (p === '') return false;
+  if (!rule.wholeWord || CJK.test(p)) return text.includes(p);
+  return new RegExp(`(?<!${WORD_CHAR})${escape(p)}(?!${WORD_CHAR})`, 'u').test(text);
+}
+
+const SPAM: Record<SpamKind, (text: string) => boolean> = {
+  link: (t) => LINK.test(t),
+  mentions: (t) => count(MENTION, t) >= MENTIONS_MIN,
+  repeat: (t) => REPEAT.test(t),
+  emoji: (t) => count(EMOJI, t) >= EMOJI_MIN && count(LETTER_OR_DIGIT, t) <= EMOJI_TEXT_MAX,
+};
+
+/** The first rule the comment breaks: word rules in the given order, then link, mentions, repeat, emoji. */
+export function matchRule(text: string | null, rules: readonly ModerationRule[]): ModerationRule | null {
+  if (text === null || rules.length === 0) return null;
+  const t = fold(text);
+  if (t === '') return null;
+  for (const r of rules) if (r.kind === 'word' && wordMatches(t, r)) return r;
+  for (const kind of SPAM_KINDS) {
+    const r = rules.find((x) => x.kind === kind);
+    if (r && SPAM[kind](t)) return r;
+  }
+  return null;
+}
+
+/** A new banned word: trimmed, 1–PATTERN_MAX characters folded, not already listed (folded), under the cap. */
+export function validateWord(raw: unknown, existing: readonly ModerationRule[]): { ok: true; pattern: string } | { ok: false; error: 'invalid_word' | 'duplicate_rule' | 'too_many_rules' } {
+  if (typeof raw !== 'string') return { ok: false, error: 'invalid_word' };
+  const pattern = raw.trim();
+  const folded = fold(pattern);
+  if (folded === '' || [...pattern].length > PATTERN_MAX) return { ok: false, error: 'invalid_word' };
+  const words = existing.filter((r) => r.kind === 'word');
+  if (words.some((r) => r.pattern !== null && fold(r.pattern) === folded)) return { ok: false, error: 'duplicate_rule' };
+  if (words.length >= MAX_WORD_RULES) return { ok: false, error: 'too_many_rules' };
+  return { ok: true, pattern };
+}
+
+/**
+ * Comments auto-hide must leave alone: the owner acted on it (any row: a manual unhide exempts it for good), a rule
+ * attempt ended in a final result (ok, pending = outcome unknown, refused, gone, …), or MAX_AUTO_TRIES rule attempts.
+ */
+export function touchedIds(marks: readonly LogMark[]): Set<string> {
+  const out = new Set<string>();
+  const tries = new Map<string, number>();
+  for (const m of marks) {
+    if (m.actor === 'owner' || !RETRYABLE.includes(m.result)) out.add(m.commentId);
+    const n = (tries.get(m.commentId) ?? 0) + 1;
+    tries.set(m.commentId, n);
+    if (n >= MAX_AUTO_TRIES) out.add(m.commentId);
+  }
+  return out;
+}
+
+/** What auto-hide would hide now, in the given (newest-first) order, at most `limit`. */
+export function pickAutoHide(cands: readonly Candidate[], rules: readonly ModerationRule[], opts: { ownUsername: string; touched: ReadonlySet<string>; limit: number }): { comment: Candidate; rule: ModerationRule }[] {
+  const own = opts.ownUsername.toLowerCase();
+  const out: { comment: Candidate; rule: ModerationRule }[] = [];
+  if (rules.length === 0) return out;
+  for (const comment of cands) {
+    if (out.length >= opts.limit) break;
+    if (comment.hidden || opts.touched.has(comment.id) || comment.authorUsername?.toLowerCase() === own) continue;
+    const rule = matchRule(comment.text, rules);
+    if (rule) out.push({ comment, rule });
+  }
+  return out;
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/moderation-rules.test.ts`
+Expected: PASS (17 tests). Then `npx tsc --noEmit` and `npx eslint lib/moderation/rules.ts tests/moderation-rules.test.ts`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/moderation/rules.ts tests/moderation-rules.test.ts
+git commit -m "feat(moderation): banned-word and spam matching (fold, matchRule, touchedIds, pickAutoHide)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
 <!-- PLAN CONTINUES -->
