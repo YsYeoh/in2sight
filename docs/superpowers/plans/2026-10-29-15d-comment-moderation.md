@@ -123,7 +123,7 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 | `lib/instagram/moderation.ts` (new), `tests/instagram-moderation.test.ts` (new) | `igModeration` (hide, reply, remove), `classifyModerationError`, `REPLY_MAX`, `MODERATION_TIMEOUT_MS` |
 | `lib/moderation/store.ts` (new), `tests/moderation-store.test.ts` (new) | the ONLY module naming `moderation_log` / `moderation_rules` (and writing `comments`); `loadModeration`, log writes, rule/settings writes, the tick reads; pure `undoKind`, `displayResult` |
 | `lib/moderation/service.ts` (new), `tests/moderation-service.test.ts` (new) | `moderate`, `undoAction`, `saveWordRule`, `setSpamRule`, `deleteRule`, `setAutoHide` |
-| `lib/moderation/auto.ts` (new), `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts` (new) | `runAutoHide` and its place in the tick |
+| `lib/moderation/auto.ts` (new), `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts` (new), `tests/sync-tick-moderation.test.ts` (new) | `runAutoHide` and its place in the tick |
 | `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`, `tests/alerts-moderation.test.ts` (new) | the `moderation_paused` kind, rule, read and link |
 | `app/(app)/accounts/moderation-actions.ts` (new), `tests/moderation-actions.test.ts` (new), `tests/moderation-privacy.test.ts` (new) | the server actions; choke point + no-logging guard |
 | `components/account/CommentActions.tsx` (new), `tests/comment-actions.test.tsx` (new) | the per-comment menu and its three dialogs; `ModeratedCommentsTab` wrapper is added in Task 12 |
@@ -146,7 +146,7 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 | 5 | Store (the SQL choke point) | 1 (names), 3 | `lib/moderation/store.ts`, `tests/moderation-store.test.ts` | 6 |
 | 6 | Alerts: `moderation_paused` | 1 (names), 2 | `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`, `tests/alerts-moderation.test.ts` | 5 |
 | 7 | Service: moderate, undo, rules, auto-hide switch | 3, 4, 5 | `lib/moderation/service.ts`, `tests/moderation-service.test.ts` | 8 |
-| 8 | Auto-hide pass in the tick | 3, 4, 5 | `lib/moderation/auto.ts`, `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts` | 7 |
+| 8 | Auto-hide pass in the tick | 3, 4, 5 | `lib/moderation/auto.ts`, `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts`, `tests/sync-tick-moderation.test.ts` | 7 |
 | 9 | Server actions + privacy guard | 7, 8 | `app/(app)/accounts/moderation-actions.ts`, `tests/moderation-actions.test.ts`, `tests/moderation-privacy.test.ts` | 10, 11 |
 | 10 | Comment row menu + dialogs | 2, 7 (types) | `components/account/CommentActions.tsx`, `tests/comment-actions.test.tsx` | 9, 11 |
 | 11 | Moderation tab component | 2, 5, 7 (types) | `components/account/ModerationTab.tsx`, `tests/moderation-tab.test.tsx` | 9, 10 |
@@ -1972,7 +1972,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 
-const order: string[] = [];
+const { order } = vi.hoisted(() => ({ order: [] as string[] }));
 vi.mock('@/lib/moderation/store', async (orig) => {
   const real = await orig<typeof import('@/lib/moderation/store')>();
   const f = (name: string, impl: (...a: unknown[]) => unknown = () => undefined) => vi.fn(async (...a: unknown[]) => (order.push(name), impl(...a)));
@@ -2472,13 +2472,465 @@ export async function setAutoHide(db: SupabaseClient, accountId: string, enabled
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/moderation-service.test.ts`, `npx tsc --noEmit`, `npx eslint lib/moderation/service.ts tests/moderation-service.test.ts`.
-Expected: PASS (34 tests).
+Expected: PASS (38 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add lib/moderation/service.ts tests/moderation-service.test.ts
 git commit -m "feat(moderation): owner actions (log first, then Instagram), undo, rules and the auto-hide switch" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: The auto-hide pass in the tick — `lib/moderation/auto.ts`, `lib/sync/tick.ts`, `lib/sync/deps.ts`
+
+**Files:**
+- Create: `lib/moderation/auto.ts`, `tests/moderation-auto.test.ts`, `tests/sync-tick-moderation.test.ts`
+- Modify: `lib/sync/tick.ts`, `lib/sync/deps.ts`
+- Existing tests that must keep passing: `tests/sync-tick.test.ts`, `tests/sync-tick-alerts.test.ts`, `tests/sync-lanes.test.ts`, `tests/cron-tick-route.test.ts`, `tests/sync-now-action.test.ts` (none of them passes `moderation`, so nothing changes for them).
+
+**Interfaces:**
+- Consumes: Task 3 (`pickAutoHide`, `touchedIds`), Task 4 (`classifyModerationError`, `IgModeration`, `igModeration`), Task 5 (`autoHideAccounts`, `visibleComments`, `logMarks`, `insertLog`, `finishLog`, `setCommentHidden`, `removeComment`, `pauseAutoHide`, `CANDIDATE_SCAN`), `classifyIgError`, `hasScope`, `ALERT_BUDGET_MS`.
+- Produces:
+```ts
+export const AUTO_HIDE_PER_TICK = 20, MODERATION_BUDGET_MS = 5_000, FAIL_LIMIT = 3;
+export interface AutoHideDeps { db: SupabaseClient; ig: Pick<IgModeration, 'hide'>; token: (accountId: string) => Promise<string | null>; newId?: () => string }
+export interface AutoHideSummary { hidden: number; failed: number; paused: number } // counts only: this goes into sync_runs
+export interface AutoHideContext { accounts: StoredAccount[]; now: Date; deadline: number; clock: () => number; accountId?: string }
+export function runAutoHide(deps: AutoHideDeps, c: AutoHideContext): Promise<AutoHideSummary>; // never throws
+// lib/sync/tick.ts
+TickDeps.moderation?: AutoHideDeps;   TickSummary.moderation?: AutoHideSummary;
+```
+
+**The algorithm (exact):**
+- `runAutoHide`: `autoHideAccounts(db)` (throws → `{ failed: 1 }`; `null` = no migration → zeros). For each `{ accountId, rules }` in order: stop when `clock() >= deadline`; skip when `c.accountId` is set and differs; skip unless the account is in `c.accounts` (a FRESH list), `status === 'active'`, `hasScope(account, COMMENTS_SCOPE)` and `rules.length > 0`; run the account inside `try/catch` (a throw = `failed + 1`, next account); add its counts; `stopAll` (app-wide rate limit) ends the pass.
+- One account: `visibleComments(db, id, CANDIDATE_SCAN)` and `logMarks(db, id)` → `pickAutoHide(cands, rules, { ownUsername: account.username, touched: touchedIds(marks), limit: AUTO_HIDE_PER_TICK })`; nothing → done (no token read). `token(id)`: null → done (the sync owns `needs_reconnect`). For each pick, stop when `clock() >= deadline`, then:
+  1. `insertLog(db, { accountId, commentId, action: 'hide', actor: 'rule:<rule id>', requestId: newId() })` — a throw propagates (this account stops: **never an unlogged hide**);
+  2. `ig.hide(token, commentId, true)`;
+  3. error → `key = classifyModerationError(e)`; `finishLog(logId, key)` (swallowed); `comment_gone` → `removeComment` (swallowed), continue (not a failure); otherwise `failed + 1` and: `reconnect` → `pauseAutoHide(id, 'reconnect', now)`, `paused`, stop the account; `rate_limited` → stop the account (`stopAll = classifyIgError(e) === 'app_rate_limit'`); else `streak + 1`, at `FAIL_LIMIT` → `pauseAutoHide(id, 'failing', now)`, `paused`, stop the account;
+  4. success → `streak = 0`, `finishLog(logId, 'ok')` (swallowed: the row stays `pending` = touched, never retried), `setCommentHidden(id, commentId, true)` (swallowed), `hidden + 1`.
+- Tick: after `runAlerts`, `if (deps.moderation && !appLimited)`: `runAutoHide(deps.moderation, { accounts: await deps.accounts.list(), now: new Date(clock()), deadline: deadline + ALERT_BUDGET_MS + MODERATION_BUDGET_MS, clock, accountId: opts.accountId })`, with `.catch(() => ({ hidden: 0, failed: 1, paused: 0 }))` around the whole expression; the result goes into the summary as `moderation` (before `recordRun`).
+
+- [ ] **Step 1: Write the failing tests** — create `tests/moderation-auto.test.ts`:
+
+```ts
+// @vitest-environment node
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { COMMENTS_SCOPE } from '@/lib/accounts/scopes';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+import type { Candidate, ModerationRule } from '@/lib/moderation/rules';
+import { account } from './fixtures/sync-fakes';
+
+const { order } = vi.hoisted(() => ({ order: [] as string[] }));
+vi.mock('@/lib/moderation/store', async (orig) => {
+  const real = await orig<typeof import('@/lib/moderation/store')>();
+  const f = (name: string) => vi.fn(async (..._a: unknown[]): Promise<unknown> => void order.push(name));
+  return { ...real, autoHideAccounts: vi.fn(), visibleComments: vi.fn(), logMarks: vi.fn(), insertLog: vi.fn(), finishLog: f('finishLog'), setCommentHidden: f('setHidden'), removeComment: f('removeComment'), pauseAutoHide: f('pause') };
+});
+
+import * as S from '@/lib/moderation/store';
+import { AUTO_HIDE_PER_TICK, runAutoHide, type AutoHideContext, type AutoHideDeps } from '@/lib/moderation/auto';
+
+const m = vi.mocked(S);
+const RULE: ModerationRule = { id: '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e', kind: 'word', pattern: 'spam', wholeWord: false };
+const NOW = new Date('2026-10-29T10:00:00Z');
+const db = {} as SupabaseClient;
+const spam = (id: string, o: Partial<Candidate> = {}): Candidate => ({ id, authorUsername: 'bot', text: `spam ${id}`, hidden: false, ...o });
+const scoped = (id: string, o = {}) => account({ id, username: `shop_${id}`, grantedScopes: [COMMENTS_SCOPE], ...o });
+let comments: Record<string, Candidate[]>;
+
+function setup(o: { ig?: AutoHideDeps['ig']; ctx?: Partial<AutoHideContext> } = {}) {
+  let req = 0;
+  const deps: AutoHideDeps = {
+    db,
+    ig: o.ig ?? { hide: vi.fn(async (_t: string, id: string) => void order.push(`hide:${id}`)) },
+    token: vi.fn(async (id: string) => `tok-${id}`),
+    newId: () => `req-${++req}`,
+  };
+  const ctx: AutoHideContext = { accounts: [scoped('a1'), scoped('a2')], now: NOW, deadline: Infinity, clock: () => 0, ...o.ctx };
+  return { deps, ctx };
+}
+
+beforeEach(() => {
+  order.length = 0;
+  vi.clearAllMocks();
+  comments = { a1: [spam('c1'), spam('c2')], a2: [spam('d1')] };
+  m.autoHideAccounts.mockResolvedValue([{ accountId: 'a1', rules: [RULE] }, { accountId: 'a2', rules: [RULE] }]);
+  m.visibleComments.mockImplementation(async (_db, id) => comments[id] ?? []);
+  m.logMarks.mockResolvedValue([]);
+  let n = 0;
+  m.insertLog.mockImplementation(async () => (order.push('insertLog'), ++n));
+});
+
+describe('runAutoHide', () => {
+  it('per comment: log row (actor rule:<id>) → hide → ok → local hidden; counts only in the summary', async () => {
+    const { deps, ctx } = setup();
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 3, failed: 0, paused: 0 });
+    expect(order.slice(0, 4)).toEqual(['insertLog', 'hide:c1', 'finishLog', 'setHidden']);
+    expect(m.insertLog).toHaveBeenCalledWith(db, { accountId: 'a1', commentId: 'c1', action: 'hide', actor: `rule:${RULE.id}`, requestId: 'req-1' });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 1, 'ok');
+    expect(m.visibleComments).toHaveBeenCalledWith(db, 'a1', S.CANDIDATE_SCAN);
+  });
+
+  it(`at most ${AUTO_HIDE_PER_TICK} hides per account per tick`, async () => {
+    comments.a1 = Array.from({ length: 25 }, (_, i) => spam(`c${i}`));
+    const { deps, ctx } = setup({ ctx: { accounts: [scoped('a1')] } });
+    expect((await runAutoHide(deps, ctx)).hidden).toBe(AUTO_HIDE_PER_TICK);
+  });
+
+  it('never touches what the owner acted on, what a rule already did, or the account itself', async () => {
+    comments.a1 = [spam('c1'), spam('c2'), spam('c3', { authorUsername: 'SHOP_A1' }), spam('c4', { hidden: true })];
+    m.logMarks.mockResolvedValue([{ commentId: 'c1', actor: 'owner', result: 'ok' }, { commentId: 'c2', actor: `rule:${RULE.id}`, result: 'pending' }]);
+    const { deps, ctx } = setup({ ctx: { accounts: [scoped('a1')] } });
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 0, failed: 0, paused: 0 });
+    expect(deps.token).not.toHaveBeenCalled(); // nothing to do: no token read
+  });
+
+  it('skips accounts that are not active, lack the scope, are not in the fresh list, or have no rules', async () => {
+    m.autoHideAccounts.mockResolvedValue([
+      { accountId: 'a1', rules: [RULE] },
+      { accountId: 'a2', rules: [RULE] },
+      { accountId: 'gone', rules: [RULE] },
+      { accountId: 'a3', rules: [] },
+    ]);
+    const { deps, ctx } = setup({ ctx: { accounts: [scoped('a1', { status: 'needs_reconnect' }), account({ id: 'a2' }), scoped('a3')] } });
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 0, failed: 0, paused: 0 });
+    expect(m.visibleComments).not.toHaveBeenCalled();
+  });
+
+  it('a permission answer pauses that account (reason reconnect) and the next account still runs', async () => {
+    const ig = { hide: vi.fn(async (t: string, id: string) => {
+      if (t === 'tok-a1') throw new InstagramApiError('data', 403, 200);
+      order.push(`hide:${id}`);
+    }) };
+    const { deps, ctx } = setup({ ig });
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 1, paused: 1 });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 1, 'reconnect');
+    expect(m.pauseAutoHide).toHaveBeenCalledWith(db, 'a1', 'reconnect', NOW.toISOString());
+    expect(ig.hide).toHaveBeenCalledTimes(2); // c1 of a1 (refused), d1 of a2
+  });
+
+  it(`${3} failures in a row pause the account (reason failing); a success in between resets the count`, async () => {
+    comments.a1 = ['c1', 'c2', 'c3', 'c4', 'c5'].map((id) => spam(id));
+    let call = 0;
+    const ig = { hide: vi.fn(async () => {
+      call++;
+      if (call !== 3) throw new InstagramApiError('data', 400, 100); // not_allowed, except the 3rd
+    }) };
+    const { deps, ctx } = setup({ ig, ctx: { accounts: [scoped('a1')] } });
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 4, paused: 1 });
+    expect(m.pauseAutoHide).toHaveBeenCalledWith(db, 'a1', 'failing', NOW.toISOString());
+  });
+
+  it('a rate limit stops that account only; an app-wide one stops the pass', async () => {
+    const user = { hide: vi.fn(async (t: string) => { if (t === 'tok-a1') throw new InstagramApiError('data', 400, 17); }) };
+    const a = setup({ ig: user });
+    expect(await runAutoHide(a.deps, a.ctx)).toEqual({ hidden: 1, failed: 1, paused: 0 });
+    expect(m.pauseAutoHide).not.toHaveBeenCalled();
+    const app = { hide: vi.fn(async () => { throw new InstagramApiError('data', 400, 4); }) };
+    const b = setup({ ig: app });
+    expect(await runAutoHide(b.deps, b.ctx)).toEqual({ hidden: 0, failed: 1, paused: 0 });
+    expect(app.hide).toHaveBeenCalledTimes(1);
+  });
+
+  it('a comment already gone on Instagram is logged, removed here, and is not a failure', async () => {
+    const ig = { hide: vi.fn(async (_t: string, id: string) => { if (id === 'c1') throw new InstagramApiError('data', 400, 100, 33); }) };
+    const { deps, ctx } = setup({ ig, ctx: { accounts: [scoped('a1')] } });
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 0, paused: 0 });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 1, 'comment_gone');
+    expect(m.removeComment).toHaveBeenCalledWith(db, 'a1', 'c1');
+  });
+
+  it('no log row → no hide: the account stops, the next one runs', async () => {
+    m.insertLog.mockRejectedValueOnce(new S.ModerationStoreError('insertLog', 'other'));
+    const { deps, ctx } = setup();
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 1, paused: 0 });
+    expect(deps.ig.hide).toHaveBeenCalledTimes(1);
+    expect(deps.ig.hide).toHaveBeenCalledWith('tok-a2', 'd1', true);
+  });
+
+  it('no stored token: nothing is sent for that account', async () => {
+    const { deps, ctx } = setup({ ctx: { accounts: [scoped('a1')] } });
+    vi.mocked(deps.token).mockResolvedValue(null);
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 0, failed: 0, paused: 0 });
+    expect(m.insertLog).not.toHaveBeenCalled();
+  });
+
+  it('stops at the deadline; honours a single-account (manual) run; never throws', async () => {
+    let t = 0;
+    const a = setup({ ctx: { deadline: 2, clock: () => t++ } });
+    expect((await runAutoHide(a.deps, a.ctx)).hidden).toBeLessThan(3);
+    const b = setup({ ctx: { accountId: 'a2' } });
+    expect(await runAutoHide(b.deps, b.ctx)).toEqual({ hidden: 1, failed: 0, paused: 0 });
+    m.autoHideAccounts.mockRejectedValueOnce(new Error('db down'));
+    expect(await runAutoHide(b.deps, b.ctx)).toEqual({ hidden: 0, failed: 1, paused: 0 });
+    m.autoHideAccounts.mockResolvedValueOnce(null); // before the migration
+    expect(await runAutoHide(b.deps, b.ctx)).toEqual({ hidden: 0, failed: 0, paused: 0 });
+  });
+});
+```
+
+and `tests/sync-tick-moderation.test.ts`:
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+
+const { runAutoHide } = vi.hoisted(() => ({ runAutoHide: vi.fn() }));
+vi.mock('@/lib/moderation/auto', async (orig) => ({ ...(await orig<object>()), runAutoHide }));
+
+import { runTick, type TickDeps } from '@/lib/sync/tick';
+import { memoryAlertStore } from './fixtures/alert-fakes';
+import { account, fakeAccounts, fakeIg, memoryStore } from './fixtures/sync-fakes';
+
+const T0 = Date.parse('2026-10-14T02:00:00Z');
+function setup() {
+  const ig = fakeIg();
+  const mem = memoryStore({ tokens: { a1: 'tok-a1' } });
+  const alerts = memoryAlertStore();
+  const deps: TickDeps = {
+    store: mem.store,
+    accounts: fakeAccounts([account({ id: 'a1' })]).accounts,
+    ig,
+    clock: () => T0,
+    newId: () => 'lease',
+    alerts: { store: alerts.store, push: null },
+    moderation: { db: {} as never, ig: { hide: vi.fn() }, token: vi.fn() },
+  };
+  return { ig, mem, alerts, deps };
+}
+
+describe('runTick + auto-hide', () => {
+  it('runs after the alerts in its own window (35 + 10 + 5 s) with a fresh account list; counts land in the summary and sync_runs', async () => {
+    runAutoHide.mockReset().mockResolvedValue({ hidden: 2, failed: 0, paused: 0 });
+    const { deps, alerts, mem } = setup();
+    const s = await runTick(deps, { trigger: 'cron' });
+    expect(vi.mocked(alerts.store.context).mock.invocationCallOrder[0]).toBeLessThan(runAutoHide.mock.invocationCallOrder[0]);
+    const ctx = runAutoHide.mock.calls[0][1];
+    expect(ctx.deadline).toBe(T0 + 50_000);
+    expect(ctx.accounts.map((a: { id: string }) => a.id)).toEqual(['a1']);
+    expect(s.moderation).toEqual({ hidden: 2, failed: 0, paused: 0 });
+    expect(mem.runs[0].summary).toMatchObject({ moderation: { hidden: 2, failed: 0, paused: 0 } });
+  });
+
+  it('a failing pass never fails the tick or the recorded run', async () => {
+    runAutoHide.mockReset().mockRejectedValue(new Error('boom'));
+    const { deps, mem } = setup();
+    const s = await runTick(deps, { trigger: 'cron' });
+    expect(s.accounts.map((a) => a.outcome)).toEqual(['ok']);
+    expect(s.moderation).toEqual({ hidden: 0, failed: 1, paused: 0 });
+    expect(mem.runs).toHaveLength(1);
+  });
+
+  it('a manual run for one account passes its id', async () => {
+    runAutoHide.mockReset().mockResolvedValue({ hidden: 0, failed: 0, paused: 0 });
+    const { deps } = setup();
+    await runTick(deps, { trigger: 'manual', accountId: 'a1' });
+    expect(runAutoHide.mock.calls[0][1].accountId).toBe('a1');
+  });
+
+  it('an app-wide Instagram rate limit in the sync skips the pass', async () => {
+    runAutoHide.mockReset();
+    const { deps, ig } = setup();
+    ig.listStories.mockRejectedValue(new InstagramApiError('data', 400, 4));
+    const s = await runTick(deps, { trigger: 'cron' });
+    expect(runAutoHide).not.toHaveBeenCalled();
+    expect(s).not.toHaveProperty('moderation');
+  });
+
+  it('without moderation deps nothing runs and the summary has no moderation field', async () => {
+    runAutoHide.mockReset();
+    const { deps } = setup();
+    const s = await runTick({ ...deps, moderation: undefined }, { trigger: 'cron' });
+    expect(runAutoHide).not.toHaveBeenCalled();
+    expect(s).not.toHaveProperty('moderation');
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/moderation-auto.test.ts tests/sync-tick-moderation.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/moderation/auto"`.
+
+- [ ] **Step 3: Write `lib/moderation/auto.ts`**
+
+```ts
+// Auto-hide (Plan 15d): a pass of the sync tick that runs AFTER the lanes and the alerts, in its own window, so it can
+// never take time from either. It reads only comments the comments job already stored, hides at most
+// AUTO_HIDE_PER_TICK per account, logs every hide (actor rule:<id>) BEFORE sending it, never acts on a comment the
+// owner touched or a rule already finished (touchedIds), never deletes, and pauses itself on a permission answer or
+// FAIL_LIMIT failures in a row (one notification per pause: lib/alerts/rules.ts). Never throws; one account's trouble
+// never stops the others. Counts only leave this module (they go into sync_runs).
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { classifyIgError } from '@/lib/instagram/data';
+import { classifyModerationError, type IgModeration } from '@/lib/instagram/moderation';
+import { pickAutoHide, touchedIds, type ModerationRule } from '@/lib/moderation/rules';
+import * as S from '@/lib/moderation/store';
+
+export const AUTO_HIDE_PER_TICK = 20;
+/** After the alerts' window: 35 s sync + 10 s alerts + 5 s here; each write times out after 5 s (route maxDuration 60 s). */
+export const MODERATION_BUDGET_MS = 5_000;
+export const FAIL_LIMIT = 3;
+
+export interface AutoHideDeps {
+  db: SupabaseClient; // admin client (the tick has no owner session)
+  ig: Pick<IgModeration, 'hide'>;
+  token: (accountId: string) => Promise<string | null>;
+  newId?: () => string;
+}
+export interface AutoHideSummary {
+  hidden: number;
+  failed: number;
+  paused: number;
+}
+export interface AutoHideContext {
+  accounts: StoredAccount[]; // fresh: an account flipped to needs_reconnect in this tick is skipped
+  now: Date;
+  deadline: number; // ms epoch
+  clock: () => number;
+  accountId?: string; // manual "Sync now" for one account
+}
+
+interface AccountRun {
+  hidden: number;
+  failed: number;
+  paused: boolean;
+  stopAll: boolean; // app-wide rate limit: every further call would fail too
+}
+
+async function hideForAccount(deps: AutoHideDeps, account: StoredAccount, rules: ModerationRule[], c: AutoHideContext): Promise<AccountRun> {
+  const out: AccountRun = { hidden: 0, failed: 0, paused: false, stopAll: false };
+  const [cands, marks] = await Promise.all([S.visibleComments(deps.db, account.id, S.CANDIDATE_SCAN), S.logMarks(deps.db, account.id)]);
+  const picks = pickAutoHide(cands, rules, { ownUsername: account.username, touched: touchedIds(marks), limit: AUTO_HIDE_PER_TICK });
+  if (picks.length === 0) return out;
+  const token = await deps.token(account.id);
+  if (!token) return out; // the sync flags a missing token
+  const nowIso = c.now.toISOString();
+  const newId = deps.newId ?? (() => crypto.randomUUID());
+  let streak = 0;
+  for (const { comment, rule } of picks) {
+    if (c.clock() >= c.deadline) break;
+    // the row first: an insert failure throws and stops this account, so there is never an unlogged hide
+    const logId = await S.insertLog(deps.db, { accountId: account.id, commentId: comment.id, action: 'hide', actor: `rule:${rule.id}`, requestId: newId() });
+    try {
+      await deps.ig.hide(token, comment.id, true);
+    } catch (e) {
+      const key = classifyModerationError(e);
+      await S.finishLog(deps.db, logId, key).catch(() => {});
+      if (key === 'comment_gone') {
+        await S.removeComment(deps.db, account.id, comment.id).catch(() => {});
+        continue;
+      }
+      out.failed++;
+      if (key === 'reconnect') {
+        await S.pauseAutoHide(deps.db, account.id, 'reconnect', nowIso);
+        out.paused = true;
+        return out;
+      }
+      if (key === 'rate_limited') {
+        out.stopAll = classifyIgError(e) === 'app_rate_limit';
+        return out;
+      }
+      if (++streak >= FAIL_LIMIT) {
+        await S.pauseAutoHide(deps.db, account.id, 'failing', nowIso);
+        out.paused = true;
+        return out;
+      }
+      continue;
+    }
+    streak = 0;
+    await S.finishLog(deps.db, logId, 'ok').catch(() => {}); // left 'pending' = touched: never retried automatically
+    await S.setCommentHidden(deps.db, account.id, comment.id, true).catch(() => {});
+    out.hidden++;
+  }
+  return out;
+}
+
+export async function runAutoHide(deps: AutoHideDeps, c: AutoHideContext): Promise<AutoHideSummary> {
+  const out: AutoHideSummary = { hidden: 0, failed: 0, paused: 0 };
+  let list: Awaited<ReturnType<typeof S.autoHideAccounts>>;
+  try {
+    list = await S.autoHideAccounts(deps.db);
+  } catch {
+    out.failed++;
+    return out;
+  }
+  if (!list) return out; // the moderation migration is not applied
+  for (const { accountId, rules } of list) {
+    if (c.clock() >= c.deadline) break;
+    if (c.accountId && accountId !== c.accountId) continue;
+    const account = c.accounts.find((a) => a.id === accountId);
+    if (!account || account.status !== 'active' || !hasScope(account, COMMENTS_SCOPE) || rules.length === 0) continue;
+    try {
+      const r = await hideForAccount(deps, account, rules, c);
+      out.hidden += r.hidden;
+      out.failed += r.failed;
+      if (r.paused) out.paused++;
+      if (r.stopAll) break;
+    } catch {
+      out.failed++;
+    }
+  }
+  return out;
+}
+```
+
+- [ ] **Step 4: Wire the tick** — anchored edits in `lib/sync/tick.ts`:
+
+imports (after the alerts import):
+```ts
+import { MODERATION_BUDGET_MS, runAutoHide, type AutoHideDeps, type AutoHideSummary } from '@/lib/moderation/auto';
+```
+`TickDeps`, after `alerts?: AlertDeps; …`:
+```ts
+  moderation?: AutoHideDeps; // omitted: no auto-hide pass (tests of the sync itself)
+```
+`TickSummary`, after `alerts?: AlertRunSummary; // counts only`:
+```ts
+  moderation?: AutoHideSummary; // counts only
+```
+between the `const alerts = …;` statement and `const summary: TickSummary = …`:
+```ts
+  // Plan 15d: auto-hide runs last, in its own window after the alerts' (35 + 10 + 5 s; its calls time out after 5 s, the
+  // route allows 60 s). Skipped when Meta throttled the whole app. Never throws; the catch is a second net for the tick.
+  const moderation =
+    deps.moderation && !appLimited
+      ? await deps.accounts
+          .list()
+          .then((accounts) => runAutoHide(deps.moderation!, { accounts, now: new Date(clock()), deadline: deadline + ALERT_BUDGET_MS + MODERATION_BUDGET_MS, clock, accountId: opts.accountId }))
+          .catch(() => ({ hidden: 0, failed: 1, paused: 0 }))
+      : undefined;
+```
+and in the `summary` object literal, after `...(alerts ? { alerts } : {})`: `, ...(moderation ? { moderation } : {})`.
+
+`lib/sync/deps.ts` — import `import { igModeration } from '@/lib/instagram/moderation';` and replace the returned object with:
+```ts
+  const store = supabaseSyncStore(db);
+  return {
+    store,
+    accounts: supabaseAccountsStore(db),
+    ig: igData(apiVersion),
+    alerts: { store: supabaseAlertStore(db), push: vapid ? webPushTransport(vapid) : null },
+    // Plan 15d auto-hide: the same admin client; the token read stays server-side (account_tokens)
+    moderation: { db, ig: igModeration(apiVersion), token: (id) => store.getToken(id) },
+  };
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/moderation-auto.test.ts tests/sync-tick-moderation.test.ts tests/sync-tick.test.ts tests/sync-tick-alerts.test.ts tests/sync-lanes.test.ts tests/cron-tick-route.test.ts tests/sync-now-action.test.ts`, `npx tsc --noEmit`, `npx eslint lib/moderation/auto.ts lib/sync/tick.ts lib/sync/deps.ts tests/moderation-auto.test.ts tests/sync-tick-moderation.test.ts`.
+Expected: PASS (11 + 5 new tests; the existing tick suites unchanged).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/moderation/auto.ts lib/sync/tick.ts lib/sync/deps.ts tests/moderation-auto.test.ts tests/sync-tick-moderation.test.ts
+git commit -m "feat(moderation): auto-hide pass after the alerts (capped, idempotent, pauses itself, never throws)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
