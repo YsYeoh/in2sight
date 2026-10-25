@@ -182,6 +182,7 @@ Technical
 - Guard tests pay off: `ui-standards.test.ts` caught a real violation (tab strip hiding its own scrollbar) on the first run after 14c.
 - Docs are CRLF; messages JSON are edited by TEXT insertion only (hand-formatted, one stray CR); use the Write tool for files with backslashes/non-ASCII.
 - jsdom 29 `Blob` has no `.stream()`: build `Response` bodies from strings in tests.
+- Next.js 16.4 refuses to BUILD on a version with a published security advisory ("SecurityFatalError"), which makes `npm run check` fail even though nothing in our code changed. Found 2026-10-25: Next 16.0.0-16.4.0 was critical (image optimizer RCE with SVG, Server Actions DoS, `use cache` RCE); fixed by the pinned bump to 16.4.3 (+ `eslint-config-next` 16.4.3, `puppeteer-core` 25.16.0). Run `npm audit --omit=dev` now and then; keep every pin exact; `eslint-config-next` tracks the Next version. Do not run the build tool's own `next upgrade --agent=...` suggestion: verify with `npm audit` and bump the pins by hand.
 - Rolling-window analytics: leave today's partial day and the unsettled days out of anomaly scans; unknown is `null`, never 0; compare posts of the same age.
 
 ## 11. Security and privacy (do not weaken)
