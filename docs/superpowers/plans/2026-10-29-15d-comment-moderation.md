@@ -3253,4 +3253,894 @@ git commit -m "feat(moderation): owner-only server actions and the privacy guard
 
 ---
 
+### Task 10: The comment row menu and its dialogs — `components/account/CommentActions.tsx`
+
+**Files:**
+- Create: `components/account/CommentActions.tsx`, `tests/comment-actions.test.tsx`
+
+**Interfaces:**
+- Consumes: Task 2 keys (`pages.account.moderation.*`), `REPLY_MAX` (Task 3), `type ModerationResult` (Task 7), `ConfirmDialog`, `ResponsiveDialog*`, `DropdownMenu*`, `Textarea`, `FormField`, `LoadingButton`, `usePrefs`, `formatNumber`.
+- Produces (Task 11 imports the hook; Task 12 renders the component in the Comments tab):
+```ts
+export function useModerationRun(): {
+  busy: boolean;
+  error: string | null; // already translated
+  run: (call: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void) => Promise<void>;
+  clearError: () => void;
+};
+export interface CommentActionsProps {
+  accountId: string;
+  commentId: string;
+  authorUsername: string | null;
+  hidden: boolean | null;
+  own: boolean; // the account's own comment: Hide/Unhide disabled (Instagram always shows it)
+  hide: (accountId: string, commentId: string, hide: boolean, requestId: string) => Promise<ModerationResult>;
+  reply: (accountId: string, commentId: string, message: string, requestId: string) => Promise<ModerationResult>;
+  remove: (accountId: string, commentId: string, requestId: string) => Promise<ModerationResult>;
+}
+export function CommentActions(props: CommentActionsProps): JSX.Element;
+```
+
+- [ ] **Step 1: Write the failing test** — create `tests/comment-actions.test.tsx`:
+
+```tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { CommentActions, type CommentActionsProps } from '@/components/account/CommentActions';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh, prefetch: vi.fn(), back: vi.fn() }) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses (same stubs as tests/followers-tab.test.tsx)
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  refresh.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const T = en.pages.account.moderation;
+const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const OK = { ok: true as const, logged: true };
+
+function renderIt(o: Partial<CommentActionsProps> = {}) {
+  const props: CommentActionsProps = { accountId: A, commentId: 'c1', authorUsername: 'fan', hidden: false, own: false, hide: vi.fn(async () => OK), reply: vi.fn(async () => OK), remove: vi.fn(async () => OK), ...o };
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <CommentActions {...props} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return props;
+}
+const menu = () => screen.getByRole('button', { name: T.menu });
+async function pick(user: ReturnType<typeof userEvent.setup>, item: string) {
+  await user.click(menu());
+  await user.click(await screen.findByRole('menuitem', { name: new RegExp(`^${item}`) }));
+}
+
+describe('CommentActions', () => {
+  it('hide: confirm, one request with a fresh id, announced, refreshed, focus back on the menu button', async () => {
+    const user = userEvent.setup();
+    const p = renderIt();
+    await pick(user, T.hide);
+    expect(await screen.findByRole('alertdialog', { name: T.hideDialog.title })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: T.hideDialog.confirm }));
+    await waitFor(() => expect(p.hide).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(p.hide).mock.calls[0].slice(0, 3)).toEqual([A, 'c1', true]);
+    expect(vi.mocked(p.hide).mock.calls[0][3]).toMatch(UUID);
+    expect(await screen.findByRole('status')).toHaveTextContent(T.done.hide);
+    expect(refresh).toHaveBeenCalled();
+    await waitFor(() => expect(menu()).toHaveFocus());
+  });
+
+  it('a hidden comment offers Unhide', async () => {
+    const user = userEvent.setup();
+    const p = renderIt({ hidden: true });
+    await pick(user, T.unhide);
+    await user.click(await screen.findByRole('button', { name: T.unhideDialog.confirm }));
+    await waitFor(() => expect(vi.mocked(p.hide).mock.calls[0][2]).toBe(false));
+  });
+
+  it("the account's own comment: Hide is disabled and says why", async () => {
+    const user = userEvent.setup();
+    renderIt({ own: true });
+    await user.click(menu());
+    const item = await screen.findByRole('menuitem', { name: new RegExp(`^${T.hide}`) });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+    expect(item).toHaveTextContent(T.ownHint);
+  });
+
+  it('delete: says it cannot be undone and needs the typed word before the button works', async () => {
+    const user = userEvent.setup();
+    const p = renderIt();
+    await pick(user, T.delete);
+    const dialog = await screen.findByRole('alertdialog', { name: T.deleteDialog.title });
+    expect(dialog).toHaveTextContent('cannot be undone');
+    const confirm = screen.getByRole('button', { name: T.deleteDialog.confirm });
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText(T.deleteDialog.word), T.deleteDialog.word);
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    await waitFor(() => expect(p.remove).toHaveBeenCalledWith(A, 'c1', expect.stringMatching(UUID)));
+  });
+
+  it('reply: counts characters, refuses empty text, sends the text', async () => {
+    const user = userEvent.setup();
+    const p = renderIt();
+    await pick(user, T.reply);
+    expect(await screen.findByRole('dialog', { name: 'Reply to @fan' })).toBeInTheDocument();
+    const send = screen.getByRole('button', { name: T.replyDialog.send });
+    expect(send).toBeDisabled();
+    await user.type(screen.getByLabelText(T.replyDialog.label), 'Thanks!');
+    expect(screen.getByText('7 of 2,200 characters')).toBeInTheDocument();
+    await user.click(send);
+    await waitFor(() => expect(p.reply).toHaveBeenCalledWith(A, 'c1', 'Thanks!', expect.stringMatching(UUID)));
+  });
+
+  it('an error key is shown translated in the open dialog; nothing is refreshed', async () => {
+    const user = userEvent.setup();
+    renderIt({ hide: vi.fn(async () => ({ ok: false as const, error: 'rate_limited' as const })) });
+    await pick(user, T.hide);
+    await user.click(await screen.findByRole('button', { name: T.hideDialog.confirm }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.errors.rate_limited);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('a double click sends once; each new dialog is a new request id', async () => {
+    const user = userEvent.setup();
+    let resolve!: (v: typeof OK) => void;
+    const hide = vi.fn(() => new Promise<typeof OK>((r) => (resolve = r)));
+    renderIt({ hide });
+    await pick(user, T.hide);
+    const confirm = await screen.findByRole('button', { name: T.hideDialog.confirm });
+    await user.dblClick(confirm);
+    expect(hide).toHaveBeenCalledTimes(1);
+    resolve(OK);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    await pick(user, T.hide);
+    await user.click(await screen.findByRole('button', { name: T.hideDialog.confirm }));
+    await waitFor(() => expect(hide).toHaveBeenCalledTimes(2));
+    expect(hide.mock.calls[1][3]).not.toBe(hide.mock.calls[0][3]);
+  });
+
+  it('Cancel closes without a request and returns focus to the menu button', async () => {
+    const user = userEvent.setup();
+    const p = renderIt();
+    await pick(user, T.hide);
+    await user.click(await screen.findByRole('button', { name: T.cancel }));
+    await waitFor(() => expect(menu()).toHaveFocus());
+    expect(p.hide).not.toHaveBeenCalled();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/comment-actions.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/account/CommentActions"`.
+
+- [ ] **Step 3: Write the component** — create `components/account/CommentActions.tsx`:
+
+```tsx
+'use client';
+
+// One comment's moderation menu (Plan 15d) for the Comments tab's renderActions slot: Reply, Hide/Unhide, Delete, each
+// behind its own dialog. Opening a dialog = one intent = one request id (the server refuses a repeated id); a call in
+// flight blocks a second one (double click); afterwards focus returns to this menu button and the result is announced.
+// The server actions arrive as PROPS (the page passes them), so this file imports no server code.
+import { useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { MoreHorizontal } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import {
+  ResponsiveDialog, ResponsiveDialogClose, ResponsiveDialogContent, ResponsiveDialogDescription, ResponsiveDialogFooter, ResponsiveDialogHeader, ResponsiveDialogTitle,
+} from '@/components/shared/ResponsiveDialog';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Textarea } from '@/components/ui/textarea';
+import { formatNumber } from '@/lib/format';
+import { REPLY_MAX } from '@/lib/moderation/rules';
+import type { ModerationResult } from '@/lib/moderation/service';
+
+/** Runs one moderation call at a time; translates the error key; refreshes the page when the state changed. */
+export function useModerationRun() {
+  const t = useTranslations('pages.account.moderation');
+  const router = useRouter();
+  const inFlight = useRef(false); // a ref, not state: a double click lands before the re-render
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function run(call: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void): Promise<void> {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await call();
+      if (r.ok) {
+        onOk?.();
+        router.refresh();
+        return;
+      }
+      setError(r.error && t.has(`errors.${r.error}`) ? t(`errors.${r.error}`) : t('errors.unexpected'));
+      if (r.error === 'already_done' || r.error === 'comment_gone') router.refresh(); // show the current state
+    } catch {
+      setError(t('errors.unexpected'));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+  return { busy, error, run, clearError: () => setError(null) };
+}
+
+export interface CommentActionsProps {
+  accountId: string;
+  commentId: string;
+  authorUsername: string | null;
+  hidden: boolean | null;
+  own: boolean;
+  hide: (accountId: string, commentId: string, hide: boolean, requestId: string) => Promise<ModerationResult>;
+  reply: (accountId: string, commentId: string, message: string, requestId: string) => Promise<ModerationResult>;
+  remove: (accountId: string, commentId: string, requestId: string) => Promise<ModerationResult>;
+}
+
+type Open = 'reply' | 'hide' | 'delete' | null;
+
+export function CommentActions({ accountId, commentId, authorUsername, hidden, own, hide, reply, remove }: CommentActionsProps) {
+  const t = useTranslations('pages.account.moderation');
+  const { prefs } = usePrefs();
+  const { busy, error, run, clearError } = useModerationRun();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState<Open>(null);
+  const [requestId, setRequestId] = useState('');
+  const [message, setMessage] = useState('');
+  const [status, setStatus] = useState('');
+  const isHidden = hidden === true;
+  const length = [...message.trim()].length;
+
+  const start = (o: Exclude<Open, null>) => {
+    setRequestId(crypto.randomUUID()); // one dialog = one intent = one id
+    clearError();
+    setStatus('');
+    setOpen(o);
+  };
+  const close = () => {
+    setOpen(null);
+    setMessage('');
+    clearError();
+    requestAnimationFrame(() => trigger.current?.focus()); // after Radix's own focus restore
+  };
+  const finish = (done: 'hide' | 'unhide' | 'delete' | 'reply') => () => {
+    setStatus(t(`done.${done}`));
+    close();
+  };
+
+  return (
+    <>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button ref={trigger} type="button" variant="ghost" size="sm" aria-label={t('menu')}>
+            <MoreHorizontal aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => start('reply')}>{t('reply')}</DropdownMenuItem>
+          <DropdownMenuItem disabled={own} onSelect={() => start('hide')} className="flex-col items-start">
+            {t(isHidden ? 'unhide' : 'hide')}
+            {own ? <span className="text-xs text-muted-foreground">{t('ownHint')}</span> : null}
+          </DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onSelect={() => start('delete')}>
+            {t('delete')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <span role="status" className="sr-only">
+        {status}
+      </span>
+
+      <ConfirmDialog
+        open={open === 'hide'}
+        title={t(isHidden ? 'unhideDialog.title' : 'hideDialog.title')}
+        body={t(isHidden ? 'unhideDialog.body' : 'hideDialog.body')}
+        confirmLabel={t(isHidden ? 'unhideDialog.confirm' : 'hideDialog.confirm')}
+        cancelLabel={t('cancel')}
+        busy={busy}
+        error={error}
+        onConfirm={() => run(() => hide(accountId, commentId, !isHidden, requestId), finish(isHidden ? 'unhide' : 'hide'))}
+        onClose={close}
+      />
+      <ConfirmDialog
+        open={open === 'delete'}
+        title={t('deleteDialog.title')}
+        body={t('deleteDialog.body', { word: t('deleteDialog.word') })}
+        requireText={t('deleteDialog.word')}
+        confirmLabel={t('deleteDialog.confirm')}
+        cancelLabel={t('cancel')}
+        busy={busy}
+        error={error}
+        onConfirm={() => run(() => remove(accountId, commentId, requestId), finish('delete'))}
+        onClose={close}
+      />
+      <ResponsiveDialog open={open === 'reply'} onOpenChange={(o) => !o && close()}>
+        <ResponsiveDialogContent>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{authorUsername ? t('replyDialog.title', { username: authorUsername }) : t('replyDialog.titleNoName')}</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>{t('replyDialog.description')}</ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <form
+            className="flex flex-col gap-[var(--gp)]"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(() => reply(accountId, commentId, message, requestId), finish('reply'));
+            }}
+          >
+            <FormField id={`reply-${commentId}`} label={t('replyDialog.label')} hint={t('replyDialog.count', { count: formatNumber(length, prefs), max: formatNumber(REPLY_MAX, prefs) })} error={error ?? undefined}>
+              {(p) => <Textarea {...p} rows={4} value={message} onChange={(e) => setMessage(e.target.value)} />}
+            </FormField>
+            <ResponsiveDialogFooter>
+              <ResponsiveDialogClose asChild>
+                <Button type="button" variant="outline">
+                  {t('cancel')}
+                </Button>
+              </ResponsiveDialogClose>
+              <LoadingButton type="submit" pending={busy} disabled={length === 0 || length > REPLY_MAX}>
+                {t('replyDialog.send')}
+              </LoadingButton>
+            </ResponsiveDialogFooter>
+          </form>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+    </>
+  );
+}
+```
+
+Notes for the implementer: the error shown in the reply dialog uses `FormField`'s `error` (it renders `role="alert"`); `ConfirmDialog` renders its own `role="alert"`. If `t.has` with a template key fails the typed-messages check, cast the key as the other tabs do (`GrowthTab` uses the same `t.has(\`…${x}\`)` pattern).
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/comment-actions.test.tsx tests/messages.test.ts tests/ui-standards.test.ts`, `npx tsc --noEmit`, `npx eslint components/account/CommentActions.tsx tests/comment-actions.test.tsx`.
+Expected: PASS (8 tests). If the first test's focus assertion is flaky under load, rerun the file alone once (implementer rules §5) before concluding anything.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/account/CommentActions.tsx tests/comment-actions.test.tsx
+git commit -m "feat(moderation): comment row menu with confirmed reply, hide/unhide and delete" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 11: The Moderation tab component — `components/account/ModerationTab.tsx`
+
+**Files:**
+- Create: `components/account/ModerationTab.tsx`, `tests/moderation-tab.test.tsx`
+
+**Interfaces:**
+- Consumes: `type ModerationData`, `type LogEntry` (Task 5, `import type`), `type ModerationResult`, `type RuleResult` (Task 7, `import type`), `SPAM_KINDS`, `MAX_WORD_RULES`, `type ModerationRule`, `type SpamKind` (Task 3), `useModerationRun` (Task 10), `ConfirmDialog`, `EmptyState`, `Pagination`, `FormField`, `LoadingButton`, `Card*`, `Switch`, `Checkbox`, `Label`, `Input`, `Badge`, `Alert*`, `usePrefs`, `formatDateTime`, `formatNumber`.
+- Produces (Task 12 renders it):
+```ts
+export interface ModerationActions {
+  saveWord: (accountId: string, pattern: string, wholeWord: boolean) => Promise<RuleResult>;
+  setSpam: (accountId: string, kind: SpamKind, on: boolean) => Promise<RuleResult>;
+  deleteRule: (accountId: string, ruleId: string) => Promise<RuleResult>;
+  setAutoHide: (accountId: string, enabled: boolean) => Promise<RuleResult>;
+  undo: (accountId: string, logId: number, requestId: string) => Promise<ModerationResult>;
+}
+export interface ModerationTabProps {
+  accountId: string;
+  allowed: boolean; // active + comments scope
+  data: ModerationData | null; // null = the migration is not applied
+  scope?: Record<string, string>; // the Time Scope params: carried in the page links, never used here
+  actions: ModerationActions;
+}
+export function ModerationTab(props: ModerationTabProps): JSX.Element;
+```
+Layout (mobile-first, one column; `lg:grid-cols-2` for the Auto-hide and Rules cards, the log full width below): **without the scope** an `EmptyState` (`noScope.*`, a link-button to `/accounts`) and nothing else; **without the migration** an `EmptyState` (`notReady.*`). Otherwise: the intro line; the **Auto-hide** card (paused `Alert` with its reason and `pausedSince`, the `Switch` labelled `auto.switch` — checked = on and not paused; disabled with the `auto.noRules` hint while there are no rules and it is off; switching ON opens a `ConfirmDialog` with `auto.enableBody` (`count` = preview count, `n` = formatted) and only the confirm calls `setAutoHide(true)`; switching OFF calls `setAutoHide(false)` at once; the **preview** below: `preview.count`, `preview.basis`, up to 5 examples `@author` + snippet + `preview.by`); the **Rules** card (four spam switches with label + hint, the word form: `FormField` + `Input`, then a row with the "Whole word only" `Checkbox` and the default-size Add button, the count line, the word chips with a remove icon button each); the **Log** card (an ordered list; each row: action, time (`formatDateTime`), actor (`log.byOwner` / `log.byRule` with the rule's label or `ruleLabel.removed`), result (`log.results.ok|pending|unknown` or the translated error key), context (`@author: snippet` or `log.gone`), `log.undone` or an Undo button (`size="sm"`, dense list) that opens a `ConfirmDialog` (`log.undoTitle.*` / `log.undoBody.*`) with a fresh request id; the range line and `Pagination` (`hrefFor(p) = '?' + URLSearchParams({ tab: 'moderation', ...scope, page: p > 1 ? p : (omitted) })`).
+
+- [ ] **Step 1: Write the failing test** — create `tests/moderation-tab.test.tsx` (same router mock, DOM stubs and providers as `tests/comment-actions.test.tsx`; copy them):
+
+```tsx
+// (imports, router mock, DOM stubs: as in tests/comment-actions.test.tsx)
+import { ModerationTab, type ModerationActions, type ModerationTabProps } from '@/components/account/ModerationTab';
+import type { ModerationData } from '@/lib/moderation/store';
+
+const T = en.pages.account.moderation;
+const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const RULE = '2b3c4d5e-6f7a-4b2c-9d3e-4f5a6b7c8d9e';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const word = { id: RULE, kind: 'word' as const, pattern: 'spam', wholeWord: false };
+
+const DATA = (o: Partial<ModerationData> = {}): ModerationData => ({
+  settings: { autoHide: false, pausedAt: null, pauseReason: null },
+  rules: [word],
+  log: {
+    rows: [
+      { id: 1, commentId: 'c1', action: 'hide', actor: `rule:${RULE}`, result: 'ok', targetId: null, undoOf: null, createdAt: '2026-10-29T09:00:00Z', undoneAt: null, shown: 'ok', undo: 'unhide', context: { authorUsername: 'bot', snippet: 'buy spam' } },
+      { id: 2, commentId: 'c2', action: 'reply', actor: 'owner', result: 'pending', targetId: null, undoOf: null, createdAt: '2026-10-29T08:00:00Z', undoneAt: null, shown: 'unknown', undo: null, context: null },
+      { id: 3, commentId: 'c3', action: 'hide', actor: 'rule:00000000-0000-4000-8000-000000000000', result: 'rate_limited', targetId: null, undoOf: null, createdAt: '2026-10-29T07:00:00Z', undoneAt: null, shown: 'rate_limited', undo: null, context: null },
+    ],
+    total: 120,
+    page: 1,
+    pages: 3,
+    size: 50,
+  },
+  preview: { count: 2, scanned: 40, sample: [{ id: 'c9', authorUsername: 'bot2', snippet: 'spam again', rule: word }] },
+  ...o,
+});
+
+function renderTab(o: Partial<ModerationTabProps> = {}) {
+  const ok = async () => ({ ok: true as const });
+  const actions: ModerationActions = { saveWord: vi.fn(ok), setSpam: vi.fn(ok), deleteRule: vi.fn(ok), setAutoHide: vi.fn(ok), undo: vi.fn(async () => ({ ok: true as const, logged: true })) };
+  const props: ModerationTabProps = { accountId: A, allowed: true, data: DATA(), scope: { from: '2026-10-01' }, actions, ...o };
+  const view = render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <ModerationTab {...props} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return { ...view, actions: props.actions };
+}
+
+describe('ModerationTab', () => {
+  it('without the comments scope: only the reconnect explanation with a link to Accounts', () => {
+    renderTab({ allowed: false });
+    expect(screen.getByText(T.noScope.title)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: T.noScope.link })).toHaveAttribute('href', '/accounts');
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  });
+
+  it('before the migration: the database-update note', () => {
+    renderTab({ data: null });
+    expect(screen.getByText(T.notReady.title)).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  });
+
+  it('switching auto-hide on shows the preview count in a confirm; only the confirm enables it', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab();
+    await user.click(screen.getByRole('switch', { name: T.auto.switch }));
+    const dialog = await screen.findByRole('alertdialog', { name: T.auto.enableTitle });
+    expect(dialog).toHaveTextContent('2 comments that are already here will be hidden.');
+    expect(actions.setAutoHide).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: T.auto.enableConfirm }));
+    await waitFor(() => expect(actions.setAutoHide).toHaveBeenCalledWith(A, true));
+  });
+
+  it('switching it off needs no confirm', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab({ data: DATA({ settings: { autoHide: true, pausedAt: null, pauseReason: null } }) });
+    await user.click(screen.getByRole('switch', { name: T.auto.switch }));
+    await waitFor(() => expect(actions.setAutoHide).toHaveBeenCalledWith(A, false));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('no rules: the switch is disabled with a hint; a pause shows its reason', () => {
+    renderTab({ data: DATA({ rules: [], preview: { count: 0, scanned: 0, sample: [] } }) });
+    expect(screen.getByRole('switch', { name: T.auto.switch })).toBeDisabled();
+    expect(screen.getAllByText(T.auto.noRules).length).toBeGreaterThan(0);
+  });
+
+  it('a paused auto-hide explains why and reads as off', () => {
+    renderTab({ data: DATA({ settings: { autoHide: true, pausedAt: '2026-10-29T06:00:00Z', pauseReason: 'reconnect' } }) });
+    expect(screen.getByText(new RegExp(T.auto.pausedReconnect.slice(0, 30)))).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: T.auto.switch })).not.toBeChecked();
+  });
+
+  it('the preview lists matches with their rule', () => {
+    renderTab();
+    expect(screen.getByText('2 visible comments match your rules.')).toBeInTheDocument();
+    expect(screen.getByText('Checked against the newest 40 stored comments.')).toBeInTheDocument();
+    expect(screen.getByText('spam again')).toBeInTheDocument();
+    expect(screen.getAllByText('Matches: “spam”').length).toBe(1);
+  });
+
+  it('rules: add a whole-word word, remove one, switch a spam pattern; error keys are translated', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab();
+    await user.type(screen.getByLabelText(T.rules.wordLabel), 'cheap');
+    await user.click(screen.getByRole('checkbox', { name: T.rules.wholeWord }));
+    await user.click(screen.getByRole('button', { name: T.rules.add }));
+    await waitFor(() => expect(actions.saveWord).toHaveBeenCalledWith(A, 'cheap', true));
+    await user.click(screen.getByRole('button', { name: 'Remove spam' }));
+    await waitFor(() => expect(actions.deleteRule).toHaveBeenCalledWith(A, RULE));
+    await user.click(screen.getByRole('switch', { name: T.rules.link.label }));
+    await waitFor(() => expect(actions.setSpam).toHaveBeenCalledWith(A, 'link', true));
+    vi.mocked(actions.saveWord).mockResolvedValueOnce({ ok: false, error: 'duplicate_rule' });
+    await user.type(screen.getByLabelText(T.rules.wordLabel), 'spam');
+    await user.click(screen.getByRole('button', { name: T.rules.add }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.errors.duplicate_rule);
+  });
+
+  it('the log: who, what, result, context; unknown outcomes and removed rules are named', () => {
+    renderTab();
+    expect(screen.getByText(T.log.title)).toBeInTheDocument();
+    expect(screen.getAllByText('By rule: “spam”', { exact: false }).length).toBe(1);
+    expect(screen.getByText(new RegExp(`${T.log.byOwner}.*${T.log.results.unknown}`))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`By rule: ${T.ruleLabel.removed}.*${T.errors.rate_limited.slice(0, 20)}`))).toBeInTheDocument();
+    expect(screen.getByText('@bot: buy spam')).toBeInTheDocument();
+    expect(screen.getAllByText(T.log.gone)).toHaveLength(2);
+    expect(screen.getByText('1–50 of 120')).toBeInTheDocument();
+  });
+
+  it('undo: confirm, then one call with the row id and a fresh request id', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab();
+    await user.click(screen.getByRole('button', { name: T.log.undo.unhide }));
+    await screen.findByRole('alertdialog', { name: T.log.undoTitle.unhide });
+    await user.dblClick(screen.getAllByRole('button', { name: T.log.undo.unhide }).at(-1)!);
+    await waitFor(() => expect(actions.undo).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(actions.undo).mock.calls[0].slice(0, 2)).toEqual([A, 1]);
+    expect(vi.mocked(actions.undo).mock.calls[0][2]).toMatch(UUID);
+  });
+
+  it('page links keep the Time Scope and the tab', () => {
+    const { container } = renderTab();
+    expect(container.querySelector('a[href="?tab=moderation&from=2026-10-01&page=2"]')).not.toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/moderation-tab.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/account/ModerationTab"`.
+
+- [ ] **Step 3: Write the component** — create `components/account/ModerationTab.tsx`:
+
+```tsx
+'use client';
+
+// The Moderation tab (Plan 15d): auto-hide (off by default; switching on shows the preview count first), the rules
+// (four built-in spam patterns + banned words) with the live preview, and the moderation log with Undo and server
+// pages. The server actions arrive as props; only TYPES come from the server modules (tests/moderation-privacy.test.ts).
+import { useState } from 'react';
+import Link from 'next/link';
+import { ShieldAlert, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { useModerationRun } from '@/components/account/CommentActions';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { FormField } from '@/components/shared/FormField';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import { Pagination } from '@/components/shared/Pagination';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { formatDateTime, formatNumber } from '@/lib/format';
+import { MAX_WORD_RULES, SPAM_KINDS, type ModerationRule, type SpamKind } from '@/lib/moderation/rules';
+import type { ModerationResult, RuleResult } from '@/lib/moderation/service';
+import type { LogEntry, ModerationData } from '@/lib/moderation/store';
+
+export interface ModerationActions {
+  saveWord: (accountId: string, pattern: string, wholeWord: boolean) => Promise<RuleResult>;
+  setSpam: (accountId: string, kind: SpamKind, on: boolean) => Promise<RuleResult>;
+  deleteRule: (accountId: string, ruleId: string) => Promise<RuleResult>;
+  setAutoHide: (accountId: string, enabled: boolean) => Promise<RuleResult>;
+  undo: (accountId: string, logId: number, requestId: string) => Promise<ModerationResult>;
+}
+
+export interface ModerationTabProps {
+  accountId: string;
+  allowed: boolean;
+  data: ModerationData | null;
+  scope?: Record<string, string>;
+  actions: ModerationActions;
+}
+
+function useRuleName() {
+  const t = useTranslations('pages.account.moderation');
+  return (rule: ModerationRule | undefined) => (!rule ? t('ruleLabel.removed') : rule.kind === 'word' ? t('ruleLabel.word', { word: rule.pattern ?? '' }) : t(`ruleLabel.${rule.kind}`));
+}
+
+function AutoHideCard({ accountId, data, setAutoHide }: { accountId: string; data: ModerationData; setAutoHide: ModerationActions['setAutoHide'] }) {
+  const t = useTranslations('pages.account.moderation');
+  const { prefs } = usePrefs();
+  const ruleName = useRuleName();
+  const { busy, error, run } = useModerationRun();
+  const [confirm, setConfirm] = useState(false);
+  const { settings: s, preview: p } = data;
+  const paused = s.pausedAt !== null;
+  const on = s.autoHide && !paused;
+  const noRules = data.rules.length === 0;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('auto.title')}</CardTitle>
+        <CardDescription>{t('auto.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {paused ? (
+          <Alert>
+            <AlertDescription>
+              {t(s.pauseReason === 'reconnect' ? 'auto.pausedReconnect' : 'auto.pausedFailing')} {t('auto.pausedSince', { date: formatDateTime(s.pausedAt!, prefs) })}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="mod-auto">{t('auto.switch')}</Label>
+          <Switch
+            id="mod-auto"
+            checked={on}
+            disabled={busy || (noRules && !on)}
+            aria-describedby={noRules ? 'mod-auto-hint' : undefined}
+            onCheckedChange={(v) => (v ? setConfirm(true) : void run(() => setAutoHide(accountId, false)))}
+          />
+        </div>
+        {noRules ? (
+          <p id="mod-auto-hint" className="text-sm text-muted-foreground">
+            {t('auto.noRules')}
+          </p>
+        ) : null}
+        {error && !confirm ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <section aria-labelledby="mod-preview" className="flex flex-col gap-2">
+          <h3 id="mod-preview" className="text-sm font-medium">
+            {t('preview.title')}
+          </h3>
+          <p aria-live="polite" className="text-sm">
+            {t('preview.count', { count: p.count, n: formatNumber(p.count, prefs) })}
+          </p>
+          <p className="text-xs text-muted-foreground">{t('preview.basis', { count: formatNumber(p.scanned, prefs) })}</p>
+          {p.sample.length ? (
+            <ul className="flex flex-col gap-2">
+              {p.sample.map((x) => (
+                <li key={x.id} className="rounded-md border p-2 text-sm">
+                  <span className="font-medium">@{x.authorUsername ?? '—'}</span> <span className="break-words">{x.snippet}</span>
+                  <span className="block text-xs text-muted-foreground">{t('preview.by', { rule: ruleName(x.rule) })}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      </CardContent>
+      <ConfirmDialog
+        open={confirm}
+        title={t('auto.enableTitle')}
+        body={t('auto.enableBody', { count: p.count, n: formatNumber(p.count, prefs) })}
+        confirmLabel={t('auto.enableConfirm')}
+        cancelLabel={t('cancel')}
+        busy={busy}
+        error={confirm ? error : null}
+        onConfirm={() => void run(() => setAutoHide(accountId, true), () => setConfirm(false))}
+        onClose={() => setConfirm(false)}
+      />
+    </Card>
+  );
+}
+
+function RulesCard({ accountId, rules, actions }: { accountId: string; rules: ModerationRule[]; actions: ModerationActions }) {
+  const t = useTranslations('pages.account.moderation');
+  const { prefs } = usePrefs();
+  const { busy, error, run } = useModerationRun();
+  const [word, setWord] = useState('');
+  const [whole, setWhole] = useState(false);
+  const words = rules.filter((r) => r.kind === 'word');
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('rules.title')}</CardTitle>
+        <CardDescription>{t('rules.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-[var(--gp)]">
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-2 text-sm font-medium">{t('rules.spamTitle')}</legend>
+          {SPAM_KINDS.map((k) => (
+            <div key={k} className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <Label htmlFor={`mod-spam-${k}`}>{t(`rules.${k}.label`)}</Label>
+                <p id={`mod-spam-${k}-hint`} className="text-xs text-muted-foreground">
+                  {t(`rules.${k}.hint`)}
+                </p>
+              </div>
+              <Switch id={`mod-spam-${k}`} checked={rules.some((r) => r.kind === k)} disabled={busy} aria-describedby={`mod-spam-${k}-hint`} onCheckedChange={(v) => void run(() => actions.setSpam(accountId, k, v))} />
+            </div>
+          ))}
+        </fieldset>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void run(() => actions.saveWord(accountId, word, whole), () => {
+              setWord('');
+              setWhole(false);
+            });
+          }}
+        >
+          <h3 className="text-sm font-medium">{t('rules.wordsTitle')}</h3>
+          <FormField id="mod-word" label={t('rules.wordLabel')} hint={t('rules.wordHint')}>
+            {(p) => <Input {...p} value={word} autoComplete="off" onChange={(e) => setWord(e.target.value)} />}
+          </FormField>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex h-[var(--ctl)] items-center gap-2">
+              <Checkbox id="mod-whole" checked={whole} onCheckedChange={(v) => setWhole(v === true)} />
+              <Label htmlFor="mod-whole">{t('rules.wholeWord')}</Label>
+            </div>
+            <LoadingButton type="submit" pending={busy} disabled={word.trim() === ''}>
+              {t('rules.add')}
+            </LoadingButton>
+          </div>
+        </form>
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">{t('rules.count', { count: formatNumber(words.length, prefs), max: formatNumber(MAX_WORD_RULES, prefs) })}</p>
+        {words.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('rules.empty')}</p>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {words.map((w) => (
+              <li key={w.id} className="flex max-w-full items-center gap-1 rounded-md border py-1 pl-2 text-sm">
+                <span className="break-all">{t('ruleLabel.word', { word: w.pattern ?? '' })}</span>
+                {w.wholeWord ? <Badge variant="secondary">{t('rules.wholeBadge')}</Badge> : null}
+                <Button type="button" variant="ghost" size="icon-sm" aria-label={t('rules.remove', { word: w.pattern ?? '' })} disabled={busy} onClick={() => void run(() => actions.deleteRule(accountId, w.id))}>
+                  <X aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LogCard({ accountId, data, scope, undo }: { accountId: string; data: ModerationData; scope?: Record<string, string>; undo: ModerationActions['undo'] }) {
+  const t = useTranslations('pages.account.moderation');
+  const { prefs } = usePrefs();
+  const ruleName = useRuleName();
+  const { busy, error, run, clearError } = useModerationRun();
+  const [target, setTarget] = useState<LogEntry | null>(null);
+  const [requestId, setRequestId] = useState('');
+  const { rows, total, page, pages, size } = data.log;
+  const hrefFor = (p: number) => `?${new URLSearchParams({ tab: 'moderation', ...(scope ?? {}), ...(p > 1 ? { page: String(p) } : {}) }).toString()}`;
+  const actor = (a: string) => (a === 'owner' ? t('log.byOwner') : t('log.byRule', { rule: ruleName(data.rules.find((r) => `rule:${r.id}` === a)) }));
+  const result = (shown: string) =>
+    shown === 'ok' || shown === 'pending' || shown === 'unknown' ? t(`log.results.${shown}`) : t.has(`errors.${shown}`) ? t(`errors.${shown}`) : t('errors.unexpected');
+  const first = total === 0 ? 0 : (page - 1) * size + 1;
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <CardTitle>{t('log.title')}</CardTitle>
+        <CardDescription>{t('log.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('log.empty')}</p>
+        ) : (
+          <ol className="flex flex-col divide-y">
+            {rows.map((r) => (
+              <li key={r.id} className="flex flex-col gap-1 py-2">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <span className="font-medium">{t(`log.actions.${r.action}`)}</span>
+                  <time dateTime={r.createdAt} className="text-xs text-muted-foreground">
+                    {formatDateTime(r.createdAt, prefs)}
+                  </time>
+                </div>
+                <p className="text-sm">
+                  {actor(r.actor)} · {result(r.shown)}
+                </p>
+                <p className="break-words text-sm text-muted-foreground">{r.context ? `@${r.context.authorUsername ?? '—'}: ${r.context.snippet ?? ''}` : t('log.gone')}</p>
+                {r.undoneAt ? (
+                  <p className="text-xs text-muted-foreground">{t('log.undone', { date: formatDateTime(r.undoneAt, prefs) })}</p>
+                ) : r.undo ? (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        clearError();
+                        setRequestId(crypto.randomUUID());
+                        setTarget(r);
+                      }}
+                    >
+                      {t(`log.undo.${r.undo}`)}
+                    </Button>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        )}
+        {total > 0 ? (
+          <p aria-live="polite" className="text-sm text-muted-foreground">
+            {t('log.range', { first: formatNumber(first, prefs), last: formatNumber(Math.min(page * size, total), prefs), total: formatNumber(total, prefs) })}
+          </p>
+        ) : null}
+        <Pagination page={page} pages={pages} hrefFor={hrefFor} />
+      </CardContent>
+      <ConfirmDialog
+        open={target !== null && target.undo !== null}
+        title={target?.undo ? t(`log.undoTitle.${target.undo}`) : ''}
+        body={target?.undo ? t(`log.undoBody.${target.undo}`) : ''}
+        confirmLabel={target?.undo ? t(`log.undo.${target.undo}`) : ''}
+        cancelLabel={t('cancel')}
+        busy={busy}
+        error={error}
+        onConfirm={() => target && void run(() => undo(accountId, target.id, requestId), () => setTarget(null))}
+        onClose={() => setTarget(null)}
+      />
+    </Card>
+  );
+}
+
+export function ModerationTab({ accountId, allowed, data, scope, actions }: ModerationTabProps) {
+  const t = useTranslations('pages.account.moderation');
+  if (!allowed)
+    return (
+      <EmptyState
+        icon={<ShieldAlert aria-hidden="true" />}
+        title={t('noScope.title')}
+        description={t('noScope.body')}
+        action={
+          <Button asChild variant="outline">
+            <Link href="/accounts">{t('noScope.link')}</Link>
+          </Button>
+        }
+      />
+    );
+  if (!data) return <EmptyState icon={<ShieldAlert aria-hidden="true" />} title={t('notReady.title')} description={t('notReady.body')} />;
+  return (
+    <div className="flex flex-col gap-[var(--gp)]">
+      <p className="text-sm text-muted-foreground">{t('intro')}</p>
+      <div className="grid gap-[var(--gp)] lg:grid-cols-2">
+        <AutoHideCard accountId={accountId} data={data} setAutoHide={actions.setAutoHide} />
+        <RulesCard accountId={accountId} rules={data.rules} actions={actions} />
+        <LogCard accountId={accountId} data={data} scope={scope} undo={actions.undo} />
+      </div>
+    </div>
+  );
+}
+```
+
+Notes for the implementer: `ConfirmDialog`'s confirm button and the row's Undo button share a label; the test clicks the last one (the dialog's). `size="icon-sm"` is a `Button` variant (`components/ui/button.tsx`); if the density CSS ignores it, keep it (the chip is a dense list). The "Whole word only" row and the Add button are both `--ctl` high (UI standard 5).
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/moderation-tab.test.tsx tests/comment-actions.test.tsx tests/moderation-privacy.test.ts tests/ui-standards.test.ts`, `npx tsc --noEmit`, `npx eslint components/account/ModerationTab.tsx tests/moderation-tab.test.tsx`.
+Expected: PASS (12 tests in the new file; the privacy guard now also scans both components).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/account/ModerationTab.tsx tests/moderation-tab.test.tsx
+git commit -m "feat(moderation): Moderation tab (auto-hide with preview, rules, log with undo and pages)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
 <!-- PLAN CONTINUES -->
