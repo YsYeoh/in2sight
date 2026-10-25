@@ -61,6 +61,7 @@ Everything not in this table is an **Open question with a live probe** (below, P
 10. **P6** — Reply length: 2,200 characters accepted? Emoji, `@mentions` and hashtags in replies accepted? **Default: 2,200, sent as typed.**
 11. **P7** — `message` sent form-encoded in the POST body (the guide shows JSON) and `access_token` in the query like every existing call: accepted? **Default: yes** (the Graph API accepts both encodings; the probe confirms).
 12. **P8** — Deleting the owner's own reply with `DELETE /{reply-id}` (Undo of a reply) works with the same token? **Default: yes** (the owner created it and owns the media).
+13. **Reading thread replies and Instagram's `hidden` flag in the sync** (Plan 15c's Open question 3 defaulted this to "15d"): **Default here: NOT in 15d, a small follow-up plan after probe P5.** Reason: adding a field to `COMMENT_FIELDS` that Instagram rejects under Instagram Login fails the WHOLE comments read for every account (one unsupported field fails a batched request: the `reposts` lesson in `lib/instagram/metrics.ts`), so it must be probed first; 15c is built so that only `toCommentView` changes when it lands. Until then "Unanswered questions" over-reports (as 15c states) and hides done in the Instagram app are not seen. Say so if you want it inside 15d instead (one extra task: a probe-gated field with capability memory like `stories:url_fields`).
 
 ## Assumptions about the current code (`main` at `222efd1`, read for this plan)
 
@@ -76,13 +77,15 @@ Everything not in this table is an **Open question with a live probe** (below, P
 
 ## Contract with Plan 15c (read-only comment insights; planned in parallel, built first)
 
-The 15c plan was read while this plan was written (its Tasks 1–7 were on disk; its Task 8, the tab itself, was not yet). What it defines and this plan relies on — **the implementer of Task 12 reads the merged 15c code first and adapts names (listing every adaptation as a deviation):**
+The finished 15c plan (including its section "Interfaces for Plan 15d") was read before this plan was finalised. What it defines and this plan relies on — **the implementer of Task 12 reads the merged 15c code first and adapts names (listing every adaptation as a deviation):**
 - `lib/comments/view.ts` exports `CommentView { id, mediaId, authorUsername: string | null, text: string, postedAt, likeCount: number | null, isQuestion, hidden: boolean | null (true only when stored as hidden, else null), repliedByOwner: boolean | null, post: CommentPost | null }` ("Plan 15d contract: keep these names").
-- `components/account/CommentRow.tsx` has an `actions` slot (empty in 15c) and a `status` prop (`'visible' | 'hidden'`; "Hidden" badge). `components/account/CommentsTab.tsx` (15c Task 8) takes `renderActions?: (c: CommentView) => React.ReactNode` (orchestrator contract; not yet visible in the 15c file when read).
+- `components/account/CommentRow.tsx` has an `actions` slot (empty in 15c) and a `status` prop (`'hidden'` shows the Hidden badge). `components/account/CommentsTab.tsx` is a CLIENT component exporting `CommentsTabProps { accountId, username, groupName, today, scope?, state, start, data, renderActions?: (c: CommentView) => ReactNode }` and `CommentsData`; `renderActions` fills the rows of All comments and Unanswered questions. The page's `case 'comments'` ends with ONE line `return <CommentsTab {...props} start={start} data={data} />;` (the no-scope branch returns `<CommentsTab … data={{ kind: 'noScope' }} />` and stays as it is). 15c already imports `COMMENTS_SCOPE, hasScope` in the page.
+- 15c's privacy guard `tests/comments-privacy.test.ts` allows `.from('comments')` only in `lib/comments/read.ts` and `lib/sync/store.ts` ("15d adds its writer's path to that list deliberately"): Task 5 adds `lib/moderation/store.ts` there. Its other rules (no logging in files importing `lib/comments/`, no admin client in `lib/comments/` or `components/`, sync/alerts/exports never import `lib/comments/`) hold for every 15d file (nothing in 15d imports `lib/comments/`; Task 12's wrapper imports only `CommentsTab`).
+- **Deliberate difference:** 15c's interface note assumes 15d adds no tab; this plan adds the Moderation tab (Open question 8) for the rules, preview and log; the row actions use exactly 15c's `renderActions`.
 - 15c migration `20261029000001_comment_insights.sql` rewrites `comments_owner_select` to the InitPlan form and adds `comment_list` (which returns `hidden`); this plan's migration adds separate update/delete policies and does not touch that select policy.
 - `TABS` after 15c: `['overview', 'growth', 'posts', 'stories', 'comments', 'followers']` (Followers stays LAST). This plan inserts `moderation` right after `comments`: `[…, 'comments', 'moderation', 'followers']`. `pages.account.tab.comments` exists in both catalogs; 15c's own strings live under `pages.account.comments` (this plan uses `pages.account.moderation`, no collision).
 - `repliedByOwner` is DERIVED by 15c (a later top-level comment of the account mentioning `@author`); this plan does not change it (a reply sent from the app is a thread reply, which 15c does not read — the log shows it instead).
-- `CommentsTab` is a CLIENT component (like every other tab), so a function prop cannot come from the server page: Task 12 adds a tiny client wrapper `ModeratedCommentsTab` that passes `renderActions` client-side. If 15c made `CommentsTab` a server component, the page passes `renderActions` directly instead (both variants are spelled out in Task 12).
+- Because `CommentsTab` is a client component, a function prop cannot come from the server page: Task 12 adds the client wrapper `ModeratedCommentsTab` (15c suggests exactly this) and changes only that one `return` line.
 - Nothing in Tasks 1–11 imports any 15c module: the moderation pieces take plain props (`commentId`, `hidden`, `own`), so 15c renames touch Task 12 only.
 
 ## Out of scope
@@ -121,7 +124,7 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 | `messages/en.json`, `messages/zh-CN.json` | every new key (Task 2 only) |
 | `lib/moderation/rules.ts` (new), `tests/moderation-rules.test.ts` (new) | `fold`, `matchRule`, `validateWord`, `touchedIds`, `pickAutoHide`, the constants (incl. `REPLY_MAX`) |
 | `lib/instagram/moderation.ts` (new), `tests/instagram-moderation.test.ts` (new) | `igModeration` (hide, reply, remove), `classifyModerationError`, `MODERATION_TIMEOUT_MS` |
-| `lib/moderation/store.ts` (new), `tests/moderation-store.test.ts` (new) | the ONLY module naming `moderation_log` / `moderation_rules` (and writing `comments`); `loadModeration`, log writes, rule/settings writes, the tick reads; pure `undoKind`, `displayResult` |
+| `lib/moderation/store.ts` (new), `tests/moderation-store.test.ts` (new), `tests/comments-privacy.test.ts` (15c's guard: the writer's path) | the ONLY module naming `moderation_log` / `moderation_rules` (and writing `comments`); `loadModeration`, log writes, rule/settings writes, the tick reads; pure `undoKind`, `displayResult` |
 | `lib/moderation/service.ts` (new), `tests/moderation-service.test.ts` (new) | `moderate`, `undoAction`, `saveWordRule`, `setSpamRule`, `deleteRule`, `setAutoHide` |
 | `lib/moderation/auto.ts` (new), `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts` (new), `tests/sync-tick-moderation.test.ts` (new) | `runAutoHide` and its place in the tick |
 | `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`, `tests/alerts-moderation.test.ts` (new) | the `moderation_paused` kind, rule, read and link |
@@ -143,7 +146,7 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 | 2 | i18n: every new key | 15c merged (anchor) | `messages/en.json`, `messages/zh-CN.json` | 1, 3, 4 |
 | 3 | Rule matching (pure) | — | `lib/moderation/rules.ts`, `tests/moderation-rules.test.ts` | 1, 2, 4 |
 | 4 | Meta write client + error classifier | — | `lib/instagram/moderation.ts`, `tests/instagram-moderation.test.ts` | 1, 2, 3 |
-| 5 | Store (the SQL choke point) | 1 (names), 3 | `lib/moderation/store.ts`, `tests/moderation-store.test.ts` | 6 |
+| 5 | Store (the SQL choke point) | 1 (names), 3 | `lib/moderation/store.ts`, `tests/moderation-store.test.ts`, `tests/comments-privacy.test.ts` (15c guard: one path added) | 6 |
 | 6 | Alerts: `moderation_paused` | 1 (names), 2 | `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`, `tests/alerts-moderation.test.ts` | 5 |
 | 7 | Service: moderate, undo, rules, auto-hide switch | 3, 4, 5 | `lib/moderation/service.ts`, `tests/moderation-service.test.ts` | 8 |
 | 8 | Auto-hide pass in the tick | 3, 4, 5 | `lib/moderation/auto.ts`, `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts`, `tests/sync-tick-moderation.test.ts` | 7 |
@@ -1221,6 +1224,7 @@ git commit -m "feat(instagram): comment moderation writes (hide, reply, delete) 
 
 **Files:**
 - Create: `lib/moderation/store.ts`, `tests/moderation-store.test.ts`
+- Modify: `tests/comments-privacy.test.ts` (Plan 15c's guard): its first test's expected list of files that query `comments` becomes `['lib/comments/read.ts', 'lib/moderation/store.ts', 'lib/sync/store.ts']` (the moderation writer, added deliberately as 15c asks). Run it with this task's tests.
 
 **Interfaces:**
 - Consumes: Task 1 tables/columns; Task 3 `RULE_KINDS`, `SPAM_KINDS`, `MAX_WORD_RULES`, `pickAutoHide`, `touchedIds`, types.
@@ -1748,13 +1752,13 @@ Note for the implementer: `CANDIDATE_SCAN` lives here (Task 8 imports it) so the
 
 - [ ] **Step 4: Run the tests**
 
-Run: `npx vitest run tests/moderation-store.test.ts`, `npx tsc --noEmit`, `npx eslint lib/moderation/store.ts tests/moderation-store.test.ts`.
-Expected: PASS (16 tests).
+Run: `npx vitest run tests/moderation-store.test.ts tests/comments-privacy.test.ts`, `npx tsc --noEmit`, `npx eslint lib/moderation/store.ts tests/moderation-store.test.ts tests/comments-privacy.test.ts`.
+Expected: PASS (16 tests in the new file; the 15c guard with the new path).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/moderation/store.ts tests/moderation-store.test.ts
+git add lib/moderation/store.ts tests/moderation-store.test.ts tests/comments-privacy.test.ts
 git commit -m "feat(moderation): store (log, rules, settings, tab read, tick reads) as the one SQL choke point" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
@@ -4176,7 +4180,7 @@ git commit -m "feat(moderation): Moderation tab (auto-hide with preview, rules, 
 - Modify: `lib/dashboard/account.ts`, `lib/dashboard/lists.ts` (export `parsePage` only), `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx` (adds `ModeratedCommentsTab`), `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx`
 - Existing tests that must keep passing: `tests/route-loading.test.tsx` (`it.each(TABS)`: the new tab needs its skeleton), `tests/comments-tab.test.tsx` (15c), `tests/comment-actions.test.tsx`, `tests/moderation-tab.test.tsx`.
 
-**First:** read the merged 15c files `components/account/CommentsTab.tsx`, `lib/comments/view.ts`, the page's `case 'comments'` and the CURRENT `TABS` line. Adapt every name below to what 15c actually exported (list each adaptation as a deviation). If `CommentsTab` does NOT start with `'use client'` (a server component), skip the wrapper and pass `renderActions` directly from the page (a server component may pass a function to a server component) — same props as below.
+**First:** read the merged 15c files `components/account/CommentsTab.tsx`, `lib/comments/view.ts`, the page's `case 'comments'` and the CURRENT `TABS` line. They should match "Contract with Plan 15c"; adapt any name that differs and list it as a deviation.
 
 **Interfaces:**
 - `TABS` = 15c's list with `'moderation'` inserted right after `'comments'` (Followers stays LAST): `['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers']`.
@@ -4289,15 +4293,14 @@ export function ModeratedCommentsTab({ moderation, ...props }: ComponentProps<ty
 import { ModeratedCommentsTab } from '@/components/account/CommentActions';
 import { ModerationTab } from '@/components/account/ModerationTab';
 import { deleteCommentAction, deleteRuleAction, hideCommentAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction } from '@/app/(app)/accounts/moderation-actions';
-import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import { loadModeration } from '@/lib/moderation/store';
 ```
-  and add `parsePage` to the existing `@/lib/dashboard/lists` import.
+  (`COMMENTS_SCOPE, hasScope` are already imported by 15c; `CommentsTab` stays imported: the no-scope branch still uses it) and add `parsePage` to the existing `@/lib/dashboard/lists` import.
 - in `TabContent`, right after `const tz = prefs.timezone;`:
 ```ts
   const canModerate = account.status === 'active' && hasScope(account, COMMENTS_SCOPE); // Plan 15d: the server checks again
 ```
-- 15c's `case 'comments'`: render `ModeratedCommentsTab` instead of `CommentsTab`, with every prop 15c passes plus
+- 15c's `case 'comments'`: change ONLY its last line `return <CommentsTab {...props} start={start} data={data} />;` to `return <ModeratedCommentsTab {...props} start={start} data={data} moderation={…} />;` with
 ```tsx
 moderation={canModerate ? { ownUsername: account.username, hide: hideCommentAction, reply: replyCommentAction, remove: deleteCommentAction } : null}
 ```
@@ -4311,7 +4314,6 @@ moderation={canModerate ? { ownUsername: account.username, hide: hideCommentActi
       return <ModerationTab accountId={account.id} allowed={canModerate} data={data} scope={scope.params} actions={actions} />;
     }
 ```
-- the `CommentsTab` import 15c added stays only if still used elsewhere in the file; otherwise remove it (eslint `no-unused-vars`).
 
 Note: `ModerationTab` receives `data = null` for "not ready" AND for "not allowed"; it checks `allowed` first, so the reconnect state wins.
 
