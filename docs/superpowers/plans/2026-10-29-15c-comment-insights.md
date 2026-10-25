@@ -1132,7 +1132,7 @@ export function commentHref(s: CommentState, patch: Partial<CommentState>, keep:
 
 - [ ] **Step 5: Run the tests**
 
-Run: `npx vitest run tests/comments-state.test.ts tests/lists.test.ts tests/posted-filter.test.tsx` → PASS (8 new tests; the others unchanged). Then `npx tsc --noEmit` and `npx eslint lib/comments/state.ts lib/dashboard/lists.ts tests/comments-state.test.ts`.
+Run: `npx vitest run tests/comments-state.test.ts tests/lists.test.ts tests/posted-filter.test.tsx` → PASS (7 new tests; the others unchanged). Then `npx tsc --noEmit` and `npx eslint lib/comments/state.ts lib/dashboard/lists.ts tests/comments-state.test.ts`.
 
 - [ ] **Step 6: Commit**
 
