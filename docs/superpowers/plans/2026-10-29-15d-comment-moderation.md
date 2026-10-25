@@ -70,19 +70,20 @@ Everything not in this table is an **Open question with a live probe** (below, P
 - Sync: `runTick(deps: TickDeps, opts)` (`lib/sync/tick.ts`): `TICK_BUDGET_MS = 35_000`, lanes, then `runAlerts(...)` with `deadline + ALERT_BUDGET_MS` (`lib/alerts/run.ts`, `ALERT_BUDGET_MS = 10_000`), then `recordRun({ summary })` into `sync_runs` (counts only). `TickDeps { store, accounts, ig, alerts?, clock?, newId?, cdnFetch? }`; `createSyncDeps()` (`lib/sync/deps.ts`) builds them with ONE admin client. `SyncStore.getToken(accountId)` reads `account_tokens` (admin client only). Route `app/api/cron/tick/route.ts` `maxDuration = 60`.
 - Alerts: `ALERT_KINDS` / `DEFAULT_ALERT_SETTINGS` / `parseAlertSettings` (`lib/alerts/settings.ts`), `evaluateRules(RuleInput)` with `RULES` (`lib/alerts/rules.ts`), `AlertStore` + `supabaseAlertStore` (`lib/alerts/store.ts`), `runAlerts` (`lib/alerts/run.ts`: per-account `Promise.all([daily, posts, lastReachDropAt])`), `alertHref` (`lib/alerts/message.ts`), `rowToNotification` drops unknown kinds (`lib/alerts/read.ts`), `AlertSettingsForm` renders one switch per `ALERT_KINDS` labelled `notifications.kinds.<kind>.title`. DB: `notifications.kind` has the inline check `kind in ('token_expiring', 'needs_reconnect', 'sync_failing', 'reach_drop', 'taking_off')` (`20261018000001_alerts.sql`; Postgres names it `notifications_kind_check`). Tests pinning the kind list: `tests/alert-settings.test.ts` line 14 (exact `push` object), `tests/alerts-migration.test.ts` (reads only the 2026-10-18 file: unchanged), `tests/alert-message.test.ts` (every kind has messages), `tests/settings-notifications.test.tsx` (switches by name).
 - Auth and actions: `requireOwner()` (redirects by throwing, called outside try/catch), `createServerSupabase()` (owner session), `createAdminSupabase()` (`server-only`), the action pattern and fake-db test pattern of `app/(app)/tags/actions.ts` / `tests/tag-actions.test.ts` and `app/(app)/accounts/followers-actions.ts`; `isUuid`, `isMediaId` (`/^\w{1,64}$/`) in `lib/tags.ts`; `revalidatePath('/accounts/[id]', 'page')`.
-- UI: `ConfirmDialog({ open, title, body, confirmLabel, cancelLabel, busy, error, requireText?, onConfirm, onClose })` (AlertDialog; destructive confirm button; `role="alert"` error), `ResponsiveDialog*`, `components/ui/dropdown-menu.tsx`, `switch.tsx`, `textarea.tsx`, `checkbox.tsx`, `input.tsx`, `alert.tsx`, `EmptyState`, `LoadingButton({ pending })`, `FormField({ id, label, hint?, error?, children: (p) => … })`, `Pagination({ page, pages, hrefFor })`, `usePrefs()`, `formatDateTime(v, prefs)` / `formatNumber(n, prefs)` (`lib/format.ts`). Account tabs: `TABS` in `lib/dashboard/account.ts` (`['overview', 'growth', 'posts', 'stories', 'followers']` today; 15c adds `comments`), `TabSkeleton`, the page's `switch (tab)` in `app/(app)/accounts/[id]/(tabs)/page.tsx` (server actions are passed straight to client tabs, e.g. `deleteSnapshot: deleteFollowerSnapshotAction`); `LIST_KEYS` includes `page`. Tabs are client components (`FollowersTab` is `'use client'`).
+- UI: `ConfirmDialog({ open, title, body, confirmLabel, cancelLabel, busy, error, requireText?, onConfirm, onClose })` (AlertDialog; destructive confirm button; `role="alert"` error), `ResponsiveDialog*`, `components/ui/dropdown-menu.tsx`, `switch.tsx`, `textarea.tsx`, `checkbox.tsx`, `input.tsx`, `alert.tsx`, `EmptyState`, `LoadingButton({ pending })`, `FormField({ id, label, hint?, error?, children: (p) => … })`, `Pagination({ page, pages, hrefFor })`, `usePrefs()`, `formatDateTime(v, prefs)` / `formatNumber(n, prefs)` (`lib/format.ts`). Account tabs: `TABS` in `lib/dashboard/account.ts` (`['overview', 'growth', 'posts', 'stories', 'followers']` today; 15c inserts `comments` before `followers`), `TabSkeleton`, the page's `switch (tab)` in `app/(app)/accounts/[id]/(tabs)/page.tsx` (server actions are passed straight to client tabs, e.g. `deleteSnapshot: deleteFollowerSnapshotAction`); `LIST_KEYS` includes `page`. Tabs are client components (`FollowersTab` is `'use client'`).
 - `messages/*.json`: `pages.account.tab` one-line object at line 383 (6 spaces); `notifications.kinds.taking_off` is the last kind (lines 840–843). `tests/messages.test.ts` (parity, placeholders, no copy-pasted English), `tests/ui-standards.test.ts`.
 - Migrations: 12 applied; Plan 15c may add `20261029000001_*`. This plan uses **`20261029000002_comment_moderation.sql`**. `tests/migrations.test.ts` (generic rules).
 
 ## Contract with Plan 15c (read-only comment insights; planned in parallel, built first)
 
-At the time of writing, `docs/superpowers/plans/2026-10-29-15c-comment-insights.md` did not exist yet; this plan uses the contract the orchestrator gave both planners. **The implementer of Task 12 reads the merged 15c code first and adapts names (listing every adaptation as a deviation):**
-- `components/account/CommentsTab.tsx` exports `CommentsTab` with an optional `renderActions?: (c: CommentView) => React.ReactNode`; `CommentRow` has an optional `actions?: React.ReactNode` slot and `status?: 'visible' | 'hidden'`.
-- `CommentView` carries `id, mediaId, authorUsername, text, postedAt, likeCount, isQuestion, hidden: boolean | null, repliedByOwner: boolean | null`.
-- The account tab `comments` exists in `TABS`, with its `case 'comments'` in the page and `pages.account.tab.comments` in both catalogs.
+The 15c plan was read while this plan was written (its Tasks 1–7 were on disk; its Task 8, the tab itself, was not yet). What it defines and this plan relies on — **the implementer of Task 12 reads the merged 15c code first and adapts names (listing every adaptation as a deviation):**
+- `lib/comments/view.ts` exports `CommentView { id, mediaId, authorUsername: string | null, text: string, postedAt, likeCount: number | null, isQuestion, hidden: boolean | null (true only when stored as hidden, else null), repliedByOwner: boolean | null, post: CommentPost | null }` ("Plan 15d contract: keep these names").
+- `components/account/CommentRow.tsx` has an `actions` slot (empty in 15c) and a `status` prop (`'visible' | 'hidden'`; "Hidden" badge). `components/account/CommentsTab.tsx` (15c Task 8) takes `renderActions?: (c: CommentView) => React.ReactNode` (orchestrator contract; not yet visible in the 15c file when read).
+- 15c migration `20261029000001_comment_insights.sql` rewrites `comments_owner_select` to the InitPlan form and adds `comment_list` (which returns `hidden`); this plan's migration adds separate update/delete policies and does not touch that select policy.
+- `TABS` after 15c: `['overview', 'growth', 'posts', 'stories', 'comments', 'followers']` (Followers stays LAST). This plan inserts `moderation` right after `comments`: `[…, 'comments', 'moderation', 'followers']`. `pages.account.tab.comments` exists in both catalogs; 15c's own strings live under `pages.account.comments` (this plan uses `pages.account.moderation`, no collision).
+- `repliedByOwner` is DERIVED by 15c (a later top-level comment of the account mentioning `@author`); this plan does not change it (a reply sent from the app is a thread reply, which 15c does not read — the log shows it instead).
 - `CommentsTab` is a CLIENT component (like every other tab), so a function prop cannot come from the server page: Task 12 adds a tiny client wrapper `ModeratedCommentsTab` that passes `renderActions` client-side. If 15c made `CommentsTab` a server component, the page passes `renderActions` directly instead (both variants are spelled out in Task 12).
 - Nothing in Tasks 1–11 imports any 15c module: the moderation pieces take plain props (`commentId`, `hidden`, `own`), so 15c renames touch Task 12 only.
-- `repliedByOwner`: if 15c leaves it `null` (replies are not ingested), it stays `null`; this plan does not derive it from the log (Open question for a later plan).
 
 ## Out of scope
 
@@ -436,7 +437,8 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
           "unexpected": "Something went wrong. Nothing was changed here; check on Instagram before trying again.",
           "invalid_word": "Enter a word or phrase of 1 to 50 characters.",
           "duplicate_rule": "This word is already on the list.",
-          "too_many_rules": "You have reached the limit of banned words for this account."
+          "too_many_rules": "You have reached the limit of banned words for this account.",
+          "no_rules": "Add a banned word or switch on a spam pattern first."
         },
         "intro": "Reply to, hide and delete comments from the Comments tab. Here you set the rules that hide spam automatically and see everything that was done.",
         "noScope": {
@@ -559,7 +561,8 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
           "unexpected": "出了点问题。这里没有任何改动；重试前请先在 Instagram 上查看。",
           "invalid_word": "请输入 1 到 50 个字符的词或短语。",
           "duplicate_rule": "这个词已在列表中。",
-          "too_many_rules": "此账号的屏蔽词已达上限。"
+          "too_many_rules": "此账号的屏蔽词已达上限。",
+          "no_rules": "请先添加屏蔽词或开启一种垃圾评论模式。"
         },
         "intro": "在“评论”标签页中回复、隐藏和删除评论。在这里设置自动隐藏垃圾评论的规则，并查看所有已执行的操作。",
         "noScope": {
@@ -1751,6 +1754,731 @@ Expected: PASS (15 tests).
 ```bash
 git add lib/moderation/store.ts tests/moderation-store.test.ts
 git commit -m "feat(moderation): store (log, rules, settings, tab read, tick reads) as the one SQL choke point" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Alerts — the `moderation_paused` kind (one notification per pause)
+
+**Files:**
+- Modify: `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`
+- Create: `tests/alerts-moderation.test.ts`
+- Existing tests that must keep passing: `tests/alert-message.test.ts` (every kind has messages: Task 2 added them), `tests/alert-rules.test.ts`, `tests/alert-run.test.ts`, `tests/sync-tick-alerts.test.ts`, `tests/settings-notifications.test.tsx` (one switch per kind: a sixth switch appears, labelled "Auto-hide paused"), `tests/notification-bell.test.tsx`, `tests/push-actions.test.ts`.
+
+**Interfaces:**
+- Produces: `ALERT_KINDS` ends with `'moderation_paused'`; `DEFAULT_ALERT_SETTINGS.push.moderation_paused = true`; `RuleInput.moderationPausedAt?: string | null`; `AlertStore.moderationPausedAt?(accountId: string): Promise<string | null>` (OPTIONAL, so every existing fake store stays valid); `alertHref('moderation_paused', id) = '/accounts/<id>?tab=moderation'`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/alerts-moderation.test.ts`:
+
+```ts
+// @vitest-environment node
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { describe, expect, it, vi } from 'vitest';
+import { alertHref } from '@/lib/alerts/message';
+import { pushMessage } from '@/lib/alerts/push-message';
+import { evaluateRules, type RuleInput } from '@/lib/alerts/rules';
+import { runAlerts } from '@/lib/alerts/run';
+import { ALERT_KINDS, DEFAULT_ALERT_SETTINGS, parseAlertSettings } from '@/lib/alerts/settings';
+import { supabaseAlertStore } from '@/lib/alerts/store';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+import { memoryAlertStore } from './fixtures/alert-fakes';
+import { account, fakeAccounts } from './fixtures/sync-fakes';
+
+const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const AT = '2026-10-14T01:30:00.000Z';
+const NOW = new Date('2026-10-14T02:00:00Z');
+const input = (o: Partial<RuleInput> = {}): RuleInput => ({
+  account: { id: A, username: 'cafe', status: 'active', tokenExpiresAt: null },
+  sync: { consecutiveFailures: 0, lastSuccessAt: null },
+  daily: [],
+  posts: [],
+  lastReachDropAt: null,
+  settings: DEFAULT_ALERT_SETTINGS,
+  now: NOW,
+  tz: 'Asia/Kuala_Lumpur',
+  ...o,
+});
+
+describe('moderation_paused alert', () => {
+  it('is a known kind, pushed by default, kept by the settings parser', () => {
+    expect(ALERT_KINDS.at(-1)).toBe('moderation_paused');
+    expect(DEFAULT_ALERT_SETTINGS.push.moderation_paused).toBe(true);
+    expect(parseAlertSettings({ push: { moderation_paused: false } }).push.moderation_paused).toBe(false);
+  });
+
+  it('one warning per pause: the dedupe key carries the pause time; payload = the account name only', () => {
+    expect(evaluateRules(input({ moderationPausedAt: AT })).filter((a) => a.kind === 'moderation_paused')).toEqual([
+      { kind: 'moderation_paused', accountId: A, severity: 'warning', dedupeKey: `moderation_paused:${A}:${AT}`, payload: { username: 'cafe' } },
+    ]);
+    expect(evaluateRules(input({ moderationPausedAt: null })).some((a) => a.kind === 'moderation_paused')).toBe(false);
+    expect(evaluateRules(input()).some((a) => a.kind === 'moderation_paused')).toBe(false);
+    expect(evaluateRules(input({ moderationPausedAt: AT, account: { id: A, username: 'cafe', status: 'archived', tokenExpiresAt: null } }))).toEqual([]);
+  });
+
+  it('runAlerts reads the pause per account; a store without the method (older fakes) simply has none', async () => {
+    const mem = memoryAlertStore();
+    const ctx = { accounts: fakeAccounts([account({ id: A, username: 'cafe' })]).accounts, sync: { loadStates: async () => new Map() }, now: NOW, tz: 'UTC', deadline: Infinity, clock: () => NOW.getTime() };
+    await runAlerts({ store: { ...mem.store, moderationPausedAt: vi.fn(async () => AT) }, push: null }, ctx);
+    expect(mem.rows.map((r) => r.dedupeKey)).toContain(`moderation_paused:${A}:${AT}`);
+    const plain = memoryAlertStore();
+    await expect(runAlerts({ store: plain.store, push: null }, ctx)).resolves.toMatchObject({ failed: 0 });
+    expect(plain.rows.some((r) => r.kind === 'moderation_paused')).toBe(false);
+  });
+
+  it('the store reads paused_at of an enabled account; null before the migration; a fixed error otherwise', async () => {
+    const calls: unknown[][] = [];
+    const db = (res: { data: unknown; error: { code?: string } | null }) =>
+      ({
+        from: (t: string) => {
+          calls.push(['from', t]);
+          const chain: Record<string, unknown> = {};
+          for (const op of ['select', 'eq', 'not', 'maybeSingle']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+          chain.then = (r: (v: unknown) => unknown) => Promise.resolve(res).then(r);
+          return chain;
+        },
+      }) as unknown as SupabaseClient;
+    expect(await supabaseAlertStore(db({ data: { paused_at: AT }, error: null })).moderationPausedAt!(A)).toBe(AT);
+    expect(calls).toContainEqual(['from', 'moderation_settings']);
+    expect(calls).toContainEqual(['eq', 'auto_hide', true]);
+    expect(calls).toContainEqual(['not', 'paused_at', 'is', null]);
+    expect(await supabaseAlertStore(db({ data: null, error: { code: 'PGRST205' } })).moderationPausedAt!(A)).toBeNull();
+    await expect(supabaseAlertStore(db({ data: null, error: { code: 'XX000' } })).moderationPausedAt!(A)).rejects.toThrow('alert store: moderationPausedAt failed');
+  });
+
+  it('opens the Moderation tab; the text names the account and nothing else', () => {
+    expect(alertHref('moderation_paused', A)).toBe(`/accounts/${A}?tab=moderation`);
+    const m = pushMessage({ kind: 'moderation_paused', accountId: A, payload: { username: 'cafe' } }, { ...DEFAULT_PREFS, locale: 'en' });
+    expect(m.title).toBe('Auto-hide paused');
+    expect(m.body).toContain('@cafe');
+    expect(m.url).toBe(`/accounts/${A}?tab=moderation`);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/alerts-moderation.test.ts`
+Expected: FAIL — `expected 'taking_off' to be 'moderation_paused'` (and the other assertions).
+
+- [ ] **Step 3: Make the edits** (anchored text edits; every other line unchanged)
+
+`lib/alerts/settings.ts`:
+```ts
+export const ALERT_KINDS = ['token_expiring', 'needs_reconnect', 'sync_failing', 'reach_drop', 'taking_off', 'moderation_paused'] as const;
+```
+and in `DEFAULT_ALERT_SETTINGS.push` add `moderation_paused: true` after `taking_off: false`.
+
+`lib/alerts/rules.ts` — in `RuleInput` after `lastReachDropAt`:
+```ts
+  /** moderation_settings.paused_at of an account whose auto-hide is on but paused (Plan 15d); null/absent = not paused. */
+  moderationPausedAt?: string | null;
+```
+add the rule before `const RULES`:
+```ts
+/** Key: moderation_paused:<account>:<paused_at>. One alert per pause; switching auto-hide on again clears paused_at. */
+const moderationPaused: Rule = ({ account: a, moderationPausedAt }) =>
+  a.status === 'active' && moderationPausedAt
+    ? [{ kind: 'moderation_paused', accountId: a.id, severity: 'warning', dedupeKey: `moderation_paused:${a.id}:${moderationPausedAt}`, payload: { username: a.username } }]
+    : [];
+```
+and `const RULES: Rule[] = [needsReconnect, tokenExpiring, syncFailing, reachDropRule, takingOffRule, moderationPaused];`
+
+`lib/alerts/store.ts` — in `AlertStore` after `lastReachDropAt`:
+```ts
+  /** Plan 15d: paused_at when auto-hide is on but paused, else null; null before the moderation migration. Optional for fakes. */
+  moderationPausedAt?(accountId: string): Promise<string | null>;
+```
+and in `supabaseAlertStore` after `lastReachDropAt(…) {…},`:
+```ts
+    async moderationPausedAt(accountId) {
+      const { data, error } = await db.from('moderation_settings').select('paused_at').eq('account_id', accountId).eq('auto_hide', true).not('paused_at', 'is', null).maybeSingle();
+      if (error?.code === 'PGRST205' || error?.code === '42P01') return null; // the moderation migration is not applied yet
+      if (error) fail('moderationPausedAt');
+      const at = (data as Row | null)?.paused_at;
+      return isStr(at) ? at : null;
+    },
+```
+
+`lib/alerts/run.ts` — replace the per-account read and the `evaluateRules` call:
+```ts
+        const [daily, posts, lastReachDropAt, moderationPausedAt] = await Promise.all([deps.store.daily(a.id, fromDay), deps.store.posts(a.id), deps.store.lastReachDropAt(a.id), deps.store.moderationPausedAt?.(a.id) ?? null]);
+        const s = states.get(a.id);
+        found.push(...evaluateRules({ account: a, sync: { consecutiveFailures: s?.consecutiveFailures ?? 0, lastSuccessAt: s?.lastSuccessAt ?? null }, daily, posts, lastReachDropAt, moderationPausedAt, settings, now: c.now, tz: c.tz }));
+```
+
+`lib/alerts/message.ts` — in `alertHref`, before `if (kind === 'reach_drop')`:
+```ts
+  if (kind === 'moderation_paused') return `/accounts/${accountId}?tab=moderation`;
+```
+
+`tests/alert-settings.test.ts` line 14 — the expected `push` object gains the new kind with its default:
+```ts
+    expect(s).toEqual({ push: { token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: false, taking_off: true, moderation_paused: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4 });
+```
+(If any other assertion in that file spells out the full `push` object, add `moderation_paused: true` the same way and list it as a deviation.)
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/alerts-moderation.test.ts tests/alert-settings.test.ts tests/alert-message.test.ts tests/alert-rules.test.ts tests/alert-run.test.ts tests/sync-tick-alerts.test.ts tests/settings-notifications.test.tsx tests/notification-bell.test.tsx tests/push-actions.test.ts`, `npx tsc --noEmit`, `npx eslint lib/alerts tests/alerts-moderation.test.ts tests/alert-settings.test.ts`.
+Expected: PASS. (`rowToNotification` accepts the new kind because it checks `ALERT_KINDS`.)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/alerts/settings.ts lib/alerts/rules.ts lib/alerts/store.ts lib/alerts/run.ts lib/alerts/message.ts tests/alert-settings.test.ts tests/alerts-moderation.test.ts
+git commit -m "feat(alerts): moderation_paused (one notification per auto-hide pause)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Service — `lib/moderation/service.ts` (moderate, undo, rules, the auto-hide switch)
+
+**Files:**
+- Create: `lib/moderation/service.ts`, `tests/moderation-service.test.ts`
+
+**Interfaces:**
+- Consumes: Task 3 (`validateWord`, `SPAM_KINDS`), Task 4 (`classifyModerationError`, `REPLY_MAX`, `IgModeration`), Task 5 (every function named below), `hasScope`/`COMMENTS_SCOPE`, `isUuid`/`isMediaId`.
+- Produces (Tasks 9, 10, 11 use exactly these):
+```ts
+export const MANUAL_PER_MINUTE = 30;
+export type ModerationError = ModerationErrorKey | 'invalid' | 'not_found' | 'not_active' | 'duplicate' | 'too_many' | 'already_done' | 'cannot_undo' | 'not_ready';
+export type ModerationResult = { ok: true; logged: boolean } | { ok: false; error: ModerationError };
+export type RuleError = 'invalid' | 'not_found' | 'not_active' | 'reconnect' | 'not_ready' | 'invalid_word' | 'duplicate_rule' | 'too_many_rules' | 'no_rules' | 'unexpected';
+export type RuleResult = { ok: true } | { ok: false; error: RuleError };
+export interface ServiceDeps { db: SupabaseClient; token: (accountId: string) => Promise<string | null>; ig: Pick<IgModeration, 'hide' | 'reply' | 'remove'>; now?: () => Date }
+export interface ManualInput { kind: 'hide' | 'unhide' | 'delete' | 'reply'; accountId: string; commentId: string; requestId: string; message?: string }
+export function moderate(deps: ServiceDeps, input: ManualInput): Promise<ModerationResult>;
+export function undoAction(deps: ServiceDeps, input: { accountId: string; logId: number; requestId: string }): Promise<ModerationResult>;
+export function saveWordRule(db: SupabaseClient, accountId: string, pattern: unknown, wholeWord: unknown): Promise<RuleResult>;
+export function setSpamRule(db: SupabaseClient, accountId: string, kind: unknown, on: unknown): Promise<RuleResult>;
+export function deleteRule(db: SupabaseClient, accountId: string, ruleId: unknown): Promise<RuleResult>;
+export function setAutoHide(db: SupabaseClient, accountId: string, enabled: unknown, now?: Date): Promise<RuleResult>;
+```
+Every function validates its inputs itself (the server actions pass values straight from the browser) and never throws.
+
+**The algorithm of one action (`execute`, internal; `moderate` and `undoAction` both end in it):**
+1. `countRecentOwnerActions(db, accountId, now − 60 s) >= MANUAL_PER_MINUTE` → `too_many`.
+2. `insertLog(db, { …, actor: 'owner', requestId, undoOf?, targetId? (delete_reply: the reply id) })` — throws `duplicate` / `missing` / other → `duplicate` / `not_ready` / `unexpected` (**no Meta call without a row**).
+3. `token(accountId)`: null → `finishLog(id, 'reconnect')` → `reconnect`; throws → `finishLog(id, 'unexpected')` → `unexpected`.
+4. Meta: hide/unhide → `ig.hide(token, commentId, action === 'hide')`; delete → `ig.remove(token, commentId)`; delete_reply → `ig.remove(token, targetId)`; reply → `ig.reply(token, commentId, message)`.
+5. Meta threw → `key = classifyModerationError(e, reply ? 'reply' : 'other')`; `finishLog(id, key)` (a failure here is swallowed); `comment_gone` (except for delete_reply) → `removeComment` (swallowed); return `key`.
+6. Meta ok → `finishLog(id, 'ok', reply ? replyId : undefined)`; a failure → `logged = false` (the row stays `pending`: "Outcome unknown"). Then the local mirror: hide/unhide → `setCommentHidden`, delete → `removeComment` (failures swallowed). Return `{ ok: true, logged }`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/moderation-service.test.ts`:
+
+```ts
+// @vitest-environment node
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+
+const order: string[] = [];
+vi.mock('@/lib/moderation/store', async (orig) => {
+  const real = await orig<typeof import('@/lib/moderation/store')>();
+  const f = (name: string, impl: (...a: unknown[]) => unknown = () => undefined) => vi.fn(async (...a: unknown[]) => (order.push(name), impl(...a)));
+  return {
+    ...real,
+    getActionAccount: f('account'),
+    getActionComment: f('comment'),
+    countRecentOwnerActions: f('count', () => 0),
+    insertLog: f('insertLog', () => 7),
+    finishLog: f('finishLog'),
+    getLog: f('getLog'),
+    markUndone: f('markUndone', () => true),
+    setCommentHidden: f('setHidden'),
+    removeComment: f('removeComment'),
+    loadRules: f('loadRules', () => []),
+    insertWordRule: f('insertWord'),
+    setSpamRow: f('setSpam'),
+    deleteRuleRow: f('deleteRule', () => true),
+    saveAutoHide: f('saveAutoHide'),
+  };
+});
+
+import * as S from '@/lib/moderation/store';
+import { MANUAL_PER_MINUTE, moderate, saveWordRule, setAutoHide, setSpamRule, undoAction, type ServiceDeps } from '@/lib/moderation/service';
+
+const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const REQ = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+const RULE = '2b3c4d5e-6f7a-4b2c-9d3e-4f5a6b7c8d9e';
+const NOW = new Date('2026-10-29T10:00:00Z');
+const db = {} as SupabaseClient;
+const ACCOUNT = { id: A, username: 'MyShop', status: 'active' as const, grantedScopes: ['instagram_business_basic', 'instagram_business_manage_comments'] };
+const m = vi.mocked(S);
+
+function deps(o: Partial<ServiceDeps> = {}): ServiceDeps {
+  return {
+    db,
+    token: vi.fn(async () => (order.push('token'), 'tok-secret')),
+    ig: {
+      hide: vi.fn(async (_t: string, _c: string, h: boolean) => void order.push(`meta:${h ? 'hide' : 'unhide'}`)),
+      reply: vi.fn(async () => (order.push('meta:reply'), '1790')),
+      remove: vi.fn(async (_t: string, id: string) => void order.push(`meta:remove:${id}`)),
+    },
+    now: () => NOW,
+    ...o,
+  };
+}
+const hide = (o: Record<string, unknown> = {}) => ({ kind: 'hide' as const, accountId: A, commentId: 'c1', requestId: REQ, ...o });
+
+beforeEach(() => {
+  order.length = 0;
+  vi.clearAllMocks();
+  m.getActionAccount.mockResolvedValue(ACCOUNT);
+  m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'fan', hidden: false });
+  m.getLog.mockResolvedValue(null);
+});
+
+describe('moderate: the order of writes', () => {
+  it('account → comment (both ids) → cap → log row → token → Meta → result → local state', async () => {
+    const d = deps();
+    expect(await moderate(d, hide())).toEqual({ ok: true, logged: true });
+    expect(order).toEqual(['account', 'comment', 'count', 'insertLog', 'token', 'meta:hide', 'finishLog', 'setHidden']);
+    expect(m.getActionComment).toHaveBeenCalledWith(db, A, 'c1');
+    expect(m.insertLog).toHaveBeenCalledWith(db, { accountId: A, commentId: 'c1', action: 'hide', actor: 'owner', requestId: REQ });
+    expect(m.countRecentOwnerActions).toHaveBeenCalledWith(db, A, '2026-10-29T09:59:00.000Z');
+    expect(m.finishLog).toHaveBeenCalledWith(db, 7, 'ok', undefined);
+    expect(m.setCommentHidden).toHaveBeenCalledWith(db, A, 'c1', true);
+  });
+
+  it('unhide and delete mirror locally; reply stores the reply id, sends the trimmed text', async () => {
+    m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'fan', hidden: true });
+    expect(await moderate(deps(), hide({ kind: 'unhide' }))).toEqual({ ok: true, logged: true });
+    expect(m.setCommentHidden).toHaveBeenCalledWith(db, A, 'c1', false);
+    const d = deps();
+    await moderate(d, hide({ kind: 'delete' }));
+    expect(d.ig.remove).toHaveBeenCalledWith('tok-secret', 'c1');
+    expect(m.removeComment).toHaveBeenCalledWith(db, A, 'c1');
+    const r = deps();
+    await moderate(r, hide({ kind: 'reply', message: '  Thanks!  ' }));
+    expect(r.ig.reply).toHaveBeenCalledWith('tok-secret', 'c1', 'Thanks!');
+    expect(m.finishLog).toHaveBeenLastCalledWith(db, 7, 'ok', '1790');
+  });
+});
+
+describe('moderate: refusals send nothing to Instagram', () => {
+  it.each([
+    ['bad account id', hide({ accountId: 'x' })],
+    ['bad request id', hide({ requestId: 'nope' })],
+    ['bad comment id', hide({ commentId: '../1' })],
+    ['unknown kind', hide({ kind: 'ban' })],
+    ['empty reply', hide({ kind: 'reply', message: '   ' })],
+    ['reply too long', hide({ kind: 'reply', message: 'x'.repeat(2201) })],
+    ['reply not a string', hide({ kind: 'reply', message: 42 })],
+  ])('%s → invalid, nothing read', async (_n, input) => {
+    expect(await moderate(deps(), input as never)).toEqual({ ok: false, error: 'invalid' });
+    expect(order).toEqual([]);
+  });
+
+  it.each([
+    ['no such account', null, 'not_found'],
+    ['archived', { ...ACCOUNT, status: 'archived' as const }, 'not_active'],
+    ['needs reconnect', { ...ACCOUNT, status: 'needs_reconnect' as const }, 'reconnect'],
+    ['no comments scope', { ...ACCOUNT, grantedScopes: ['instagram_business_basic'] }, 'reconnect'],
+  ])('%s → %s', async (_n, acc, error) => {
+    m.getActionAccount.mockResolvedValue(acc);
+    expect(await moderate(deps(), hide())).toEqual({ ok: false, error });
+    expect(order).toEqual(['account']);
+  });
+
+  it('a comment of another account (or gone) is not_found: no log row, no token, no Meta', async () => {
+    m.getActionComment.mockResolvedValue(null);
+    expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'not_found' });
+    expect(order).toEqual(['account', 'comment']);
+  });
+
+  it("the account's own comment cannot be hidden (any case); a reply to it is fine", async () => {
+    m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'myshop', hidden: false });
+    expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'not_allowed' });
+    expect(order).not.toContain('insertLog');
+    expect(await moderate(deps(), hide({ kind: 'reply', message: 'hi' }))).toEqual({ ok: true, logged: true });
+  });
+
+  it('already hidden → already_done without a call', async () => {
+    m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'fan', hidden: true });
+    expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'already_done' });
+    expect(order).not.toContain('insertLog');
+  });
+
+  it(`more than ${MANUAL_PER_MINUTE} actions a minute → too_many before any log row`, async () => {
+    m.countRecentOwnerActions.mockResolvedValue(MANUAL_PER_MINUTE);
+    expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'too_many' });
+    expect(order).not.toContain('insertLog');
+  });
+
+  it('the same request id twice sends once: the unique request_id answers duplicate', async () => {
+    m.insertLog.mockRejectedValueOnce(new S.ModerationStoreError('insertLog', 'duplicate'));
+    const d = deps();
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'duplicate' });
+    expect(d.ig.hide).not.toHaveBeenCalled();
+    expect(d.token).not.toHaveBeenCalled();
+  });
+
+  it('no log row → no Instagram write (missing table: not_ready; any other failure: unexpected)', async () => {
+    m.insertLog.mockRejectedValueOnce(new S.ModerationStoreError('insertLog', 'missing'));
+    const d = deps();
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'not_ready' });
+    m.insertLog.mockRejectedValueOnce(new S.ModerationStoreError('insertLog', 'other'));
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'unexpected' });
+    expect(d.ig.hide).not.toHaveBeenCalled();
+  });
+
+  it('no stored token → the row says reconnect, nothing is sent', async () => {
+    const d = deps({ token: vi.fn(async () => null) });
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'reconnect' });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 7, 'reconnect');
+    expect(d.ig.hide).not.toHaveBeenCalled();
+  });
+});
+
+describe('moderate: partial failures', () => {
+  it('Meta says the comment is gone → logged, our copy removed', async () => {
+    const d = deps();
+    vi.mocked(d.ig.hide).mockRejectedValueOnce(new InstagramApiError('data', 400, 100, 33));
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'comment_gone' });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 7, 'comment_gone');
+    expect(m.removeComment).toHaveBeenCalledWith(db, A, 'c1');
+    expect(m.setCommentHidden).not.toHaveBeenCalled();
+  });
+
+  it('Meta rate limit → logged, nothing mirrored', async () => {
+    const d = deps();
+    vi.mocked(d.ig.hide).mockRejectedValueOnce(new InstagramApiError('data', 400, 17));
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'rate_limited' });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 7, 'rate_limited');
+    expect(m.setCommentHidden).not.toHaveBeenCalled();
+  });
+
+  it('Meta ok but the result write fails → ok with logged:false (the row stays pending = "outcome unknown"); the mirror still runs', async () => {
+    m.finishLog.mockRejectedValueOnce(new S.ModerationStoreError('finishLog', 'other'));
+    expect(await moderate(deps(), hide())).toEqual({ ok: true, logged: false });
+    expect(m.setCommentHidden).toHaveBeenCalled();
+  });
+
+  it('Meta failed and the result write fails too → still the Meta error key', async () => {
+    const d = deps();
+    vi.mocked(d.ig.hide).mockRejectedValueOnce(new InstagramApiError('data', 400, 190));
+    m.finishLog.mockRejectedValueOnce(new Error('db down'));
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'reconnect' });
+  });
+
+  it('a reply Instagram did not confirm is unknown_outcome (never "try again")', async () => {
+    const d = deps();
+    vi.mocked(d.ig.reply).mockRejectedValueOnce(new InstagramApiError('network'));
+    expect(await moderate(d, hide({ kind: 'reply', message: 'hi' }))).toEqual({ ok: false, error: 'unknown_outcome' });
+  });
+
+  it('the mirror failing never fails the action; the token never appears in a result', async () => {
+    m.setCommentHidden.mockRejectedValueOnce(new Error('db down'));
+    const r = await moderate(deps(), hide());
+    expect(r).toEqual({ ok: true, logged: true });
+    expect(JSON.stringify(r)).not.toContain('tok-');
+  });
+});
+
+describe('undoAction', () => {
+  const row = (o: Partial<S.LogRow> = {}): S.LogRow => ({ id: 3, commentId: 'c9', action: 'hide', actor: `rule:${RULE}`, result: 'ok', targetId: null, undoOf: null, createdAt: '2026-10-29T09:00:00Z', undoneAt: null, ...o });
+
+  it('a hide (also a rule\'s) is undone by an unhide of the STORED comment, linked to the row, then marked undone', async () => {
+    m.getLog.mockResolvedValue(row());
+    const d = deps();
+    expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: true, logged: true });
+    expect(m.getLog).toHaveBeenCalledWith(db, A, 3);
+    expect(d.ig.hide).toHaveBeenCalledWith('tok-secret', 'c9', false);
+    expect(m.insertLog).toHaveBeenCalledWith(db, { accountId: A, commentId: 'c9', action: 'unhide', actor: 'owner', requestId: REQ, undoOf: 3 });
+    expect(m.markUndone).toHaveBeenCalledWith(db, A, 3, NOW.toISOString());
+  });
+
+  it('a reply is undone by deleting the STORED reply id', async () => {
+    m.getLog.mockResolvedValue(row({ action: 'reply', actor: 'owner', targetId: '1790' }));
+    const d = deps();
+    expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: true, logged: true });
+    expect(d.ig.remove).toHaveBeenCalledWith('tok-secret', '1790');
+    expect(m.insertLog).toHaveBeenCalledWith(db, { accountId: A, commentId: 'c9', action: 'delete_reply', actor: 'owner', requestId: REQ, undoOf: 3, targetId: '1790' });
+    expect(m.removeComment).not.toHaveBeenCalled(); // the parent comment stays
+  });
+
+  it('a reply already gone on Instagram counts as undone (answers comment_gone)', async () => {
+    m.getLog.mockResolvedValue(row({ action: 'reply', actor: 'owner', targetId: '1790' }));
+    const d = deps();
+    vi.mocked(d.ig.remove).mockRejectedValueOnce(new InstagramApiError('data', 400, 100, 33));
+    expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: false, error: 'comment_gone' });
+    expect(m.markUndone).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['not this account / absent', null, 'not_found'],
+    ['already undone', row({ undoneAt: '2026-10-29T09:30:00Z' }), 'already_done'],
+    ['a delete', row({ action: 'delete' }), 'cannot_undo'],
+    ['a failed hide', row({ result: 'rate_limited' }), 'cannot_undo'],
+    ['a reply without its id', row({ action: 'reply' }), 'cannot_undo'],
+  ])('%s → %s, nothing sent', async (_n, r, error) => {
+    m.getLog.mockResolvedValue(r);
+    const d = deps();
+    expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: false, error });
+    expect(d.token).not.toHaveBeenCalled();
+  });
+
+  it('invalid ids → invalid, nothing read', async () => {
+    expect(await undoAction(deps(), { accountId: A, logId: 1.5, requestId: REQ })).toEqual({ ok: false, error: 'invalid' });
+    expect(await undoAction(deps(), { accountId: A, logId: 0, requestId: REQ })).toEqual({ ok: false, error: 'invalid' });
+    expect(order).toEqual([]);
+  });
+});
+
+describe('rules and the auto-hide switch', () => {
+  it('a word is validated against the stored rules; the unique index duplicate maps to duplicate_rule', async () => {
+    expect(await saveWordRule(db, A, '  Spam ', true)).toEqual({ ok: true });
+    expect(m.insertWordRule).toHaveBeenCalledWith(db, A, 'Spam', true);
+    m.loadRules.mockResolvedValueOnce([{ id: RULE, kind: 'word', pattern: 'spam', wholeWord: false }]);
+    expect(await saveWordRule(db, A, 'SPAM', false)).toEqual({ ok: false, error: 'duplicate_rule' });
+    expect(await saveWordRule(db, A, 'x', 'yes')).toEqual({ ok: false, error: 'invalid' });
+    m.loadRules.mockRejectedValueOnce(new S.ModerationStoreError('loadRules', 'missing'));
+    expect(await saveWordRule(db, A, 'x', false)).toEqual({ ok: false, error: 'not_ready' });
+  });
+
+  it('spam kinds are whitelisted', async () => {
+    expect(await setSpamRule(db, A, 'link', true)).toEqual({ ok: true });
+    expect(m.setSpamRow).toHaveBeenCalledWith(db, A, 'link', true);
+    expect(await setSpamRule(db, A, 'word', true)).toEqual({ ok: false, error: 'invalid' });
+    expect(await setSpamRule(db, A, 'link', 'on')).toEqual({ ok: false, error: 'invalid' });
+  });
+
+  it('switching auto-hide ON needs an active account with the scope and at least one rule; OFF always works', async () => {
+    expect(await setAutoHide(db, A, true, NOW)).toEqual({ ok: false, error: 'no_rules' });
+    m.loadRules.mockResolvedValueOnce([{ id: RULE, kind: 'link', pattern: null, wholeWord: false }]);
+    expect(await setAutoHide(db, A, true, NOW)).toEqual({ ok: true });
+    expect(m.saveAutoHide).toHaveBeenCalledWith(db, A, true, NOW.toISOString());
+    m.getActionAccount.mockResolvedValueOnce({ ...ACCOUNT, grantedScopes: null });
+    expect(await setAutoHide(db, A, true, NOW)).toEqual({ ok: false, error: 'reconnect' });
+    order.length = 0;
+    expect(await setAutoHide(db, A, false, NOW)).toEqual({ ok: true });
+    expect(order).toEqual(['saveAutoHide']);
+    expect(await setAutoHide(db, A, 'true', NOW)).toEqual({ ok: false, error: 'invalid' });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/moderation-service.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/moderation/service"`.
+
+- [ ] **Step 3: Write the module** — create `lib/moderation/service.ts`:
+
+```ts
+// Owner moderation actions (Plan 15d). Called by the server actions AFTER requireOwner(); validates everything itself
+// (values come straight from the browser) and never throws. Order of one action (the plan's repair rule): account
+// gate -> the comment re-read with BOTH ids -> per-minute cap -> log row ('pending', unique request id) -> token ->
+// Instagram -> the row's result -> the local mirror. No Instagram write without a log row; a repeated request id is
+// refused by the database before anything is sent. The token stays inside this call: never returned, never logged.
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
+import { classifyModerationError, REPLY_MAX, type IgModeration, type ModerationErrorKey } from '@/lib/instagram/moderation';
+import { SPAM_KINDS, validateWord, type SpamKind } from '@/lib/moderation/rules';
+import * as S from '@/lib/moderation/store';
+import { isMediaId, isUuid } from '@/lib/tags';
+
+export const MANUAL_PER_MINUTE = 30;
+const MINUTE_MS = 60_000;
+
+export type ModerationError = ModerationErrorKey | 'invalid' | 'not_found' | 'not_active' | 'duplicate' | 'too_many' | 'already_done' | 'cannot_undo' | 'not_ready';
+export type ModerationResult = { ok: true; logged: boolean } | { ok: false; error: ModerationError };
+export type RuleError = 'invalid' | 'not_found' | 'not_active' | 'reconnect' | 'not_ready' | 'invalid_word' | 'duplicate_rule' | 'too_many_rules' | 'no_rules' | 'unexpected';
+export type RuleResult = { ok: true } | { ok: false; error: RuleError };
+
+export interface ServiceDeps {
+  db: SupabaseClient; // owner session
+  token: (accountId: string) => Promise<string | null>; // admin client, account_tokens: server only
+  ig: Pick<IgModeration, 'hide' | 'reply' | 'remove'>;
+  now?: () => Date;
+}
+export interface ManualInput {
+  kind: 'hide' | 'unhide' | 'delete' | 'reply';
+  accountId: string;
+  commentId: string;
+  requestId: string;
+  message?: string;
+}
+
+const KINDS: readonly string[] = ['hide', 'unhide', 'delete', 'reply'];
+const fail = <E extends string>(error: E) => ({ ok: false as const, error });
+const storeKey = (e: unknown): 'not_ready' | 'duplicate' | 'not_found' | 'unexpected' =>
+  e instanceof S.ModerationStoreError ? (e.reason === 'missing' ? 'not_ready' : e.reason === 'other' ? 'unexpected' : e.reason) : 'unexpected';
+
+/** Active, with the comments scope; otherwise the error to show. */
+async function gate(db: SupabaseClient, accountId: string): Promise<S.ActionAccount | 'not_found' | 'not_active' | 'reconnect'> {
+  const a = await S.getActionAccount(db, accountId);
+  if (!a) return 'not_found';
+  if (a.status === 'archived') return 'not_active';
+  if (a.status !== 'active' || !hasScope(a, COMMENTS_SCOPE)) return 'reconnect';
+  return a;
+}
+
+interface Step {
+  accountId: string;
+  commentId: string;
+  action: S.LogAction;
+  requestId: string;
+  message?: string;
+  undoOf?: number;
+  target?: string; // delete_reply: the reply id, from the stored log row
+}
+
+/** Steps 1–6 of the plan's algorithm. Store errors before Instagram propagate to the caller's catch. */
+async function execute(deps: ServiceDeps, a: Step): Promise<ModerationResult> {
+  const { db } = deps;
+  const now = deps.now?.() ?? new Date();
+  if ((await S.countRecentOwnerActions(db, a.accountId, new Date(now.getTime() - MINUTE_MS).toISOString())) >= MANUAL_PER_MINUTE) return fail('too_many');
+  const logId = await S.insertLog(db, {
+    accountId: a.accountId,
+    commentId: a.commentId,
+    action: a.action,
+    actor: 'owner',
+    requestId: a.requestId,
+    ...(a.undoOf !== undefined ? { undoOf: a.undoOf } : {}),
+    ...(a.action === 'delete_reply' && a.target ? { targetId: a.target } : {}),
+  });
+  let token: string | null;
+  try {
+    token = await deps.token(a.accountId);
+  } catch {
+    await S.finishLog(db, logId, 'unexpected').catch(() => {});
+    return fail('unexpected');
+  }
+  if (!token) {
+    await S.finishLog(db, logId, 'reconnect').catch(() => {});
+    return fail('reconnect');
+  }
+  let replyId: string | null = null;
+  try {
+    if (a.action === 'hide' || a.action === 'unhide') await deps.ig.hide(token, a.commentId, a.action === 'hide');
+    else if (a.action === 'delete') await deps.ig.remove(token, a.commentId);
+    else if (a.action === 'delete_reply') await deps.ig.remove(token, a.target!);
+    else replyId = await deps.ig.reply(token, a.commentId, a.message!);
+  } catch (e) {
+    const key = classifyModerationError(e, a.action === 'reply' ? 'reply' : 'other');
+    await S.finishLog(db, logId, key).catch(() => {});
+    if (key === 'comment_gone' && a.action !== 'delete_reply') await S.removeComment(db, a.accountId, a.commentId).catch(() => {});
+    return fail(key);
+  }
+  let logged = true;
+  await S.finishLog(db, logId, 'ok', a.action === 'reply' ? replyId : undefined).catch(() => {
+    logged = false; // Instagram did it; the row stays 'pending' and shows "Outcome unknown"
+  });
+  const mirror =
+    a.action === 'delete' ? S.removeComment(db, a.accountId, a.commentId) : a.action === 'hide' || a.action === 'unhide' ? S.setCommentHidden(db, a.accountId, a.commentId, a.action === 'hide') : Promise.resolve();
+  await mirror.catch(() => {}); // the local copy only; the next action or sync corrects it
+  return { ok: true, logged };
+}
+
+export async function moderate(deps: ServiceDeps, input: ManualInput): Promise<ModerationResult> {
+  const { kind, accountId, commentId, requestId } = input;
+  if (!KINDS.includes(kind) || !isUuid(accountId) || !isUuid(requestId) || !isMediaId(commentId)) return fail('invalid');
+  let message: string | undefined;
+  if (kind === 'reply') {
+    message = typeof input.message === 'string' ? input.message.trim() : '';
+    if (message === '' || [...message].length > REPLY_MAX) return fail('invalid');
+  }
+  try {
+    const account = await gate(deps.db, accountId);
+    if (typeof account === 'string') return fail(account);
+    const comment = await S.getActionComment(deps.db, accountId, commentId); // both ids: a comment of another account is "not found"
+    if (!comment) return fail('not_found');
+    if (kind === 'hide' || kind === 'unhide') {
+      if (comment.authorUsername?.toLowerCase() === account.username.toLowerCase()) return fail('not_allowed'); // Meta always shows the owner's own comments
+      if (comment.hidden === (kind === 'hide')) return fail('already_done');
+    }
+    return await execute(deps, { accountId, commentId, action: kind, requestId, message });
+  } catch (e) {
+    return fail(storeKey(e));
+  }
+}
+
+/** Undo a hide (unhide) or a reply (delete it). Targets come from the stored row only, selected with the account id. */
+export async function undoAction(deps: ServiceDeps, input: { accountId: string; logId: number; requestId: string }): Promise<ModerationResult> {
+  const { accountId, logId, requestId } = input;
+  if (!isUuid(accountId) || !isUuid(requestId) || !Number.isSafeInteger(logId) || logId < 1) return fail('invalid');
+  try {
+    const account = await gate(deps.db, accountId);
+    if (typeof account === 'string') return fail(account);
+    const row = await S.getLog(deps.db, accountId, logId);
+    if (!row) return fail('not_found');
+    if (row.undoneAt !== null) return fail('already_done');
+    const kind = S.undoKind(row);
+    if (!kind) return fail('cannot_undo');
+    const r = await execute(deps, { accountId, commentId: row.commentId, action: kind, requestId, undoOf: row.id, target: row.targetId ?? undefined });
+    // a reply already deleted on Instagram is undone too
+    if (r.ok || r.error === 'comment_gone') await S.markUndone(deps.db, accountId, row.id, (deps.now?.() ?? new Date()).toISOString()).catch(() => {});
+    return r;
+  } catch (e) {
+    return fail(storeKey(e));
+  }
+}
+
+const ruleKey = (e: unknown): RuleError => {
+  const k = storeKey(e);
+  return k === 'duplicate' ? 'duplicate_rule' : k;
+};
+
+export async function saveWordRule(db: SupabaseClient, accountId: string, pattern: unknown, wholeWord: unknown): Promise<RuleResult> {
+  if (!isUuid(accountId) || typeof wholeWord !== 'boolean') return fail('invalid');
+  try {
+    const v = validateWord(pattern, await S.loadRules(db, accountId));
+    if (!v.ok) return fail(v.error);
+    await S.insertWordRule(db, accountId, v.pattern, wholeWord);
+    return { ok: true };
+  } catch (e) {
+    return fail(ruleKey(e));
+  }
+}
+
+export async function setSpamRule(db: SupabaseClient, accountId: string, kind: unknown, on: unknown): Promise<RuleResult> {
+  if (!isUuid(accountId) || !(SPAM_KINDS as readonly unknown[]).includes(kind) || typeof on !== 'boolean') return fail('invalid');
+  try {
+    await S.setSpamRow(db, accountId, kind as SpamKind, on);
+    return { ok: true };
+  } catch (e) {
+    return fail(ruleKey(e));
+  }
+}
+
+export async function deleteRule(db: SupabaseClient, accountId: string, ruleId: unknown): Promise<RuleResult> {
+  if (!isUuid(accountId) || !isUuid(ruleId)) return fail('invalid');
+  try {
+    return (await S.deleteRuleRow(db, accountId, ruleId)) ? { ok: true } : fail('not_found');
+  } catch (e) {
+    return fail(ruleKey(e));
+  }
+}
+
+/** On: active + scope + at least one rule (the Moderation tab showed the preview in its confirm). Off: always. */
+export async function setAutoHide(db: SupabaseClient, accountId: string, enabled: unknown, now: Date = new Date()): Promise<RuleResult> {
+  if (!isUuid(accountId) || typeof enabled !== 'boolean') return fail('invalid');
+  try {
+    if (enabled) {
+      const account = await gate(db, accountId);
+      if (typeof account === 'string') return fail(account);
+      if ((await S.loadRules(db, accountId)).length === 0) return fail('no_rules');
+    }
+    await S.saveAutoHide(db, accountId, enabled, now.toISOString());
+    return { ok: true };
+  } catch (e) {
+    return fail(ruleKey(e));
+  }
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/moderation-service.test.ts`, `npx tsc --noEmit`, `npx eslint lib/moderation/service.ts tests/moderation-service.test.ts`.
+Expected: PASS (34 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/moderation/service.ts tests/moderation-service.test.ts
+git commit -m "feat(moderation): owner actions (log first, then Instagram), undo, rules and the auto-hide switch" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
