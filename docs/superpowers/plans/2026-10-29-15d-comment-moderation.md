@@ -2936,4 +2936,320 @@ git commit -m "feat(moderation): auto-hide pass after the alerts (capped, idempo
 
 ---
 
+### Task 9: Server actions + privacy guard — `app/(app)/accounts/moderation-actions.ts`
+
+**Files:**
+- Create: `app/(app)/accounts/moderation-actions.ts`, `tests/moderation-actions.test.ts`, `tests/moderation-privacy.test.ts`
+
+**Interfaces:**
+- Consumes: Task 7 (every service function and type), Task 4 `igModeration`, `getInstagramEnv`, `supabaseSyncStore(...).getToken`, `createAdminSupabase`, `createServerSupabase`, `requireOwner`.
+- Produces (Task 12 passes them to the client components; the props of Tasks 10/11 have exactly these shapes):
+```ts
+export async function hideCommentAction(accountId: string, commentId: string, hide: boolean, requestId: string): Promise<ModerationResult>;
+export async function replyCommentAction(accountId: string, commentId: string, message: string, requestId: string): Promise<ModerationResult>;
+export async function deleteCommentAction(accountId: string, commentId: string, requestId: string): Promise<ModerationResult>;
+export async function undoModerationAction(accountId: string, logId: number, requestId: string): Promise<ModerationResult>;
+export async function saveWordRuleAction(accountId: string, pattern: string, wholeWord: boolean): Promise<RuleResult>;
+export async function setSpamRuleAction(accountId: string, kind: SpamKind, on: boolean): Promise<RuleResult>;
+export async function deleteRuleAction(accountId: string, ruleId: string): Promise<RuleResult>;
+export async function setAutoHideAction(accountId: string, enabled: boolean): Promise<RuleResult>;
+```
+
+- [ ] **Step 1: Write the failing tests** — create `tests/moderation-actions.test.ts`:
+
+```ts
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { calls, requireOwner, svc } = vi.hoisted(() => ({
+  calls: [] as string[],
+  requireOwner: vi.fn(),
+  svc: {
+    moderate: vi.fn(),
+    undoAction: vi.fn(),
+    saveWordRule: vi.fn(),
+    setSpamRule: vi.fn(),
+    deleteRule: vi.fn(),
+    setAutoHide: vi.fn(),
+  },
+}));
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: () => requireOwner() }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push('session'), { session: true }) }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => (calls.push('ADMIN'), { admin: true }) }));
+vi.mock('@/lib/sync/store', () => ({ supabaseSyncStore: () => ({ getToken: async () => (calls.push('getToken'), 'tok-secret') }) }));
+vi.mock('@/lib/env', () => ({ getInstagramEnv: () => (calls.push('env'), { apiVersion: 'v25.0' }) }));
+vi.mock('@/lib/instagram/moderation', () => ({ igModeration: () => ({ hide: vi.fn(), reply: vi.fn(), remove: vi.fn() }) }));
+vi.mock('@/lib/moderation/service', () => svc);
+vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => calls.push(`revalidate:${a.join(',')}`) }));
+
+import {
+  deleteCommentAction, deleteRuleAction, hideCommentAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction,
+} from '@/app/(app)/accounts/moderation-actions';
+
+const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const R = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+
+beforeEach(() => {
+  calls.length = 0;
+  requireOwner.mockReset().mockImplementation(async () => void calls.push('requireOwner'));
+  for (const f of Object.values(svc)) f.mockReset().mockResolvedValue({ ok: true, logged: true });
+});
+
+describe('moderation actions', () => {
+  it.each([
+    ['hide', () => hideCommentAction(A, 'c1', true, R)],
+    ['reply', () => replyCommentAction(A, 'c1', 'hi', R)],
+    ['delete', () => deleteCommentAction(A, 'c1', R)],
+    ['undo', () => undoModerationAction(A, 3, R)],
+    ['saveWord', () => saveWordRuleAction(A, 'spam', false)],
+    ['setSpam', () => setSpamRuleAction(A, 'link', true)],
+    ['deleteRule', () => deleteRuleAction(A, R)],
+    ['setAutoHide', () => setAutoHideAction(A, true)],
+  ])('%s: requireOwner runs first; a redirect propagates and nothing is touched', async (_n, run) => {
+    await run();
+    expect(calls[0]).toBe('requireOwner');
+    calls.length = 0;
+    requireOwner.mockRejectedValue(new Error('NEXT_REDIRECT'));
+    await expect(run()).rejects.toThrow('NEXT_REDIRECT');
+    expect(calls).toEqual([]);
+    for (const f of Object.values(svc)) expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps each action to the service input (the browser picks no kind it should not)', async () => {
+    await hideCommentAction(A, 'c1', true, R);
+    await hideCommentAction(A, 'c1', false, R);
+    await replyCommentAction(A, 'c1', 'hi', R);
+    await deleteCommentAction(A, 'c1', R);
+    expect(svc.moderate.mock.calls.map((c) => c[1])).toEqual([
+      { kind: 'hide', accountId: A, commentId: 'c1', requestId: R },
+      { kind: 'unhide', accountId: A, commentId: 'c1', requestId: R },
+      { kind: 'reply', accountId: A, commentId: 'c1', requestId: R, message: 'hi' },
+      { kind: 'delete', accountId: A, commentId: 'c1', requestId: R },
+    ]);
+    expect(await hideCommentAction(A, 'c1', 'yes' as never, R)).toEqual({ ok: false, error: 'invalid' });
+    await undoModerationAction(A, 3, R);
+    expect(svc.undoAction.mock.calls[0][1]).toEqual({ accountId: A, logId: 3, requestId: R });
+  });
+
+  it('the admin client exists only inside token(), and only when the service asks for it', async () => {
+    await hideCommentAction(A, 'c1', true, R);
+    expect(calls).not.toContain('ADMIN');
+    svc.moderate.mockImplementationOnce(async (deps: { token: (id: string) => Promise<string | null> }) => {
+      await deps.token(A);
+      return { ok: true, logged: true };
+    });
+    const r = await hideCommentAction(A, 'c1', true, R);
+    expect(calls.slice(-3)).toEqual(['ADMIN', 'getToken', `revalidate:/accounts/[id],page`]);
+    expect(JSON.stringify(r)).not.toContain('tok-');
+  });
+
+  it('rule actions use only the owner session (no admin client, no Instagram env)', async () => {
+    await saveWordRuleAction(A, 'spam', true);
+    await setSpamRuleAction(A, 'emoji', false);
+    await deleteRuleAction(A, R);
+    await setAutoHideAction(A, false);
+    expect(calls).not.toContain('ADMIN');
+    expect(calls).not.toContain('env');
+    expect(svc.saveWordRule.mock.calls[0].slice(1)).toEqual([A, 'spam', true]);
+    expect(svc.setAutoHide.mock.calls[0].slice(1, 3)).toEqual([A, false]);
+  });
+
+  it('revalidates the account page only after a success', async () => {
+    svc.moderate.mockResolvedValueOnce({ ok: false, error: 'rate_limited' });
+    expect(await hideCommentAction(A, 'c1', true, R)).toEqual({ ok: false, error: 'rate_limited' });
+    expect(calls.some((c) => c.startsWith('revalidate'))).toBe(false);
+  });
+});
+```
+
+and `tests/moderation-privacy.test.ts`:
+
+```ts
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const root = process.cwd();
+const sources = ['lib', 'app', 'components']
+  .flatMap((d) => readdirSync(join(root, d), { recursive: true, encoding: 'utf8' }).map((f) => join(d, f).replaceAll('\\', '/')))
+  .filter((f) => /\.(ts|tsx)$/.test(f));
+const read = (f: string) => readFileSync(join(root, f), 'utf8');
+const naming = (re: RegExp) => sources.filter((f) => re.test(read(f))).sort();
+const MODERATION_FILES = [
+  'lib/moderation/rules.ts',
+  'lib/moderation/store.ts',
+  'lib/moderation/service.ts',
+  'lib/moderation/auto.ts',
+  'lib/instagram/moderation.ts',
+  'app/(app)/accounts/moderation-actions.ts',
+  'components/account/CommentActions.tsx',
+  'components/account/ModerationTab.tsx',
+].filter((f) => existsSync(join(root, f))); // the two components land in the same wave
+
+describe('moderation privacy and choke points', () => {
+  it('only lib/moderation/store.ts names the log and the rules; settings also in the alert store (paused_at only)', () => {
+    expect(naming(/['"`]moderation_log['"`]/)).toEqual(['lib/moderation/store.ts']);
+    expect(naming(/['"`]moderation_rules['"`]/)).toEqual(['lib/moderation/store.ts']);
+    expect(naming(/['"`]moderation_settings['"`]/)).toEqual(['lib/alerts/store.ts', 'lib/moderation/store.ts']);
+  });
+
+  it('only lib/moderation/store.ts updates or deletes comments', () => {
+    expect(naming(/from\(\s*['"]comments['"]\s*\)\s*\.(update|delete)\(/)).toEqual(['lib/moderation/store.ts']);
+  });
+
+  it('no console output except console.error with ONE fixed string literal (no text, names, ids or tokens)', () => {
+    for (const f of MODERATION_FILES) {
+      const src = read(f);
+      expect(src, f).not.toMatch(/console\.(log|info|warn|debug|trace)\s*\(/);
+      for (const m of src.matchAll(/console\.error\(([^)]*)\)/g)) expect(m[1].trim(), f).toMatch(/^'[^'${}]*'$/);
+    }
+  });
+
+  it('no token or secret reaches client code; the admin client stays in server modules', () => {
+    for (const f of MODERATION_FILES.filter((x) => x.startsWith('components/'))) {
+      const src = read(f);
+      expect(src, f).not.toMatch(/access_token|NEXT_PUBLIC_|createAdminSupabase|account_tokens/);
+      // types only (erased at build time): a VALUE import of a server module would pull it into the client bundle
+      expect(src, f).not.toMatch(/^import (?!type )[^;]*from '@\/lib\/(moderation\/(store|auto|service)|instagram\/moderation)'/m);
+    }
+    expect(read('lib/moderation/service.ts')).not.toMatch(/createAdminSupabase/);
+  });
+
+  it('log rows carry ids only: the insert payload never names a text or author column', () => {
+    const store = read('lib/moderation/store.ts');
+    const insert = store.slice(store.indexOf('export async function insertLog'), store.indexOf('export async function finishLog'));
+    expect(insert).not.toMatch(/\b(text|author_username|message)\b/);
+  });
+});
+```
+
+Note: the client components import from `@/lib/moderation/store` / `service` with `import type` only (the guard rejects value imports of server modules); pure values (`REPLY_MAX`, `SPAM_KINDS`, `PATTERN_MAX`, `MAX_WORD_RULES`, rule labels) come from `@/lib/moderation/rules`.
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/moderation-actions.test.ts tests/moderation-privacy.test.ts`
+Expected: the actions test FAILS — `Failed to resolve import "@/app/(app)/accounts/moderation-actions"`. The privacy test may already pass (it is a guard over what Tasks 1–8 merged; missing files are skipped by `existsSync`).
+
+- [ ] **Step 3: Write the actions** — create `app/(app)/accounts/moderation-actions.ts`:
+
+```ts
+'use server';
+
+// Comment moderation server actions (Plan 15d). Server actions are public endpoints: requireOwner() FIRST (outside
+// try/catch: it redirects by throwing); lib/moderation/service.ts then validates every value and never throws. The
+// OWNER-SESSION client carries RLS for every read and write; the admin client is created only inside token() to read
+// this one account's token (account_tokens is service-role only) and never leaves the server.
+import { revalidatePath } from 'next/cache';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { getInstagramEnv } from '@/lib/env';
+import { igModeration } from '@/lib/instagram/moderation';
+import type { SpamKind } from '@/lib/moderation/rules';
+import { deleteRule, moderate, saveWordRule, setAutoHide, setSpamRule, undoAction, type ModerationResult, type RuleResult, type ServiceDeps } from '@/lib/moderation/service';
+import { createAdminSupabase } from '@/lib/supabase/admin';
+import { createServerSupabase } from '@/lib/supabase/server';
+import { supabaseSyncStore } from '@/lib/sync/store';
+
+async function deps(): Promise<ServiceDeps> {
+  return {
+    db: await createServerSupabase(),
+    token: (accountId) => supabaseSyncStore(createAdminSupabase()).getToken(accountId),
+    ig: igModeration(getInstagramEnv().apiVersion),
+  };
+}
+
+function done<R extends { ok: boolean }>(r: R): R {
+  if (r.ok) revalidatePath('/accounts/[id]', 'page');
+  return r;
+}
+
+const UNEXPECTED = { ok: false as const, error: 'unexpected' as const };
+
+export async function hideCommentAction(accountId: string, commentId: string, hide: boolean, requestId: string): Promise<ModerationResult> {
+  await requireOwner();
+  if (typeof hide !== 'boolean') return { ok: false, error: 'invalid' };
+  try {
+    return done(await moderate(await deps(), { kind: hide ? 'hide' : 'unhide', accountId, commentId, requestId }));
+  } catch {
+    return UNEXPECTED; // missing Instagram env (EnvError) or a client that could not be created
+  }
+}
+
+export async function replyCommentAction(accountId: string, commentId: string, message: string, requestId: string): Promise<ModerationResult> {
+  await requireOwner();
+  try {
+    return done(await moderate(await deps(), { kind: 'reply', accountId, commentId, requestId, message }));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+
+export async function deleteCommentAction(accountId: string, commentId: string, requestId: string): Promise<ModerationResult> {
+  await requireOwner();
+  try {
+    return done(await moderate(await deps(), { kind: 'delete', accountId, commentId, requestId }));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+
+export async function undoModerationAction(accountId: string, logId: number, requestId: string): Promise<ModerationResult> {
+  await requireOwner();
+  try {
+    return done(await undoAction(await deps(), { accountId, logId, requestId }));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+
+export async function saveWordRuleAction(accountId: string, pattern: string, wholeWord: boolean): Promise<RuleResult> {
+  await requireOwner();
+  try {
+    return done(await saveWordRule(await createServerSupabase(), accountId, pattern, wholeWord));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+
+export async function setSpamRuleAction(accountId: string, kind: SpamKind, on: boolean): Promise<RuleResult> {
+  await requireOwner();
+  try {
+    return done(await setSpamRule(await createServerSupabase(), accountId, kind, on));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+
+export async function deleteRuleAction(accountId: string, ruleId: string): Promise<RuleResult> {
+  await requireOwner();
+  try {
+    return done(await deleteRule(await createServerSupabase(), accountId, ruleId));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+
+export async function setAutoHideAction(accountId: string, enabled: boolean): Promise<RuleResult> {
+  await requireOwner();
+  try {
+    return done(await setAutoHide(await createServerSupabase(), accountId, enabled));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/moderation-actions.test.ts tests/moderation-privacy.test.ts tests/followers-privacy.test.ts`, `npx tsc --noEmit`, `npx eslint "app/(app)/accounts/moderation-actions.ts" tests/moderation-actions.test.ts tests/moderation-privacy.test.ts`.
+Expected: PASS (12 + 5 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add "app/(app)/accounts/moderation-actions.ts" tests/moderation-actions.test.ts tests/moderation-privacy.test.ts
+git commit -m "feat(moderation): owner-only server actions and the privacy guard" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
 <!-- PLAN CONTINUES -->
