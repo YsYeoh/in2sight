@@ -58,7 +58,7 @@ const parsePage = (v: string | string[] | undefined) => {
   return s !== null && /^\d{1,6}$/.test(s) && Number(s) >= 1 ? Number(s) : 1;
 };
 
-function parseDates(sp: Params): ListDates {
+export function parseDates(sp: Params): ListDates {
   let from = parseDay(sp.pfrom);
   let to = parseDay(sp.pto);
   if (from && to && from > to) [from, to] = [to, from];
@@ -89,7 +89,7 @@ export function parseStoryList(sp: Params): StoryListState {
   return { dates: parseDates(sp), measured: m === 'yes' ? true : m === 'no' ? false : null, sort: pick(STORY_SORTS, one(sp.sort)) ?? 'newest', page: parsePage(sp.page) };
 }
 
-const dateParams = (d: ListDates): Record<string, string> => (d.from || d.to ? { ...(d.from ? { pfrom: d.from } : {}), ...(d.to ? { pto: d.to } : {}) } : d.pr ? { pr: d.pr } : {});
+export const dateParams = (d: ListDates): Record<string, string> => (d.from || d.to ? { ...(d.from ? { pfrom: d.from } : {}), ...(d.to ? { pto: d.to } : {}) } : d.pr ? { pr: d.pr } : {});
 
 /** The Posts tab's query, fixed order, defaults left out, then `keep` (the page's Time Scope params, carried untouched). */
 export function postListParams(s: PostListState, keep: Record<string, string> = {}): Record<string, string> {
