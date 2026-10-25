@@ -982,13 +982,775 @@ export function pickAutoHide(cands: readonly Candidate[], rules: readonly Modera
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/moderation-rules.test.ts`
-Expected: PASS (17 tests). Then `npx tsc --noEmit` and `npx eslint lib/moderation/rules.ts tests/moderation-rules.test.ts`.
+Expected: PASS (16 tests). Then `npx tsc --noEmit` and `npx eslint lib/moderation/rules.ts tests/moderation-rules.test.ts`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add lib/moderation/rules.ts tests/moderation-rules.test.ts
 git commit -m "feat(moderation): banned-word and spam matching (fold, matchRule, touchedIds, pickAutoHide)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Meta write client + error classifier — `lib/instagram/moderation.ts`
+
+**Files:**
+- Create: `lib/instagram/moderation.ts`, `tests/instagram-moderation.test.ts`
+
+**Interfaces:**
+- Consumes: `call`, `InstagramApiError` (`lib/instagram/oauth.ts`), `classifyIgError` (`lib/instagram/data.ts`).
+- Produces:
+```ts
+export const MODERATION_TIMEOUT_MS = 5_000;
+export const REPLY_MAX = 2_200;
+export type ModerationErrorKey = 'reconnect' | 'rate_limited' | 'comment_gone' | 'not_allowed' | 'instagram_unavailable' | 'unknown_outcome' | 'unexpected';
+export function classifyModerationError(e: unknown, write?: 'reply' | 'other'): ModerationErrorKey;
+export function igModeration(apiVersion: string, fetchFn?: typeof fetch): {
+  hide(token: string, commentId: string, hide: boolean): Promise<void>;
+  reply(token: string, commentId: string, message: string): Promise<string | null>; // the reply's id; null = Meta said OK without an id
+  remove(token: string, commentId: string): Promise<void>;
+};
+export type IgModeration = ReturnType<typeof igModeration>;
+```
+
+- [ ] **Step 1: Write the failing test** — create `tests/instagram-moderation.test.ts`:
+
+```ts
+// @vitest-environment node
+import { describe, expect, it, vi } from 'vitest';
+import { classifyModerationError, igModeration, MODERATION_TIMEOUT_MS } from '@/lib/instagram/moderation';
+import { InstagramApiError } from '@/lib/instagram/oauth';
+
+const TOKEN = 'IGAAsecret-token';
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+const setup = (res: () => Response | Promise<Response>) => {
+  const fetchFn = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => res());
+  return { fetchFn, ig: igModeration('v25.0', fetchFn as unknown as typeof fetch) };
+};
+const req = (f: ReturnType<typeof setup>['fetchFn'], i = 0) => ({ url: new URL(String(f.mock.calls[i][0])), init: f.mock.calls[i][1]! });
+
+describe('igModeration: the three writes (graph.instagram.com, Instagram Login)', () => {
+  it('hide: POST /{comment-id}?hide=true with the token in the query, a 5 s timeout and no redirects', async () => {
+    const { fetchFn, ig } = setup(() => json({ success: true }));
+    await ig.hide(TOKEN, '17881770991003328', true);
+    const { url, init } = req(fetchFn);
+    expect(`${url.origin}${url.pathname}`).toBe('https://graph.instagram.com/v25.0/17881770991003328');
+    expect(url.searchParams.get('hide')).toBe('true');
+    expect(url.searchParams.get('access_token')).toBe(TOKEN);
+    expect(init.method).toBe('POST');
+    expect(init.redirect).toBe('error');
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(MODERATION_TIMEOUT_MS).toBe(5_000);
+  });
+
+  it('unhide: hide=false', async () => {
+    const { fetchFn, ig } = setup(() => json({ success: true }));
+    await ig.hide(TOKEN, '1789', false);
+    expect(req(fetchFn).url.searchParams.get('hide')).toBe('false');
+  });
+
+  it('reply: POST /{comment-id}/replies with a form-encoded message; returns the new id (null when Meta sends none)', async () => {
+    const { fetchFn, ig } = setup(() => json({ id: '17873440459141029' }));
+    expect(await ig.reply(TOKEN, '1789', 'Thank you 🙏 & see you')).toBe('17873440459141029');
+    const { url, init } = req(fetchFn);
+    expect(url.pathname).toBe('/v25.0/1789/replies');
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get('content-type')).toBe('application/x-www-form-urlencoded');
+    expect(new URLSearchParams(String(init.body)).get('message')).toBe('Thank you 🙏 & see you');
+    expect(String(init.body)).not.toContain(TOKEN);
+    const odd = setup(() => json({ ok: 1 }));
+    expect(await odd.ig.reply(TOKEN, '1789', 'hi')).toBeNull();
+  });
+
+  it('remove: DELETE /{comment-id}', async () => {
+    const { fetchFn, ig } = setup(() => json({ success: true }));
+    await ig.remove(TOKEN, '1789');
+    expect(req(fetchFn).init.method).toBe('DELETE');
+    expect(req(fetchFn).url.pathname).toBe('/v25.0/1789');
+  });
+
+  it('a 200 without success:true is a failure (never assumed done)', async () => {
+    const { ig } = setup(() => json({ success: false }));
+    await expect(ig.hide(TOKEN, '1789', true)).rejects.toBeInstanceOf(InstagramApiError);
+    await expect(ig.remove(TOKEN, '1789')).rejects.toBeInstanceOf(InstagramApiError);
+  });
+
+  it('an id that is not an Instagram id is refused before any request', async () => {
+    const { fetchFn, ig } = setup(() => json({ success: true }));
+    await expect(ig.hide(TOKEN, '../me', true)).rejects.toBeInstanceOf(InstagramApiError);
+    await expect(ig.remove(TOKEN, '1789?x=1')).rejects.toBeInstanceOf(InstagramApiError);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('errors carry no token, URL, body or Meta message', async () => {
+    const { ig } = setup(() => json({ error: { code: 100, error_subcode: 33, message: `secret ${TOKEN}` } }, 400));
+    const e = await ig.hide(TOKEN, '1789', true).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(InstagramApiError);
+    expect(`${String((e as Error).message)} ${JSON.stringify(e)} ${String((e as Error).stack)}`).not.toMatch(/IGAAsecret|graph\.instagram|secret/);
+  });
+});
+
+describe('classifyModerationError', () => {
+  const err = (status: number, code?: number, subcode?: number) => new InstagramApiError('data', status, code, subcode);
+  it.each([
+    ['token invalid (190)', err(400, 190), 'reconnect'],
+    ['permission range (200)', err(403, 200), 'reconnect'],
+    ['permission denied for the action (10)', err(400, 10), 'reconnect'],
+    ['HTTP 401', err(401), 'reconnect'],
+    ['HTTP 403 without a code', err(403), 'reconnect'],
+    ['app rate limit (4)', err(400, 4), 'rate_limited'],
+    ['user rate limit (17)', err(400, 17), 'rate_limited'],
+    ['BUC throttle (80002)', err(400, 80002), 'rate_limited'],
+    ['HTTP 429', err(429), 'rate_limited'],
+    ['object missing (100/33)', err(400, 100, 33), 'comment_gone'],
+    ['other invalid parameter (100)', err(400, 100), 'not_allowed'],
+    ['HTTP 500', err(500), 'instagram_unavailable'],
+    ['network / timeout', new InstagramApiError('network'), 'instagram_unavailable'],
+    ['not an Instagram error', new Error('boom'), 'unexpected'],
+  ])('%s', (_n, e, key) => {
+    expect(classifyModerationError(e)).toBe(key);
+  });
+
+  it('a reply whose outcome Instagram did not confirm is unknown_outcome, never "try again"', () => {
+    expect(classifyModerationError(new InstagramApiError('network'), 'reply')).toBe('unknown_outcome');
+    expect(classifyModerationError(err(502), 'reply')).toBe('unknown_outcome');
+    expect(classifyModerationError(err(400, 100), 'reply')).toBe('not_allowed');
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/instagram-moderation.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/instagram/moderation"`.
+
+- [ ] **Step 3: Write the module** — create `lib/instagram/moderation.ts`:
+
+```ts
+// Comment moderation writes (Plan 15d): hide / unhide, reply, delete. Instagram API with Instagram Login
+// (graph.instagram.com, Instagram User token, instagram_business_basic + instagram_business_manage_comments).
+// Read 2026-10-25 from https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-comment
+// and https://developers.facebook.com/documentation/instagram-platform/comment-moderation:
+//   POST   /{ig-comment-id}?hide=true|false  -> {"success": true}  (owner of the media; the owner's own comments are always shown)
+//   POST   /{ig-comment-id}/replies message  -> {"id": "..."}
+//   DELETE /{ig-comment-id}                  -> {"success": true}  (owner of the media)
+// Rate limits for these writes are not documented (Open question P2); the callers cap their own volume.
+// SERVER ONLY: the token is a request parameter; errors are InstagramApiError with fixed messages (never a URL or body).
+import { classifyIgError } from '@/lib/instagram/data';
+import { call, InstagramApiError } from '@/lib/instagram/oauth';
+
+const HOST = 'https://graph.instagram.com';
+/** Shorter than the sync's 10 s: the tick pass must end before the route's 60 s (lib/moderation/auto.ts). */
+export const MODERATION_TIMEOUT_MS = 5_000;
+/** Instagram's comment length (Open question P6). */
+export const REPLY_MAX = 2_200;
+/** Graph API "permission denied" for an action. (For READS the sync meets 10 as "not enough viewers".) */
+const PERMISSION_DENIED = 10;
+const ID = /^\w{1,64}$/;
+
+export type ModerationErrorKey = 'reconnect' | 'rate_limited' | 'comment_gone' | 'not_allowed' | 'instagram_unavailable' | 'unknown_outcome' | 'unexpected';
+
+/**
+ * What a failed write means for the owner. `write = 'reply'`: a timeout or 5xx may still have posted the reply, so it is
+ * unknown_outcome (the UI says "check on Instagram before sending again") instead of an invitation to retry.
+ */
+export function classifyModerationError(e: unknown, write: 'reply' | 'other' = 'other'): ModerationErrorKey {
+  if (!(e instanceof InstagramApiError)) return 'unexpected';
+  const k = classifyIgError(e);
+  if (k === 'rate_limit' || k === 'app_rate_limit') return 'rate_limited';
+  if (k === 'auth' || (e.kind !== 'network' && (e.code === PERMISSION_DENIED || e.status === 403))) return 'reconnect';
+  if (k === 'gone') return 'comment_gone';
+  if (k === 'transient') return write === 'reply' ? 'unknown_outcome' : 'instagram_unavailable';
+  return 'not_allowed';
+}
+
+const init = (method: 'POST' | 'DELETE', form?: Record<string, string>): RequestInit => ({
+  method,
+  signal: AbortSignal.timeout(MODERATION_TIMEOUT_MS),
+  redirect: 'error', // the token is in the query: never follow a redirect anywhere
+  ...(form ? { headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form).toString() } : {}),
+});
+
+export function igModeration(apiVersion: string, fetchFn: typeof fetch = fetch) {
+  const url = (commentId: string, edge: string, params: Record<string, string>, token: string) => {
+    if (!ID.test(commentId)) throw new InstagramApiError('data'); // never build a path from anything else
+    const u = new URL(`${HOST}/${apiVersion}/${commentId}${edge}`);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    u.searchParams.set('access_token', token);
+    return u.toString();
+  };
+  const success = (b: Record<string, unknown>) => {
+    if (b.success !== true) throw new InstagramApiError('data');
+  };
+  return {
+    async hide(token: string, commentId: string, hide: boolean): Promise<void> {
+      success(await call('data', fetchFn, url(commentId, '', { hide: String(hide) }, token), init('POST')));
+    },
+    async reply(token: string, commentId: string, message: string): Promise<string | null> {
+      const b = await call('data', fetchFn, url(commentId, '/replies', {}, token), init('POST', { message }));
+      return typeof b.id === 'string' && ID.test(b.id) ? b.id : null;
+    },
+    async remove(token: string, commentId: string): Promise<void> {
+      success(await call('data', fetchFn, url(commentId, '', {}, token), init('DELETE')));
+    },
+  };
+}
+
+export type IgModeration = ReturnType<typeof igModeration>;
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/instagram-moderation.test.ts tests/instagram-data.test.ts` (the second only if it exists; `ls tests | grep instagram`), `npx tsc --noEmit`, `npx eslint lib/instagram/moderation.ts tests/instagram-moderation.test.ts`.
+Expected: PASS (7 + 15 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/instagram/moderation.ts tests/instagram-moderation.test.ts
+git commit -m "feat(instagram): comment moderation writes (hide, reply, delete) and their error keys" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: Store — `lib/moderation/store.ts` (the SQL choke point)
+
+**Files:**
+- Create: `lib/moderation/store.ts`, `tests/moderation-store.test.ts`
+
+**Interfaces:**
+- Consumes: Task 1 tables/columns; Task 3 `RULE_KINDS`, `SPAM_KINDS`, `MAX_WORD_RULES`, `pickAutoHide`, `touchedIds`, types.
+- Produces (Tasks 7, 8, 11, 12 use exactly these):
+```ts
+export const LOG_PAGE = 50, PREVIEW_SCAN = 1000, CANDIDATE_SCAN = 200, MARK_SCAN = 10_000, PENDING_STALE_MS = 120_000, CONTEXT_CHARS = 80, PREVIEW_SAMPLE = 5;
+export type LogAction = 'reply' | 'hide' | 'unhide' | 'delete' | 'delete_reply';
+export type UndoKind = 'unhide' | 'delete_reply';
+export interface LogRow { id: number; commentId: string; action: LogAction; actor: string; result: string; targetId: string | null; undoOf: number | null; createdAt: string; undoneAt: string | null }
+export interface LogEntry extends LogRow { shown: string; undo: UndoKind | null; context: { authorUsername: string | null; snippet: string | null } | null }
+export interface ModerationSettings { autoHide: boolean; pausedAt: string | null; pauseReason: 'reconnect' | 'failing' | null }
+export interface ModerationData {
+  settings: ModerationSettings;
+  rules: ModerationRule[];
+  log: { rows: LogEntry[]; total: number; page: number; pages: number };
+  preview: { count: number; scanned: number; sample: { id: string; authorUsername: string | null; snippet: string | null; rule: ModerationRule }[] };
+}
+export interface ActionAccount { id: string; username: string; status: AccountStatus; grantedScopes: string[] | null }
+export class ModerationStoreError extends Error { reason: 'missing' | 'duplicate' | 'not_found' | 'other' }
+// pure
+export function undoKind(r: Pick<LogRow, 'action' | 'result' | 'targetId' | 'undoneAt'>): UndoKind | null;
+export function displayResult(r: Pick<LogRow, 'result' | 'createdAt'>, now: Date): string;
+export function snippet(text: string | null): string | null;
+// the tab (owner session)
+export function loadModeration(db: SupabaseClient, accountId: string, ownUsername: string, page: number, now: Date): Promise<ModerationData | null>;
+// actions (owner session; the tick passes the admin client)
+export function getActionAccount(db, accountId): Promise<ActionAccount | null>;
+export function getActionComment(db, accountId, commentId): Promise<{ id: string; authorUsername: string | null; hidden: boolean } | null>;
+export function countRecentOwnerActions(db, accountId, sinceIso): Promise<number>;
+export function insertLog(db, row: { accountId: string; commentId: string; action: LogAction; actor: string; requestId: string; undoOf?: number; targetId?: string }): Promise<number>;
+export function finishLog(db, id: number, result: string, targetId?: string | null): Promise<void>;
+export function getLog(db, accountId, id: number): Promise<LogRow | null>;
+export function markUndone(db, accountId, id: number, atIso: string): Promise<boolean>;
+export function setCommentHidden(db, accountId, commentId, hidden: boolean): Promise<void>;
+export function removeComment(db, accountId, commentId): Promise<void>;
+export function loadRules(db, accountId): Promise<ModerationRule[]>;
+export function insertWordRule(db, accountId, pattern: string, wholeWord: boolean): Promise<void>;
+export function setSpamRow(db, accountId, kind: SpamKind, on: boolean): Promise<void>;
+export function deleteRuleRow(db, accountId, ruleId): Promise<boolean>;
+export function saveAutoHide(db, accountId, enabled: boolean, nowIso: string): Promise<void>;
+// the tick (admin client)
+export function autoHideAccounts(db): Promise<{ accountId: string; rules: ModerationRule[] }[] | null>;
+export function visibleComments(db, accountId, limit: number): Promise<Candidate[]>;
+export function logMarks(db, accountId): Promise<LogMark[]>;
+export function pauseAutoHide(db, accountId, reason: 'reconnect' | 'failing', atIso: string): Promise<void>;
+```
+Every write throws `ModerationStoreError` (fixed message `moderation store: <op> failed`, a `reason` from the Postgres/PostgREST code: `PGRST205`/`42P01` → `missing`, `23505` → `duplicate`, `23503` → `not_found`, else `other`); Supabase's own message is never used. Every query on `comments` and `moderation_log` filters by `account_id` (and the row id where there is one).
+
+- [ ] **Step 1: Write the failing test** — create `tests/moderation-store.test.ts`:
+
+```ts
+// @vitest-environment node
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  CONTEXT_CHARS, LOG_PAGE, ModerationStoreError, autoHideAccounts, displayResult, finishLog, getActionComment, insertLog, loadModeration,
+  markUndone, removeComment, setCommentHidden, setSpamRow, snippet, undoKind,
+} from '@/lib/moderation/store';
+
+type Res = { data?: unknown; error?: { code?: string } | null; count?: number | null };
+const calls: unknown[][] = [];
+let results: Record<string, Res[]> = {};
+
+/** Records every builder call; each awaited query resolves to the next queued result of its table. */
+function fakeDb() {
+  return {
+    from(table: string) {
+      calls.push(['from', table]);
+      const chain: Record<string, unknown> = {};
+      for (const op of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'is', 'in', 'not', 'gte', 'order', 'range', 'limit', 'maybeSingle', 'single'])
+        chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve((results[table] ?? []).shift() ?? { data: null, error: null }).then(res, rej);
+      return chain;
+    },
+  } as unknown as SupabaseClient;
+}
+const has = (op: string, ...args: unknown[]) => calls.some((c) => c[0] === op && args.every((a, i) => JSON.stringify(c[i + 1]) === JSON.stringify(a)));
+
+const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
+const R = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+const Q = '2b3c4d5e-6f7a-4b2c-9d3e-4f5a6b7c8d9e';
+const NOW = new Date('2026-10-29T10:00:00Z');
+const logRow = (o: Record<string, unknown> = {}) => ({ id: 1, comment_id: 'c1', action: 'hide', actor: 'owner', result: 'ok', target_id: null, undo_of: null, created_at: '2026-10-29T09:00:00Z', undone_at: null, ...o });
+
+beforeEach(() => {
+  calls.length = 0;
+  results = {};
+});
+
+describe('pure helpers', () => {
+  it('undoKind: an ok hide can be unhidden, an ok reply with an id can be deleted; nothing else, nothing twice', () => {
+    const r = { action: 'hide' as const, result: 'ok', targetId: null, undoneAt: null };
+    expect(undoKind(r)).toBe('unhide');
+    expect(undoKind({ ...r, action: 'reply', targetId: '1790' })).toBe('delete_reply');
+    expect(undoKind({ ...r, action: 'reply' })).toBeNull(); // reply id unknown
+    expect(undoKind({ ...r, undoneAt: '2026-10-29T09:30:00Z' })).toBeNull();
+    expect(undoKind({ ...r, result: 'pending' })).toBeNull();
+    expect(undoKind({ ...r, action: 'delete' })).toBeNull(); // irreversible
+    expect(undoKind({ ...r, action: 'unhide' })).toBeNull();
+  });
+
+  it('displayResult: a pending row older than 2 minutes is shown as unknown', () => {
+    expect(displayResult({ result: 'pending', createdAt: '2026-10-29T09:59:00Z' }, NOW)).toBe('pending');
+    expect(displayResult({ result: 'pending', createdAt: '2026-10-29T09:57:59Z' }, NOW)).toBe('unknown');
+    expect(displayResult({ result: 'rate_limited', createdAt: '2026-10-29T09:00:00Z' }, NOW)).toBe('rate_limited');
+  });
+
+  it('snippet: whitespace collapsed, clipped to 80 characters (code points) with an ellipsis', () => {
+    expect(snippet(null)).toBeNull();
+    expect(snippet('  hi \n there ')).toBe('hi there');
+    const s = snippet('😀'.repeat(100))!;
+    expect([...s]).toHaveLength(CONTEXT_CHARS);
+    expect(s.endsWith('…')).toBe(true);
+  });
+});
+
+describe('log writes', () => {
+  it('insertLog stores ids only and returns the new id', async () => {
+    results.moderation_log = [{ data: { id: 7 }, error: null }];
+    expect(await insertLog(fakeDb(), { accountId: A, commentId: 'c1', action: 'hide', actor: 'owner', requestId: R })).toBe(7);
+    const payload = calls.find((c) => c[0] === 'insert')![1] as Record<string, unknown>;
+    expect(Object.keys(payload).sort()).toEqual(['account_id', 'action', 'actor', 'comment_id', 'request_id']);
+  });
+
+  it('insertLog: a repeated request id is "duplicate", a missing table "missing"; the message is fixed', async () => {
+    results.moderation_log = [{ data: null, error: { code: '23505' } }, { data: null, error: { code: 'PGRST205' } }, { data: null, error: { code: 'XX000' } }];
+    const run = () => insertLog(fakeDb(), { accountId: A, commentId: 'c1', action: 'hide', actor: 'owner', requestId: R });
+    await expect(run()).rejects.toMatchObject({ reason: 'duplicate', message: 'moderation store: insertLog failed' });
+    await expect(run()).rejects.toMatchObject({ reason: 'missing' });
+    await expect(run()).rejects.toBeInstanceOf(ModerationStoreError);
+  });
+
+  it('finishLog writes the result (and the reply id when given) by row id', async () => {
+    await finishLog(fakeDb(), 7, 'ok', '1790');
+    expect(has('update', { result: 'ok', target_id: '1790' })).toBe(true);
+    expect(has('eq', 'id', 7)).toBe(true);
+    calls.length = 0;
+    await finishLog(fakeDb(), 7, 'rate_limited');
+    expect(has('update', { result: 'rate_limited' })).toBe(true);
+  });
+
+  it('markUndone only once, only for this account', async () => {
+    results.moderation_log = [{ data: [{ id: 7 }], error: null }, { data: [], error: null }];
+    expect(await markUndone(fakeDb(), A, 7, NOW.toISOString())).toBe(true);
+    expect(has('eq', 'account_id', A) && has('is', 'undone_at', null)).toBe(true);
+    expect(await markUndone(fakeDb(), A, 7, NOW.toISOString())).toBe(false);
+  });
+});
+
+describe('comments: every read and write is filtered by the comment id AND the account id', () => {
+  it.each([
+    ['getActionComment', () => getActionComment(fakeDb(), A, 'c1')],
+    ['setCommentHidden', () => setCommentHidden(fakeDb(), A, 'c1', true)],
+    ['removeComment', () => removeComment(fakeDb(), A, 'c1')],
+  ])('%s', async (_n, run) => {
+    await run();
+    expect(has('from', 'comments')).toBe(true);
+    expect(has('eq', 'id', 'c1')).toBe(true);
+    expect(has('eq', 'account_id', A)).toBe(true);
+  });
+
+  it('getActionComment maps the row; null when absent', async () => {
+    results.comments = [{ data: { id: 'c1', author_username: 'fan', hidden: true }, error: null }, { data: null, error: null }];
+    expect(await getActionComment(fakeDb(), A, 'c1')).toEqual({ id: 'c1', authorUsername: 'fan', hidden: true });
+    expect(await getActionComment(fakeDb(), A, 'c2')).toBeNull();
+  });
+});
+
+describe('rules and settings', () => {
+  it('a spam pattern switched on twice stays one row (the unique index answers 23505)', async () => {
+    results.moderation_rules = [{ data: null, error: { code: '23505' } }];
+    await expect(setSpamRow(fakeDb(), A, 'link', true)).resolves.toBeUndefined();
+    await setSpamRow(fakeDb(), A, 'link', false);
+    expect(has('delete')).toBe(true);
+    expect(has('eq', 'kind', 'link')).toBe(true);
+  });
+});
+
+describe('loadModeration (the tab)', () => {
+  const seed = () => {
+    results.moderation_settings = [{ data: { auto_hide: true, paused_at: null, pause_reason: null }, error: null }];
+    results.moderation_rules = [{ data: [{ id: R, kind: 'word', pattern: 'spam', whole_word: false }, { id: Q, kind: 'bogus', pattern: null, whole_word: false }], error: null }];
+    results.moderation_log = [
+      { data: [logRow(), logRow({ id: 2, comment_id: 'gone', action: 'reply', target_id: '1790', result: 'pending', created_at: '2026-10-29T09:00:00Z' })], count: 2, error: null },
+      { data: [{ comment_id: 'c9', actor: 'owner', result: 'ok' }], error: null }, // marks: c9 touched
+    ];
+    results.comments = [
+      { data: [{ id: 'c1', author_username: 'fan', text: 'buy spam now' }], error: null }, // context of the log page
+      { data: [{ id: 'c3', author_username: 'x', text: 'spam!', hidden: false }, { id: 'c9', author_username: 'y', text: 'spam', hidden: false }, { id: 'c4', author_username: 'z', text: 'nice', hidden: false }], error: null }, // visible
+    ];
+  };
+
+  it('settings, valid rules only, a log page with context, display state and undo, and the preview', async () => {
+    seed();
+    const d = (await loadModeration(fakeDb(), A, 'me', 1, NOW))!;
+    expect(d.settings).toEqual({ autoHide: true, pausedAt: null, pauseReason: null });
+    expect(d.rules).toEqual([{ id: R, kind: 'word', pattern: 'spam', wholeWord: false }]);
+    expect(d.log.total).toBe(2);
+    expect(d.log.pages).toBe(1);
+    expect(d.log.rows[0]).toMatchObject({ id: 1, commentId: 'c1', shown: 'ok', undo: 'unhide', context: { authorUsername: 'fan', snippet: 'buy spam now' } });
+    expect(d.log.rows[1]).toMatchObject({ id: 2, shown: 'unknown', undo: null, context: null });
+    expect(d.preview).toMatchObject({ count: 1, scanned: 3 });
+    expect(d.preview.sample.map((s) => s.id)).toEqual(['c3']);
+    expect(has('range', 0, LOG_PAGE - 1)).toBe(true);
+  });
+
+  it('a page past the end (PostgREST 416, PGRST103) reads page 1 instead', async () => {
+    seed();
+    results.moderation_log.unshift({ data: null, error: { code: 'PGRST103' } });
+    const d = (await loadModeration(fakeDb(), A, 'me', 9, NOW))!;
+    expect(d.log.page).toBe(1);
+    expect(has('range', 0, LOG_PAGE - 1)).toBe(true);
+  });
+
+  it('null before the migration (a missing table)', async () => {
+    results.moderation_settings = [{ data: null, error: { code: 'PGRST205' } }];
+    expect(await loadModeration(fakeDb(), A, 'me', 1, NOW)).toBeNull();
+  });
+});
+
+describe('the tick reads', () => {
+  it('autoHideAccounts: accounts with auto-hide on and not paused, with their rules; null before the migration', async () => {
+    results.moderation_settings = [{ data: [{ account_id: A }], error: null }];
+    results.moderation_rules = [{ data: [{ id: R, account_id: A, kind: 'link', pattern: null, whole_word: false }], error: null }];
+    expect(await autoHideAccounts(fakeDb())).toEqual([{ accountId: A, rules: [{ id: R, kind: 'link', pattern: null, wholeWord: false }] }]);
+    expect(has('eq', 'auto_hide', true) && has('is', 'paused_at', null)).toBe(true);
+    results.moderation_settings = [{ data: null, error: { code: '42P01' } }];
+    expect(await autoHideAccounts(fakeDb())).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/moderation-store.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/moderation/store"`.
+
+- [ ] **Step 3: Write the module** — create `lib/moderation/store.ts`:
+
+```ts
+// Moderation persistence (Plan 15d). The ONLY module that names moderation_settings / moderation_rules /
+// moderation_log and writes comments (tests/moderation-privacy.test.ts). Every function takes the client to use: the
+// OWNER SESSION from the app (RLS applies), the ADMIN client from the sync tick. Every comments / log query is filtered
+// by account_id. Errors are ModerationStoreError with a fixed message and a reason; Supabase's message is never used
+// (it can echo values). Comment text is read only for the preview and the log context; it is never written anywhere.
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AccountStatus } from '@/lib/accounts/types';
+import { MAX_WORD_RULES, pickAutoHide, RULE_KINDS, SPAM_KINDS, touchedIds, type Candidate, type LogMark, type ModerationRule, type RuleKind, type SpamKind } from '@/lib/moderation/rules';
+
+export const LOG_PAGE = 50;
+export const PREVIEW_SCAN = 1000; // newest stored comments the preview checks
+export const CANDIDATE_SCAN = 200; // newest stored comments one tick checks per account
+export const MARK_SCAN = 10_000; // ponytail: newest log rows read for "touched"; an account with more needs a SQL anti-join
+export const PENDING_STALE_MS = 120_000;
+export const CONTEXT_CHARS = 80;
+export const PREVIEW_SAMPLE = 5;
+
+export type LogAction = 'reply' | 'hide' | 'unhide' | 'delete' | 'delete_reply';
+export type UndoKind = 'unhide' | 'delete_reply';
+export interface LogRow {
+  id: number;
+  commentId: string;
+  action: LogAction;
+  actor: string;
+  result: string;
+  targetId: string | null;
+  undoOf: number | null;
+  createdAt: string;
+  undoneAt: string | null;
+}
+export interface LogEntry extends LogRow {
+  shown: string; // displayResult
+  undo: UndoKind | null;
+  context: { authorUsername: string | null; snippet: string | null } | null; // null = the comment is no longer stored
+}
+export interface ModerationSettings {
+  autoHide: boolean;
+  pausedAt: string | null;
+  pauseReason: 'reconnect' | 'failing' | null;
+}
+export interface ModerationData {
+  settings: ModerationSettings;
+  rules: ModerationRule[];
+  log: { rows: LogEntry[]; total: number; page: number; pages: number };
+  preview: { count: number; scanned: number; sample: { id: string; authorUsername: string | null; snippet: string | null; rule: ModerationRule }[] };
+}
+export interface ActionAccount {
+  id: string;
+  username: string;
+  status: AccountStatus;
+  grantedScopes: string[] | null;
+}
+
+type Reason = 'missing' | 'duplicate' | 'not_found' | 'other';
+type DbError = { code?: string } | null | undefined;
+export class ModerationStoreError extends Error {
+  constructor(op: string, public reason: Reason) {
+    super(`moderation store: ${op} failed`);
+    this.name = 'ModerationStoreError';
+  }
+}
+const reasonOf = (e: DbError): Reason => (e?.code === 'PGRST205' || e?.code === '42P01' ? 'missing' : e?.code === '23505' ? 'duplicate' : e?.code === '23503' ? 'not_found' : 'other');
+function check(op: string, e: DbError): void {
+  if (e) throw new ModerationStoreError(op, reasonOf(e));
+}
+type Row = Record<string, unknown>;
+const str = (v: unknown) => (typeof v === 'string' ? v : null);
+const ACTIONS: readonly string[] = ['reply', 'hide', 'unhide', 'delete', 'delete_reply'];
+const LOG_COLUMNS = 'id,comment_id,action,actor,result,target_id,undo_of,created_at,undone_at';
+
+const toLog = (r: Row): LogRow | null =>
+  typeof r.id === 'number' && typeof r.comment_id === 'string' && ACTIONS.includes(r.action as string) && typeof r.created_at === 'string'
+    ? { id: r.id, commentId: r.comment_id, action: r.action as LogAction, actor: String(r.actor), result: String(r.result), targetId: str(r.target_id), undoOf: typeof r.undo_of === 'number' ? r.undo_of : null, createdAt: r.created_at, undoneAt: str(r.undone_at) }
+    : null;
+const toRule = (r: Row): ModerationRule | null =>
+  typeof r.id === 'string' && (RULE_KINDS as readonly string[]).includes(r.kind as string) ? { id: r.id, kind: r.kind as RuleKind, pattern: str(r.pattern), wholeWord: r.whole_word === true } : null;
+const rulesOf = (rows: Row[]) => rows.map(toRule).filter((r): r is ModerationRule => r !== null);
+const toCandidate = (r: Row): Candidate => ({ id: String(r.id), authorUsername: str(r.author_username), text: str(r.text), hidden: r.hidden === true });
+
+/** What the log can undo: an ok hide (unhide) and an ok reply whose id is known (delete it). Delete never. Once only. */
+export function undoKind(r: Pick<LogRow, 'action' | 'result' | 'targetId' | 'undoneAt'>): UndoKind | null {
+  if (r.result !== 'ok' || r.undoneAt !== null) return null;
+  if (r.action === 'hide') return 'unhide';
+  if (r.action === 'reply' && r.targetId !== null) return 'delete_reply';
+  return null;
+}
+
+/** A row still 'pending' after PENDING_STALE_MS never got its outcome written (see the plan's repair rule): unknown. */
+export const displayResult = (r: Pick<LogRow, 'result' | 'createdAt'>, now: Date): string =>
+  r.result === 'pending' && now.getTime() - Date.parse(r.createdAt) > PENDING_STALE_MS ? 'unknown' : r.result;
+
+export function snippet(text: string | null): string | null {
+  if (text === null) return null;
+  const chars = [...text.replace(/\s+/g, ' ').trim()];
+  return chars.length > CONTEXT_CHARS ? chars.slice(0, CONTEXT_CHARS - 1).join('') + '…' : chars.join('');
+}
+
+// ---- the tab (owner session) ----
+
+export async function loadModeration(db: SupabaseClient, accountId: string, ownUsername: string, page: number, now: Date): Promise<ModerationData | null> {
+  const logPage = (p: number) =>
+    db.from('moderation_log').select(LOG_COLUMNS, { count: 'exact' }).eq('account_id', accountId).order('created_at', { ascending: false }).order('id', { ascending: false }).range((p - 1) * LOG_PAGE, p * LOG_PAGE - 1);
+  const [s, r, first] = await Promise.all([
+    db.from('moderation_settings').select('auto_hide,paused_at,pause_reason').eq('account_id', accountId).maybeSingle(),
+    db.from('moderation_rules').select('id,kind,pattern,whole_word').eq('account_id', accountId).order('created_at').limit(MAX_WORD_RULES + SPAM_KINDS.length),
+    logPage(page),
+  ]);
+  if ([s.error, r.error, first.error].some((e) => reasonOf(e) === 'missing')) return null;
+  check('loadModeration', s.error);
+  check('loadModeration', r.error);
+  let shownPage = page;
+  let log = first;
+  if (log.error?.code === 'PGRST103') {
+    shownPage = 1; // a stale ?page= past the end: show page 1 (UI standard 12)
+    log = await logPage(1);
+  }
+  check('loadModeration', log.error);
+  const settingsRow = (s.data ?? {}) as Row;
+  const rules = rulesOf((r.data ?? []) as Row[]);
+  const rows = ((log.data ?? []) as Row[]).map(toLog).filter((x): x is LogRow => x !== null);
+  const ids = [...new Set(rows.map((x) => x.commentId))];
+  // order matters for the tests' queue: context, then the preview's comments, then the marks
+  const [ctx, visible, marks] = await Promise.all([
+    ids.length ? db.from('comments').select('id,author_username,text').eq('account_id', accountId).in('id', ids) : Promise.resolve({ data: [], error: null }),
+    visibleComments(db, accountId, PREVIEW_SCAN),
+    logMarks(db, accountId),
+  ]);
+  check('loadModeration', ctx.error);
+  const byId = new Map(((ctx.data ?? []) as Row[]).map((c) => [String(c.id), c]));
+  const picks = pickAutoHide(visible, rules, { ownUsername, touched: touchedIds(marks), limit: Infinity });
+  const total = log.count ?? rows.length;
+  return {
+    settings: { autoHide: settingsRow.auto_hide === true, pausedAt: str(settingsRow.paused_at), pauseReason: settingsRow.pause_reason === 'reconnect' || settingsRow.pause_reason === 'failing' ? settingsRow.pause_reason : null },
+    rules,
+    log: {
+      rows: rows.map((x) => {
+        const c = byId.get(x.commentId);
+        return { ...x, shown: displayResult(x, now), undo: undoKind(x), context: c ? { authorUsername: str(c.author_username), snippet: snippet(str(c.text)) } : null };
+      }),
+      total,
+      page: shownPage,
+      pages: Math.max(1, Math.ceil(total / LOG_PAGE)),
+    },
+    preview: { count: picks.length, scanned: visible.length, sample: picks.slice(0, PREVIEW_SAMPLE).map((p) => ({ id: p.comment.id, authorUsername: p.comment.authorUsername, snippet: snippet(p.comment.text), rule: p.rule })) },
+  };
+}
+
+// ---- actions ----
+
+export async function getActionAccount(db: SupabaseClient, accountId: string): Promise<ActionAccount | null> {
+  const { data, error } = await db.from('accounts').select('id,username,status,granted_scopes').eq('id', accountId).maybeSingle();
+  check('getActionAccount', error);
+  const r = data as Row | null;
+  if (!r || typeof r.username !== 'string') return null;
+  return { id: String(r.id), username: r.username, status: r.status as AccountStatus, grantedScopes: Array.isArray(r.granted_scopes) ? r.granted_scopes.filter((x): x is string => typeof x === 'string') : null };
+}
+
+export async function getActionComment(db: SupabaseClient, accountId: string, commentId: string): Promise<{ id: string; authorUsername: string | null; hidden: boolean } | null> {
+  const { data, error } = await db.from('comments').select('id,author_username,hidden').eq('id', commentId).eq('account_id', accountId).maybeSingle();
+  check('getActionComment', error);
+  const r = data as Row | null;
+  return r ? { id: String(r.id), authorUsername: str(r.author_username), hidden: r.hidden === true } : null;
+}
+
+export async function countRecentOwnerActions(db: SupabaseClient, accountId: string, sinceIso: string): Promise<number> {
+  const { count, error } = await db.from('moderation_log').select('id', { count: 'exact', head: true }).eq('account_id', accountId).eq('actor', 'owner').gte('created_at', sinceIso);
+  check('countRecentOwnerActions', error);
+  return count ?? 0;
+}
+
+export async function insertLog(db: SupabaseClient, row: { accountId: string; commentId: string; action: LogAction; actor: string; requestId: string; undoOf?: number; targetId?: string }): Promise<number> {
+  const payload: Row = { account_id: row.accountId, comment_id: row.commentId, action: row.action, actor: row.actor, request_id: row.requestId };
+  if (row.undoOf !== undefined) payload.undo_of = row.undoOf;
+  if (row.targetId !== undefined) payload.target_id = row.targetId;
+  const { data, error } = await db.from('moderation_log').insert(payload).select('id').single();
+  check('insertLog', error);
+  const id = (data as Row | null)?.id;
+  if (typeof id !== 'number') throw new ModerationStoreError('insertLog', 'other');
+  return id;
+}
+
+export async function finishLog(db: SupabaseClient, id: number, result: string, targetId?: string | null): Promise<void> {
+  const patch: Row = { result };
+  if (targetId !== undefined) patch.target_id = targetId;
+  const { error } = await db.from('moderation_log').update(patch).eq('id', id);
+  check('finishLog', error);
+}
+
+export async function getLog(db: SupabaseClient, accountId: string, id: number): Promise<LogRow | null> {
+  const { data, error } = await db.from('moderation_log').select(LOG_COLUMNS).eq('id', id).eq('account_id', accountId).maybeSingle();
+  check('getLog', error);
+  return data ? toLog(data as Row) : null;
+}
+
+export async function markUndone(db: SupabaseClient, accountId: string, id: number, atIso: string): Promise<boolean> {
+  const { data, error } = await db.from('moderation_log').update({ undone_at: atIso }).eq('id', id).eq('account_id', accountId).is('undone_at', null).select('id');
+  check('markUndone', error);
+  return ((data ?? []) as Row[]).length > 0;
+}
+
+export async function setCommentHidden(db: SupabaseClient, accountId: string, commentId: string, hidden: boolean): Promise<void> {
+  const { error } = await db.from('comments').update({ hidden }).eq('id', commentId).eq('account_id', accountId);
+  check('setCommentHidden', error);
+}
+
+/** After a delete on Instagram (or "comment gone"): our copy goes too (third-party data we no longer need). */
+export async function removeComment(db: SupabaseClient, accountId: string, commentId: string): Promise<void> {
+  const { error } = await db.from('comments').delete().eq('id', commentId).eq('account_id', accountId);
+  check('removeComment', error);
+}
+
+// ---- rules and settings (owner session) ----
+
+export async function loadRules(db: SupabaseClient, accountId: string): Promise<ModerationRule[]> {
+  const { data, error } = await db.from('moderation_rules').select('id,kind,pattern,whole_word').eq('account_id', accountId).order('created_at').limit(MAX_WORD_RULES + SPAM_KINDS.length);
+  check('loadRules', error);
+  return rulesOf((data ?? []) as Row[]);
+}
+
+export async function insertWordRule(db: SupabaseClient, accountId: string, pattern: string, wholeWord: boolean): Promise<void> {
+  const { error } = await db.from('moderation_rules').insert({ account_id: accountId, kind: 'word', pattern, whole_word: wholeWord });
+  check('insertWordRule', error);
+}
+
+/** On = a row (the partial unique index keeps it single: a second insert's 23505 means "already on"); off = no row. */
+export async function setSpamRow(db: SupabaseClient, accountId: string, kind: SpamKind, on: boolean): Promise<void> {
+  if (on) {
+    const { error } = await db.from('moderation_rules').insert({ account_id: accountId, kind });
+    if (reasonOf(error) !== 'duplicate') check('setSpamRow', error);
+    return;
+  }
+  const { error } = await db.from('moderation_rules').delete().eq('account_id', accountId).eq('kind', kind);
+  check('setSpamRow', error);
+}
+
+export async function deleteRuleRow(db: SupabaseClient, accountId: string, ruleId: string): Promise<boolean> {
+  const { data, error } = await db.from('moderation_rules').delete().eq('id', ruleId).eq('account_id', accountId).select('id');
+  check('deleteRuleRow', error);
+  return ((data ?? []) as Row[]).length > 0;
+}
+
+/** Switching on (again) also lifts a pause; switching off clears it too. */
+export async function saveAutoHide(db: SupabaseClient, accountId: string, enabled: boolean, nowIso: string): Promise<void> {
+  const { error } = await db.from('moderation_settings').upsert({ account_id: accountId, auto_hide: enabled, paused_at: null, pause_reason: null, updated_at: nowIso }, { onConflict: 'account_id' });
+  check('saveAutoHide', error);
+}
+
+// ---- the tick (admin client) ----
+
+export async function autoHideAccounts(db: SupabaseClient): Promise<{ accountId: string; rules: ModerationRule[] }[] | null> {
+  const s = await db.from('moderation_settings').select('account_id').eq('auto_hide', true).is('paused_at', null);
+  if (reasonOf(s.error) === 'missing') return null;
+  check('autoHideAccounts', s.error);
+  const ids = ((s.data ?? []) as Row[]).map((r) => String(r.account_id));
+  if (ids.length === 0) return [];
+  const r = await db.from('moderation_rules').select('id,account_id,kind,pattern,whole_word').in('account_id', ids).order('created_at');
+  check('autoHideAccounts', r.error);
+  const rows = (r.data ?? []) as Row[];
+  return ids.map((accountId) => ({ accountId, rules: rulesOf(rows.filter((x) => x.account_id === accountId)) }));
+}
+
+/** Stored comments not hidden by us, newest first. */
+export async function visibleComments(db: SupabaseClient, accountId: string, limit: number): Promise<Candidate[]> {
+  const { data, error } = await db.from('comments').select('id,author_username,text,hidden').eq('account_id', accountId).eq('hidden', false).order('commented_at', { ascending: false }).limit(limit);
+  check('visibleComments', error);
+  return ((data ?? []) as Row[]).map(toCandidate);
+}
+
+export async function logMarks(db: SupabaseClient, accountId: string): Promise<LogMark[]> {
+  const { data, error } = await db.from('moderation_log').select('comment_id,actor,result').eq('account_id', accountId).order('created_at', { ascending: false }).limit(MARK_SCAN);
+  check('logMarks', error);
+  return ((data ?? []) as Row[]).map((r) => ({ commentId: String(r.comment_id), actor: String(r.actor), result: String(r.result) }));
+}
+
+/** Only the first pause counts (its paused_at is the notification's dedupe key). */
+export async function pauseAutoHide(db: SupabaseClient, accountId: string, reason: 'reconnect' | 'failing', atIso: string): Promise<void> {
+  const { error } = await db.from('moderation_settings').update({ paused_at: atIso, pause_reason: reason, updated_at: atIso }).eq('account_id', accountId).is('paused_at', null);
+  check('pauseAutoHide', error);
+}
+```
+
+Note for the implementer: `CANDIDATE_SCAN` lives here (Task 8 imports it) so the tick and the preview read comments the same way.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/moderation-store.test.ts`, `npx tsc --noEmit`, `npx eslint lib/moderation/store.ts tests/moderation-store.test.ts`.
+Expected: PASS (15 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/moderation/store.ts tests/moderation-store.test.ts
+git commit -m "feat(moderation): store (log, rules, settings, tab read, tick reads) as the one SQL choke point" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
