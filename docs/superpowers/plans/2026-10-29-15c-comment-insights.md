@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-15-creator-toolkit-design.md` §0b (comments: read + later reply/hide/delete; comment insights "top fans, unanswered questions, recurring topics — rule-based, no AI"; "commenters cross-checked against the latest follower-export snapshot"; churn-risk list of regular commenters who went quiet "a signal, not proof"), §2 (commenter usernames need `instagram_business_manage_comments`), §6 "Top commenters (fans)", §8 (RLS, privacy of third-party usernames, scope change → "Reconnect to enable comments", features degrade without the scope; i18n, tokens, responsive, a11y). UX rules: `docs/UI_STANDARDS.md` rules 1–15. Project rules: `CLAUDE.md` (binding). Current state and lessons: `docs/PROGRESS.md`.
 
-**Scratch run:** see "Scratch-run result" at the end (every TypeScript code block of Tasks 3–8 executed in a throwaway clone outside the repo). Not executed: the SQL on a real database (no database may be touched), the build, a browser, real comments — `docs/RUNBOOK_COMMENTS.md` (Task 9) has the live checks.
+**Scratch run:** see "Scratch-run result" at the end (every code block of Tasks 1–8 executed in a throwaway clone outside the repo). Not executed: the SQL on a real database (no database may be touched), the build, a browser, real comments — `docs/RUNBOOK_COMMENTS.md` (Task 9) has the live checks.
 
 ## Decisions taken in this plan (owner: please confirm the ones marked ⚠)
 
@@ -2567,3 +2567,35 @@ git commit -m "docs: Plan 15c comment insights (runbook, SPEC 7i, TODO 6m, progr
 ```
 
 ---
+
+## Interfaces for Plan 15d (moderation, built after this plan)
+
+Keep these names exactly; 15d plugs into them without editing `TABS` or adding a tab.
+
+- **`CommentView`** (`lib/comments/view.ts`): `id`, `mediaId`, `authorUsername: string | null`, `text: string`, `postedAt` (comment time, ISO), `likeCount: number | null`, `isQuestion: boolean`, `hidden: boolean | null`, `repliedByOwner: boolean | null`, plus `post: CommentPost | null` (`{ id, type, postedAt, caption }`, for the Post Lab link). Today `hidden` is `true` only when the column is `true` (nothing sets it yet; the column default `false` is mapped to `null`), and `repliedByOwner` is `true` or `null` (derived). When 15d reads Instagram's `hidden` flag / thread replies in the sync, it changes ONLY `toCommentView` in `lib/comments/read.ts` (and, if the SQL must return more columns, a NEW migration that `drop function`s and re-creates `comment_list`: a `create or replace` cannot change a function's result columns).
+- **`CommentRow`** (`components/account/CommentRow.tsx`): `{ comment: CommentView; accountId: string; scopeQuery?: string; status?: 'visible' | 'hidden'; actions?: ReactNode }`. `status="hidden"` shows the Hidden badge; `actions` renders right-aligned under the text (default-size buttons: UI standard 5). It is an `<article>`; callers wrap rows in `<ul><li>`.
+- **`CommentsTab`** (`components/account/CommentsTab.tsx`): `renderActions?: (c: CommentView) => ReactNode` fills every row's `actions` on All comments and Unanswered questions. **It is a function prop of a client component, so the server page cannot pass it directly** (functions do not cross the server → client boundary). 15d adds a small client wrapper (e.g. `components/account/ModeratedCommentsTab.tsx`: `'use client'`, takes the server actions as props, renders `<CommentsTab {...props} renderActions={(c) => <CommentActions … />} />`) and changes the ONE line `return <CommentsTab {...props} start={start} data={data} />;` in the page's `case 'comments'` to render the wrapper. `CommentsTabProps` and `CommentsData` are exported for that.
+- **Readers** (`lib/comments/read.ts`): `loadCommentPage(db, accountId, CommentPageArgs)`, `toCommentView(row)`; the page's comment list is already server-paged. A Hidden filter = a new `only` value or key: add it to `COMMENT_ONLY` / `COMMENT_KEYS` (`lib/comments/state.ts`) so the Suspense key keeps ignoring it.
+- **Rules:** `isQuestion`, `QUESTION_PATTERN` (`lib/comments/question.ts`), `FAN_RULES`, `TEXT_CAP`, `capText` (`lib/comments/view.ts`).
+- **Migrations:** 15c uses `20261029000001_comment_insights.sql`; 15d uses `20261029000002_*` or later.
+- **i18n:** 15c owns `pages.account.commentInsights.*` and `pages.account.tab.comments`; 15d adds a sibling object (e.g. `pages.account.commentModeration`) and inserts next to the `commentInsights` block, never reformatting it.
+- **Privacy guard** (`tests/comments-privacy.test.ts`): only `lib/comments/read.ts` and `lib/sync/store.ts` may `.from('comments')` (15d adds its writer's path to that list deliberately); files that import `lib/comments/` never log; files in `lib/comments/` and `components/` never touch the admin client or `account_tokens` (a server-only 15d module that needs the token lives outside `lib/comments/`); nothing renders comment text as HTML; exports/sync/alerts never import `lib/comments/`.
+
+## Scratch-run result
+
+Executed in a throwaway clone (`git clone` of `main` at `222efd1` into the session scratchpad, its own `npm ci`; the real checkout and its `node_modules` were never touched): every code block of Tasks 1–8 transcribed from this file (the TypeScript blocks were generated from the tested files), the anchored edits applied as written, then:
+- `npx vitest run` → **256 files, 2,367 tests, all passed** (main: 248 / 2,272 + the 8 new files and the updated pinned tests).
+- `npx tsc --noEmit` → clean (after adding the `'comments'` member to the `frame` helper type in `tests/account-view.test.tsx`, now part of Task 8 step 1c).
+- `npx eslint .` → clean.
+- `npx next build` → compiled, type-checked and generated all 29 routes, then exited 1 with `SecurityFatalError: Your version of Next.js is affected by a known security vulnerability` (the Next.js 16.4.0 advisory check run after the build; not caused by this plan and it would stop `main` the same way). Tell the owner; upgrading Next.js is its own approved change.
+- `Intl.Segmenter('zh', { granularity: 'word' })` on Node `v24.4.1`: `这个颜色好漂亮` → `颜色, 漂亮`; `照片在哪里拍的？` → `照片, 哪里, 拍的`; `咖啡好喝` → `咖啡, 好喝` (the Task 4 assertions).
+
+Not executed: the SQL of Task 1 on any database (no database may be touched), a browser, real comments, the live Reconnect. Reviewer: walk `comment_list` / `comment_fans` / `comment_outsiders` against this fixture by hand — owner `me`; post P1 (feed, posted day 0), P2..P4 (feed, days 40–50); comments: amy "where is this?" (day 1), me "@amy thanks" (day 2), bob "nice" ×3 (days 1, 2, 3), cat "多少钱" (day 60); the newest follower export holds amy and cat → expect: `comment_list` with `p_question_re` returns amy and cat (amy `replied = true`, so `p_unanswered` returns cat only); `comment_fans` 'top' = bob (3), amy (1), cat (1) (likes break ties, then latest comment); 'quiet' at day 70 = bob (3 comments, none in 30 days, 3 posts since); `comment_outsiders` = bob only (never `me`).
+
+## Self-review (done before handing over)
+
+- **Spec coverage:** §6 Top commenters → Fans (top, first/last seen, new fan, gone quiet with rules and counts); §0b comment insights → Unanswered questions (rule-based) and Topics (no AI); "commenters cross-checked against the latest follower-export snapshot" → Not following you; §8 scope change → "Reconnect to enable comments" and nothing read without the scope; privacy → owner RLS, one reader, no logs, no exports, text as text, cascade unchanged. Moderation, replies and the hidden flag are 15d (stated).
+- **Shippability:** wave A modules are unused until Task 8; Task 2's `tab.comments` key is harmless before it; Task 5 only adds `export`; every task's own tests plus `tsc` were run in the clone in task order. Without the migration only Topics reads data.
+- **Type consistency:** `CommentView` / `CommentPost` / `Fan` / `Outsider` / `Paged` defined once (`view.ts`), `TopicInput` / `Topics` once (`topics.ts`), `CommentState` / `FanMode` once (`state.ts`), `CommentsData` once (`CommentsTab.tsx`, used by the page).
+- **Paths and names verified against `main`:** `comments` columns and `comments_owner_select` (`20261022000001`), `follower_exports.followers / taken_on / created_at` (`20261028000002`), `media.media_type / posted_at / caption / comments_count`, `COMMENTS_SCOPE` / `hasScope`, `connectHref`, `postLabHref`, `MISSING_FUNCTION`, `listFollowerSnapshots`, `listWindow`, `daysToIso`, `cleanSearch`, `listHref`, `pageCount`, `ALL_TIME`, `LIST_KEYS`, `PostedFilter` / `usePostedName`, `FilterToolbar` pieces, `DataTable`, `Pagination`, `EmptyState`, `Badge`, `Card*`, `formatDate` / `formatDateTime` / `formatDay` / `formatNumber`, `scripts/db-probe.mjs`, `scripts/sb.mjs`.
+- **Proportion:** 9 tasks, one migration, no new dependency, no new shared component beyond the 15d contract; rules exact where they are algorithms (question pattern, topics, fan rules, reply derivation), plain wiring elsewhere.
