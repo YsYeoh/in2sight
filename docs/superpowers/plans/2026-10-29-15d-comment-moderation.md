@@ -119,8 +119,8 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 |---|---|
 | `supabase/migrations/20261029000002_comment_moderation.sql` (new), `tests/moderation-migration.test.ts` (new) | `moderation_settings`, `moderation_rules`, `moderation_log`, owner update/delete on `comments`, the `notifications` kind list |
 | `messages/en.json`, `messages/zh-CN.json` | every new key (Task 2 only) |
-| `lib/moderation/rules.ts` (new), `tests/moderation-rules.test.ts` (new) | `fold`, `matchRule`, `validateWord`, `touchedIds`, `pickAutoHide`, the constants |
-| `lib/instagram/moderation.ts` (new), `tests/instagram-moderation.test.ts` (new) | `igModeration` (hide, reply, remove), `classifyModerationError`, `REPLY_MAX`, `MODERATION_TIMEOUT_MS` |
+| `lib/moderation/rules.ts` (new), `tests/moderation-rules.test.ts` (new) | `fold`, `matchRule`, `validateWord`, `touchedIds`, `pickAutoHide`, the constants (incl. `REPLY_MAX`) |
+| `lib/instagram/moderation.ts` (new), `tests/instagram-moderation.test.ts` (new) | `igModeration` (hide, reply, remove), `classifyModerationError`, `MODERATION_TIMEOUT_MS` |
 | `lib/moderation/store.ts` (new), `tests/moderation-store.test.ts` (new) | the ONLY module naming `moderation_log` / `moderation_rules` (and writing `comments`); `loadModeration`, log writes, rule/settings writes, the tick reads; pure `undoKind`, `displayResult` |
 | `lib/moderation/service.ts` (new), `tests/moderation-service.test.ts` (new) | `moderate`, `undoAction`, `saveWordRule`, `setSpamRule`, `deleteRule`, `setAutoHide` |
 | `lib/moderation/auto.ts` (new), `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts` (new), `tests/sync-tick-moderation.test.ts` (new) | `runAutoHide` and its place in the tick |
@@ -677,6 +677,7 @@ export type RuleKind = (typeof RULE_KINDS)[number];
 export const SPAM_KINDS = ['link', 'mentions', 'repeat', 'emoji'] as const satisfies readonly RuleKind[];
 export type SpamKind = (typeof SPAM_KINDS)[number];
 export const PATTERN_MAX = 50, MAX_WORD_RULES = 200, REPEAT_MIN = 8, MENTIONS_MIN = 4, EMOJI_MIN = 10, EMOJI_TEXT_MAX = 3, MAX_AUTO_TRIES = 3;
+export const REPLY_MAX = 2_200; // here (pure, client-safe) so the reply dialog can count without importing the Meta client
 export const RETRYABLE: readonly string[]; // ['rate_limited', 'instagram_unavailable']
 export interface ModerationRule { id: string; kind: RuleKind; pattern: string | null; wholeWord: boolean }
 export interface Candidate { id: string; authorUsername: string | null; text: string | null; hidden: boolean }
@@ -872,6 +873,8 @@ export const MENTIONS_MIN = 4; // @mentions in one comment
 export const EMOJI_MIN = 10; // emoji in one comment ...
 export const EMOJI_TEXT_MAX = 3; // ... with at most this many letters or digits
 export const MAX_AUTO_TRIES = 3; // rule attempts per comment (only retryable failures get a second one)
+/** Instagram's comment length (Open question P6). Lives here (pure, client-safe) so the reply dialog can count it. */
+export const REPLY_MAX = 2_200;
 /** Rule attempts that ended like this are tried again on a later tick; everything else is final. */
 export const RETRYABLE: readonly string[] = ['rate_limited', 'instagram_unavailable'];
 
@@ -1006,7 +1009,6 @@ git commit -m "feat(moderation): banned-word and spam matching (fold, matchRule,
 - Produces:
 ```ts
 export const MODERATION_TIMEOUT_MS = 5_000;
-export const REPLY_MAX = 2_200;
 export type ModerationErrorKey = 'reconnect' | 'rate_limited' | 'comment_gone' | 'not_allowed' | 'instagram_unavailable' | 'unknown_outcome' | 'unexpected';
 export function classifyModerationError(e: unknown, write?: 'reply' | 'other'): ModerationErrorKey;
 export function igModeration(apiVersion: string, fetchFn?: typeof fetch): {
@@ -1146,8 +1148,6 @@ import { call, InstagramApiError } from '@/lib/instagram/oauth';
 const HOST = 'https://graph.instagram.com';
 /** Shorter than the sync's 10 s: the tick pass must end before the route's 60 s (lib/moderation/auto.ts). */
 export const MODERATION_TIMEOUT_MS = 5_000;
-/** Instagram's comment length (Open question P6). */
-export const REPLY_MAX = 2_200;
 /** Graph API "permission denied" for an action. (For READS the sync meets 10 as "not enough viewers".) */
 const PERMISSION_DENIED = 10;
 const ID = /^\w{1,64}$/;
@@ -1937,7 +1937,7 @@ git commit -m "feat(alerts): moderation_paused (one notification per auto-hide p
 - Create: `lib/moderation/service.ts`, `tests/moderation-service.test.ts`
 
 **Interfaces:**
-- Consumes: Task 3 (`validateWord`, `SPAM_KINDS`), Task 4 (`classifyModerationError`, `REPLY_MAX`, `IgModeration`), Task 5 (every function named below), `hasScope`/`COMMENTS_SCOPE`, `isUuid`/`isMediaId`.
+- Consumes: Task 3 (`validateWord`, `SPAM_KINDS`, `REPLY_MAX`), Task 4 (`classifyModerationError`, `IgModeration`), Task 5 (every function named below), `hasScope`/`COMMENTS_SCOPE`, `isUuid`/`isMediaId`.
 - Produces (Tasks 9, 10, 11 use exactly these):
 ```ts
 export const MANUAL_PER_MINUTE = 30;
@@ -2274,8 +2274,8 @@ Expected: FAIL — `Failed to resolve import "@/lib/moderation/service"`.
 // refused by the database before anything is sent. The token stays inside this call: never returned, never logged.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
-import { classifyModerationError, REPLY_MAX, type IgModeration, type ModerationErrorKey } from '@/lib/instagram/moderation';
-import { SPAM_KINDS, validateWord, type SpamKind } from '@/lib/moderation/rules';
+import { classifyModerationError, type IgModeration, type ModerationErrorKey } from '@/lib/instagram/moderation';
+import { REPLY_MAX, SPAM_KINDS, validateWord, type SpamKind } from '@/lib/moderation/rules';
 import * as S from '@/lib/moderation/store';
 import { isMediaId, isUuid } from '@/lib/tags';
 
@@ -2531,7 +2531,7 @@ vi.mock('@/lib/moderation/store', async (orig) => {
 });
 
 import * as S from '@/lib/moderation/store';
-import { AUTO_HIDE_PER_TICK, runAutoHide, type AutoHideContext, type AutoHideDeps } from '@/lib/moderation/auto';
+import { AUTO_HIDE_PER_TICK, FAIL_LIMIT, runAutoHide, type AutoHideContext, type AutoHideDeps } from '@/lib/moderation/auto';
 
 const m = vi.mocked(S);
 const RULE: ModerationRule = { id: '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e', kind: 'word', pattern: 'spam', wholeWord: false };
@@ -2612,15 +2612,16 @@ describe('runAutoHide', () => {
     expect(ig.hide).toHaveBeenCalledTimes(2); // c1 of a1 (refused), d1 of a2
   });
 
-  it(`${3} failures in a row pause the account (reason failing); a success in between resets the count`, async () => {
-    comments.a1 = ['c1', 'c2', 'c3', 'c4', 'c5'].map((id) => spam(id));
+  it(`${FAIL_LIMIT} failures in a row pause the account (reason failing); a success in between resets the count`, async () => {
+    comments.a1 = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((id) => spam(id));
     let call = 0;
     const ig = { hide: vi.fn(async () => {
       call++;
       if (call !== 3) throw new InstagramApiError('data', 400, 100); // not_allowed, except the 3rd
     }) };
     const { deps, ctx } = setup({ ig, ctx: { accounts: [scoped('a1')] } });
-    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 4, paused: 1 });
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 5, paused: 1 }); // fail, fail, ok, fail, fail, fail -> pause; c7 untouched
+    expect(ig.hide).toHaveBeenCalledTimes(6);
     expect(m.pauseAutoHide).toHaveBeenCalledWith(db, 'a1', 'failing', NOW.toISOString());
   });
 
