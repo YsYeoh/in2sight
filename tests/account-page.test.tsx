@@ -20,6 +20,15 @@ vi.mock('@/lib/followers/read', () => ({
   listFollowerSnapshots: async (_db: unknown, accountId: string) => (calls.push(`followerSnapshots:${accountId}`), followers.snapshots),
   loadFollowerSnapshot: async (_db: unknown, _accountId: string, id: string) => (calls.push('followerSnapshot'), followers.loads.push(id), followers.data[id] ?? null),
 }));
+const comments = vi.hoisted(() => ({ args: [] as Record<string, unknown>[], migrated: true }));
+vi.mock('@/lib/comments/read', () => ({
+  loadCommentPage: async (_db: unknown, id: string, a: Record<string, unknown>) => (calls.push(`commentPage:${id}`), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
+  loadCommentPosts: async () => (calls.push('commentPosts'), []),
+  loadCommentStart: async () => (calls.push('commentStart'), '2026-10-02T03:00:00Z'),
+  loadFans: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('fans'), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
+  loadOutsiders: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('outsiders'), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
+  loadTopicSample: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('topicSample'), comments.args.push(a), []),
+}));
 vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (await import('@/lib/prefs')).DEFAULT_PREFS }));
 vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ list: async () => (calls.push('accounts'), accounts) }) }));
 vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => ({}) }));
@@ -349,5 +358,85 @@ describe('account page: the Followers tab (Plan 15b)', () => {
     const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
     expect(await key({ tab: 'followers', snap: S1, vs: S2, list: 'mutual', q: 'x', page: '2' })).toBe(await key({ tab: 'followers' }));
     expect((await followersTab({ from: '2026-09-01', to: '2026-09-30' })).scope).toEqual({ from: '2026-09-01', to: '2026-09-30' });
+  });
+});
+
+describe('account page: the Comments tab (Plan 15c)', () => {
+  const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights', 'instagram_business_manage_comments'];
+  type CommentsProps = { data: { kind: string; snapshot?: unknown; topics?: { enough: boolean } }; start: string | null; state: { section: string }; scope: Record<string, string>; username: string; groupName: string | null };
+  const commentsTab = async (sp: Record<string, string> = {}) => ((await streamTab(await run(ID, { tab: 'comments', ...sp }))) as ReactElement<CommentsProps>).props;
+  const commentCalls = () => calls.filter((c) => /^(commentPage|commentPosts|commentStart|fans|outsiders|topicSample|followerSnapshots)/.test(c));
+
+  beforeEach(() => {
+    comments.args.length = 0;
+    comments.migrated = true;
+    followers.snapshots = [];
+    accounts.push(acct(ID, 'active', { username: 'Shop.One', grantedScopes: SCOPES }));
+  });
+
+  it('without the comments scope: nothing is read, the tab says why (empty would not mean "no comments")', async () => {
+    accounts.length = 0;
+    accounts.push(acct(ID, 'active', { grantedScopes: SCOPES.slice(0, 2) }));
+    const p = await commentsTab();
+    expect(p.data).toEqual({ kind: 'noScope' });
+    expect(p.start).toBeNull();
+    expect(commentCalls()).toEqual([]);
+  });
+
+  it('All comments: one page for the comment-date window (owner timezone), the owner name lower-cased, the post choices and the start', async () => {
+    const p = await commentsTab({ pr: '30d', q: 'cake', media: '1790', only: 'fans', page: '2' });
+    expect(p.data.kind).toBe('comments');
+    expect(p.start).toBe('2026-10-02T03:00:00Z');
+    const today = localDay(new Date(), DEFAULT_PREFS.timezone);
+    const from = new Date(Date.parse(`${today}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
+    expect(comments.args[0]).toEqual({ ...daysToIso(from, today, DEFAULT_PREFS.timezone), q: 'cake', media: '1790', questions: false, unanswered: false, fansOnly: true, owner: 'shop.one', page: 2 });
+    expect(commentCalls().sort()).toEqual([`commentPage:${ID}`, 'commentPosts', 'commentStart']);
+    expect(calls).not.toContain('ADMIN');
+  });
+
+  it('Unanswered questions: the question rule and the no-reply filter (Show only is ignored there); Show only = questions on the list', async () => {
+    await commentsTab({ section: 'questions', only: 'fans' });
+    expect(comments.args[0]).toMatchObject({ questions: true, unanswered: true, fansOnly: false });
+    await commentsTab({ only: 'questions' });
+    expect(comments.args[1]).toMatchObject({ questions: true, unanswered: false, fansOnly: false });
+  });
+
+  it('Fans: the mode, the clock and the page; before the migration the database-update note', async () => {
+    const p = await commentsTab({ section: 'fans', fans: 'new', page: '3' });
+    expect(p.data.kind).toBe('fans');
+    expect(comments.args[0]).toMatchObject({ owner: 'shop.one', mode: 'new', page: 3 });
+    expect(comments.args[0].now).toBeInstanceOf(Date);
+    comments.migrated = false;
+    expect((await commentsTab({ section: 'fans' })).data).toEqual({ kind: 'notReady' });
+    expect((await commentsTab()).data).toEqual({ kind: 'notReady' });
+  });
+
+  it('Topics: the capped sample of the window, analysed on the server (works before the migration)', async () => {
+    comments.migrated = false;
+    const p = await commentsTab({ section: 'topics' });
+    expect(p.data.kind).toBe('topics');
+    expect(p.data.topics?.enough).toBe(false);
+    expect(comments.args[0]).toMatchObject({ owner: 'shop.one' });
+    expect(calls).not.toContain(`commentPage:${ID}`);
+  });
+
+  it('Not following you: needs the follower exports table and an export; then the newest export is the basis', async () => {
+    followers.snapshots = null;
+    expect((await commentsTab({ section: 'outsiders' })).data).toEqual({ kind: 'notReady' });
+    followers.snapshots = [];
+    expect((await commentsTab({ section: 'outsiders' })).data).toEqual({ kind: 'noSnapshot' });
+    followers.snapshots = [
+      { id: 'a', takenOn: '2026-10-20', followerCount: 1234, followingCount: null, createdAt: '2026-10-20T10:00:00Z' },
+      { id: 'b', takenOn: '2026-09-20', followerCount: 1000, followingCount: null, createdAt: '2026-09-20T10:00:00Z' },
+    ];
+    const p = await commentsTab({ section: 'outsiders', page: '2' });
+    expect(p.data).toMatchObject({ kind: 'outsiders', snapshot: { takenOn: '2026-10-20', followerCount: 1234 } });
+    expect(comments.args.at(-1)).toEqual({ owner: 'shop.one', page: 2 });
+  });
+
+  it('the Suspense key ignores the comment params (the toolbar stays mounted); the scope rides along to the tab', async () => {
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    expect(await key({ tab: 'comments', section: 'fans', fans: 'quiet', media: '1', only: 'questions', q: 'x', pr: '7d', page: '2' })).toBe(await key({ tab: 'comments' }));
+    expect((await commentsTab({ from: '2026-09-01', to: '2026-09-30' })).scope).toEqual({ from: '2026-09-01', to: '2026-09-30' });
   });
 });

@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
+import { CommentsTab, type CommentsData } from '@/components/account/CommentsTab';
 import { FollowersTab } from '@/components/account/FollowersTab';
 import { GrowthTab } from '@/components/account/GrowthTab';
 import { PostsTab } from '@/components/account/PostsTab';
@@ -10,8 +11,12 @@ import { StoriesTab } from '@/components/account/StoriesTab';
 import { TabSkeleton } from '@/components/account/TabSkeleton';
 import { setPostTagsAction } from '@/app/(app)/tags/actions';
 import { deleteFollowerSnapshotAction } from '@/app/(app)/accounts/followers-actions';
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
+import { loadCommentPage, loadCommentPosts, loadCommentStart, loadFans, loadOutsiders, loadTopicSample } from '@/lib/comments/read';
+import { COMMENT_KEYS, parseCommentState } from '@/lib/comments/state';
+import { topics } from '@/lib/comments/topics';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
 import { buildAudience } from '@/lib/dashboard/audience';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
@@ -90,6 +95,39 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       ]);
       return <GrowthTab model={buildGrowth({ daily, posts, breakdown, stories, comments, curve, audience }, { scope, today, tz, weekStart: prefs.weekStart })} />;
     }
+    case 'comments': {
+      // read-only comment insights (Plan 15c): ONE view's page per request; nothing is read without the comments scope
+      // (Instagram then answers an empty list, so empty would not mean "no comments"). The Time Scope rides along in links.
+      const state = parseCommentState(sp);
+      const props = { accountId: account.id, username: account.username, groupName: account.groupName, today, scope: scope.params, state };
+      if (!hasScope(account, COMMENTS_SCOPE)) return <CommentsTab {...props} start={null} data={{ kind: 'noScope' }} />;
+      const owner = account.username.toLowerCase();
+      const win = listWindow(state.dates, today);
+      const { fromIso, toIso } = daysToIso(win.from, win.to, tz);
+      const section = state.section;
+      const read = async (): Promise<CommentsData> => {
+        if (section === 'topics') return { kind: 'topics', topics: topics(await loadTopicSample(db, account.id, { fromIso, toIso, owner })) };
+        if (section === 'fans') {
+          const page = await loadFans(db, account.id, { owner, mode: state.fans, now, page: state.page });
+          return page ? { kind: 'fans', page } : { kind: 'notReady' };
+        }
+        if (section === 'outsiders') {
+          const snapshots = await listFollowerSnapshots(db, account.id); // newest first; null = the 15b table is missing
+          if (!snapshots) return { kind: 'notReady' };
+          if (!snapshots[0]) return { kind: 'noSnapshot' };
+          const page = await loadOutsiders(db, account.id, { owner, page: state.page });
+          return page ? { kind: 'outsiders', page, snapshot: { takenOn: snapshots[0].takenOn, followerCount: snapshots[0].followerCount } } : { kind: 'notReady' };
+        }
+        const questions = section === 'questions';
+        const [page, posts] = await Promise.all([
+          loadCommentPage(db, account.id, { fromIso, toIso, q: state.q, media: state.media, questions: questions || state.only === 'questions', unanswered: questions, fansOnly: !questions && state.only === 'fans', owner, page: state.page }),
+          loadCommentPosts(db, account.id),
+        ]);
+        return page ? { kind: 'comments', page, posts } : { kind: 'notReady' };
+      };
+      const [data, start] = await Promise.all([read(), loadCommentStart(db, account.id)]);
+      return <CommentsTab {...props} start={start} data={data} />;
+    }
     case 'followers': {
       // by-name lists from uploaded exports (Plan 15b): the snapshot list, then the two compared snapshots, diffed here;
       // only one page of names goes to the browser. The Time Scope is carried in links, never used.
@@ -147,9 +185,9 @@ export default async function AccountPage({ params, searchParams }: { params: Pr
       exportButton={<ExportDialog scopes={exportScopes(accounts)} defaultScope={`a:${account.id}`} time={scope} />}
     >
       {/* key: a new tab or Time Scope is a new boundary, so its skeleton shows instead of the stale tab. Not the list
-          params of Posts/Stories/Followers (LIST_KEYS, incl. the Grid/Table view, and FOLLOWER_KEYS): the toolbar stays mounted (the search box keeps
+          params of Posts/Stories/Comments/Followers (LIST_KEYS, incl. the Grid/Table view, COMMENT_KEYS and FOLLOWER_KEYS): the toolbar stays mounted (the search box keeps
           its focus) and the shown page stays until the next one streams in, with the top progress bar running. */}
-      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries([...LIST_KEYS, ...FOLLOWER_KEYS].map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>
+      <Suspense key={JSON.stringify({ ...sp, ...Object.fromEntries([...LIST_KEYS, ...FOLLOWER_KEYS, ...COMMENT_KEYS].map((k) => [k, undefined])) })} fallback={<TabSkeleton tab={tab} />}>
         <TabContent tab={tab} account={account} sp={sp} scope={scope} />
       </Suspense>
     </AccountView>

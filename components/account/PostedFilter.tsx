@@ -26,15 +26,16 @@ export function usePostedName(dates: ListDates, today: string): string {
 }
 
 /** `hrefFor(dates)` = the list with those dates (page 1, everything else kept); `hidden` = the other params of the list,
- *  for the custom-dates form (without pr/pfrom/pto/page). */
-export function PostedFilter({ id, dates, today, hrefFor, hidden }: { id: string; dates: ListDates; today: string; hrefFor: (d: ListDates) => string; hidden: Record<string, string> }) {
+ *  for the custom-dates form (without pr/pfrom/pto/page). `label` / `title` = the button and panel names when the date is
+ *  not a posting date (the Comments tab: "Commented: …"); default "Posted: …". */
+export function PostedFilter({ id, dates, today, hrefFor, hidden, label, title }: { id: string; dates: ListDates; today: string; hrefFor: (d: ListDates) => string; hidden: Record<string, string>; label?: string; title?: string }) {
   const t = useTranslations('pages.account.lists');
   const [open, setOpen] = useState(false);
   const name = usePostedName(dates, today);
   const custom = dates.from !== null || dates.to !== null;
   const w = listWindow(dates, today);
   return (
-    <FilterPanel label={t('postedWith', { range: name })} title={t('postedTitle')} active={custom || dates.pr !== null} open={open} onOpenChange={setOpen}>
+    <FilterPanel label={label ?? t('postedWith', { range: name })} title={title ?? t('postedTitle')} active={custom || dates.pr !== null} open={open} onOpenChange={setOpen}>
       <FilterOptions
         label={t('quick')}
         options={[...LIST_PRESETS, null].map((pr) => ({ href: hrefFor({ pr, from: null, to: null }), label: t(`presets.${pr ?? 'all'}`), current: !custom && dates.pr === pr }))}
