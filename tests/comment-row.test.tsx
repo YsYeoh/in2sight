@@ -60,8 +60,20 @@ describe('CommentRow', () => {
     const { container } = view({ comment: { ...C, text: `${'a'.repeat(TEXT_CAP)}TAIL` } });
     const p = container.querySelector('p')!;
     expect(p.textContent).toBe(`${'a'.repeat(TEXT_CAP)}…`);
-    expect(p).toHaveClass('whitespace-pre-wrap', 'break-words');
+    expect(p).toHaveClass('whitespace-pre-wrap');
     expect(screen.getByTitle(T.more)).toBeInTheDocument();
+  });
+
+  it('an unbroken 500-character string (a URL, "hahaha...") cannot widen the row at 360px: the text and the author may shrink and wrap anywhere', () => {
+    // jsdom cannot measure layout: pin the class tokens that do the work (min-w-0 on the grid item, overflow-wrap:anywhere)
+    const { container } = view({ comment: { ...C, authorUsername: 'a'.repeat(30), text: 'h'.repeat(500) } });
+    const p = container.querySelector('p')!;
+    expect(p.classList.contains('min-w-0')).toBe(true);
+    expect(p.classList.contains('wrap-anywhere')).toBe(true);
+    const name = screen.getByText(`@${'a'.repeat(30)}`);
+    expect(name.classList.contains('truncate')).toBe(true);
+    expect(name.classList.contains('min-w-0')).toBe(true);
+    expect(name.parentElement!.classList.contains('min-w-0')).toBe(true);
   });
 
   it('reply seen and hidden badges only when known; no likes line for 0 or unknown; unknown author and a gone post', () => {

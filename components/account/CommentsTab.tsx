@@ -146,7 +146,7 @@ export function CommentsTab({ accountId, username, groupName, today, scope = {},
           <ul className="grid min-w-0 gap-2">
             {page.rows.map((c) => (
               <li key={c.id} className="min-w-0">
-                <CommentRow comment={c} accountId={accountId} scopeQuery={scopeQuery} actions={renderActions?.(c)} />
+                <CommentRow comment={c} accountId={accountId} scopeQuery={scopeQuery} status={c.hidden ? 'hidden' : undefined} actions={renderActions?.(c)} />
               </li>
             ))}
           </ul>
@@ -165,6 +165,9 @@ export function CommentsTab({ accountId, username, groupName, today, scope = {},
   function fans() {
     if (data.kind !== 'fans') return notReady;
     const mode: FanMode = state.fans;
+    // Comments are stored from the first read on, so until a whole window has passed everyone with 2+ comments has their first comment inside it
+    const windowMs = FAN_RULES.windowDays * 86_400_000;
+    const young = mode === 'new' && start !== null && Date.parse(start) > Date.parse(today) - windowMs ? start : null;
     const columns: Column<Fan>[] = [
       { key: 'username', header: t('cols.username'), cell: (f) => person(f.username) },
       { key: 'comments', header: t('cols.comments'), align: 'right', cell: (f) => n(f.comments) },
@@ -179,6 +182,7 @@ export function CommentsTab({ accountId, username, groupName, today, scope = {},
           <FilterSelect id="comments-fans" label={t('fans.show')} value={mode} options={FAN_MODES.map((m) => ({ value: m, label: t(`fans.${m}`) }))} hrefFor={(v) => href({ fans: v as FanMode })} />
         </FilterToolbar>
         <p className="max-w-prose text-xs text-muted-foreground">{t(`fans.${mode}Rule`, { days: n(FAN_RULES.windowDays), min: n(mode === 'new' ? FAN_RULES.newFanMin : FAN_RULES.fanMin), posts: n(FAN_RULES.quietPosts) })}</p>
+        {young ? <p className="max-w-prose text-xs text-muted-foreground">{t('fans.newHistory', { date: day(young), until: day(new Date(Date.parse(young) + windowMs).toISOString()), min: n(FAN_RULES.newFanMin) })}</p> : null}
         {range(data.page, FAN_PAGE, 'people')}
         <DataTable rows={data.page.rows} columns={columns} rowKey={(f) => f.username} caption={t(`fans.${mode}`)} empty={<EmptyState title={t('fans.empty')} />} serverSort={{ current: null, href: () => null }} />
         {pages(data.page, FAN_PAGE)}

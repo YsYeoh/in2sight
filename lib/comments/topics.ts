@@ -42,7 +42,9 @@ const MENTION_RE = /@[\p{L}\p{N}._]+/gu;
 const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
 const EMOJI_RE = /\p{Extended_Pictographic}/gu;
 const DIGITS_RE = /^\p{N}+$/u;
-const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+// Created on first use, not at import: the client component CommentsTab imports this file for two constants, and a browser
+// without Intl.Segmenter (Firefox < 125) must still open the tab.
+let segmenter: Intl.Segmenter | undefined;
 
 /** The distinct terms of one comment, lower-cased. */
 export function terms(text: string): { words: Set<string>; emoji: Set<string>; hashtags: Set<string> } {
@@ -50,6 +52,7 @@ export function terms(text: string): { words: Set<string>; emoji: Set<string>; h
   const hashtags = new Set(t.match(HASHTAG_RE) ?? []);
   const emoji = new Set(t.match(EMOJI_RE) ?? []);
   const words = new Set<string>();
+  segmenter ??= new Intl.Segmenter('zh', { granularity: 'word' });
   for (const s of segmenter.segment(t.replace(HASHTAG_RE, ' '))) {
     const w = s.segment;
     if (s.isWordLike && [...w].length >= 2 && !DIGITS_RE.test(w) && !STOP_WORDS.has(w)) words.add(w);

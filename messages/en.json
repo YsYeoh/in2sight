@@ -389,7 +389,7 @@
           "body": "This account was connected before in2sight asked for permission to read comments. Reconnect it once and approve every permission; comments then arrive within the hour. Until then nothing is read, so an empty list would not mean there are no comments.",
           "action": "Reconnect to enable comments"
         },
-        "notReady": "Comments needs a database update (docs/RUNBOOK_COMMENTS.md §0)",
+        "notReady": "The Comments tab needs a database update (docs/RUNBOOK_COMMENTS.md §0)",
         "notReadyHint": "Until it is applied, only Topics works here.",
         "sections": { "label": "Comment views", "comments": "All comments", "questions": "Unanswered questions", "fans": "Fans", "topics": "Topics", "outsiders": "Not following you" },
         "toolbar": "Comment filters",
@@ -422,6 +422,7 @@
           "quiet": "Gone quiet",
           "topRule": "Everyone who commented, ranked by comments, then by likes on their comments. Your own comments are left out.",
           "newRule": "First comment in the last {days} days and at least {min} comments.",
+          "newHistory": "History starts {date}: until {until} everyone with {min}+ comments looks new.",
           "quietRule": "At least {min} comments, none in the last {days} days, while you published {posts} or more posts since. A signal, not proof: they may still watch without commenting.",
           "empty": "Nobody here yet"
         },
