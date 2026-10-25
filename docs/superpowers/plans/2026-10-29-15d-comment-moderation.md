@@ -582,13 +582,13 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
           "pausedFailing": "Instagram 多次返回错误，自动隐藏已暂停。再次开启即可重试。",
           "pausedSince": "暂停于 {date}",
           "enableTitle": "开启自动隐藏？",
-          "enableBody": "{count, plural, =0 {目前没有评论符合你的规则。} other {现有的 {n} 条评论将被隐藏。}}之后，新的符合规则的评论会在大约一小时内被隐藏，每 30 分钟最多 20 条。每次隐藏都会记录在管理记录中，并可撤销。",
+          "enableBody": "{count, plural, =0 {目前没有评论符合你的规则。} =1 {现有的 {n} 条评论将被隐藏。} other {现有的 {n} 条评论将被隐藏。}}之后，新的符合规则的评论会在大约一小时内被隐藏，每 30 分钟最多 20 条。每次隐藏都会记录在管理记录中，并可撤销。",
           "enableConfirm": "开启",
           "noRules": "请先添加屏蔽词或开启一种垃圾评论模式。"
         },
         "preview": {
           "title": "当前符合的评论",
-          "count": "{count, plural, =0 {没有可见评论符合你的规则。} other {有 {n} 条可见评论符合你的规则。}}",
+          "count": "{count, plural, =0 {没有可见评论符合你的规则。} =1 {有 {n} 条可见评论符合你的规则。} other {有 {n} 条可见评论符合你的规则。}}",
           "basis": "已检查最新存储的 {count} 条评论。",
           "by": "符合：{rule}"
         },
@@ -610,7 +610,7 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
           "count": "{count} / {max} 个词",
           "wholeBadge": "完整单词"
         },
-        "ruleLabel": { "word": "“{word}”", "link": "链接", "mentions": "大量提及", "repeat": "重复字符", "emoji": "表情刷屏", "removed": "已删除的规则" },
+        "ruleLabel": { "word": "「{word}」", "link": "链接", "mentions": "大量提及", "repeat": "重复字符", "emoji": "表情刷屏", "removed": "已删除的规则" },
         "log": {
           "title": "管理记录",
           "description": "你或规则执行的每一次回复、隐藏、取消隐藏和删除。仅在评论仍被存储时显示评论内容。",
@@ -632,7 +632,7 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
       },
 ```
 
-Note: `ruleLabel.word` is identical in both files (`“{word}”`) but has no 4-letter English run, so the copy-paste guard ignores it.
+Note: `tests/messages.test.ts` compares the sorted placeholder LISTS, so the zh-CN plural messages repeat `{n}` in an `=1` branch to match the English `one`/`other` pair; `ruleLabel.word` uses 「」 in zh-CN (an identical `“{word}”` would trip the copy-paste guard, which sees the 4 letters of `word`).
 
 - [ ] **Step 2: Insert the notification kind** — anchor (both files, lines 840–843, 6/8-space indentation): the `"taking_off": { … }` block followed by `    }`. Replace the closing `      }` of `taking_off` with `      },` and add after it:
 
@@ -1030,8 +1030,8 @@ import { InstagramApiError } from '@/lib/instagram/oauth';
 const TOKEN = 'IGAAsecret-token';
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const setup = (res: () => Response | Promise<Response>) => {
-  const fetchFn = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => res());
-  return { fetchFn, ig: igModeration('v25.0', fetchFn as unknown as typeof fetch) };
+  const fetchFn = vi.fn<typeof fetch>(async () => res());
+  return { fetchFn, ig: igModeration('v25.0', fetchFn) };
 };
 const req = (f: ReturnType<typeof setup>['fetchFn'], i = 0) => ({ url: new URL(String(f.mock.calls[i][0])), init: f.mock.calls[i][1]! });
 
@@ -1582,9 +1582,10 @@ export async function loadModeration(db: SupabaseClient, accountId: string, ownU
   const rules = rulesOf((r.data ?? []) as Row[]);
   const rows = ((log.data ?? []) as Row[]).map(toLog).filter((x): x is LogRow => x !== null);
   const ids = [...new Set(rows.map((x) => x.commentId))];
-  // order matters for the tests' queue: context, then the preview's comments, then the marks
+  // started in this order (each async helper reaches its query at once), so a test's queued results come back in order:
+  // the log page's context, then the preview's comments, then the marks
   const [ctx, visible, marks] = await Promise.all([
-    ids.length ? db.from('comments').select('id,author_username,text').eq('account_id', accountId).in('id', ids) : Promise.resolve({ data: [], error: null }),
+    (async () => (ids.length ? await db.from('comments').select('id,author_username,text').eq('account_id', accountId).in('id', ids) : { data: [], error: null }))(),
     visibleComments(db, accountId, PREVIEW_SCAN),
     logMarks(db, accountId),
   ]);
@@ -1748,7 +1749,7 @@ Note for the implementer: `CANDIDATE_SCAN` lives here (Task 8 imports it) so the
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run tests/moderation-store.test.ts`, `npx tsc --noEmit`, `npx eslint lib/moderation/store.ts tests/moderation-store.test.ts`.
-Expected: PASS (15 tests).
+Expected: PASS (16 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1912,11 +1913,11 @@ and in `supabaseAlertStore` after `lastReachDropAt(…) {…},`:
   if (kind === 'moderation_paused') return `/accounts/${accountId}?tab=moderation`;
 ```
 
-`tests/alert-settings.test.ts` line 14 — the expected `push` object gains the new kind with its default:
+`tests/alert-settings.test.ts` — line 9 (`expect(DEFAULT_ALERT_SETTINGS.push).toEqual({ … })`) and line 14 both spell out the full `push` object: add `moderation_paused: true` as the last entry of each. Line 14 becomes:
 ```ts
     expect(s).toEqual({ push: { token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: false, taking_off: true, moderation_paused: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4 });
 ```
-(If any other assertion in that file spells out the full `push` object, add `moderation_paused: true` the same way and list it as a deviation.)
+(Line 9 gets the same `, moderation_paused: true` before its closing `}`.)
 
 - [ ] **Step 4: Run the tests**
 
@@ -1973,18 +1974,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InstagramApiError } from '@/lib/instagram/oauth';
 
-const { order } = vi.hoisted(() => ({ order: [] as string[] }));
+const { order, state } = vi.hoisted(() => ({ order: [] as string[], state: { account: null as unknown, comment: null as unknown, log: null as unknown } }));
 vi.mock('@/lib/moderation/store', async (orig) => {
   const real = await orig<typeof import('@/lib/moderation/store')>();
   const f = (name: string, impl: (...a: unknown[]) => unknown = () => undefined) => vi.fn(async (...a: unknown[]) => (order.push(name), impl(...a)));
   return {
     ...real,
-    getActionAccount: f('account'),
-    getActionComment: f('comment'),
+    getActionAccount: f('account', () => state.account),
+    getActionComment: f('comment', () => state.comment),
     countRecentOwnerActions: f('count', () => 0),
     insertLog: f('insertLog', () => 7),
     finishLog: f('finishLog'),
-    getLog: f('getLog'),
+    getLog: f('getLog', () => state.log),
     markUndone: f('markUndone', () => true),
     setCommentHidden: f('setHidden'),
     removeComment: f('removeComment'),
@@ -2024,10 +2025,10 @@ const hide = (o: Record<string, unknown> = {}) => ({ kind: 'hide' as const, acco
 
 beforeEach(() => {
   order.length = 0;
-  vi.clearAllMocks();
-  m.getActionAccount.mockResolvedValue(ACCOUNT);
-  m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'fan', hidden: false });
-  m.getLog.mockResolvedValue(null);
+  vi.resetAllMocks(); // back to each vi.fn's own implementation (a test's mockResolvedValue must not leak)
+  state.account = ACCOUNT;
+  state.comment = { id: 'c1', authorUsername: 'fan', hidden: false };
+  state.log = null;
 });
 
 describe('moderate: the order of writes', () => {
@@ -2043,7 +2044,7 @@ describe('moderate: the order of writes', () => {
   });
 
   it('unhide and delete mirror locally; reply stores the reply id, sends the trimmed text', async () => {
-    m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'fan', hidden: true });
+    state.comment = { id: 'c1', authorUsername: 'fan', hidden: true };
     expect(await moderate(deps(), hide({ kind: 'unhide' }))).toEqual({ ok: true, logged: true });
     expect(m.setCommentHidden).toHaveBeenCalledWith(db, A, 'c1', false);
     const d = deps();
@@ -2077,32 +2078,32 @@ describe('moderate: refusals send nothing to Instagram', () => {
     ['needs reconnect', { ...ACCOUNT, status: 'needs_reconnect' as const }, 'reconnect'],
     ['no comments scope', { ...ACCOUNT, grantedScopes: ['instagram_business_basic'] }, 'reconnect'],
   ])('%s → %s', async (_n, acc, error) => {
-    m.getActionAccount.mockResolvedValue(acc);
+    state.account = acc;
     expect(await moderate(deps(), hide())).toEqual({ ok: false, error });
     expect(order).toEqual(['account']);
   });
 
   it('a comment of another account (or gone) is not_found: no log row, no token, no Meta', async () => {
-    m.getActionComment.mockResolvedValue(null);
+    state.comment = null;
     expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'not_found' });
     expect(order).toEqual(['account', 'comment']);
   });
 
   it("the account's own comment cannot be hidden (any case); a reply to it is fine", async () => {
-    m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'myshop', hidden: false });
+    state.comment = { id: 'c1', authorUsername: 'myshop', hidden: false };
     expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'not_allowed' });
     expect(order).not.toContain('insertLog');
     expect(await moderate(deps(), hide({ kind: 'reply', message: 'hi' }))).toEqual({ ok: true, logged: true });
   });
 
   it('already hidden → already_done without a call', async () => {
-    m.getActionComment.mockResolvedValue({ id: 'c1', authorUsername: 'fan', hidden: true });
+    state.comment = { id: 'c1', authorUsername: 'fan', hidden: true };
     expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'already_done' });
     expect(order).not.toContain('insertLog');
   });
 
   it(`more than ${MANUAL_PER_MINUTE} actions a minute → too_many before any log row`, async () => {
-    m.countRecentOwnerActions.mockResolvedValue(MANUAL_PER_MINUTE);
+    m.countRecentOwnerActions.mockResolvedValueOnce(MANUAL_PER_MINUTE);
     expect(await moderate(deps(), hide())).toEqual({ ok: false, error: 'too_many' });
     expect(order).not.toContain('insertLog');
   });
@@ -2181,7 +2182,7 @@ describe('undoAction', () => {
   const row = (o: Partial<S.LogRow> = {}): S.LogRow => ({ id: 3, commentId: 'c9', action: 'hide', actor: `rule:${RULE}`, result: 'ok', targetId: null, undoOf: null, createdAt: '2026-10-29T09:00:00Z', undoneAt: null, ...o });
 
   it('a hide (also a rule\'s) is undone by an unhide of the STORED comment, linked to the row, then marked undone', async () => {
-    m.getLog.mockResolvedValue(row());
+    state.log = row();
     const d = deps();
     expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: true, logged: true });
     expect(m.getLog).toHaveBeenCalledWith(db, A, 3);
@@ -2191,7 +2192,7 @@ describe('undoAction', () => {
   });
 
   it('a reply is undone by deleting the STORED reply id', async () => {
-    m.getLog.mockResolvedValue(row({ action: 'reply', actor: 'owner', targetId: '1790' }));
+    state.log = row({ action: 'reply', actor: 'owner', targetId: '1790' });
     const d = deps();
     expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: true, logged: true });
     expect(d.ig.remove).toHaveBeenCalledWith('tok-secret', '1790');
@@ -2200,7 +2201,7 @@ describe('undoAction', () => {
   });
 
   it('a reply already gone on Instagram counts as undone (answers comment_gone)', async () => {
-    m.getLog.mockResolvedValue(row({ action: 'reply', actor: 'owner', targetId: '1790' }));
+    state.log = row({ action: 'reply', actor: 'owner', targetId: '1790' });
     const d = deps();
     vi.mocked(d.ig.remove).mockRejectedValueOnce(new InstagramApiError('data', 400, 100, 33));
     expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: false, error: 'comment_gone' });
@@ -2214,7 +2215,7 @@ describe('undoAction', () => {
     ['a failed hide', row({ result: 'rate_limited' }), 'cannot_undo'],
     ['a reply without its id', row({ action: 'reply' }), 'cannot_undo'],
   ])('%s → %s, nothing sent', async (_n, r, error) => {
-    m.getLog.mockResolvedValue(r);
+    state.log = r;
     const d = deps();
     expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: false, error });
     expect(d.token).not.toHaveBeenCalled();
@@ -2250,7 +2251,7 @@ describe('rules and the auto-hide switch', () => {
     m.loadRules.mockResolvedValueOnce([{ id: RULE, kind: 'link', pattern: null, wholeWord: false }]);
     expect(await setAutoHide(db, A, true, NOW)).toEqual({ ok: true });
     expect(m.saveAutoHide).toHaveBeenCalledWith(db, A, true, NOW.toISOString());
-    m.getActionAccount.mockResolvedValueOnce({ ...ACCOUNT, grantedScopes: null });
+    state.account = { ...ACCOUNT, grantedScopes: null };
     expect(await setAutoHide(db, A, true, NOW)).toEqual({ ok: false, error: 'reconnect' });
     order.length = 0;
     expect(await setAutoHide(db, A, false, NOW)).toEqual({ ok: true });
@@ -2527,7 +2528,7 @@ import { account } from './fixtures/sync-fakes';
 const { order } = vi.hoisted(() => ({ order: [] as string[] }));
 vi.mock('@/lib/moderation/store', async (orig) => {
   const real = await orig<typeof import('@/lib/moderation/store')>();
-  const f = (name: string) => vi.fn(async (..._a: unknown[]): Promise<unknown> => void order.push(name));
+  const f = (name: string) => vi.fn(async (): Promise<unknown> => void order.push(name));
   return { ...real, autoHideAccounts: vi.fn(), visibleComments: vi.fn(), logMarks: vi.fn(), insertLog: vi.fn(), finishLog: f('finishLog'), setCommentHidden: f('setHidden'), removeComment: f('removeComment'), pauseAutoHide: f('pause') };
 });
 
@@ -3406,7 +3407,7 @@ describe('CommentActions', () => {
   it('a double click sends once; each new dialog is a new request id', async () => {
     const user = userEvent.setup();
     let resolve!: (v: typeof OK) => void;
-    const hide = vi.fn(() => new Promise<typeof OK>((r) => (resolve = r)));
+    const hide = vi.fn<CommentActionsProps['hide']>(() => new Promise<typeof OK>((r) => (resolve = r)));
     renderIt({ hide });
     await pick(user, T.hide);
     const confirm = await screen.findByRole('button', { name: T.hideDialog.confirm });
@@ -3659,10 +3660,36 @@ export function ModerationTab(props: ModerationTabProps): JSX.Element;
 ```
 Layout (mobile-first, one column; `lg:grid-cols-2` for the Auto-hide and Rules cards, the log full width below): **without the scope** an `EmptyState` (`noScope.*`, a link-button to `/accounts`) and nothing else; **without the migration** an `EmptyState` (`notReady.*`). Otherwise: the intro line; the **Auto-hide** card (paused `Alert` with its reason and `pausedSince`, the `Switch` labelled `auto.switch` — checked = on and not paused; disabled with the `auto.noRules` hint while there are no rules and it is off; switching ON opens a `ConfirmDialog` with `auto.enableBody` (`count` = preview count, `n` = formatted) and only the confirm calls `setAutoHide(true)`; switching OFF calls `setAutoHide(false)` at once; the **preview** below: `preview.count`, `preview.basis`, up to 5 examples `@author` + snippet + `preview.by`); the **Rules** card (four spam switches with label + hint, the word form: `FormField` + `Input`, then a row with the "Whole word only" `Checkbox` and the default-size Add button, the count line, the word chips with a remove icon button each); the **Log** card (an ordered list; each row: action, time (`formatDateTime`), actor (`log.byOwner` / `log.byRule` with the rule's label or `ruleLabel.removed`), result (`log.results.ok|pending|unknown` or the translated error key), context (`@author: snippet` or `log.gone`), `log.undone` or an Undo button (`size="sm"`, dense list) that opens a `ConfirmDialog` (`log.undoTitle.*` / `log.undoBody.*`) with a fresh request id; the range line and `Pagination` (`hrefFor(p) = '?' + URLSearchParams({ tab: 'moderation', ...scope, page: p > 1 ? p : (omitted) })`).
 
-- [ ] **Step 1: Write the failing test** — create `tests/moderation-tab.test.tsx` (same router mock, DOM stubs and providers as `tests/comment-actions.test.tsx`; copy them):
+- [ ] **Step 1: Write the failing test** — create `tests/moderation-tab.test.tsx`:
 
 ```tsx
-// (imports, router mock, DOM stubs: as in tests/comment-actions.test.tsx)
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh, prefetch: vi.fn(), back: vi.fn() }) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses (same stubs as tests/followers-tab.test.tsx)
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  refresh.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
 import { ModerationTab, type ModerationActions, type ModerationTabProps } from '@/components/account/ModerationTab';
 import type { ModerationData } from '@/lib/moderation/store';
 
@@ -3798,7 +3825,7 @@ describe('ModerationTab', () => {
 
   it('page links keep the Time Scope and the tab', () => {
     const { container } = renderTab();
-    expect(container.querySelector('a[href="?tab=moderation&from=2026-10-01&page=2"]')).not.toBeNull();
+    expect([...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toContain('?tab=moderation&from=2026-10-01&page=2');
   });
 });
 ```
@@ -4308,9 +4335,9 @@ git commit -m "feat(moderation): Moderation tab and the comment menu in the Comm
 - Create: `docs/RUNBOOK_MODERATION.md`
 - Modify: `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md`, `docs/META_SETUP.md`
 
-- [ ] **Step 1: `docs/RUNBOOK_MODERATION.md`** (new; use the Write tool; CRLF like the other docs is fine either way):
+- [ ] **Step 1: `docs/RUNBOOK_MODERATION.md`** (new; use the Write tool; the block below is fenced with FOUR backticks because it contains code blocks — write only its content):
 
-```markdown
+````markdown
 # Runbook — Comment moderation (Plan 15d)
 
 Reply, hide/unhide and delete from the app, banned-word and spam auto-hide, the moderation log with Undo. Every check
@@ -4374,7 +4401,7 @@ Record any answer that differs in `docs/META_PROBE_RESULTS.md` ("Moderation writ
 
 ## 5. Privacy and security (report yes/no and counts only)
 - `select column_name from information_schema.columns where table_name = 'moderation_log';` → no text/author/message column.
-- `select count(*) from notifications where kind = 'moderation_paused' and payload::text ~ '[^@]text';` → the payload has only `username`.
+- `select count(*) from notifications where kind = 'moderation_paused' and (payload - 'username') <> '{}'::jsonb;` → 0 (the payload has only `username`).
 - Vercel logs for a day of moderation: no comment text, no names, no `access_token` (search for the probe words: 0 hits).
 - Logged out (private window): every server action answers a redirect to /login; nothing changes.
 - Deleting an account permanently removes its `moderation_*` rows (cascade): `select count(*) from moderation_log where account_id = '<id>';` → 0.
@@ -4386,7 +4413,7 @@ auto-hide sees only comments the hourly read stored (posts of the last 30 days).
 
 ## What to send if it fails
 The step number, the error text shown, the `moderation_log.result` value, and the time. Never the comment text or names.
-```
+````
 
 - [ ] **Step 2: `docs/SPEC.md`** — add after the last 7-section (15c adds `7i`; use the next letter, `7j`):
 ```markdown
