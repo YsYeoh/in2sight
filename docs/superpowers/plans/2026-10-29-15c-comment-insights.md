@@ -421,6 +421,201 @@ git commit -m "feat(db): comment_list, comment_fans, comment_outsiders (security
 
 ---
 
+### Task 2: i18n — every new key (additions only)
+
+**Files:**
+- Modify: `messages/en.json`, `messages/zh-CN.json`
+- Test: `tests/messages.test.ts` (parity, non-empty, placeholders, no copy-pasted English) and `tests/ui-standards.test.ts` (rule 6) must pass.
+
+**Interfaces:**
+- Produces (exact keys Tasks 7 and 8 read): `pages.account.tab.comments`; the new object `pages.account.commentInsights` with `intro`, `since`, `noScope.{title,body,action}`, `notReady`, `notReadyHint`, `sections.{label,comments,questions,fans,topics,outsiders}`, `toolbar`, `search`, `searchChip`, `commented`, `commentedTitle`, `post`, `allPosts`, `postOption`, `noCaption`, `thisPost`, `postChip`, `only.{label,all,questions,fans}`, `onlyChip.{questions,fans}`, `range`, `people`, `empty`, `emptyHint`, `emptySearch`, `emptyQuestions`, `questionsNote`, `openProfile`, `cols.{username,comments,likes,first,last,postsSince}`, `fans.{toolbar,show,top,new,quiet,topRule,newRule,quietRule,empty}`, `topics.{basis,ruleBased,words,emoji,hashtags,inComments,none,tooFew,tooFewHint}`, `outsiders.{basis,noSnapshot,noSnapshotHint,openFollowers,empty}`, `row.{label,unknownAuthor,openProfile,likes,question,replied,hidden,more,onPost,postGone}`. (Named `commentInsights`, not `comments`: `pages.account.*.comments` keys already exist as metric labels, and Plan 15d can add its own sibling object.)
+- Placeholders: `{username}`, `{date}`, `{q}`, `{range}`, `{caption}`, `{first}`/`{last}`/`{total}`, `{days}`/`{min}`/`{posts}`, `{count}` (plural selector in `topics.inComments` and `row.likes`; a formatted number elsewhere), `{authors}`, `{author}`. Every number passed in is already formatted by `formatNumber`, except the plural selectors. `postOption` differs between locales on purpose (`{date} · {caption}` / `{date}｜{caption}`): `tests/messages.test.ts` flags identical values with 4+ ASCII letters, placeholder names included.
+
+- [ ] **Step 1: Insert the keys** — one text edit per file (Edit tool; the anchor line occurs once, at 6-space indentation; every other line stays byte-identical). Use the Edit tool (non-ASCII text: never a shell heredoc).
+
+`messages/en.json` — anchor (line 383):
+```json
+      "tab": { "overview": "Overview", "growth": "Growth", "posts": "Posts", "stories": "Stories", "followers": "Followers" },
+```
+replace with:
+```json
+      "tab": { "overview": "Overview", "growth": "Growth", "posts": "Posts", "stories": "Stories", "comments": "Comments", "followers": "Followers" },
+      "commentInsights": {
+        "intro": "Comments on your posts and Reels, read every hour for posts of the last 30 days. Stories have no comments here (Story replies are private messages), and replies inside a comment thread are not read yet.",
+        "since": "Comments read since {date}.",
+        "noScope": {
+          "title": "Comments are off for @{username}",
+          "body": "This account was connected before in2sight asked for permission to read comments. Reconnect it once and approve every permission; comments then arrive within the hour. Until then nothing is read, so an empty list would not mean there are no comments.",
+          "action": "Reconnect to enable comments"
+        },
+        "notReady": "Comments needs a database update (docs/RUNBOOK_COMMENTS.md §0)",
+        "notReadyHint": "Until it is applied, only Topics works here.",
+        "sections": { "label": "Comment views", "comments": "All comments", "questions": "Unanswered questions", "fans": "Fans", "topics": "Topics", "outsiders": "Not following you" },
+        "toolbar": "Comment filters",
+        "search": "Search comments and usernames",
+        "searchChip": "Search: {q}",
+        "commented": "Commented: {range}",
+        "commentedTitle": "Comment date",
+        "post": "Post",
+        "allPosts": "All posts",
+        "postOption": "{date} · {caption}",
+        "noCaption": "No caption",
+        "thisPost": "This post",
+        "postChip": "One post",
+        "only": { "label": "Show only", "all": "All comments", "questions": "Questions", "fans": "From fans" },
+        "onlyChip": { "questions": "Questions only", "fans": "From fans only" },
+        "range": "{first}–{last} of {total} comments",
+        "people": "{first}–{last} of {total} people",
+        "empty": "No comments in this range yet",
+        "emptyHint": "Comments arrive hourly for posts of the last 30 days.",
+        "emptySearch": "No comments match these filters",
+        "emptyQuestions": "No unanswered questions in this range",
+        "questionsNote": "Rule-based: a question mark or a question word (English or Chinese), and no later comment from @{username} that mentions the person. Replies inside a comment thread are not read yet, so a question you answered there can still show here.",
+        "openProfile": "Open @{username} on Instagram",
+        "cols": { "username": "Username", "comments": "Comments", "likes": "Likes on their comments", "first": "First comment", "last": "Latest comment", "postsSince": "Posts since" },
+        "fans": {
+          "toolbar": "Fan list",
+          "show": "Show",
+          "top": "Top fans",
+          "new": "New fans",
+          "quiet": "Gone quiet",
+          "topRule": "Everyone who commented, ranked by comments, then by likes on their comments. Your own comments are left out.",
+          "newRule": "First comment in the last {days} days and at least {min} comments.",
+          "quietRule": "At least {min} comments, none in the last {days} days, while you published {posts} or more posts since. A signal, not proof: they may still watch without commenting.",
+          "empty": "Nobody here yet"
+        },
+        "topics": {
+          "basis": "From the newest {count} comments in this range (yours left out). A term counts once per comment and must come from at least {authors} people.",
+          "ruleBased": "Rule-based word counts, no AI; single letters, single characters and common words are skipped.",
+          "words": "Words",
+          "emoji": "Emoji",
+          "hashtags": "Hashtags",
+          "inComments": "{count, plural, one {in # comment} other {in # comments}}",
+          "none": "Nothing repeats often enough yet",
+          "tooFew": "Too few comments for topics",
+          "tooFewHint": "At least {min} comments are needed; this range has {count}."
+        },
+        "outsiders": {
+          "basis": "Compared with your follower export of {date} ({count} followers). Snapshot-based: people who followed you after that export show up here too.",
+          "noSnapshot": "Upload a follower export first",
+          "noSnapshotHint": "This list compares the people who comment with the newest follower list you uploaded in the Followers tab.",
+          "openFollowers": "Open Followers",
+          "empty": "Everyone who comments follows you in that export"
+        },
+        "row": {
+          "label": "Comment by {author}",
+          "unknownAuthor": "Unknown account",
+          "openProfile": "Open @{username} on Instagram",
+          "likes": "{count, plural, one {# like} other {# likes}}",
+          "question": "Question",
+          "replied": "Reply seen",
+          "hidden": "Hidden",
+          "more": "Shortened",
+          "onPost": "On your post of {date}",
+          "postGone": "The post is no longer listed"
+        }
+      },
+```
+
+`messages/zh-CN.json` — anchor (line 383):
+```json
+      "tab": { "overview": "概览", "growth": "增长", "posts": "帖子", "stories": "快拍", "followers": "粉丝" },
+```
+replace with:
+```json
+      "tab": { "overview": "概览", "growth": "增长", "posts": "帖子", "stories": "快拍", "comments": "评论", "followers": "粉丝" },
+      "commentInsights": {
+        "intro": "你的帖子和 Reels 收到的评论，每小时读取一次，只读取最近 30 天内发布的帖子。快拍在这里没有评论（快拍回复是私信），评论下的回复暂时不读取。",
+        "since": "自 {date} 起读取评论。",
+        "noScope": {
+          "title": "@{username} 的评论功能未开启",
+          "body": "此账号连接时 in2sight 还没有申请读取评论的权限。重新连接一次并同意所有权限，评论会在一小时内出现。在此之前不会读取任何评论，所以列表为空并不代表没有评论。",
+          "action": "重新连接以启用评论"
+        },
+        "notReady": "评论功能需要更新数据库（docs/RUNBOOK_COMMENTS.md §0）",
+        "notReadyHint": "更新完成之前，这里只有“话题”可用。",
+        "sections": { "label": "评论视图", "comments": "全部评论", "questions": "未回答的问题", "fans": "粉丝榜", "topics": "话题", "outsiders": "未关注你的人" },
+        "toolbar": "评论筛选",
+        "search": "搜索评论和用户名",
+        "searchChip": "搜索：{q}",
+        "commented": "评论时间：{range}",
+        "commentedTitle": "评论日期",
+        "post": "帖子",
+        "allPosts": "全部帖子",
+        "postOption": "{date}｜{caption}",
+        "noCaption": "无文案",
+        "thisPost": "此帖子",
+        "postChip": "单个帖子",
+        "only": { "label": "只显示", "all": "全部评论", "questions": "问题", "fans": "来自粉丝" },
+        "onlyChip": { "questions": "只看问题", "fans": "只看粉丝" },
+        "range": "第 {first}–{last} 条，共 {total} 条评论",
+        "people": "第 {first}–{last} 位，共 {total} 位",
+        "empty": "此范围内还没有评论",
+        "emptyHint": "最近 30 天内发布的帖子的评论每小时读取一次。",
+        "emptySearch": "没有符合这些筛选条件的评论",
+        "emptyQuestions": "此范围内没有未回答的问题",
+        "questionsNote": "按规则判断：含问号或疑问词（英文或中文），且之后没有 @{username} 提到此人的评论。评论下的回复暂时不读取，所以你在回复里答过的问题仍可能出现在这里。",
+        "openProfile": "在 Instagram 上打开 @{username}",
+        "cols": { "username": "用户名", "comments": "评论数", "likes": "其评论获得的赞", "first": "首次评论", "last": "最近评论", "postsSince": "此后的帖子" },
+        "fans": {
+          "toolbar": "粉丝列表",
+          "show": "显示",
+          "top": "铁粉榜",
+          "new": "新粉丝",
+          "quiet": "沉寂的粉丝",
+          "topRule": "所有评论过的人，按评论数排序，其次按其评论获得的赞。不含你自己的评论。",
+          "newRule": "最近 {days} 天内首次评论，且至少 {min} 条评论。",
+          "quietRule": "至少 {min} 条评论，最近 {days} 天没有评论，而你在此期间发布了 {posts} 条或更多帖子。这只是信号，不是证据：他们可能仍在看，只是没有评论。",
+          "empty": "暂时没有人"
+        },
+        "topics": {
+          "basis": "取自此范围内最新的 {count} 条评论（不含你自己的）。一个词在每条评论里只算一次，且至少来自 {authors} 个人。",
+          "ruleBased": "按规则统计词语，不使用 AI；单个字母、单个汉字和常用词会被跳过。",
+          "words": "词语",
+          "emoji": "表情",
+          "hashtags": "话题标签",
+          "inComments": "{count, plural, other {出现在 # 条评论中}}",
+          "none": "暂时没有经常重复的内容",
+          "tooFew": "评论太少，无法分析话题",
+          "tooFewHint": "至少需要 {min} 条评论；此范围内有 {count} 条。"
+        },
+        "outsiders": {
+          "basis": "与你 {date} 的粉丝导出文件比较（{count} 位粉丝）。基于快照：在那次导出之后才关注你的人也会出现在这里。",
+          "noSnapshot": "请先上传粉丝导出文件",
+          "noSnapshotHint": "此列表把评论者与你在“粉丝”标签页上传的最新粉丝名单进行比较。",
+          "openFollowers": "打开粉丝",
+          "empty": "在那份导出文件中，所有评论者都关注了你"
+        },
+        "row": {
+          "label": "{author} 的评论",
+          "unknownAuthor": "未知账号",
+          "openProfile": "在 Instagram 上打开 @{username}",
+          "likes": "{count, plural, other {# 个赞}}",
+          "question": "问题",
+          "replied": "已见回复",
+          "hidden": "已隐藏",
+          "more": "已截断",
+          "onPost": "在你 {date} 的帖子下",
+          "postGone": "该帖子已不在列表中"
+        }
+      },
+```
+
+(The block ends with `},` because `"followerDiff": {` follows on the next line, unchanged.)
+
+- [ ] **Step 2: Run the tests**
+
+Run: `npx vitest run tests/messages.test.ts tests/ui-standards.test.ts tests/account-view.test.tsx` → PASS (the new `tab.comments` label is unused until Task 8; `account-view` still sees five tabs). `node -e "JSON.parse(require('fs').readFileSync('messages/en.json','utf8'));JSON.parse(require('fs').readFileSync('messages/zh-CN.json','utf8'))"` prints nothing.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add messages/en.json messages/zh-CN.json
+git commit -m "feat(i18n): Comments tab strings (en, zh-CN)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 3: Shared types + the question rule (pure)
 
 **Files:**
@@ -1524,6 +1719,693 @@ Run: `npx vitest run tests/comment-row.test.tsx tests/messages.test.ts` → PASS
 ```bash
 git add components/account/CommentRow.tsx tests/comment-row.test.tsx
 git commit -m "feat(comments): CommentRow (text as text, capped; Post Lab link; actions slot and status for 15d)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: The Comments tab end to end (component, `TABS`, skeleton, page `case`, PostedFilter labels)
+
+**Files:**
+- Create: `components/account/CommentsTab.tsx`, `tests/comments-tab.test.tsx`
+- Modify: `components/account/PostedFilter.tsx`, `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx`
+- Existing tests that must keep passing: `tests/posted-filter.test.tsx`, `tests/posts-tab.test.tsx`, `tests/stories-list.test.tsx`, `tests/route-loading.test.tsx` (`it.each(TABS)`: the new tab gets the Followers skeleton), `tests/ui-standards.test.ts`, `tests/followers-privacy.test.ts`, `tests/comments-privacy.test.ts`.
+
+**Interfaces:**
+- Consumes: Task 2 keys (`pages.account.tab.comments`, `pages.account.commentInsights.*`), Task 3–7 exports; `connectHref` (`components/accounts/ConnectDialog.tsx`), `PostedFilter` / `usePostedName`, `hasScope` / `COMMENTS_SCOPE`, `listFollowerSnapshots`, `listWindow`, `daysToIso`, `pageCount`, `ALL_TIME`.
+- Produces: `CommentsTab(props: CommentsTabProps)`, `CommentsTabProps { accountId; username; groupName; today; scope?; state; start; data; renderActions? }`, `CommentsData` (the union below). `PostedFilter` gains optional `label?: string` and `title?: string` (default: the "Posted: …" texts, so Posts/Stories are unchanged). `TABS` becomes `['overview', 'growth', 'posts', 'stories', 'comments', 'followers']`.
+- The page reads ONE view per request: `comments`/`questions` → `loadCommentPage` + `loadCommentPosts`; `fans` → `loadFans`; `topics` → `loadTopicSample` + `topics()` (server-side; the browser gets the counts only); `outsiders` → `listFollowerSnapshots` then `loadOutsiders`; plus `loadCommentStart` for every view. Without the scope: nothing is read.
+
+- [ ] **Step 1: Write the failing tests**
+
+(a) Create `tests/comments-tab.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { CommentsTab, type CommentsData, type CommentsTabProps } from '@/components/account/CommentsTab';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { parseCommentState } from '@/lib/comments/state';
+import type { CommentView } from '@/lib/comments/view';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const { push, replace, refresh } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }));
+vi.mock('next/navigation', async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ push, replace, refresh, prefetch: vi.fn(), back: vi.fn() }) }));
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  for (const f of [push, replace, refresh]) f.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const T = en.pages.account.commentInsights;
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const SCOPE = { from: '2026-09-01', to: '2026-09-30' };
+const comment = (i: number, o: Partial<CommentView> = {}): CommentView => ({
+  id: `c${i}`,
+  mediaId: '1790',
+  authorUsername: `fan${i}`,
+  text: `comment ${i}`,
+  postedAt: '2026-10-20T08:00:00Z',
+  likeCount: null,
+  isQuestion: false,
+  hidden: null,
+  repliedByOwner: null,
+  post: { id: '1790', type: 'IMAGE', postedAt: '2026-10-19T10:00:00Z', caption: 'Penang' },
+  ...o,
+});
+const POSTS = [{ id: '1790', type: 'IMAGE', postedAt: '2026-10-19T10:00:00Z', caption: 'Penang street food, the long caption that is cut' }];
+
+function props(sp: Record<string, string>, data: CommentsData, o: Partial<CommentsTabProps> = {}): CommentsTabProps {
+  return { accountId: ACC, username: 'shop.one', groupName: 'Brand X', today: '2026-10-25', scope: SCOPE, state: parseCommentState(sp), start: '2026-10-02T03:00:00Z', data, ...o };
+}
+function view(p: CommentsTabProps, locale: 'en' | 'zh-CN' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale, dateFormat: 'YYYY-MM-DD' }} persist={vi.fn()}>
+        <CommentsTab {...p} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+const page = <R,>(rows: R[], total = rows.length, n = 1) => ({ rows, total, page: n });
+
+describe('CommentsTab', () => {
+  it('without the comments scope: nothing else, the reason, and the reconnect link (keeps the group, leaves the frame)', () => {
+    view(props({}, { kind: 'noScope' }));
+    expect(screen.getByText('Comments are off for @shop.one')).toBeInTheDocument();
+    expect(screen.getByText(T.noScope.body)).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: T.noScope.action });
+    expect(link).toHaveAttribute('href', '/api/instagram/connect?group=Brand%20X');
+    expect(link).toHaveAttribute('target', '_top');
+    expect(screen.queryByRole('tablist')).toBeNull();
+  });
+
+  it('All comments: intro + since, five underline views, the toolbar, the count line, rows with the Post Lab link, pages that keep the scope', () => {
+    view(props({ page: '2' }, { kind: 'comments', page: page([comment(1), comment(2)], 52, 2), posts: POSTS }));
+    expect(screen.getByText(/Comments read since 2026-10-02\./)).toBeInTheDocument();
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((x) => x.textContent)).toEqual(['All comments', 'Unanswered questions', 'Fans', 'Topics', 'Not following you']);
+    expect(screen.getByRole('tablist')).toHaveAttribute('data-variant', 'line');
+    const toolbar = screen.getByRole('group', { name: T.toolbar });
+    expect(within(toolbar).getByRole('searchbox', { name: T.search })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: 'Commented: All time' })).toBeInTheDocument();
+    const post = within(toolbar).getByRole('combobox', { name: T.post });
+    expect(within(post).getAllByRole('option').map((o) => o.textContent)).toEqual(['All posts', '2026-10-19 · Penang street food, the long caption tha…']);
+    expect(screen.getByText('51–52 of 52 comments')).toBeInTheDocument();
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'On your post of 2026-10-19' })[0]).toHaveAttribute('href', `/accounts/${ACC}/media/1790?from=2026-09-01&to=2026-09-30`);
+    expect(screen.getByRole('link', { name: 'First page' })).toHaveAttribute('href', '?tab=comments&from=2026-09-01&to=2026-09-30');
+  });
+
+  it('filters become chips; Clear all keeps the section; a deep-linked older post shows as "This post"; Advanced holds Show only', () => {
+    view(props({ q: 'cake', pr: '30d', media: '999', only: 'questions' }, { kind: 'comments', page: page([]), posts: POSTS }));
+    const chips = screen.getByRole('list', { name: en.filters.active });
+    expect(within(chips).getAllByRole('link').map((l) => [l.textContent, l.getAttribute('href')])).toEqual([
+      ['Search: cake', '?tab=comments&pr=30d&media=999&only=questions&from=2026-09-01&to=2026-09-30'],
+      ['Commented: Last 30 days', '?tab=comments&q=cake&media=999&only=questions&from=2026-09-01&to=2026-09-30'],
+      [T.postChip, '?tab=comments&pr=30d&q=cake&only=questions&from=2026-09-01&to=2026-09-30'],
+      [T.onlyChip.questions, '?tab=comments&pr=30d&q=cake&media=999&from=2026-09-01&to=2026-09-30'],
+    ]);
+    expect(screen.getByRole('link', { name: en.filters.clearAll })).toHaveAttribute('href', '?tab=comments&from=2026-09-01&to=2026-09-30');
+    expect(screen.getByRole('combobox', { name: T.post })).toHaveValue('999');
+    expect(screen.getByRole('option', { name: T.thisPost })).toBeInTheDocument();
+    expect(screen.getByText(T.emptySearch)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Advanced/ })).toBeInTheDocument();
+  });
+
+  it('no comments and no filters: "none yet" with when they arrive (never "no comments ever")', () => {
+    view(props({}, { kind: 'comments', page: page([]), posts: [] }));
+    expect(screen.getByText(T.empty)).toBeInTheDocument();
+    expect(screen.getByText(T.emptyHint)).toBeInTheDocument();
+  });
+
+  it('choosing a view navigates with the filters kept and page 1', async () => {
+    const user = userEvent.setup();
+    view(props({ q: 'cake', page: '3' }, { kind: 'comments', page: page([comment(1)], 120, 3), posts: [] }));
+    await user.click(screen.getByRole('tab', { name: 'Fans' }));
+    expect(push).toHaveBeenLastCalledWith('?tab=comments&section=fans&q=cake&from=2026-09-01&to=2026-09-30', { scroll: false });
+  });
+
+  it('Unanswered questions: the rule and its limit on screen; no Show-only panel; renderActions fills each row (Plan 15d)', () => {
+    const renderActions = vi.fn((c: CommentView) => <button type="button">{`Reply to ${c.id}`}</button>);
+    view(props({ section: 'questions' }, { kind: 'comments', page: page([comment(1, { isQuestion: true })]), posts: [] }, { renderActions }));
+    expect(screen.getByText(/^Rule-based: a question mark .* no later comment from @shop\.one/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Advanced/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Reply to c1' })).toBeInTheDocument();
+    expect(renderActions).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
+  });
+
+  it('Fans: the mode select, its rule with the numbers, the table, the people count', () => {
+    view(props({ section: 'fans', fans: 'quiet' }, { kind: 'fans', page: page([{ username: 'amy', comments: 12, likes: 30, firstAt: '2026-08-01T00:00:00Z', lastAt: '2026-09-01T00:00:00Z', postsSince: 4 }], 1) }));
+    expect(screen.getByRole('combobox', { name: T.fans.show })).toHaveValue('quiet');
+    expect(screen.getByText('At least 3 comments, none in the last 30 days, while you published 3 or more posts since. A signal, not proof: they may still watch without commenting.')).toBeInTheDocument();
+    expect(screen.getByText('1–1 of 1 people')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Username', 'Comments', 'Likes on their comments', 'First comment', 'Latest comment', 'Posts since']);
+    expect(within(table).getByRole('link', { name: 'Open @amy on Instagram' })).toHaveAttribute('href', 'https://www.instagram.com/amy/');
+    expect(within(table).getByText('2026-08-01')).toBeInTheDocument();
+  });
+
+  it('Topics: the basis with the sample, three lists; too few comments says how many are needed', () => {
+    const { unmount } = view(
+      props({ section: 'topics' }, { kind: 'topics', topics: { sample: 120, enough: true, words: [{ term: '颜色', comments: 5 }], emoji: [{ term: '😍', comments: 1 }], hashtags: [] } }),
+    );
+    expect(screen.getByText(/^From the newest 120 comments in this range/)).toBeInTheDocument();
+    expect(screen.getByText('颜色')).toBeInTheDocument();
+    expect(screen.getByText('in 5 comments')).toBeInTheDocument();
+    expect(screen.getByText('in 1 comment')).toBeInTheDocument();
+    expect(screen.getByText(T.topics.none)).toBeInTheDocument(); // no hashtags
+    unmount();
+    view(props({ section: 'topics' }, { kind: 'topics', topics: { sample: 7, enough: false, words: [], emoji: [], hashtags: [] } }));
+    expect(screen.getByText('At least 20 comments are needed; this range has 7.')).toBeInTheDocument();
+  });
+
+  it('Not following you: snapshot-based basis line; without an export a link to the Followers tab', () => {
+    const { unmount } = view(props({ section: 'outsiders' }, { kind: 'outsiders', page: page([{ username: 'bob', comments: 4, lastAt: '2026-10-01T00:00:00Z' }]), snapshot: { takenOn: '2026-10-20', followerCount: 1234 } }));
+    expect(screen.getByText(/^Compared with your follower export of 2026-10-20 \(1,234 followers\)\. Snapshot-based/)).toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getByRole('link', { name: 'Open @bob on Instagram' })).toHaveAttribute('href', 'https://www.instagram.com/bob/');
+    unmount();
+    view(props({ section: 'outsiders' }, { kind: 'noSnapshot' }));
+    expect(screen.getByRole('link', { name: T.outsiders.openFollowers })).toHaveAttribute('href', '?tab=followers&from=2026-09-01&to=2026-09-30');
+  });
+
+  it('migration missing: the database-update note inside the view', () => {
+    view(props({ section: 'fans' }, { kind: 'notReady' }));
+    expect(screen.getByText(T.notReady)).toBeInTheDocument();
+    expect(screen.getByText(T.notReadyHint)).toBeInTheDocument();
+  });
+
+  it('zh-CN', () => {
+    view(props({}, { kind: 'comments', page: page([comment(1)]), posts: [] }), 'zh-CN');
+    expect(screen.getAllByRole('tab').map((x) => x.textContent)).toEqual(['全部评论', '未回答的问题', '粉丝榜', '话题', '未关注你的人']);
+    expect(screen.getByText('第 1–1 条，共 1 条评论')).toBeInTheDocument();
+  });
+});
+```
+
+(b) `tests/dashboard-account.test.ts` — three anchored edits:
+- `it('accepts the five tabs only;` → `it('accepts the six tabs only;`
+- `expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories', 'followers']);` → `expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'followers']);`
+- `expect(['overview', 'growth', 'posts', 'stories', 'followers', 'audience', 'GROWTH'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'followers', 'overview', 'overview']);` → `expect(['overview', 'growth', 'posts', 'stories', 'comments', 'followers', 'audience', 'GROWTH'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'followers', 'overview', 'overview']);`
+
+(c) `tests/account-view.test.tsx` — three anchored edits:
+- `const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories' | 'followers', q = ''` → `const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories' | 'comments' | 'followers', q = ''`
+- `expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories', 'Followers']);` → `expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories', 'Comments', 'Followers']);`
+- `for (const tab of ['posts', 'stories', 'followers'] as const) {` → `for (const tab of ['posts', 'stories', 'comments', 'followers'] as const) {` (the Comments tab shows no range bar)
+
+(d) `tests/account-page.test.tsx` — insert this block directly BEFORE the line `vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (await import('@/lib/prefs')).DEFAULT_PREFS }));`:
+
+```ts
+const comments = vi.hoisted(() => ({ args: [] as Record<string, unknown>[], migrated: true }));
+vi.mock('@/lib/comments/read', () => ({
+  loadCommentPage: async (_db: unknown, id: string, a: Record<string, unknown>) => (calls.push(`commentPage:${id}`), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
+  loadCommentPosts: async () => (calls.push('commentPosts'), []),
+  loadCommentStart: async () => (calls.push('commentStart'), '2026-10-02T03:00:00Z'),
+  loadFans: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('fans'), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
+  loadOutsiders: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('outsiders'), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
+  loadTopicSample: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('topicSample'), comments.args.push(a), []),
+}));
+```
+
+and append this block at the END of the file:
+
+```ts
+
+describe('account page: the Comments tab (Plan 15c)', () => {
+  const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights', 'instagram_business_manage_comments'];
+  type CommentsProps = { data: { kind: string; snapshot?: unknown; topics?: { enough: boolean } }; start: string | null; state: { section: string }; scope: Record<string, string>; username: string; groupName: string | null };
+  const commentsTab = async (sp: Record<string, string> = {}) => ((await streamTab(await run(ID, { tab: 'comments', ...sp }))) as ReactElement<CommentsProps>).props;
+  const commentCalls = () => calls.filter((c) => /^(commentPage|commentPosts|commentStart|fans|outsiders|topicSample|followerSnapshots)/.test(c));
+
+  beforeEach(() => {
+    comments.args.length = 0;
+    comments.migrated = true;
+    followers.snapshots = [];
+    accounts.push(acct(ID, 'active', { username: 'Shop.One', grantedScopes: SCOPES }));
+  });
+
+  it('without the comments scope: nothing is read, the tab says why (empty would not mean "no comments")', async () => {
+    accounts.length = 0;
+    accounts.push(acct(ID, 'active', { grantedScopes: SCOPES.slice(0, 2) }));
+    const p = await commentsTab();
+    expect(p.data).toEqual({ kind: 'noScope' });
+    expect(p.start).toBeNull();
+    expect(commentCalls()).toEqual([]);
+  });
+
+  it('All comments: one page for the comment-date window (owner timezone), the owner name lower-cased, the post choices and the start', async () => {
+    const p = await commentsTab({ pr: '30d', q: 'cake', media: '1790', only: 'fans', page: '2' });
+    expect(p.data.kind).toBe('comments');
+    expect(p.start).toBe('2026-10-02T03:00:00Z');
+    const today = localDay(new Date(), DEFAULT_PREFS.timezone);
+    const from = new Date(Date.parse(`${today}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
+    expect(comments.args[0]).toEqual({ ...daysToIso(from, today, DEFAULT_PREFS.timezone), q: 'cake', media: '1790', questions: false, unanswered: false, fansOnly: true, owner: 'shop.one', page: 2 });
+    expect(commentCalls().sort()).toEqual([`commentPage:${ID}`, 'commentPosts', 'commentStart']);
+    expect(calls).not.toContain('ADMIN');
+  });
+
+  it('Unanswered questions: the question rule and the no-reply filter (Show only is ignored there); Show only = questions on the list', async () => {
+    await commentsTab({ section: 'questions', only: 'fans' });
+    expect(comments.args[0]).toMatchObject({ questions: true, unanswered: true, fansOnly: false });
+    await commentsTab({ only: 'questions' });
+    expect(comments.args[1]).toMatchObject({ questions: true, unanswered: false, fansOnly: false });
+  });
+
+  it('Fans: the mode, the clock and the page; before the migration the database-update note', async () => {
+    const p = await commentsTab({ section: 'fans', fans: 'new', page: '3' });
+    expect(p.data.kind).toBe('fans');
+    expect(comments.args[0]).toMatchObject({ owner: 'shop.one', mode: 'new', page: 3 });
+    expect(comments.args[0].now).toBeInstanceOf(Date);
+    comments.migrated = false;
+    expect((await commentsTab({ section: 'fans' })).data).toEqual({ kind: 'notReady' });
+    expect((await commentsTab()).data).toEqual({ kind: 'notReady' });
+  });
+
+  it('Topics: the capped sample of the window, analysed on the server (works before the migration)', async () => {
+    comments.migrated = false;
+    const p = await commentsTab({ section: 'topics' });
+    expect(p.data.kind).toBe('topics');
+    expect(p.data.topics?.enough).toBe(false);
+    expect(comments.args[0]).toMatchObject({ owner: 'shop.one' });
+    expect(calls).not.toContain(`commentPage:${ID}`);
+  });
+
+  it('Not following you: needs the follower exports table and an export; then the newest export is the basis', async () => {
+    followers.snapshots = null;
+    expect((await commentsTab({ section: 'outsiders' })).data).toEqual({ kind: 'notReady' });
+    followers.snapshots = [];
+    expect((await commentsTab({ section: 'outsiders' })).data).toEqual({ kind: 'noSnapshot' });
+    followers.snapshots = [
+      { id: 'a', takenOn: '2026-10-20', followerCount: 1234, followingCount: null, createdAt: '2026-10-20T10:00:00Z' },
+      { id: 'b', takenOn: '2026-09-20', followerCount: 1000, followingCount: null, createdAt: '2026-09-20T10:00:00Z' },
+    ];
+    const p = await commentsTab({ section: 'outsiders', page: '2' });
+    expect(p.data).toMatchObject({ kind: 'outsiders', snapshot: { takenOn: '2026-10-20', followerCount: 1234 } });
+    expect(comments.args.at(-1)).toEqual({ owner: 'shop.one', page: 2 });
+  });
+
+  it('the Suspense key ignores the comment params (the toolbar stays mounted); the scope rides along to the tab', async () => {
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    expect(await key({ tab: 'comments', section: 'fans', fans: 'quiet', media: '1', only: 'questions', q: 'x', pr: '7d', page: '2' })).toBe(await key({ tab: 'comments' }));
+    expect((await commentsTab({ from: '2026-09-01', to: '2026-09-30' })).scope).toEqual({ from: '2026-09-01', to: '2026-09-30' });
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/comments-tab.test.tsx tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx`
+Expected: FAIL — `comments-tab`: `Failed to resolve import "@/components/account/CommentsTab"`; `dashboard-account`: `TABS` lacks `comments`; `account-view`: no "Comments" tab; `account-page`: the new describe block (`data` undefined: `?tab=comments` falls back to Overview).
+
+- [ ] **Step 3: PostedFilter labels** — `components/account/PostedFilter.tsx`, two anchored edits:
+- the two lines
+  ```
+  /** `hrefFor(dates)` = the list with those dates (page 1, everything else kept); `hidden` = the other params of the list,
+   *  for the custom-dates form (without pr/pfrom/pto/page). */
+  export function PostedFilter({ id, dates, today, hrefFor, hidden }: { id: string; dates: ListDates; today: string; hrefFor: (d: ListDates) => string; hidden: Record<string, string> }) {
+  ```
+  become
+  ```
+  /** `hrefFor(dates)` = the list with those dates (page 1, everything else kept); `hidden` = the other params of the list,
+   *  for the custom-dates form (without pr/pfrom/pto/page). `label` / `title` = the button and panel names when the date is
+   *  not a posting date (the Comments tab: "Commented: …"); default "Posted: …". */
+  export function PostedFilter({ id, dates, today, hrefFor, hidden, label, title }: { id: string; dates: ListDates; today: string; hrefFor: (d: ListDates) => string; hidden: Record<string, string>; label?: string; title?: string }) {
+  ```
+- `    <FilterPanel label={t('postedWith', { range: name })} title={t('postedTitle')} active={custom || dates.pr !== null} open={open} onOpenChange={setOpen}>` → `    <FilterPanel label={label ?? t('postedWith', { range: name })} title={title ?? t('postedTitle')} active={custom || dates.pr !== null} open={open} onOpenChange={setOpen}>`
+
+- [ ] **Step 4: The component** — create `components/account/CommentsTab.tsx`:
+
+```tsx
+'use client';
+
+// The Comments tab (Plan 15c, READ-ONLY): five views as underline tabs (?section=): All comments, Unanswered questions,
+// Fans, Topics, Not following you. Everything is URL state (lib/comments/state.ts); the server read ONE view's page
+// (app/(app)/accounts/[id]/(tabs)/page.tsx), so at most one page of third-party names reaches the browser. Every
+// analysis view states its source, rule and sample. Without the comments scope nothing is read and the tab says why.
+// Plan 15d contract: `renderActions(comment)` fills each CommentRow's action slot.
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import { ExternalLink, MessageSquareOff, MessagesSquare } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { CommentRow } from '@/components/account/CommentRow';
+import { PostedFilter, usePostedName } from '@/components/account/PostedFilter';
+import { connectHref } from '@/components/accounts/ConnectDialog';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { DataTable, type Column } from '@/components/shared/DataTable';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { FilterOptions, FilterSearch, FilterSelect, FilterToolbar, useApply, type FilterChip } from '@/components/shared/FilterToolbar';
+import { Pagination } from '@/components/shared/Pagination';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { COMMENT_ONLY, COMMENT_SECTIONS, commentHref, FAN_MODES, type CommentSection, type CommentState, type FanMode } from '@/lib/comments/state';
+import { TOPIC_MIN_AUTHORS, TOPIC_MIN_SAMPLE, type Term, type Topics } from '@/lib/comments/topics';
+import { capText, COMMENT_PAGE, FAN_PAGE, FAN_RULES, type CommentPost, type CommentView, type Fan, type Outsider, type Paged } from '@/lib/comments/view';
+import { ALL_TIME, pageCount } from '@/lib/dashboard/lists';
+import { formatDate, formatDay, formatNumber } from '@/lib/format';
+
+/** What the server read for the current section. */
+export type CommentsData =
+  | { kind: 'noScope' } // the token lacks the comments scope: nothing was read
+  | { kind: 'notReady' } // migration 20261029000001 is not applied (or, for outsiders, the follower exports table is missing)
+  | { kind: 'comments'; page: Paged<CommentView>; posts: CommentPost[] } // sections comments and questions
+  | { kind: 'fans'; page: Paged<Fan> }
+  | { kind: 'topics'; topics: Topics }
+  | { kind: 'noSnapshot' } // outsiders without a follower export
+  | { kind: 'outsiders'; page: Paged<Outsider>; snapshot: { takenOn: string; followerCount: number } };
+
+export interface CommentsTabProps {
+  accountId: string;
+  username: string;
+  groupName: string | null;
+  today: string;
+  scope?: Record<string, string>; // the Time Scope params: carried in every link, never used here
+  state: CommentState;
+  start: string | null; // when comments were first read (ISO); null = none yet
+  data: CommentsData;
+  renderActions?: (c: CommentView) => ReactNode;
+}
+
+const profile = (u: string) => `https://www.instagram.com/${encodeURIComponent(u)}/`;
+/** A caption in a select option: at most 40 characters, an ellipsis when cut. */
+const snippet = (s: string) => {
+  const c = capText(s, 40);
+  return c.cut ? `${c.text}…` : c.text;
+};
+
+export function CommentsTab({ accountId, username, groupName, today, scope = {}, state, start, data, renderActions }: CommentsTabProps) {
+  const t = useTranslations('pages.account.commentInsights');
+  const { prefs } = usePrefs();
+  const apply = useApply();
+  const postedName = usePostedName(state.dates, today);
+  const n = (v: number) => formatNumber(v, prefs, { maximumFractionDigits: 0 });
+  const href = (patch: Partial<CommentState>) => commentHref(state, patch, scope);
+  const scopeQuery = new URLSearchParams(scope).toString();
+
+  if (data.kind === 'noScope')
+    return (
+      <EmptyState
+        icon={<MessageSquareOff aria-hidden="true" />}
+        title={t('noScope.title', { username })}
+        description={t('noScope.body')}
+        action={
+          <Button asChild variant="outline">
+            <a href={connectHref(groupName)} target="_top">
+              {t('noScope.action')}
+            </a>
+          </Button>
+        }
+      />
+    );
+
+  const range = (p: Paged<unknown>, size: number, key: 'range' | 'people') =>
+    p.total > 0 ? (
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {t(key, { first: n((p.page - 1) * size + 1), last: n((p.page - 1) * size + p.rows.length), total: n(p.total) })}
+      </p>
+    ) : null;
+  const pages = (p: Paged<unknown>, size: number) => <Pagination page={p.page} pages={pageCount(p.total, size)} hrefFor={(page) => href({ page })} />;
+  const dateFilter = (
+    <PostedFilter
+      id="comments-date"
+      dates={state.dates}
+      today={today}
+      hrefFor={(dates) => href({ dates })}
+      hidden={Object.fromEntries([...new URLSearchParams(href({ dates: ALL_TIME }).slice(1))])}
+      label={t('commented', { range: postedName })}
+      title={t('commentedTitle')}
+    />
+  );
+  const datesChip: FilterChip[] = state.dates.pr || state.dates.from || state.dates.to ? [{ id: 'dates', label: t('commented', { range: postedName }), href: href({ dates: ALL_TIME }) }] : [];
+  const notReady = <EmptyState icon={<MessagesSquare aria-hidden="true" />} title={t('notReady')} description={t('notReadyHint')} />;
+  const person = (u: string) => (
+    <a href={profile(u)} target="_blank" rel="noopener noreferrer" aria-label={t('openProfile', { username: u })} className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline">
+      @{u}
+      <ExternalLink aria-hidden="true" className="size-3.5 text-muted-foreground" />
+    </a>
+  );
+  const day = (iso: string) => formatDate(iso, prefs);
+
+  function commentList(section: 'comments' | 'questions') {
+    if (data.kind !== 'comments') return notReady;
+    const { page, posts } = data;
+    const known = posts.some((p) => p.id === state.media);
+    const options = [
+      { value: '', label: t('allPosts') },
+      ...posts.map((p) => ({ value: p.id, label: t('postOption', { date: day(p.postedAt), caption: snippet(p.caption ?? t('noCaption')) }) })),
+      ...(state.media && !known ? [{ value: state.media, label: t('thisPost') }] : []),
+    ];
+    const chips: FilterChip[] = [
+      ...(state.q ? [{ id: 'q', label: t('searchChip', { q: state.q }), href: href({ q: '' }) }] : []),
+      ...datesChip,
+      ...(state.media ? [{ id: 'media', label: t('postChip'), href: href({ media: null }) }] : []),
+      ...(section === 'comments' && state.only ? [{ id: 'only', label: t(`onlyChip.${state.only}`), href: href({ only: null }) }] : []),
+    ];
+    return (
+      <div className="grid min-w-0 gap-2">
+        <FilterToolbar
+          label={t('toolbar')}
+          chips={chips}
+          clearHref={chips.length ? href({ q: '', dates: ALL_TIME, media: null, only: null }) : undefined}
+          advanced={
+            section === 'comments' ? (
+              <FilterOptions label={t('only.label')} options={[null, ...COMMENT_ONLY].map((o) => ({ href: href({ only: o }), label: t(`only.${o ?? 'all'}`), current: state.only === o }))} />
+            ) : undefined
+          }
+          advancedCount={section === 'comments' && state.only ? 1 : 0}
+        >
+          <FilterSearch id="comments-q" label={t('search')} placeholder={t('search')} value={state.q} hrefFor={(q) => href({ q })} />
+          {dateFilter}
+          <FilterSelect id="comments-post" label={t('post')} value={state.media ?? ''} options={options} hrefFor={(v) => href({ media: v || null })} />
+        </FilterToolbar>
+        {section === 'questions' ? <p className="max-w-prose text-xs text-muted-foreground">{t('questionsNote', { username })}</p> : null}
+        {range(page, COMMENT_PAGE, 'range')}
+        {page.rows.length ? (
+          <ul className="grid min-w-0 gap-2">
+            {page.rows.map((c) => (
+              <li key={c.id} className="min-w-0">
+                <CommentRow comment={c} accountId={accountId} scopeQuery={scopeQuery} actions={renderActions?.(c)} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState
+            icon={<MessagesSquare aria-hidden="true" />}
+            title={chips.length ? t('emptySearch') : section === 'questions' ? t('emptyQuestions') : t('empty')}
+            description={chips.length ? undefined : t('emptyHint')}
+          />
+        )}
+        {pages(page, COMMENT_PAGE)}
+      </div>
+    );
+  }
+
+  function fans() {
+    if (data.kind !== 'fans') return notReady;
+    const mode: FanMode = state.fans;
+    const columns: Column<Fan>[] = [
+      { key: 'username', header: t('cols.username'), cell: (f) => person(f.username) },
+      { key: 'comments', header: t('cols.comments'), align: 'right', cell: (f) => n(f.comments) },
+      { key: 'likes', header: t('cols.likes'), align: 'right', cell: (f) => n(f.likes) },
+      { key: 'first', header: t('cols.first'), cell: (f) => day(f.firstAt) },
+      { key: 'last', header: t('cols.last'), cell: (f) => day(f.lastAt) },
+      ...(mode === 'quiet' ? [{ key: 'since', header: t('cols.postsSince'), align: 'right' as const, cell: (f: Fan) => (f.postsSince === null ? '' : n(f.postsSince)) }] : []),
+    ];
+    return (
+      <div className="grid min-w-0 gap-2">
+        <FilterToolbar label={t('fans.toolbar')}>
+          <FilterSelect id="comments-fans" label={t('fans.show')} value={mode} options={FAN_MODES.map((m) => ({ value: m, label: t(`fans.${m}`) }))} hrefFor={(v) => href({ fans: v as FanMode })} />
+        </FilterToolbar>
+        <p className="max-w-prose text-xs text-muted-foreground">{t(`fans.${mode}Rule`, { days: n(FAN_RULES.windowDays), min: n(mode === 'new' ? FAN_RULES.newFanMin : FAN_RULES.fanMin), posts: n(FAN_RULES.quietPosts) })}</p>
+        {range(data.page, FAN_PAGE, 'people')}
+        <DataTable rows={data.page.rows} columns={columns} rowKey={(f) => f.username} caption={t(`fans.${mode}`)} empty={<EmptyState title={t('fans.empty')} />} serverSort={{ current: null, href: () => null }} />
+        {pages(data.page, FAN_PAGE)}
+      </div>
+    );
+  }
+
+  function topicList(title: string, terms: Term[]) {
+    return (
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle className="text-sm">{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {terms.length ? (
+            <ol className="grid gap-1 text-sm">
+              {terms.map((x) => (
+                <li key={x.term} className="flex min-w-0 items-baseline justify-between gap-2">
+                  <span className="min-w-0 truncate">{x.term}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{t('topics.inComments', { count: x.comments })}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('topics.none')}</p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function topics() {
+    if (data.kind !== 'topics') return notReady;
+    const tp = data.topics;
+    return (
+      <div className="grid min-w-0 gap-2">
+        <FilterToolbar label={t('toolbar')} chips={datesChip} clearHref={datesChip.length ? href({ dates: ALL_TIME }) : undefined}>
+          {dateFilter}
+        </FilterToolbar>
+        <p className="max-w-prose text-xs text-muted-foreground">
+          {t('topics.basis', { count: n(tp.sample), authors: n(TOPIC_MIN_AUTHORS) })} {t('topics.ruleBased')}
+        </p>
+        {tp.enough ? (
+          <div className="grid min-w-0 gap-[var(--gp)] lg:grid-cols-3">
+            {topicList(t('topics.words'), tp.words)}
+            {topicList(t('topics.emoji'), tp.emoji)}
+            {topicList(t('topics.hashtags'), tp.hashtags)}
+          </div>
+        ) : (
+          <EmptyState icon={<MessagesSquare aria-hidden="true" />} title={t('topics.tooFew')} description={t('topics.tooFewHint', { min: n(TOPIC_MIN_SAMPLE), count: n(tp.sample) })} />
+        )}
+      </div>
+    );
+  }
+
+  function outsiders() {
+    if (data.kind === 'noSnapshot')
+      return (
+        <EmptyState
+          icon={<MessagesSquare aria-hidden="true" />}
+          title={t('outsiders.noSnapshot')}
+          description={t('outsiders.noSnapshotHint')}
+          action={
+            <Button asChild variant="outline">
+              <Link href={`?${new URLSearchParams({ tab: 'followers', ...scope })}`}>{t('outsiders.openFollowers')}</Link>
+            </Button>
+          }
+        />
+      );
+    if (data.kind !== 'outsiders') return notReady;
+    const columns: Column<Outsider>[] = [
+      { key: 'username', header: t('cols.username'), cell: (o) => person(o.username) },
+      { key: 'comments', header: t('cols.comments'), align: 'right', cell: (o) => n(o.comments) },
+      { key: 'last', header: t('cols.last'), cell: (o) => day(o.lastAt) },
+    ];
+    return (
+      <div className="grid min-w-0 gap-2">
+        <p className="max-w-prose text-xs text-muted-foreground">{t('outsiders.basis', { date: formatDay(data.snapshot.takenOn, prefs), count: n(data.snapshot.followerCount) })}</p>
+        {range(data.page, FAN_PAGE, 'people')}
+        <DataTable rows={data.page.rows} columns={columns} rowKey={(o) => o.username} caption={t('sections.outsiders')} empty={<EmptyState title={t('outsiders.empty')} />} serverSort={{ current: null, href: () => null }} />
+        {pages(data.page, FAN_PAGE)}
+      </div>
+    );
+  }
+
+  const panel: Record<CommentSection, () => ReactNode> = { comments: () => commentList('comments'), questions: () => commentList('questions'), fans, topics, outsiders };
+  return (
+    <div className="grid min-w-0 gap-[var(--gp)]">
+      <p className="max-w-prose text-sm text-muted-foreground">
+        {t('intro')} {start ? t('since', { date: formatDate(start, prefs) }) : null}
+      </p>
+      <Tabs value={state.section} activationMode="manual" onValueChange={(v) => apply(href({ section: v as CommentSection }))} className="min-w-0">
+        <TabsList variant="line" aria-label={t('sections.label')}>
+          {COMMENT_SECTIONS.map((s) => (
+            <TabsTrigger key={s} value={s} className="flex-none">
+              {t(`sections.${s}`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {COMMENT_SECTIONS.map((s) => (
+          <TabsContent key={s} value={s} className="min-w-0 pt-[var(--gp)]">
+            {s === state.section ? panel[s]() : null}
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5: Wire the tab** (anchored edits)
+
+`lib/dashboard/account.ts`:
+- `export const TABS = ['overview', 'growth', 'posts', 'stories', 'followers'] as const; // Growth: Plan 15a. Followers (Plan 15b): by-name lists from uploaded Instagram exports; stays the LAST tab` → `export const TABS = ['overview', 'growth', 'posts', 'stories', 'comments', 'followers'] as const; // Growth: Plan 15a. Comments (Plan 15c): read-only comment insights, next to the content tabs. Followers (Plan 15b): by-name lists from uploaded Instagram exports; stays the LAST tab`
+
+`components/account/TabSkeleton.tsx`: the line `    case 'followers':` → two lines `    case 'comments':` and `    case 'followers':` (same shape: a toolbar row and a table).
+
+`app/(app)/accounts/[id]/(tabs)/page.tsx`:
+- after `import { AccountView } from '@/components/account/AccountView';` add `import { CommentsTab, type CommentsData } from '@/components/account/CommentsTab';`
+- before `import type { StoredAccount } from '@/lib/accounts/types';` add `import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';`
+- after `import { requireOwner } from '@/lib/auth/require-owner';` add the three lines
+  ```ts
+  import { loadCommentPage, loadCommentPosts, loadCommentStart, loadFans, loadOutsiders, loadTopicSample } from '@/lib/comments/read';
+  import { COMMENT_KEYS, parseCommentState } from '@/lib/comments/state';
+  import { topics } from '@/lib/comments/topics';
+  ```
+- insert this block directly BEFORE the line `    case 'followers': {` (inside `TabContent`'s `switch`; `db`, `now`, `today`, `tz`, `listWindow`, `daysToIso` and `listFollowerSnapshots` are already in scope / imported):
+
+```tsx
+    case 'comments': {
+      // read-only comment insights (Plan 15c): ONE view's page per request; nothing is read without the comments scope
+      // (Instagram then answers an empty list, so empty would not mean "no comments"). The Time Scope rides along in links.
+      const state = parseCommentState(sp);
+      const props = { accountId: account.id, username: account.username, groupName: account.groupName, today, scope: scope.params, state };
+      if (!hasScope(account, COMMENTS_SCOPE)) return <CommentsTab {...props} start={null} data={{ kind: 'noScope' }} />;
+      const owner = account.username.toLowerCase();
+      const win = listWindow(state.dates, today);
+      const { fromIso, toIso } = daysToIso(win.from, win.to, tz);
+      const section = state.section;
+      const read = async (): Promise<CommentsData> => {
+        if (section === 'topics') return { kind: 'topics', topics: topics(await loadTopicSample(db, account.id, { fromIso, toIso, owner })) };
+        if (section === 'fans') {
+          const page = await loadFans(db, account.id, { owner, mode: state.fans, now, page: state.page });
+          return page ? { kind: 'fans', page } : { kind: 'notReady' };
+        }
+        if (section === 'outsiders') {
+          const snapshots = await listFollowerSnapshots(db, account.id); // newest first; null = the 15b table is missing
+          if (!snapshots) return { kind: 'notReady' };
+          if (!snapshots[0]) return { kind: 'noSnapshot' };
+          const page = await loadOutsiders(db, account.id, { owner, page: state.page });
+          return page ? { kind: 'outsiders', page, snapshot: { takenOn: snapshots[0].takenOn, followerCount: snapshots[0].followerCount } } : { kind: 'notReady' };
+        }
+        const questions = section === 'questions';
+        const [page, posts] = await Promise.all([
+          loadCommentPage(db, account.id, { fromIso, toIso, q: state.q, media: state.media, questions: questions || state.only === 'questions', unanswered: questions, fansOnly: !questions && state.only === 'fans', owner, page: state.page }),
+          loadCommentPosts(db, account.id),
+        ]);
+        return page ? { kind: 'comments', page, posts } : { kind: 'notReady' };
+      };
+      const [data, start] = await Promise.all([read(), loadCommentStart(db, account.id)]);
+      return <CommentsTab {...props} start={start} data={data} />;
+    }
+```
+
+- in the Suspense key: `[...LIST_KEYS, ...FOLLOWER_KEYS].map(` → `[...LIST_KEYS, ...FOLLOWER_KEYS, ...COMMENT_KEYS].map(`; and in the comment above it `params of Posts/Stories/Followers (LIST_KEYS, incl. the Grid/Table view, and FOLLOWER_KEYS)` → `params of Posts/Stories/Comments/Followers (LIST_KEYS, incl. the Grid/Table view, COMMENT_KEYS and FOLLOWER_KEYS)`.
+
+- [ ] **Step 6: Run the tests**
+
+Run: `npx vitest run tests/comments-tab.test.tsx tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx tests/route-loading.test.tsx tests/posted-filter.test.tsx tests/posts-tab.test.tsx tests/stories-list.test.tsx tests/ui-standards.test.ts tests/messages.test.ts tests/followers-privacy.test.ts tests/comments-privacy.test.ts` → PASS (11 new in `comments-tab`, 7 new in `account-page`; `posts-tab` is known slow: rerun it alone once on a timeout). Then `npx tsc --noEmit` and `npx eslint components/account/CommentsTab.tsx components/account/PostedFilter.tsx components/account/TabSkeleton.tsx lib/dashboard/account.ts "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/comments-tab.test.tsx tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add components/account/CommentsTab.tsx tests/comments-tab.test.tsx components/account/PostedFilter.tsx lib/dashboard/account.ts components/account/TabSkeleton.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx
+git commit -m "feat(comments): Comments account tab (all comments, unanswered questions, fans, topics, not following you)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
