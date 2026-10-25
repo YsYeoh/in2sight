@@ -1355,9 +1355,10 @@ describe('comments privacy', () => {
     }
   });
 
-  it('never through the admin client, never account_tokens, never as HTML', () => {
+  it('reads and UI never use the admin client or account_tokens; nothing renders comment text as HTML', () => {
+    // a server-only moderation module (Plan 15d) may need the token; the readers and every component never do
     for (const [f, s] of commentFiles) {
-      expect(s, f).not.toMatch(/lib\/supabase\/admin|createAdminSupabase|account_tokens/);
+      if (f.startsWith('lib/comments/') || f.startsWith('components/')) expect(s, f).not.toMatch(/lib\/supabase\/admin|createAdminSupabase|account_tokens/);
       expect(s, f).not.toMatch(/dangerouslySetInnerHTML|innerHTML/);
     }
   });
@@ -2406,6 +2407,163 @@ Run: `npx vitest run tests/comments-tab.test.tsx tests/dashboard-account.test.ts
 ```bash
 git add components/account/CommentsTab.tsx tests/comments-tab.test.tsx components/account/PostedFilter.tsx lib/dashboard/account.ts components/account/TabSkeleton.tsx "app/(app)/accounts/[id]/(tabs)/page.tsx" tests/dashboard-account.test.ts tests/account-view.test.tsx tests/account-page.test.tsx
 git commit -m "feat(comments): Comments account tab (all comments, unanswered questions, fans, topics, not following you)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 9: Docs, final check
+
+**Files:**
+- Create: `docs/RUNBOOK_COMMENTS.md`
+- Modify: `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md` (all anchored text insertions; the docs are LF in the working tree, keep them so)
+
+- [ ] **Step 1: Create `docs/RUNBOOK_COMMENTS.md`** (Write tool: non-ASCII):
+
+````markdown
+# Runbook — Comment insights (Plan 15c, read-only)
+
+The account page's **Comments** tab (Overview, Growth, Posts, Stories, **Comments**, Followers): All comments, Unanswered
+questions, Fans, Topics, Not following you. It only READS what the sync already stores (Plan 11b: top-level comments of
+feed posts and Reels of the last 30 days, hourly, only for accounts with the comments scope). Nothing here calls
+Instagram or changes anything (reply / hide / delete is Plan 15d).
+
+Commenter usernames and comment texts are third-party personal data. In every step below report only yes/no and counts:
+never paste usernames, comment texts or screenshots that show them into chats, issues or commits.
+
+## 0. The migration (apply BEFORE deploying; the owner says go)
+`supabase/migrations/20261029000001_comment_insights.sql`: the `comments` policy in InitPlan form and three
+`security invoker` functions (`comment_list`, `comment_fans`, `comment_outsiders`). Additive; needs `follower_exports`
+(15b, applied 2026-10-22). With `.env.local` loaded by the scripts (never print the values; PROGRESS §9):
+```
+node --env-file=.env.local scripts/sb.mjs migration list        # expect only 20261029000001 pending, nothing remote-only
+node --env-file=.env.local scripts/db-probe.mjs rpc:comment_outsiders:'{"p_account":"00000000-0000-0000-0000-000000000000","p_owner":"x","p_offset":0,"p_limit":1}'
+                                                                # before: 404 PGRST202 (absent)
+node --env-file=.env.local scripts/sb.mjs db push --dry-run     # expect exactly the pending file
+node --env-file=.env.local scripts/sb.mjs db push --yes
+node --env-file=.env.local scripts/sb.mjs migration list        # expect 13 local / 13 remote / 0 mismatched
+node --env-file=.env.local scripts/db-probe.mjs rpc:comment_outsiders:'{"p_account":"00000000-0000-0000-0000-000000000000","p_owner":"x","p_offset":0,"p_limit":1}'
+                                                                # after: 401 with code 42501 (exists, anon denied)
+```
+Before it is applied the tab shows "Comments needs a database update" in every view except Topics (which reads the table
+directly). Rollback, if ever needed: `drop function public.comment_list(...)`, `comment_fans(...)`, `comment_outsiders(...)`
+in the SQL editor (the policy rewrite has the same meaning as before and can stay).
+
+## 1. Reconnect for the comments scope (once per account)
+1. Accounts page: an account without the scope shows "Reconnect to enable comments". Its Comments tab shows "Comments are
+   off for @name" with the same link, and NO list (nothing is read: Instagram answers an empty list without the scope, so
+   empty would not mean "no comments").
+2. Click the link (it leaves the app tab: `target="_top"`), log in to that Instagram account, approve EVERY permission.
+3. SQL editor: `select username, 'instagram_business_manage_comments' = any(granted_scopes) as has_comments from accounts;`
+   → true for that account. The Comments tab now shows the five views.
+4. Comments arrive with the next hourly comments job (lane 2, after the history import): RUNBOOK_CAPTURE §7 has the counts query.
+
+## 2. A real comment (gate: do this before relying on the feature)
+1. From ANOTHER Instagram account, comment on a recent post (posted in the last 30 days) of the connected account:
+   one plain comment ("lovely"), one English question ("where is this?"), one Chinese question ("好看吗"), one with a
+   hashtag and an emoji.
+2. Wait for the comments job (hourly, after the history import; "Sync now" on the Accounts page may pick it up sooner) → All comments lists them
+   newest first, with the author, time (your timezone and format settings), likes, and "On your post of …" opening that
+   post's Post Lab (with the page's Time Scope).
+3. The two questions carry the "Question" badge; the plain one does not. Unanswered questions lists the two questions.
+4. From the CONNECTED account, add a top-level comment on the same post that mentions the asker (`@name thanks!`). After the
+   next comments job the question shows "Reply seen" and leaves Unanswered questions. A reply INSIDE the thread does NOT
+   count (thread replies are not read; the view says so).
+5. Search: a word of a comment, then part of the commenter's name (case does not matter; try a Chinese word too). Post
+   filter: pick the post. Comment date: Last 7 days, then a custom range. Each is a chip; "Clear all" keeps the view.
+
+## 3. The analysis views
+- **Fans**: Top fans ranks by comments then likes; your own comments are not listed. New fans: first comment in the last
+  30 days and at least 2 comments. Gone quiet: 3+ comments, none in 30 days, 3+ posts published since (empty at first: the
+  history starts at the Reconnect). Each view shows its rule and "1–50 of N people".
+- **Topics**: needs 20+ comments in the range ("At least 20 comments are needed; this range has N" otherwise). A word must
+  appear in 3+ comments from 2+ people; Chinese words (e.g. 颜色, 照片) are counted as words, single characters skipped.
+- **Not following you**: without a follower export → "Upload a follower export first" (link to the Followers tab). With one
+  (RUNBOOK_FOLLOWERS §2), the basis line names that export's date and size; the people listed commented but are not in
+  that export (snapshot-based: anyone who followed after it shows up too).
+
+## 4. Layout: 360 / 768 / 1280 × themes, keyboard, zh-CN
+- Every view at 360, 768, 1280 px, light and dark of each theme: no sideways page scroll; the toolbar wraps; rows are cards;
+  the Fans / Not following you tables become cards on phones; the three Topics cards stack on phones.
+- Keyboard only: the view tabs (arrows + Enter), search, the date panel (Esc closes, focus returns), the post select,
+  Advanced → Show only, pagination, the profile and Post Lab links.
+- Switch the language to 简体中文: every label, rule and count line is Chinese; dates and numbers follow the format settings.
+
+## 5. Privacy and security (run all; report only yes/no and counts)
+1. A long comment (over 500 characters) is cut with "…"; a comment containing `<b>x</b>` shows the characters, not bold text.
+2. URLs: only `section`, the comment date, `q` (YOUR search text), `media` (a post id), `only`, `fans`, `page` and the Time
+   Scope. No commenter name appears in a URL unless you typed it into the search box — that text then appears in Vercel's
+   request logs (like the Followers search): search by words instead of names when that matters.
+3. `select count(*) from sync_runs where summary::text ilike '%' || (select author_username from comments limit 1) || '%';` → 0.
+4. Signed out (or another browser): `/accounts/<id>?tab=comments` → login; the anon probe of §0 → 401 `42501`.
+5. Exports (Excel, PDF report) contain no comment texts or commenter names (this plan adds no export).
+6. Deleting an account permanently removes its comments (`on delete cascade`, unchanged since 11b); archiving keeps them.
+
+## 6. Speed (the biggest account)
+Open each view with the account that has the most comments; Server-Timing (DevTools → Network → the document) under
+1.2 s warm. If Fans or Not following you are slow at thousands of commenters, report the comment count: the planned fix
+is an index on `(account_id, lower(author_username))` (a new migration).
+
+## 7. Known limits (by design)
+- Only top-level comments of feed posts and Reels posted in the last 30 days at read time, at most 200 per post per read;
+  Stories have no comments here (Story replies are private messages). History starts at the Reconnect.
+- Thread replies, Instagram's hidden flag and commenter ids are not read: "Reply seen" is derived from your own top-level
+  @mentions; a renamed account counts as a new fan (Plan 15d reads replies and the hidden flag).
+- The question rule is a rule (question marks, English question words at the start, Chinese question words anywhere):
+  it misses some questions and flags some non-questions. Topics use the newest 1,000 comments of the range.
+
+## What to send if it fails
+The step number, the view, the screen width and theme, yes/no per expectation and counts. Never usernames or comment texts.
+````
+
+- [ ] **Step 2: `docs/SPEC.md`** — insert directly BEFORE the line `## 8. UI (v1)`:
+
+```markdown
+## 7i. Comment insights (Plan 15c; creator-toolkit design §6 "Top commenters", §0b)
+Status: code complete, NOT verified live (`docs/RUNBOOK_COMMENTS.md`). The migration `20261029000001_comment_insights.sql` is NOT applied to the live database (owner's go-ahead, BEFORE deploying code that needs it); until then the tab says "needs a database update" except Topics.
+
+Read-only. Account page → **Comments** tab (Overview, Growth, Posts, Stories, Comments, Followers), five views (`?section=`): **All comments** (newest first, 50 per page; search in text and username, comment date `pr|pfrom|pto`, one post, Advanced: questions only / from fans), **Unanswered questions** (question rule + no reply seen), **Fans** (top / new / gone quiet), **Topics** (words, emoji, hashtags) and **Not following you** (commenters missing from the newest follower export of §7h, snapshot-based). Source: the `comments` table of Plan 11b (top-level comments of feed posts and Reels of the last 30 days, hourly, only with `instagram_business_manage_comments`; without the scope the tab reads nothing and shows the Reconnect link, because Instagram answers an empty list). Rules (constants in `lib/comments/view.ts` and `lib/comments/question.ts`, passed to SQL as parameters): question = `?`/`？`/`❓`, an English question word at the start, or a Chinese question word anywhere; "reply seen" = a later top-level comment of the account that @mentions the author (thread replies are not stored: never "unanswered" as a fact); fan = 3+ comments; new fan = first comment within 30 days and 2+ comments; gone quiet = 3+ comments, none within 30 days, 3+ posts since; topics = `Intl.Segmenter` words of 2+ characters minus stop words, emoji and hashtags, each in 3+ comments by 2+ people, from the newest 1,000 comments of the range, none below 20 comments. SQL: `comment_list`, `comment_fans`, `comment_outsiders` (`security invoker`, revoked from anon) and the `comments` policy in InitPlan form. Privacy: owner-only RLS, only `lib/comments/read.ts` reads (guard test), never logged, never in `sync_runs`/exports/alerts, deleted with the account; comment text is rendered as text and capped at 500 characters; no third-party names in URLs (the owner's own search text `q` is in request logs). Not stored (Plan 15d or later): thread replies, Instagram's hidden flag, commenter ids.
+```
+
+- [ ] **Step 3: `docs/TODO.md`**
+  - in section 6l, the line `- [ ] Later: .zip upload (DecompressionStream + inflated-size caps), gzip payload for > 50,000 followers, commenters × followers (Plan 15c)` → `- [ ] Later: .zip upload (DecompressionStream + inflated-size caps), gzip payload for > 50,000 followers _(commenters × followers: Plan 15c, see 6m)_`
+  - insert directly BEFORE the line `## 6b. Next (Plan 14/15 Settings)`:
+
+```markdown
+## 6m. Comment insights (Plan 15c, read-only)
+- [x] Migration `20261029000001_comment_insights.sql` (`comment_list`, `comment_fans`, `comment_outsiders`, comments policy InitPlan) _(written and tested; NOT applied to the live database — owner go-ahead, BEFORE deploying, docs/RUNBOOK_COMMENTS.md §0)_
+- [x] Comments tab (Overview, Growth, Posts, Stories, Comments, Followers): All comments with search / comment date / post / show only and server pages, Unanswered questions, Fans (top, new, gone quiet), Topics (en + zh, no AI), Not following you (newest follower export); "Reconnect to enable comments" without the scope _(code done; NOT verified live)_
+- [ ] Owner: apply the migration (runbook §0); Reconnect each account once (§1); a real comment from another account (§2, gate); views, layout, privacy, speed (§3–§6); confirm the plan's open questions (fifth tab before Followers, fan rules, derived "reply seen", no export, question words, topics from the newest 1,000)
+- [ ] Plan 15d (moderation): reply / hide / delete, banned words + spam auto-hide with undo log; read thread replies and the hidden flag (makes "Unanswered questions" exact)
+```
+
+- [ ] **Step 4: `docs/PROGRESS.md`**
+  - after the line that starts `- **15b: Followers tab.**` and its continuation line (`  \`RUNBOOK_FOLLOWERS\`.`), insert: `- **15c: Comments tab (read-only).** All comments (search, comment date, post, pages), unanswered questions (rule-based), fans (top / new / gone quiet), topics (en + zh, no AI), commenters who don't follow you (newest follower export). Migration \`20261029000001\` NOT applied yet. \`RUNBOOK_COMMENTS\`.`
+  - `Account page tabs now: **Overview, Growth, Posts, Stories, Followers**` → `Account page tabs now: **Overview, Growth, Posts, Stories, Comments, Followers**`
+  - in the migrations table, after the row that starts `| 20261028000002_follower_exports |`, add `| 20261029000001_comment_insights | \`comment_list\`, \`comment_fans\`, \`comment_outsiders\`, comments policy InitPlan (NOT applied yet) |`
+  - in section 7, the item that starts `1. **Plan 15c: comments, fans and moderation**`: put ` Insights (fans, questions, topics, commenters who don't follow you) are built (Plan 15c, read-only); moderation is Plan 15d.` right after `Comments are already ingested read-only (11b).`
+  - in section 8, after the line that starts `- 15b:`, add `- 15c: Comments as the fifth tab (before Followers), fan rules 3 / 2 in 30 days / 3 posts, "reply seen" derived from your own @mentions, no comment export, English question words at the start only, topics from the newest 1,000 comments of the range.`
+
+- [ ] **Step 5: `docs/HANDOVER.md`** — directly AFTER the paragraph that starts `In one paragraph: Plans 1 to 15b are built`, insert a blank line and: `**Plan 15c (2026-10-29): the read-only Comments tab is code-complete (docs/superpowers/plans/2026-10-29-15c-comment-insights.md, docs/RUNBOOK_COMMENTS.md); its migration 20261029000001 is NOT applied; nothing verified live. Plan 15d (moderation) builds on CommentRow / CommentsTab renderActions / CommentView.**`
+
+- [ ] **Step 6: `docs/UI_STANDARDS.md`** — after the line that starts `15. **Uploads are parsed in the browser`, add:
+
+```markdown
+16. **Third-party text is text.** Comments, captions and names from other people are rendered as React text (never `dangerouslySetInnerHTML`), length-capped in lists (`capText`, emoji never split) with `break-words`, and never put in a URL; what the owner types into a search box may appear in request logs, so the runbook says so. → `components/account/CommentRow.tsx`, `lib/comments/view.ts`, `tests/comments-privacy.test.ts`.
+```
+
+- [ ] **Step 7: Final check** (the orchestrator runs this after merging every task; an implementer of this task only checks the docs render and `npx vitest run tests/ui-standards.test.ts tests/messages.test.ts`)
+
+```bash
+rm -rf .next
+npm run check > check.log 2>&1; echo "CHECK_EXIT=$?" >> check.log
+```
+Read `check.log`: lint, tsc, all tests (≈ 257 files) and the build pass. Known environment issue seen in the scratch run: `next build` compiled and generated every route, then stopped with `SecurityFatalError: Your version of Next.js is affected by a known security vulnerability` (the Next.js 16.4.0 advisory check, unrelated to this plan; it would stop `main` too). If it appears, tell the owner (upgrading Next is a separate, approved change), do not work around it.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add docs/RUNBOOK_COMMENTS.md docs/SPEC.md docs/TODO.md docs/HANDOVER.md docs/PROGRESS.md docs/UI_STANDARDS.md
+git commit -m "docs: Plan 15c comment insights (runbook, SPEC 7i, TODO 6m, progress, UI standard 16)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
