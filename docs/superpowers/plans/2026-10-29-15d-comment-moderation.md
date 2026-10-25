@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-15-creator-toolkit-design.md` §0b ("Comments: read + reply/hide/delete from the app … every action confirmed and logged"; round 3 "auto-hide with banned words + spam patterns, every action reversible and listed in an undo log"), §2 (commenter usernames need `instagram_business_manage_comments`), §8 (owner-authored tables with `is_owner()`; third-party data owner-only, never logged, deleted with the account; scope change → "Reconnect to enable comments"; features degrade without the scope). UX rules: `docs/UI_STANDARDS.md` (1–15). Project rules: `CLAUDE.md` (binding). Built **after Plan 15c** (read-only comment insights and the Comments tab; `docs/superpowers/plans/2026-10-29-15c-comment-insights.md`): see "Contract with Plan 15c".
 
-**Scratch run:** see "Scratch-run result" at the end (what was executed in a throwaway clone outside the repo, and what was not: the SQL on a real database, the build, a browser, and every Meta write call — those are live probes, `docs/RUNBOOK_MODERATION.md` §1, BEFORE auto-hide is switched on).
+**Scratch run:** every code block of Tasks 1–11 was executed in a throwaway clone OUTSIDE the repo (whole suite 260 files / 2,430 tests green, `tsc` and `eslint` clean; see "Scratch-run result"). Not executed: Task 12 (needs 15c's merged Comments tab), the SQL on a real database, the build, a browser and every Meta write call — those are live probes (`docs/RUNBOOK_MODERATION.md` §1) BEFORE auto-hide is switched on.
 
 ## Meta endpoints this plan relies on (Instagram API with Instagram Login, host `graph.instagram.com`, version `IG_API_VERSION`, default `v25.0`)
 
@@ -1205,8 +1205,8 @@ export type IgModeration = ReturnType<typeof igModeration>;
 
 - [ ] **Step 4: Run the tests**
 
-Run: `npx vitest run tests/instagram-moderation.test.ts tests/instagram-data.test.ts` (the second only if it exists; `ls tests | grep instagram`), `npx tsc --noEmit`, `npx eslint lib/instagram/moderation.ts tests/instagram-moderation.test.ts`.
-Expected: PASS (7 + 15 tests).
+Run: `npx vitest run tests/instagram-moderation.test.ts tests/instagram-data.test.ts`, `npx tsc --noEmit`, `npx eslint lib/instagram/moderation.ts tests/instagram-moderation.test.ts`.
+Expected: PASS (22 tests in the new file; `instagram-data` unchanged).
 
 - [ ] **Step 5: Commit**
 
@@ -4463,4 +4463,22 @@ git commit -m "docs(moderation): runbook (live probes first), SPEC 7j, TODO 6n, 
 
 ---
 
-<!-- PLAN CONTINUES -->
+## Scratch-run result (2026-10-25)
+
+Throwaway clone in the session scratchpad (outside the repo; own `npm ci`, the real `node_modules` untouched), base `main` at `179f6d1`. Every code block of Tasks 1–11 was extracted from this file, the anchored edits of Tasks 2, 6 and 8 applied by script (on the PRE-15c tab line, since 15c is not merged), then:
+- the new files: 12 test files, 158 tests — green; the whole suite: **260 files, 2,430 tests — green**; `npx tsc --noEmit` — 0 errors; `npx eslint` (whole repo) — 0 problems.
+- Fixed in the plan during the run: the context / preview / marks reads of `loadModeration` are started by async helpers so their queries run in a fixed order (a thenable in `Promise.all` is resolved a microtask later); the service test keeps the store results in hoisted state (a `mockResolvedValue` replaced the order-recording implementation) and resets mocks with `vi.resetAllMocks()`; the zh-CN plural messages repeat `{n}` in an `=1` branch (the parity test compares placeholder lists) and `ruleLabel.word` uses 「」; `tests/alert-settings.test.ts` line 9 also pins the `push` defaults; the auto-hide streak test needs six comments; typed `vi.fn<…>()` fakes instead of unused parameters; the page-link test reads `href` attributes (the attribute selector with `&` did not match under jsdom).
+- NOT run: Task 12 (15c's `CommentsTab` is not built yet), Task 13 (docs), `npm run build`, any database, any browser, any Instagram call.
+
+## Self-review (plan author)
+
+- **Spec coverage:** reply / hide / delete from the app (Tasks 4, 7, 9, 10), every action confirmed (Tasks 10, 11; delete with a typed word) and logged (Tasks 1, 5, 7, 8), reversible where Instagram allows (undo = unhide / delete the reply; delete irreversible, never automated), banned words + spam patterns (Task 3), auto-hide with preview, cap, budget, idempotence, no fight with manual unhides, per-account isolation, one notification per pause (Tasks 3, 5, 6, 8, 11), scope gating (Tasks 7, 8, 11, 12), privacy (Tasks 1, 5, 9), i18n (Task 2), responsive/a11y (Tasks 10, 11), docs + runbook with live probes first (Task 13).
+- **Names checked against the code** (grep, `main` at `222efd1`): `call`, `InstagramApiError`, `classifyIgError` (code 10 = `no_data` for reads, hence the explicit check), `IG_ERROR`, `getInstagramEnv`, `COMMENTS_SCOPE`, `hasScope`, `isUuid`, `isMediaId`, `supabaseSyncStore(...).getToken`, `createAdminSupabase` (`server-only`), `createServerSupabase`, `requireOwner`, `runTick` / `TickDeps` / `TickSummary` / `ALERT_BUDGET_MS` / `TICK_BUDGET_MS`, `runAlerts`, `evaluateRules`, `RuleInput`, `AlertStore`, `supabaseAlertStore`, `ALERT_KINDS`, `DEFAULT_ALERT_SETTINGS`, `alertHref`, `pushMessage`, `rowToNotification` (accepts any kind in `ALERT_KINDS`), `ConfirmDialog` (`requireText`), `ResponsiveDialog*`, `DropdownMenuItem` (`variant="destructive"`), `Button` sizes (`sm`, `icon-sm`), `FormField`, `LoadingButton`, `Pagination`, `EmptyState`, `usePrefs`, `formatDateTime`, `formatNumber`, `t.has`, the fixtures `account` / `fakeAccounts` / `fakeIg` / `memoryStore` / `memoryAlertStore`; tables `comments` (`hidden`, select-only grant), `notifications` (inline kind check), `accounts.granted_scopes`. 15c names (`CommentView`, `CommentRow` `actions`/`status`, `TABS` order, `20261029000001`) were read from the 15c plan file.
+- **Identity insert by the owner session** (`moderation_log.id`): the same pattern (`revoke all` + `grant select, insert`) already works live for `push_subscriptions`.
+- **Risks left to the live probes:** P1–P8 (above). If P1 fails (permission), nothing else matters: the code maps it to `reconnect` and auto-hide pauses; the owner reconnects or the feature stays off.
+- **Ponytail:** no new dependency, no regex rules typed by the owner (ReDoS), no webhooks, no bulk actions, no per-rule thresholds; `MARK_SCAN` and `PREVIEW_SCAN` carry `ponytail:` notes with their ceilings.
+
+## Execution handoff
+
+Plan complete and saved to `docs/superpowers/plans/2026-10-29-15d-comment-moderation.md`. Execute AFTER Plan 15c is merged (Task 2's anchor and Task 12 need it), with parallel worktree agents per `docs/superpowers/implementer-rules.md`: **wave A = 1, 2, 3, 4 · B = 5, 6 · C = 7, 8 · D = 9, 10 · E = 11 · F = 12 · G = 13**, cherry-pick + full `npm run check` after each wave, then an opus whole-change review focused on the Review Focus list, one fix wave, and the owner's go-ahead before the migration is applied (runbook §0) and before auto-hide is switched on (runbook §1 probes first).
+
