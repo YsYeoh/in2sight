@@ -420,3 +420,530 @@ git commit -m "feat(db): comment_list, comment_fans, comment_outsiders (security
 ```
 
 ---
+
+### Task 3: Shared types + the question rule (pure)
+
+**Files:**
+- Create: `lib/comments/view.ts`, `lib/comments/question.ts`, `tests/comments-question.test.ts`
+
+**Interfaces:**
+- Produces: types `CommentPost`, `CommentView` (Plan 15d contract), `Fan`, `Outsider`, `Paged<T>`; constants `COMMENT_PAGE = 50`, `FAN_PAGE = 50`, `TEXT_CAP = 500`, `TOPIC_SAMPLE = 1000`, `FAN_RULES = { fanMin: 3, newFanMin: 2, windowDays: 30, quietPosts: 3 }`; `capText(s, max = TEXT_CAP): { text: string; cut: boolean }`; `QUESTION_PATTERN: string`, `isQuestion(text: string | null): boolean`.
+
+- [ ] **Step 1: Write the failing test** — create `tests/comments-question.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { isQuestion, QUESTION_PATTERN } from '@/lib/comments/question';
+import { capText, FAN_RULES, TEXT_CAP } from '@/lib/comments/view';
+
+describe('isQuestion', () => {
+  it.each([
+    ['Where did you buy this?', true],
+    ['好看吗？', true],
+    ['price？', true], // full-width question mark
+    ['❓', true],
+    ['How much', true],
+    ['how much', true],
+    ['WHERE is this', true],
+    ['@amy what time does it open', true],
+    ['  @amy @bob  can you share the recipe', true],
+    ['Is it open today', true],
+    ['what', true], // the word at the very end
+    ['这个在哪里买', true],
+    ['多少钱', true],
+    ['有沒有優惠', true],
+    ['请问几点开门', true],
+  ])('%s → question', (text, want) => expect(isQuestion(text)).toBe(want));
+
+  it.each([
+    ['This is great', false], // English words count only at the start
+    ['Show me more', false], // "how" inside a word
+    ['whatever', false], // a question word must end at a non-letter
+    ['Anyway love it', false],
+    ['Love it 😍', false],
+    ['好看', false],
+    ['太棒了！', false],
+    ['@what_is_this nice', false], // a mention is skipped, not read as a word
+    ['', false],
+  ])('%s → not a question', (text, want) => expect(isQuestion(text)).toBe(want));
+
+  it('null is not a question', () => expect(isQuestion(null)).toBe(false));
+
+  it('the pattern uses only syntax shared by JavaScript and PostgreSQL regular expressions (the SQL filter uses it with ~*)', () => {
+    expect([...QUESTION_PATTERN.matchAll(/\\(.)/g)].map((m) => m[1])).toEqual(['s', 's']); // the only escape is \s
+    expect(QUESTION_PATTERN).not.toMatch(/\(\?|\{\d|\\[bBdDwW]|\[\^?\]/); // no lookarounds, counted repeats, \b \d \w, empty sets
+    expect(QUESTION_PATTERN.length).toBeLessThan(400);
+  });
+});
+
+describe('capText', () => {
+  it('keeps short text as it is', () => expect(capText('hello')).toEqual({ text: 'hello', cut: false }));
+
+  it(`cuts at ${TEXT_CAP} code points, never inside an emoji`, () => {
+    const long = '😀'.repeat(TEXT_CAP + 1);
+    const r = capText(long);
+    expect(r.cut).toBe(true);
+    expect([...r.text]).toHaveLength(TEXT_CAP);
+    expect(r.text.endsWith('😀')).toBe(true);
+    expect(capText('abcdef', 3)).toEqual({ text: 'abc', cut: true });
+    expect(capText('ab  cd', 3)).toEqual({ text: 'ab', cut: true }); // no trailing space before the ellipsis
+  });
+
+  it('the fan rules are the values the UI and the SQL use', () => expect(FAN_RULES).toEqual({ fanMin: 3, newFanMin: 2, windowDays: 30, quietPosts: 3 }));
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/comments-question.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/comments/question"`.
+
+- [ ] **Step 3: Write the two modules** — create `lib/comments/view.ts`:
+
+```ts
+// Comment insights (Plan 15c): the shapes the Comments tab shows and the rule values, shared by the readers
+// (lib/comments/read.ts), the SQL functions (passed as parameters: one source) and the UI. Pure, no imports.
+// Commenter usernames and texts are third-party personal data: owner-only, never logged, never in URLs.
+
+/** The post a comment belongs to (feed post or Reel; Stories have no comments). */
+export interface CommentPost {
+  id: string;
+  type: string; // media_type: IMAGE | CAROUSEL_ALBUM | REELS
+  postedAt: string; // ISO
+  caption: string | null; // at most 100 characters (the SQL cuts it)
+}
+
+/** One comment as the tab shows it. Plan 15d contract: keep these names. */
+export interface CommentView {
+  id: string;
+  mediaId: string;
+  authorUsername: string | null;
+  text: string; // '' when Instagram sent none
+  postedAt: string; // when the comment was written (commented_at), ISO
+  likeCount: number | null;
+  isQuestion: boolean; // lib/comments/question.ts isQuestion
+  hidden: boolean | null; // true only when stored as hidden; null = unknown (Instagram's hidden flag is not read yet)
+  repliedByOwner: boolean | null; // true = a later comment of yours @mentions them; null = unknown, never false (thread replies are not read)
+  post: CommentPost | null; // null = the post row is gone
+}
+
+export interface Fan {
+  username: string; // lower-cased
+  comments: number;
+  likes: number; // likes on their comments, missing as 0
+  firstAt: string; // ISO
+  lastAt: string; // ISO
+  postsSince: number | null; // feed posts published after their latest comment; only for "gone quiet"
+}
+
+export interface Outsider {
+  username: string; // lower-cased
+  comments: number;
+  lastAt: string; // ISO
+}
+
+/** One server page: the rows, the total over all pages, the page actually read (a page past the end reads page 1). */
+export interface Paged<T> {
+  rows: T[];
+  total: number;
+  page: number;
+}
+
+export const COMMENT_PAGE = 50;
+export const FAN_PAGE = 50;
+/** Characters of a comment shown in a row (Instagram allows 2,200). */
+export const TEXT_CAP = 500;
+/** Comments read for Topics: the newest of the range (one capped read). */
+export const TOPIC_SAMPLE = 1000;
+/** Fans: a fan has fanMin+ comments; new fan = first comment within windowDays and newFanMin+ comments; gone quiet = fanMin+ comments, none within windowDays, quietPosts+ posts since. */
+export const FAN_RULES = { fanMin: 3, newFanMin: 2, windowDays: 30, quietPosts: 3 } as const;
+
+/** At most `max` code points (emoji and other astral characters are never split); `cut` = something was left out. */
+export function capText(s: string, max = TEXT_CAP): { text: string; cut: boolean } {
+  const cps = [...s];
+  return cps.length > max ? { text: cps.slice(0, max).join('').trimEnd(), cut: true } : { text: s, cut: false };
+}
+```
+
+Create `lib/comments/question.ts` (use the Write tool: non-ASCII):
+
+```ts
+// The question rule of the Comments tab (Plan 15c). ONE pattern for both engines: the badge on a row
+// (JavaScript RegExp, flag i) and the Questions filter in SQL (comment_list p_question_re, operator ~*). It uses only
+// syntax that means the same in both: literals, | ( ) [ ] ^ $ * + and \s. Rule-based, so the UI says so.
+//
+// A comment is a question when it has a question mark anywhere (? ？ ❓), or STARTS (after @mentions and spaces) with
+// an English question word followed by a non-letter or the end, or contains a Chinese question word (simplified and
+// traditional) anywhere. English words only at the start: "this is great" / "show me" are not questions.
+const EN = ['how', 'what', 'when', 'where', 'why', 'who', 'which', 'whose', 'can', 'could', 'do', 'does', 'did', 'is', 'are', 'will', 'would', 'should', 'any', 'anyone'];
+const ZH = ['吗', '嗎', '什么', '什麼', '怎么', '怎麼', '怎样', '怎樣', '为什么', '為什麼', '哪里', '哪裡', '哪儿', '哪个', '哪個', '多少', '几时', '幾時', '是不是', '有没有', '有沒有', '能不能', '可不可以', '请问', '請問'];
+
+export const QUESTION_PATTERN = `[?？❓]|^\\s*(@[a-z0-9._]+\\s+)*(${EN.join('|')})([^a-z]|$)|${ZH.join('|')}`;
+const QUESTION_RE = new RegExp(QUESTION_PATTERN, 'i');
+
+export const isQuestion = (text: string | null): boolean => text !== null && QUESTION_RE.test(text);
+```
+
+- [ ] **Step 4: Run the test**
+
+Run: `npx vitest run tests/comments-question.test.ts` → PASS (29 tests). Then `npx tsc --noEmit` and `npx eslint lib/comments/view.ts lib/comments/question.ts tests/comments-question.test.ts`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/comments/view.ts lib/comments/question.ts tests/comments-question.test.ts
+git commit -m "feat(comments): shared comment types, fan rules and the question rule" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Topics (pure)
+
+**Files:**
+- Create: `lib/comments/topics.ts`, `tests/comments-topics.test.ts`
+
+**Interfaces:**
+- Produces: `TopicInput { text: string | null; author: string | null }`, `Term { term; comments }`, `Topics { sample; enough; words; emoji; hashtags }`, `TOPIC_MIN_SAMPLE = 20`, `TOPIC_MIN_COMMENTS = 3`, `TOPIC_MIN_AUTHORS = 2`, `TOPIC_LIMIT = 10`, `STOP_WORDS`, `terms(text)`, `topics(items): Topics`.
+- Note: `Intl.Segmenter` output depends on the ICU data of the runtime (Node 24 here, full ICU). The Chinese assertions were checked on this machine's Node (`v24.4.1`); if a future Node splits a word differently, adjust the expected word, never the rule.
+
+- [ ] **Step 1: Write the failing test** — create `tests/comments-topics.test.ts` (Write tool: non-ASCII):
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { STOP_WORDS, terms, TOPIC_LIMIT, TOPIC_MIN_SAMPLE, topics, type TopicInput } from '@/lib/comments/topics';
+
+/** n filler comments by distinct people that share nothing (single characters only). */
+const filler = (n: number): TopicInput[] => Array.from({ length: n }, (_, i) => ({ text: `${'abcdefghijklmnopqrstuvwxyz'[i % 26]}!`, author: `f${i}` }));
+const by = (author: string, text: string): TopicInput => ({ author, text });
+
+describe('terms', () => {
+  it('Chinese words by Intl.Segmenter; single characters and function words dropped', () => {
+    expect([...terms('这个颜色好漂亮').words]).toEqual(['颜色', '漂亮']);
+    expect([...terms('照片在哪里拍的？').words]).toEqual(expect.arrayContaining(['照片', '哪里']));
+    expect([...terms('咖啡好喝').words]).toEqual(['咖啡', '好喝']);
+  });
+
+  it('English: lower-cased, once per comment, stop words, digits, mentions and links left out', () => {
+    expect([...terms('love love LOVE the colours').words]).toEqual(['love', 'colours']);
+    expect([...terms('@amy look https://x.co/a 123 2026').words]).toEqual(['look']);
+    expect(STOP_WORDS.has('the') && STOP_WORDS.has('我们')).toBe(true);
+  });
+
+  it('hashtags (kept with #, lower-cased, not also words) and emoji (one code point, so ❤️ and ❤ are one)', () => {
+    const t = terms('Love it #Penang #food_trip ❤️❤ 😍');
+    expect([...t.hashtags]).toEqual(['#penang', '#food_trip']);
+    expect([...t.emoji]).toEqual(['❤', '😍']);
+    expect([...t.words]).toEqual(['love']);
+  });
+
+  it('text is never interpreted: markup is just characters', () => {
+    expect([...terms('<script>alert(1)</script>').words]).toEqual(['script', 'alert']);
+  });
+});
+
+describe('topics', () => {
+  it(`fewer than ${TOPIC_MIN_SAMPLE} comments: not enough, nothing listed`, () => {
+    const r = topics([...filler(TOPIC_MIN_SAMPLE - 4), by('a', '颜色'), by('b', '颜色'), by('c', '颜色')]);
+    expect(r).toEqual({ sample: TOPIC_MIN_SAMPLE - 1, enough: false, words: [], emoji: [], hashtags: [] });
+  });
+
+  it('a term needs 3 comments from 2+ people; counts are comments, not repeats; most first, then the term', () => {
+    const r = topics([
+      ...filler(20),
+      by('a', '这个颜色好漂亮 😍'),
+      by('b', '颜色真的很漂亮！😍😍😍'),
+      by('c', '颜色 colours #penang'),
+      by('d', 'colours #penang'),
+      by('d', 'colours #Penang 😍'),
+      by('e', 'spam spam spam'),
+      by('e', 'spam'),
+      by('e', 'spam'), // 3 comments but one person: not a topic
+    ]);
+    expect(r.sample).toBe(28);
+    expect(r.enough).toBe(true);
+    expect(r.words).toEqual([
+      { term: 'colours', comments: 3 },
+      { term: '颜色', comments: 3 },
+    ]);
+    expect(r.emoji).toEqual([{ term: '😍', comments: 3 }]);
+    expect(r.hashtags).toEqual([{ term: '#penang', comments: 3 }]);
+  });
+
+  it(`at most ${TOPIC_LIMIT} per kind; unknown authors count as different people; empty texts are skipped`, () => {
+    const words = Array.from({ length: 12 }, (_, i) => `word${String.fromCharCode(97 + i)}x`);
+    const items: TopicInput[] = [...filler(20), { text: null, author: 'z' }];
+    for (const w of words) for (let k = 0; k < 3; k++) items.push({ text: w, author: null });
+    const r = topics(items);
+    expect(r.words).toHaveLength(TOPIC_LIMIT);
+    expect(r.words[0]).toEqual({ term: 'wordax', comments: 3 });
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/comments-topics.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/comments/topics"`.
+
+- [ ] **Step 3: Write the module** — create `lib/comments/topics.ts` (Write tool: non-ASCII):
+
+```ts
+// Recurring topics in comments (Plan 15c): rule-based word, emoji and hashtag counts, no AI. Pure.
+// Words come from Intl.Segmenter (built in; dictionary-based for Chinese, so 照片 / 哪里 are words), English and Chinese
+// in one pass. A term counts once per comment and must come from TOPIC_MIN_COMMENTS comments by TOPIC_MIN_AUTHORS
+// different people, so one person repeating themselves never makes a topic. Below TOPIC_MIN_SAMPLE comments: no topics.
+
+export interface TopicInput {
+  text: string | null;
+  author: string | null; // lower-cased username; null = unknown (counted as its own person)
+}
+export interface Term {
+  term: string;
+  comments: number; // comments that contain it
+}
+export interface Topics {
+  sample: number; // comments read
+  enough: boolean; // sample >= TOPIC_MIN_SAMPLE
+  words: Term[];
+  emoji: Term[];
+  hashtags: Term[];
+}
+
+export const TOPIC_MIN_SAMPLE = 20;
+export const TOPIC_MIN_COMMENTS = 3;
+export const TOPIC_MIN_AUTHORS = 2;
+export const TOPIC_LIMIT = 10;
+
+// Words that say nothing about a topic. Single letters and single Chinese characters (的, 了, 我 …) are dropped by length.
+// prettier-ignore
+export const STOP_WORDS: ReadonlySet<string> = new Set([
+  'the', 'and', 'you', 'your', 'yours', 'this', 'that', 'these', 'those', 'with', 'for', 'from', 'are', 'was', 'were', 'is', 'it', 'its', "it's",
+  'so', 'my', 'me', 'mine', 'we', 'our', 'us', 'they', 'them', 'their', 'he', 'she', 'his', 'her', 'to', 'of', 'in', 'on', 'at', 'by', 'be',
+  'been', 'am', 'an', 'or', 'as', 'if', 'do', 'does', 'did', 'have', 'has', 'had', 'not', 'no', 'but', 'just', 'all', 'can', 'will', 'would',
+  'what', 'how', 'when', 'where', 'why', 'who', 'which', 'there', 'here', 'too', 'very', 'really', 'more', 'some', 'any', 'one', 'get', 'got',
+  'im', "i'm", 'u', 'ur', 'pls', 'please', 'haha', 'hahaha', 'lol', 'omg', 'yes', 'yeah', 'ok', 'okay',
+  '我们', '你们', '他们', '她们', '这个', '那个', '这些', '那些', '这样', '那样', '这里', '那里', '没有', '一个', '什么', '怎么', '可以', '不是',
+  '就是', '真的', '自己', '因为', '所以', '但是', '还是', '已经', '然后', '那么', '还有', '一下', '一样', '大家', '现在', '时候', '哈哈', '哈哈哈',
+  '嘻嘻', '呵呵', '谢谢', '好的',
+]);
+
+const URL_RE = /https?:\/\/\S+/giu;
+const MENTION_RE = /@[\p{L}\p{N}._]+/gu;
+const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
+const EMOJI_RE = /\p{Extended_Pictographic}/gu;
+const DIGITS_RE = /^\p{N}+$/u;
+const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+
+/** The distinct terms of one comment, lower-cased. */
+export function terms(text: string): { words: Set<string>; emoji: Set<string>; hashtags: Set<string> } {
+  const t = text.toLowerCase().replace(URL_RE, ' ').replace(MENTION_RE, ' ');
+  const hashtags = new Set(t.match(HASHTAG_RE) ?? []);
+  const emoji = new Set(t.match(EMOJI_RE) ?? []);
+  const words = new Set<string>();
+  for (const s of segmenter.segment(t.replace(HASHTAG_RE, ' '))) {
+    const w = s.segment;
+    if (s.isWordLike && [...w].length >= 2 && !DIGITS_RE.test(w) && !STOP_WORDS.has(w)) words.add(w);
+  }
+  return { words, emoji, hashtags };
+}
+
+type Kind = 'words' | 'emoji' | 'hashtags';
+
+/** Top terms per kind: in TOPIC_MIN_COMMENTS+ comments by TOPIC_MIN_AUTHORS+ people, most comments first, then the term. */
+export function topics(items: TopicInput[]): Topics {
+  const sample = items.length;
+  const enough = sample >= TOPIC_MIN_SAMPLE;
+  const empty = { sample, enough, words: [], emoji: [], hashtags: [] };
+  if (!enough) return empty;
+  const seen: Record<Kind, Map<string, { comments: number; authors: Set<string> }>> = { words: new Map(), emoji: new Map(), hashtags: new Map() };
+  items.forEach((it, i) => {
+    if (!it.text) return;
+    const author = it.author ?? `\u0000${i}`; // an unknown author is nobody else
+    const found = terms(it.text);
+    for (const kind of ['words', 'emoji', 'hashtags'] as const)
+      for (const term of found[kind]) {
+        const e = seen[kind].get(term) ?? { comments: 0, authors: new Set<string>() };
+        e.comments += 1;
+        e.authors.add(author);
+        seen[kind].set(term, e);
+      }
+  });
+  const top = (kind: Kind): Term[] =>
+    [...seen[kind]]
+      .filter(([, e]) => e.comments >= TOPIC_MIN_COMMENTS && e.authors.size >= TOPIC_MIN_AUTHORS)
+      .map(([term, e]) => ({ term, comments: e.comments }))
+      .sort((a, b) => b.comments - a.comments || (a.term < b.term ? -1 : a.term > b.term ? 1 : 0))
+      .slice(0, TOPIC_LIMIT);
+  return { sample, enough, words: top('words'), emoji: top('emoji'), hashtags: top('hashtags') };
+}
+```
+
+- [ ] **Step 4: Run the test**
+
+Run: `npx vitest run tests/comments-topics.test.ts` → PASS (7 tests). Then `npx tsc --noEmit` and `npx eslint lib/comments/topics.ts tests/comments-topics.test.ts`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/comments/topics.ts tests/comments-topics.test.ts
+git commit -m "feat(comments): rule-based topics (words via Intl.Segmenter, emoji, hashtags; min-sample guard)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: URL state (pure)
+
+**Files:**
+- Create: `lib/comments/state.ts`, `tests/comments-state.test.ts`
+- Modify: `lib/dashboard/lists.ts` (export two existing helpers; no behaviour change)
+- Existing tests that must keep passing: `tests/lists.test.ts`, `tests/posted-filter.test.tsx`.
+
+**Interfaces:**
+- Consumes: `cleanSearch`, `listHref`, `ListDates`, `ALL_TIME`, `LIST_KEYS`, and (exported by this task) `parseDates(sp)`, `dateParams(d)` from `lib/dashboard/lists.ts`.
+- Produces: `COMMENT_SECTIONS`, `CommentSection`, `FAN_MODES`, `FanMode`, `COMMENT_ONLY`, `CommentOnly`, `CommentState`, `COMMENT_KEYS = ['section', 'media', 'only', 'fans']`, `parseCommentState(sp)`, `commentHref(s, patch, keep = {})`.
+
+- [ ] **Step 1: Export the two helpers** — in `lib/dashboard/lists.ts` make exactly two anchored edits:
+  - `function parseDates(sp: Params): ListDates {` → `export function parseDates(sp: Params): ListDates {`
+  - `const dateParams = (d: ListDates): Record<string, string> =>` → `export const dateParams = (d: ListDates): Record<string, string> =>` (the rest of that line unchanged)
+
+- [ ] **Step 2: Write the failing test** — create `tests/comments-state.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { COMMENT_KEYS, commentHref, parseCommentState, type CommentState } from '@/lib/comments/state';
+import { ALL_TIME, LIST_KEYS } from '@/lib/dashboard/lists';
+
+const DEFAULT: CommentState = { section: 'comments', dates: ALL_TIME, q: '', media: null, only: null, fans: 'top', page: 1 };
+
+describe('parseCommentState', () => {
+  it('defaults: All comments, All time, no filters, top fans, page 1', () => expect(parseCommentState({})).toEqual(DEFAULT));
+
+  it('reads every key', () => {
+    expect(parseCommentState({ section: 'fans', pr: '30d', q: '  where   to buy ', media: '17895695668004550', only: 'questions', fans: 'quiet', page: '3' })).toEqual({
+      section: 'fans',
+      dates: { pr: '30d', from: null, to: null },
+      q: 'where to buy',
+      media: '17895695668004550',
+      only: 'questions',
+      fans: 'quiet',
+      page: 3,
+    });
+    expect(parseCommentState({ pfrom: '2026-10-09', pto: '2026-10-01' }).dates).toEqual({ pr: null, from: '2026-10-01', to: '2026-10-09' }); // swapped into order
+  });
+
+  it('drops hostile or unknown values (never echoed)', () => {
+    expect(
+      parseCommentState({ section: 'admin', media: '12; drop table', only: 'all', fans: ['new', 'quiet'], page: '0', q: ['a', 'b'], pr: '7days' }),
+    ).toEqual(DEFAULT);
+    expect(parseCommentState({ media: '1'.repeat(33), page: '1e3' })).toEqual(DEFAULT);
+    expect(parseCommentState({ q: 'x'.repeat(150) }).q).toHaveLength(100);
+  });
+});
+
+describe('commentHref', () => {
+  it('fixed order, defaults left out, page back to 1 on any change', () => {
+    const s: CommentState = { ...DEFAULT, section: 'questions', dates: { pr: '7d', from: null, to: null }, q: 'price', media: '42', only: 'fans', page: 4 };
+    expect(commentHref(s, {})).toBe('?tab=comments&section=questions&pr=7d&q=price&media=42&only=fans');
+    expect(commentHref(s, { page: 5 })).toBe('?tab=comments&section=questions&pr=7d&q=price&media=42&only=fans&page=5');
+    expect(commentHref(s, { section: 'comments', q: '', media: null, only: null, dates: ALL_TIME })).toBe('?tab=comments');
+    expect(commentHref({ ...DEFAULT, section: 'fans' }, { fans: 'new' })).toBe('?tab=comments&section=fans&fans=new');
+  });
+
+  it('a section change keeps the other filters (rule 3) and custom dates win', () => {
+    const s: CommentState = { ...DEFAULT, q: 'cake', dates: { pr: null, from: '2026-10-01', to: null } };
+    expect(commentHref(s, { section: 'topics' })).toBe('?tab=comments&section=topics&pfrom=2026-10-01&q=cake');
+  });
+
+  it('the Time Scope rides along but never overrides the tab’s own params', () => {
+    expect(commentHref({ ...DEFAULT, q: 'a b' }, {}, { from: '90d', q: 'evil', tab: 'posts' })).toBe('?tab=comments&q=a+b&from=90d');
+  });
+
+  it('its own keys are disjoint from the list keys (both are left out of the Suspense key)', () => {
+    expect(COMMENT_KEYS.filter((k) => (LIST_KEYS as readonly string[]).includes(k))).toEqual([]);
+    for (const k of ['pr', 'pfrom', 'pto', 'q', 'page']) expect(LIST_KEYS).toContain(k);
+  });
+});
+```
+
+- [ ] **Step 3: Run it to verify it fails**
+
+Run: `npx vitest run tests/comments-state.test.ts`
+Expected: FAIL — `Failed to resolve import "@/lib/comments/state"`.
+
+- [ ] **Step 4: Write the module** — create `lib/comments/state.ts`:
+
+```ts
+// URL state of the Comments tab (Plan 15c; docs/UI_STANDARDS.md rule 3: the URL is the state). Parsed on the server,
+// every value validated, invalid ones dropped (never echoed back). The comment-date filter reuses the list keys of
+// Plan 14b (pr | pfrom | pto), so PostedFilter works unchanged. Pure.
+import { cleanSearch, dateParams, listHref, parseDates, type ListDates } from '@/lib/dashboard/lists';
+
+type Params = Record<string, string | string[] | undefined>;
+
+export const COMMENT_SECTIONS = ['comments', 'questions', 'fans', 'topics', 'outsiders'] as const;
+export type CommentSection = (typeof COMMENT_SECTIONS)[number];
+export const FAN_MODES = ['top', 'new', 'quiet'] as const;
+export type FanMode = (typeof FAN_MODES)[number];
+export const COMMENT_ONLY = ['questions', 'fans'] as const;
+export type CommentOnly = (typeof COMMENT_ONLY)[number];
+
+export interface CommentState {
+  section: CommentSection;
+  dates: ListDates; // the comment date (owner timezone days)
+  q: string; // '' = no search
+  media: string | null; // one post (Instagram media id, digits)
+  only: CommentOnly | null; // All comments: only questions / only fans
+  fans: FanMode;
+  page: number; // 1-based
+}
+
+/** The tab's own URL keys besides LIST_KEYS (pr, pfrom, pto, q, page): the page's Suspense key ignores both. */
+export const COMMENT_KEYS = ['section', 'media', 'only', 'fans'] as const;
+
+const one = (v: string | string[] | undefined): string | null => (typeof v === 'string' ? v : null);
+const pick = <T extends string>(all: readonly T[], v: string | null): T | null => (v !== null && (all as readonly string[]).includes(v) ? (v as T) : null);
+
+export function parseCommentState(sp: Params): CommentState {
+  const media = one(sp.media);
+  const page = one(sp.page);
+  return {
+    section: pick(COMMENT_SECTIONS, one(sp.section)) ?? 'comments',
+    dates: parseDates(sp),
+    q: cleanSearch(one(sp.q)),
+    media: media !== null && /^\d{1,32}$/.test(media) ? media : null,
+    only: pick(COMMENT_ONLY, one(sp.only)),
+    fans: pick(FAN_MODES, one(sp.fans)) ?? 'top',
+    page: page !== null && /^\d{1,6}$/.test(page) && Number(page) >= 1 ? Number(page) : 1,
+  };
+}
+
+/** A link inside the tab: the patch applied, page back to 1 unless patched, defaults left out, fixed order; `keep` = the Time Scope params (never override the tab's own). */
+export function commentHref(s: CommentState, patch: Partial<CommentState>, keep: Record<string, string> = {}): string {
+  const n = { ...s, page: 1, ...patch };
+  const p: Record<string, string> = {
+    tab: 'comments',
+    ...(n.section !== 'comments' ? { section: n.section } : {}),
+    ...dateParams(n.dates),
+    ...(n.q ? { q: n.q } : {}),
+    ...(n.media ? { media: n.media } : {}),
+    ...(n.only ? { only: n.only } : {}),
+    ...(n.fans !== 'top' ? { fans: n.fans } : {}),
+    ...(n.page > 1 ? { page: String(n.page) } : {}),
+  };
+  for (const [k, v] of Object.entries(keep)) if (!(k in p)) p[k] = v;
+  return listHref(p);
+}
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `npx vitest run tests/comments-state.test.ts tests/lists.test.ts tests/posted-filter.test.tsx` → PASS (8 new tests; the others unchanged). Then `npx tsc --noEmit` and `npx eslint lib/comments/state.ts lib/dashboard/lists.ts tests/comments-state.test.ts`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/comments/state.ts tests/comments-state.test.ts lib/dashboard/lists.ts
+git commit -m "feat(comments): Comments tab URL state (sections, comment date, search, post, only, fan mode, page)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
