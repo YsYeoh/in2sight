@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { STOP_WORDS, terms, TOPIC_LIMIT, TOPIC_MIN_SAMPLE, topics, type TopicInput } from '@/lib/comments/topics';
 
 /** n filler comments by distinct people that share nothing (single characters only). */
@@ -65,5 +65,21 @@ describe('topics', () => {
     const r = topics(items);
     expect(r.words).toHaveLength(TOPIC_LIMIT);
     expect(r.words[0]).toEqual({ term: 'wordax', comments: 3 });
+  });
+});
+
+describe('Intl.Segmenter is created lazily', () => {
+  it('importing the module does not call Intl.Segmenter (a browser without it must still open the tab); the first tokenising does, once', async () => {
+    const spy = vi.spyOn(Intl, 'Segmenter');
+    try {
+      vi.resetModules();
+      const m = await import('@/lib/comments/topics');
+      expect(spy).not.toHaveBeenCalled();
+      m.terms('颜色好漂亮');
+      m.terms('hello world');
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

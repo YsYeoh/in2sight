@@ -89,6 +89,30 @@ describe('CommentsTab', () => {
     expect(screen.getByRole('link', { name: 'First page' })).toHaveAttribute('href', '?tab=comments&from=2026-09-01&to=2026-09-30');
   });
 
+  it('a hidden comment (Plan 15d) shows the Hidden badge; false or unknown does not', () => {
+    view(props({}, { kind: 'comments', page: page([comment(1, { hidden: true }), comment(2, { hidden: false }), comment(3, { hidden: null })]), posts: [] }));
+    const rows = screen.getAllByRole('article');
+    expect(within(rows[0]).getByText(T.row.hidden)).toBeInTheDocument();
+    expect(within(rows[1]).queryByText(T.row.hidden)).toBeNull();
+    expect(within(rows[2]).queryByText(T.row.hidden)).toBeNull();
+  });
+
+  it('New fans: while the history is younger than the window, everyone with 2+ comments looks new, and the page says so; not with older history or in other modes', () => {
+    const fan = { username: 'amy', comments: 2, likes: 1, firstAt: '2026-10-10T00:00:00Z', lastAt: '2026-10-20T00:00:00Z', postsSince: null };
+    const young = 'History starts 2026-10-02: until 2026-11-01 everyone with 2+ comments looks new.';
+    const { unmount } = view(props({ section: 'fans', fans: 'new' }, { kind: 'fans', page: page([fan]) }));
+    expect(screen.getByText(young)).toBeInTheDocument();
+    unmount();
+    const o = view(props({ section: 'fans', fans: 'top' }, { kind: 'fans', page: page([fan]) }));
+    expect(screen.queryByText(young)).toBeNull();
+    o.unmount();
+    const old = view(props({ section: 'fans', fans: 'new' }, { kind: 'fans', page: page([fan]) }, { start: '2026-09-25T00:00:00Z' })); // exactly 30 days before today: the window is covered
+    expect(screen.queryByText(/History starts/)).toBeNull();
+    old.unmount();
+    view(props({ section: 'fans', fans: 'new' }, { kind: 'fans', page: page([]) }, { start: null }));
+    expect(screen.queryByText(/History starts/)).toBeNull();
+  });
+
   it('filters become chips; Clear all keeps the section; a deep-linked older post shows as "This post"; Advanced holds Show only', () => {
     view(props({ q: 'cake', pr: '30d', media: '999', only: 'questions' }, { kind: 'comments', page: page([]), posts: POSTS }));
     const chips = screen.getByRole('list', { name: en.filters.active });
@@ -169,7 +193,7 @@ describe('CommentsTab', () => {
 
   it('zh-CN', () => {
     view(props({}, { kind: 'comments', page: page([comment(1)]), posts: [] }), 'zh-CN');
-    expect(screen.getAllByRole('tab').map((x) => x.textContent)).toEqual(['全部评论', '未回答的问题', '粉丝榜', '话题', '未关注你的人']);
+    expect(screen.getAllByRole('tab').map((x) => x.textContent)).toEqual(['全部评论', '未回答的问题', '铁粉榜', '话题', '未关注你的人']);
     expect(screen.getByText('第 1–1 条，共 1 条评论')).toBeInTheDocument();
   });
 });

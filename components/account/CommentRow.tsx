@@ -31,7 +31,7 @@ export function CommentRow({ comment: c, accountId, scopeQuery = '', status, act
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         {c.authorUsername ? (
           <a href={`https://www.instagram.com/${encodeURIComponent(c.authorUsername)}/`} target="_blank" rel="noopener noreferrer" aria-label={t('openProfile', { username: c.authorUsername })} className="inline-flex min-w-0 items-center gap-1 font-medium underline-offset-4 hover:underline">
-            <span className="truncate">{author}</span>
+            <span className="min-w-0 truncate">{author}</span>
             <ExternalLink aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
           </a>
         ) : (
@@ -45,7 +45,7 @@ export function CommentRow({ comment: c, accountId, scopeQuery = '', status, act
         {c.repliedByOwner === true ? <Badge variant="outline">{t('replied')}</Badge> : null}
         {status === 'hidden' ? <Badge variant="outline">{t('hidden')}</Badge> : null}
       </div>
-      <p className="break-words whitespace-pre-wrap">
+      <p className="min-w-0 wrap-anywhere whitespace-pre-wrap">
         {text}
         {cut ? <span title={t('more')}>…</span> : null}
       </p>

@@ -56,7 +56,9 @@ directly): the code works before and after. Rollback, if ever needed: `drop func
 ## 3. The analysis views
 - **Fans**: Top fans ranks by comments then likes; your own comments are not listed. New fans: first comment in the last
   30 days and at least 2 comments. Gone quiet: 3+ comments, none in 30 days, 3+ posts published since (empty at first: the
-  history starts at the Reconnect). Each view shows its rule and "1–50 of N people".
+  history starts at the Reconnect). Each view shows its rule and "1–50 of N people". While the stored history is younger
+  than 30 days, New fans shows "History starts {date}: until {date + 30 days} everyone with 2+ comments looks new": check it
+  appears for a freshly reconnected account and is gone once the history is 30+ days old.
 - **Topics**: needs 20+ comments in the range ("At least 20 comments are needed; this range has N" otherwise). A word must
   appear in 3+ comments from 2+ people; Chinese words (e.g. 颜色, 照片) are counted as words, single characters skipped.
 - **Not following you**: without a follower export → "Upload a follower export first" (link to the Followers tab). With one
@@ -87,7 +89,8 @@ is an index on `(account_id, lower(author_username))` (a new migration).
 
 ## 7. Known limits (by design)
 - Only top-level comments of feed posts and Reels posted in the last 30 days at read time, at most 200 per post per read;
-  Stories have no comments here (Story replies are private messages). History starts at the Reconnect.
+  Stories have no comments here (Story replies are private messages). History starts at the Reconnect, so for the first 30
+  to 60 days "New fans" cannot tell a long-time fan from a new one (the tab says so until 30 days of history exist).
 - Thread replies, Instagram's hidden flag and commenter ids are not read: "Reply seen" is derived from your own top-level
   @mentions; a renamed account counts as a new fan (Plan 15d reads replies and the hidden flag).
 - The question rule is a rule (question marks, English question words at the start, Chinese question words anywhere):

@@ -31,9 +31,40 @@ describe('isQuestion', () => {
     ['太棒了！', false],
     ['@what_is_this nice', false], // a mention is skipped, not read as a word
     ['', false],
+    ["Can't wait!!", false], // an apostrophe is part of the word: can't / won't / don't
+    ["Don't miss it", false],
+    ["Can’t wait", false], // curly apostrophe
+    ['What a shot!', false], // a question word, but an exclamation
+    ['How about that!', false],
+    ['Do it!', false],
+    ['Any day now', false],
+    ['Will is here', false],
+    ['Check https://shop.example/p?id=7&ref=ig', false], // a "?" inside a URL
+    ['www.example.com/a?b=1 so good', false],
+    ['https://example.com/?utm_source=ig', false],
   ])('%s → not a question', (text, want) => expect(isQuestion(text)).toBe(want));
 
+  it.each([
+    ['What a shot!?', true], // a real question mark still wins
+    ['Do it?', true],
+    ['Can’t wait?', true],
+    ['https://shop.example/p?id=7 where is this?', true], // a real "?" after the URL
+    ['where is www.example.com/a?b=1', true], // a question word at the start, no "!"
+    ['Will you come?', true],
+    ['Any discount?', true],
+    ['Can you ship to MY?', true],
+    ['Is it open today', true],
+  ])('%s → still a question', (text, want) => expect(isQuestion(text)).toBe(want));
+
   it('null is not a question', () => expect(isQuestion(null)).toBe(false));
+
+  it('the SQL filter (the pattern alone, no URL stripping) agrees with the badge on these shapes', () => {
+    const sql = new RegExp(QUESTION_PATTERN, 'i');
+    for (const text of ["Can't wait!!", 'What a shot!', 'Do it!', 'Any day now', 'Will is here', 'Check https://shop.example/p?id=7&ref=ig', 'https://example.com/?utm_source=ig'])
+      expect([text, sql.test(text)]).toEqual([text, false]);
+    for (const text of ['Where did you buy this?', 'What a shot!?', 'https://shop.example/p?id=7 where is this?', 'how much', '好看吗？'])
+      expect([text, sql.test(text)]).toEqual([text, true]);
+  });
 
   it('the pattern uses only syntax shared by JavaScript and PostgreSQL regular expressions (the SQL filter uses it with ~*)', () => {
     expect([...QUESTION_PATTERN.matchAll(/\\(.)/g)].map((m) => m[1])).toEqual(['s', 's']); // the only escape is \s
