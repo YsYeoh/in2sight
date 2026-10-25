@@ -947,3 +947,583 @@ git commit -m "feat(comments): Comments tab URL state (sections, comment date, s
 ```
 
 ---
+
+### Task 6: Readers + privacy guard
+
+**Files:**
+- Create: `lib/comments/read.ts`, `tests/comments-read.test.ts`, `tests/comments-privacy.test.ts`
+- Existing tests that must keep passing: `tests/followers-privacy.test.ts` (this module never names `follower_exports`), `tests/sync-comments.test.ts`.
+
+**Interfaces:**
+- Consumes: Task 1's function names and columns (by name only; the migration is not applied anywhere), Task 3 (`isQuestion`, `QUESTION_PATTERN`, types, constants), Task 4 (`TopicInput`), Task 5 (`FanMode`), `MISSING_FUNCTION` (`lib/dashboard/read.ts`).
+- Produces (Task 8 calls exactly these; all take the OWNER-SESSION client):
+  - `toCommentView(row): CommentView`
+  - `CommentPageArgs { fromIso; toIso; q; media; questions; unanswered; fansOnly; owner; page }`
+  - `loadCommentPage(db, accountId, a: CommentPageArgs): Promise<Paged<CommentView> | null>`
+  - `loadFans(db, accountId, { owner, mode, now, page }): Promise<Paged<Fan> | null>`
+  - `loadOutsiders(db, accountId, { owner, page }): Promise<Paged<Outsider> | null>`
+  - `loadTopicSample(db, accountId, { fromIso, toIso, owner }): Promise<TopicInput[]>`
+  - `loadCommentPosts(db, accountId): Promise<CommentPost[]>`
+  - `loadCommentStart(db, accountId): Promise<string | null>`
+  - `null` = the SQL function is missing (`PGRST202` / `42883`); every other error throws `comments <op> failed` (fixed text).
+
+- [ ] **Step 1: Write the failing tests** — create `tests/comments-read.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { QUESTION_PATTERN } from '@/lib/comments/question';
+import { loadCommentPage, loadCommentPosts, loadCommentStart, loadFans, loadOutsiders, loadTopicSample, toCommentView, type CommentPageArgs } from '@/lib/comments/read';
+import { COMMENT_PAGE, FAN_PAGE, TOPIC_SAMPLE } from '@/lib/comments/view';
+
+type Op = unknown[];
+const calls: Op[] = [];
+const queue: { data?: unknown; error?: unknown }[] = [];
+const next = () => Promise.resolve(queue.shift() ?? { data: [], error: null });
+
+/** Owner-session fake: records every call; each awaited query or rpc resolves to the next queued result. */
+function fakeDb(): SupabaseClient {
+  return {
+    rpc(fn: string, args: Record<string, unknown>) {
+      calls.push(['rpc', fn, args]);
+      return next();
+    },
+    from(table: string) {
+      calls.push(['from', table]);
+      const chain: Record<string, unknown> = {};
+      for (const op of ['select', 'eq', 'neq', 'gt', 'gte', 'lt', 'order', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => next().then(res, rej);
+      return chain;
+    },
+  } as unknown as SupabaseClient;
+}
+
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const SECRET = { code: 'XX000', message: 'row contains alice.secret' };
+const ARGS: CommentPageArgs = { fromIso: '2026-09-30T16:00:00.000Z', toIso: '2026-10-25T16:00:00.000Z', q: '', media: null, questions: false, unanswered: false, fansOnly: false, owner: 'me', page: 1 };
+const ROW = { id: '1801', media_id: '1790', author_username: 'amy', body: 'Where is this?', like_count: 2, commented_at: '2026-10-20T08:00:00+00:00', hidden: false, replied: false, media_type: 'REELS', posted_at: '2026-10-19T10:00:00+00:00', caption: 'Penang trip', n: 1, total: 3 };
+
+beforeEach(() => {
+  calls.length = 0;
+  queue.length = 0;
+});
+
+describe('toCommentView', () => {
+  it('maps a comment_list row; the question badge is the rule; false hidden / replied are unknown (null), never false', () => {
+    expect(toCommentView(ROW)).toEqual({
+      id: '1801',
+      mediaId: '1790',
+      authorUsername: 'amy',
+      text: 'Where is this?',
+      postedAt: '2026-10-20T08:00:00+00:00',
+      likeCount: 2,
+      isQuestion: true,
+      hidden: null,
+      repliedByOwner: null,
+      post: { id: '1790', type: 'REELS', postedAt: '2026-10-19T10:00:00+00:00', caption: 'Penang trip' },
+    });
+    expect(toCommentView({ ...ROW, hidden: true, replied: true })).toMatchObject({ hidden: true, repliedByOwner: true });
+    expect(toCommentView({ ...ROW, body: null, author_username: null, like_count: null, posted_at: null })).toMatchObject({ text: '', authorUsername: null, likeCount: null, isQuestion: false, post: null });
+  });
+});
+
+describe('loadCommentPage', () => {
+  it('calls comment_list with the filters; no filter = nulls; the page and the total', async () => {
+    queue.push({ data: [ROW], error: null });
+    expect(await loadCommentPage(fakeDb(), ACC, ARGS)).toEqual({ rows: [toCommentView(ROW)], total: 3, page: 1 });
+    expect(calls).toEqual([
+      ['rpc', 'comment_list', { p_account: ACC, p_from: ARGS.fromIso, p_to: ARGS.toIso, p_q: null, p_media: null, p_question_re: null, p_unanswered: false, p_fan_min: null, p_owner: 'me', p_offset: 0, p_limit: COMMENT_PAGE }],
+    ]);
+  });
+
+  it('questions pass the ONE question pattern; fans pass the fan minimum; page 3 is offset 100', async () => {
+    queue.push({ data: [ROW], error: null });
+    await loadCommentPage(fakeDb(), ACC, { ...ARGS, q: 'where', media: '1790', questions: true, unanswered: true, fansOnly: true, page: 3 });
+    expect(calls[0][2]).toMatchObject({ p_q: 'where', p_media: '1790', p_question_re: QUESTION_PATTERN, p_unanswered: true, p_fan_min: 3, p_offset: 100, p_limit: 50 });
+  });
+
+  it('a page past the end reads page 1 again', async () => {
+    queue.push({ data: [], error: null }, { data: [ROW], error: null });
+    expect((await loadCommentPage(fakeDb(), ACC, { ...ARGS, page: 9 }))?.page).toBe(1);
+    expect(calls.map((c) => (c[2] as { p_offset: number }).p_offset)).toEqual([400, 0]);
+  });
+
+  it('function missing (migration not applied) → null; any other error → a fixed message that never echoes the database', async () => {
+    for (const code of ['PGRST202', '42883']) {
+      queue.push({ data: null, error: { code } });
+      expect(await loadCommentPage(fakeDb(), ACC, ARGS)).toBeNull();
+    }
+    queue.push({ data: null, error: SECRET });
+    await expect(loadCommentPage(fakeDb(), ACC, ARGS)).rejects.toThrow(/^comments comment_list failed$/);
+  });
+});
+
+describe('loadFans / loadOutsiders', () => {
+  it('comment_fans gets the mode, the clock and the fan rules; bigint counts arrive as strings or numbers', async () => {
+    queue.push({ data: [{ username: 'amy', comments: '12', likes: 30, first_at: '2026-08-01T00:00:00Z', last_at: '2026-10-20T00:00:00Z', posts_since: null, n: 1, total: '7' }], error: null });
+    const now = new Date('2026-10-25T08:00:00Z');
+    expect(await loadFans(fakeDb(), ACC, { owner: 'me', mode: 'quiet', now, page: 2 })).toEqual({
+      rows: [{ username: 'amy', comments: 12, likes: 30, firstAt: '2026-08-01T00:00:00Z', lastAt: '2026-10-20T00:00:00Z', postsSince: null }],
+      total: 7,
+      page: 2,
+    });
+    expect(calls[0]).toEqual(['rpc', 'comment_fans', { p_account: ACC, p_owner: 'me', p_mode: 'quiet', p_now: '2026-10-25T08:00:00.000Z', p_fan_min: 3, p_new_min: 2, p_days: 30, p_quiet_posts: 3, p_offset: FAN_PAGE, p_limit: FAN_PAGE }]);
+  });
+
+  it('comment_outsiders: the page; null when missing', async () => {
+    queue.push({ data: [{ username: 'bob', comments: 4, last_at: '2026-10-01T00:00:00Z', n: 1, total: 1 }], error: null });
+    expect(await loadOutsiders(fakeDb(), ACC, { owner: 'me', page: 1 })).toEqual({ rows: [{ username: 'bob', comments: 4, lastAt: '2026-10-01T00:00:00Z' }], total: 1, page: 1 });
+    expect(calls[0]).toEqual(['rpc', 'comment_outsiders', { p_account: ACC, p_owner: 'me', p_offset: 0, p_limit: FAN_PAGE }]);
+    queue.push({ data: null, error: { code: 'PGRST202' } });
+    expect(await loadOutsiders(fakeDb(), ACC, { owner: 'me', page: 1 })).toBeNull();
+  });
+});
+
+describe('table reads (work before the migration)', () => {
+  it('loadTopicSample: the newest comments of the window, capped, the owner left out, names lower-cased', async () => {
+    queue.push({ data: [{ text: 'Nice', author_username: 'Amy' }, { text: 'thanks!', author_username: 'ME' }, { text: null, author_username: null }], error: null });
+    expect(await loadTopicSample(fakeDb(), ACC, { fromIso: 'F', toIso: 'T', owner: 'me' })).toEqual([{ text: 'Nice', author: 'amy' }, { text: null, author: null }]);
+    expect(calls).toEqual([
+      ['from', 'comments'],
+      ['select', 'text,author_username'],
+      ['eq', 'account_id', ACC],
+      ['gte', 'commented_at', 'F'],
+      ['lt', 'commented_at', 'T'],
+      ['order', 'commented_at', { ascending: false }],
+      ['limit', TOPIC_SAMPLE],
+    ]);
+  });
+
+  it('loadCommentPosts: the newest 50 feed posts with comments; loadCommentStart: the earliest first_seen_at', async () => {
+    queue.push({ data: [{ id: '1790', media_type: 'IMAGE', posted_at: '2026-10-19T10:00:00Z', caption: null }], error: null });
+    expect(await loadCommentPosts(fakeDb(), ACC)).toEqual([{ id: '1790', type: 'IMAGE', postedAt: '2026-10-19T10:00:00Z', caption: null }]);
+    expect(calls.slice(1)).toEqual([
+      ['select', 'id,media_type,posted_at,caption'],
+      ['eq', 'account_id', ACC],
+      ['neq', 'media_type', 'STORY'],
+      ['gt', 'comments_count', 0],
+      ['order', 'posted_at', { ascending: false }],
+      ['limit', 50],
+    ]);
+    calls.length = 0;
+    queue.push({ data: [{ first_seen_at: '2026-10-02T03:00:00Z' }], error: null }, { data: [], error: null });
+    expect(await loadCommentStart(fakeDb(), ACC)).toBe('2026-10-02T03:00:00Z');
+    expect(await loadCommentStart(fakeDb(), ACC)).toBeNull();
+    expect(calls.slice(0, 5)).toEqual([['from', 'comments'], ['select', 'first_seen_at'], ['eq', 'account_id', ACC], ['order', 'first_seen_at', { ascending: true }], ['limit', 1]]);
+  });
+
+  it('errors are fixed texts', async () => {
+    queue.push({ data: null, error: SECRET }, { data: null, error: SECRET }, { data: null, error: SECRET });
+    await expect(loadTopicSample(fakeDb(), ACC, { fromIso: 'F', toIso: 'T', owner: 'me' })).rejects.toThrow(/^comments topics failed$/);
+    await expect(loadCommentPosts(fakeDb(), ACC)).rejects.toThrow(/^comments posts failed$/);
+    await expect(loadCommentStart(fakeDb(), ACC)).rejects.toThrow(/^comments start failed$/);
+  });
+});
+```
+
+Create `tests/comments-privacy.test.ts`:
+
+```ts
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+// Commenter usernames and comment texts (Plan 11b ingest, Plan 15c insights) are third-party personal data: owner-only,
+// never logged, never through the admin client outside the sync, never in another export. These guards hold for every
+// file that exists now and every later one (Plan 15d's moderation files included).
+const root = process.cwd();
+function files(dir: string): string[] {
+  return readdirSync(join(root, dir)).flatMap((f) => {
+    const p = `${dir}/${f}`;
+    return statSync(join(root, p)).isDirectory() ? files(p) : /\.tsx?$/.test(f) ? [p] : [];
+  });
+}
+const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const src = ['app', 'components', 'lib'].flatMap(files).map((f) => [f, code(readFileSync(join(root, f), 'utf8'))] as const);
+/** Files that handle comments: lib/comments/* and everything that imports from it. */
+const commentFiles = src.filter(([f, s]) => f.startsWith('lib/comments/') || /from '@\/lib\/comments\//.test(s));
+
+describe('comments privacy', () => {
+  it("only lib/comments/read.ts (reads) and lib/sync/store.ts (the sync's writes) query the comments table", () => {
+    expect(src.filter(([, s]) => /\.from\(\s*['"]comments['"]\s*\)/.test(s)).map(([f]) => f)).toEqual(['lib/comments/read.ts', 'lib/sync/store.ts']);
+  });
+
+  it('only lib/comments/read.ts calls the comment_* functions', () => {
+    expect(src.filter(([, s]) => /['"]comment_(list|fans|outsiders)['"]/.test(s)).map(([f]) => f)).toEqual(['lib/comments/read.ts']);
+  });
+
+  it('no file that handles comments logs anything but one fixed string', () => {
+    expect(commentFiles.length).toBeGreaterThanOrEqual(5);
+    for (const [f, s] of commentFiles) {
+      expect(s, f).not.toMatch(/console\.(log|info|warn|debug|trace|dir|table)\s*\(/);
+      for (const m of s.matchAll(/console\.error\s*\(([^)]*)\)/g)) expect(m[1], f).toMatch(/^'[^'`$]*'$/);
+    }
+  });
+
+  it('never through the admin client, never account_tokens, never as HTML', () => {
+    for (const [f, s] of commentFiles) {
+      expect(s, f).not.toMatch(/lib\/supabase\/admin|createAdminSupabase|account_tokens/);
+      expect(s, f).not.toMatch(/dangerouslySetInnerHTML|innerHTML/);
+    }
+  });
+
+  it('the account exports (Excel workbook, PDF report), the sync, alerts and push never touch comment insights', () => {
+    for (const [f, s] of src)
+      if (/^lib\/(export\/|sync\/|alerts\/|push\/)/.test(f) || f.startsWith('app/api/cron/') || f.startsWith('app/api/export/')) expect(s, f).not.toMatch(/lib\/comments\//);
+  });
+});
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `npx vitest run tests/comments-read.test.ts tests/comments-privacy.test.ts`
+Expected: FAIL — `comments-read`: `Failed to resolve import "@/lib/comments/read"`; `comments-privacy`: the first test lists `['lib/sync/store.ts']` instead of `['lib/comments/read.ts', 'lib/sync/store.ts']`, the second lists `[]`.
+
+- [ ] **Step 3: Write the module** — create `lib/comments/read.ts`:
+
+```ts
+// Reads of the Comments tab (Plan 15c, READ-ONLY). Besides the sync store (lib/sync/store.ts, which writes), the ONLY
+// module that names the comments table and the comment_* functions (tests/comments-privacy.test.ts). Owner-session
+// client only: RLS (comments_owner_select, is_owner()) applies, inside the security-invoker functions too; never the
+// admin client. Every read is filtered by the account id. Errors are fixed texts: a Supabase error can echo row values,
+// i.e. third-party usernames and comment texts. Nothing here logs.
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { isQuestion, QUESTION_PATTERN } from '@/lib/comments/question';
+import type { FanMode } from '@/lib/comments/state';
+import type { TopicInput } from '@/lib/comments/topics';
+import { COMMENT_PAGE, FAN_PAGE, FAN_RULES, TOPIC_SAMPLE, type CommentPost, type CommentView, type Fan, type Outsider, type Paged } from '@/lib/comments/view';
+import { MISSING_FUNCTION } from '@/lib/dashboard/read';
+
+type Row = Record<string, unknown>;
+const missing = (e: unknown): boolean => MISSING_FUNCTION.includes(String((e as { code?: unknown } | null)?.code));
+const fail = (op: string): never => {
+  throw new Error(`comments ${op} failed`);
+};
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null); // bigint arrives as a number or a string
+const offset = (page: number, size: number) => (page - 1) * size;
+
+/** One page from a comment_* function; a page past the end is read again as page 1; null = the function is missing. */
+async function paged<T>(db: SupabaseClient, fn: string, args: Record<string, unknown>, page: number, size: number, map: (r: Row) => T): Promise<Paged<T> | null> {
+  const { data, error } = await db.rpc(fn, { ...args, p_offset: offset(page, size), p_limit: size });
+  if (error) return missing(error) ? null : fail(fn);
+  const rows = (data ?? []) as Row[];
+  if (rows.length === 0 && page > 1) return paged(db, fn, args, 1, size, map);
+  return { rows: rows.map(map), total: num(rows[0]?.total) ?? 0, page };
+}
+
+export const toCommentView = (r: Row): CommentView => {
+  const text = str(r.body) ?? '';
+  const postedAt = str(r.posted_at);
+  return {
+    id: String(r.id),
+    mediaId: String(r.media_id),
+    authorUsername: str(r.author_username),
+    text,
+    postedAt: String(r.commented_at),
+    likeCount: num(r.like_count),
+    isQuestion: isQuestion(text),
+    hidden: r.hidden === true ? true : null, // the column defaults to false and Instagram's flag is not read yet: false is not data
+    repliedByOwner: r.replied === true ? true : null, // no reply SEEN is not "unanswered" (thread replies are not read)
+    post: postedAt ? { id: String(r.media_id), type: String(r.media_type), postedAt, caption: str(r.caption) } : null,
+  };
+};
+
+export interface CommentPageArgs {
+  fromIso: string;
+  toIso: string;
+  q: string; // '' = no search
+  media: string | null;
+  questions: boolean; // only comments that match the question rule
+  unanswered: boolean; // only comments with no reply seen (and not the owner's own)
+  fansOnly: boolean; // only authors with FAN_RULES.fanMin+ comments
+  owner: string; // the account's username, lower-cased
+  page: number;
+}
+
+/** One page of comments, newest first, by comment_list (migration 20261029000001). null = not applied yet. */
+export const loadCommentPage = (db: SupabaseClient, accountId: string, a: CommentPageArgs): Promise<Paged<CommentView> | null> =>
+  paged(
+    db,
+    'comment_list',
+    {
+      p_account: accountId,
+      p_from: a.fromIso,
+      p_to: a.toIso,
+      p_q: a.q || null,
+      p_media: a.media,
+      p_question_re: a.questions ? QUESTION_PATTERN : null,
+      p_unanswered: a.unanswered,
+      p_fan_min: a.fansOnly ? FAN_RULES.fanMin : null,
+      p_owner: a.owner,
+    },
+    a.page,
+    COMMENT_PAGE,
+    toCommentView,
+  );
+
+/** One page of commenters by comment_fans: top, new or gone quiet (FAN_RULES). null = not applied yet. */
+export const loadFans = (db: SupabaseClient, accountId: string, a: { owner: string; mode: FanMode; now: Date; page: number }): Promise<Paged<Fan> | null> =>
+  paged(
+    db,
+    'comment_fans',
+    {
+      p_account: accountId,
+      p_owner: a.owner,
+      p_mode: a.mode,
+      p_now: a.now.toISOString(),
+      p_fan_min: FAN_RULES.fanMin,
+      p_new_min: FAN_RULES.newFanMin,
+      p_days: FAN_RULES.windowDays,
+      p_quiet_posts: FAN_RULES.quietPosts,
+    },
+    a.page,
+    FAN_PAGE,
+    (r) => ({ username: String(r.username), comments: num(r.comments) ?? 0, likes: num(r.likes) ?? 0, firstAt: String(r.first_at), lastAt: String(r.last_at), postsSince: num(r.posts_since) }),
+  );
+
+/** One page of commenters missing from the newest follower export, by comment_outsiders. null = not applied yet. */
+export const loadOutsiders = (db: SupabaseClient, accountId: string, a: { owner: string; page: number }): Promise<Paged<Outsider> | null> =>
+  paged(db, 'comment_outsiders', { p_account: accountId, p_owner: a.owner }, a.page, FAN_PAGE, (r) => ({ username: String(r.username), comments: num(r.comments) ?? 0, lastAt: String(r.last_at) }));
+
+/** Topics input: the newest TOPIC_SAMPLE comments written in [fromIso, toIso), the owner's own left out (plain table read: works before the migration). */
+export async function loadTopicSample(db: SupabaseClient, accountId: string, a: { fromIso: string; toIso: string; owner: string }): Promise<TopicInput[]> {
+  const { data, error } = await db
+    .from('comments')
+    .select('text,author_username')
+    .eq('account_id', accountId)
+    .gte('commented_at', a.fromIso)
+    .lt('commented_at', a.toIso)
+    .order('commented_at', { ascending: false })
+    .limit(TOPIC_SAMPLE);
+  if (error) return fail('topics');
+  return ((data ?? []) as Row[]).flatMap((r) => {
+    const author = str(r.author_username)?.toLowerCase() ?? null;
+    return author === a.owner ? [] : [{ text: str(r.text), author }];
+  });
+}
+
+/** The post filter's choices: the newest 50 feed posts / Reels that have comments. */
+export async function loadCommentPosts(db: SupabaseClient, accountId: string): Promise<CommentPost[]> {
+  const { data, error } = await db
+    .from('media')
+    .select('id,media_type,posted_at,caption')
+    .eq('account_id', accountId)
+    .neq('media_type', 'STORY')
+    .gt('comments_count', 0)
+    .order('posted_at', { ascending: false })
+    .limit(50);
+  if (error) return fail('posts');
+  return ((data ?? []) as Row[]).map((r) => ({ id: String(r.id), type: String(r.media_type), postedAt: String(r.posted_at), caption: str(r.caption) }));
+}
+
+/** When comments were first read for this account (the earliest first_seen_at); null = none yet. */
+export async function loadCommentStart(db: SupabaseClient, accountId: string): Promise<string | null> {
+  const { data, error } = await db.from('comments').select('first_seen_at').eq('account_id', accountId).order('first_seen_at', { ascending: true }).limit(1);
+  if (error) return fail('start');
+  return str(((data ?? []) as Row[])[0]?.first_seen_at);
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run tests/comments-read.test.ts tests/comments-privacy.test.ts tests/followers-privacy.test.ts tests/sync-comments.test.ts` → PASS (10 + 5 new tests). Then `npx tsc --noEmit` and `npx eslint lib/comments/read.ts tests/comments-read.test.ts tests/comments-privacy.test.ts`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/comments/read.ts tests/comments-read.test.ts tests/comments-privacy.test.ts
+git commit -m "feat(comments): owner-session readers for comment insights + privacy guard" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: `CommentRow` (one comment; the Plan 15d contract)
+
+**Files:**
+- Create: `components/account/CommentRow.tsx`, `tests/comment-row.test.tsx`
+
+**Interfaces:**
+- Consumes: Task 2 keys `pages.account.commentInsights.row.*`; Task 3 (`CommentView`, `capText`); `postLabHref` (`lib/post-lab/params.ts`); `formatDate`, `formatDateTime`; `Badge`.
+- Produces: `CommentRow({ comment, accountId, scopeQuery?, status?, actions? })`, `CommentRowProps`. Plan 15d passes `actions` (its buttons) and `status` (`'hidden'` shows the Hidden badge). The row is an `<article>` named "Comment by @name"; the caller wraps rows in a list.
+
+- [ ] **Step 1: Write the failing test** — create `tests/comment-row.test.tsx`:
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { CommentRow, type CommentRowProps } from '@/components/account/CommentRow';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { TEXT_CAP, type CommentView } from '@/lib/comments/view';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const T = en.pages.account.commentInsights.row;
+const ACC = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
+const C: CommentView = {
+  id: '1801',
+  mediaId: '1790',
+  authorUsername: 'amy.lee',
+  text: 'Where is this?',
+  postedAt: '2026-10-20T08:00:00Z',
+  likeCount: 2,
+  isQuestion: true,
+  hidden: null,
+  repliedByOwner: null,
+  post: { id: '1790', type: 'REELS', postedAt: '2026-10-19T10:00:00Z', caption: 'Penang' },
+};
+
+function view(p: Partial<CommentRowProps> = {}, locale: 'en' | 'zh-CN' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale, dateFormat: 'YYYY-MM-DD' }} persist={vi.fn()}>
+        <CommentRow comment={C} accountId={ACC} {...p} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+describe('CommentRow', () => {
+  it('author (opens Instagram), time, likes, the question badge, the text and the Post Lab link with the scope', () => {
+    view({ scopeQuery: 'from=90d' });
+    expect(screen.getByRole('article', { name: 'Comment by @amy.lee' })).toBeInTheDocument();
+    const profile = screen.getByRole('link', { name: 'Open @amy.lee on Instagram' });
+    expect(profile).toHaveAttribute('href', 'https://www.instagram.com/amy.lee/');
+    expect(profile).toHaveAttribute('target', '_blank');
+    expect(profile).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByText('2 likes')).toBeInTheDocument();
+    expect(screen.getByText(T.question)).toBeInTheDocument();
+    expect(screen.queryByText(T.replied)).toBeNull();
+    expect(screen.queryByText(T.hidden)).toBeNull();
+    expect(screen.getByText('Where is this?')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'On your post of 2026-10-19' })).toHaveAttribute('href', `/accounts/${ACC}/media/1790?from=90d`);
+    expect(screen.getByText(/^2026-10-20/)).toHaveAttribute('dateTime', '2026-10-20T08:00:00Z');
+  });
+
+  it('text is third-party content: shown as text, never as HTML', () => {
+    const { container } = view({ comment: { ...C, text: '<img src=x onerror=alert(1)><b>bold</b>' } });
+    expect(container.querySelector('img, b')).toBeNull();
+    expect(screen.getByText('<img src=x onerror=alert(1)><b>bold</b>')).toBeInTheDocument();
+  });
+
+  it(`long text is cut at ${TEXT_CAP} characters with an ellipsis; line breaks are kept`, () => {
+    const { container } = view({ comment: { ...C, text: `${'a'.repeat(TEXT_CAP)}TAIL` } });
+    const p = container.querySelector('p')!;
+    expect(p.textContent).toBe(`${'a'.repeat(TEXT_CAP)}…`);
+    expect(p).toHaveClass('whitespace-pre-wrap', 'break-words');
+    expect(screen.getByTitle(T.more)).toBeInTheDocument();
+  });
+
+  it('reply seen and hidden badges only when known; no likes line for 0 or unknown; unknown author and a gone post', () => {
+    view({ comment: { ...C, authorUsername: null, likeCount: 0, isQuestion: false, repliedByOwner: true, post: null }, status: 'hidden' });
+    expect(screen.getByRole('article', { name: `Comment by ${T.unknownAuthor}` })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Instagram/ })).toBeNull();
+    expect(screen.getByText(T.replied)).toBeInTheDocument();
+    expect(screen.getByText(T.hidden)).toBeInTheDocument();
+    expect(screen.queryByText(T.question)).toBeNull();
+    expect(screen.queryByText(/like/)).toBeNull();
+    expect(screen.getByText(T.postGone)).toBeInTheDocument();
+  });
+
+  it('the actions slot (Plan 15d) renders when given', () => {
+    view({ actions: <button type="button">Hide</button> });
+    expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument();
+  });
+
+  it('zh-CN', () => {
+    view({}, 'zh-CN');
+    expect(screen.getByRole('article', { name: '@amy.lee 的评论' })).toBeInTheDocument();
+    expect(screen.getByText('2 个赞')).toBeInTheDocument();
+    expect(screen.getByText('问题')).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run tests/comment-row.test.tsx`
+Expected: FAIL — `Failed to resolve import "@/components/account/CommentRow"`.
+
+- [ ] **Step 3: Write the component** — create `components/account/CommentRow.tsx`:
+
+```tsx
+'use client';
+
+// One comment (Plan 15c): who wrote it and when, likes, rule badges, the text, and the post it belongs to (a link to its
+// Post Lab). The text is third-party content: React text only (never HTML), at most TEXT_CAP characters. Plan 15d
+// contract: `actions` is the slot for moderation buttons, `status` shows a Hidden badge; keep both names.
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { Badge } from '@/components/ui/badge';
+import { capText, type CommentView } from '@/lib/comments/view';
+import { formatDate, formatDateTime } from '@/lib/format';
+import { postLabHref } from '@/lib/post-lab/params';
+
+export interface CommentRowProps {
+  comment: CommentView;
+  accountId: string;
+  scopeQuery?: string; // the Time Scope query carried into the Post Lab link
+  status?: 'visible' | 'hidden';
+  actions?: ReactNode;
+}
+
+export function CommentRow({ comment: c, accountId, scopeQuery = '', status, actions }: CommentRowProps) {
+  const t = useTranslations('pages.account.commentInsights.row');
+  const { prefs } = usePrefs();
+  const author = c.authorUsername ? `@${c.authorUsername}` : t('unknownAuthor');
+  const { text, cut } = capText(c.text);
+  return (
+    <article aria-label={t('label', { author })} className="grid min-w-0 gap-1.5 rounded-md border bg-card p-[var(--gp)] text-sm">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        {c.authorUsername ? (
+          <a href={`https://www.instagram.com/${encodeURIComponent(c.authorUsername)}/`} target="_blank" rel="noopener noreferrer" aria-label={t('openProfile', { username: c.authorUsername })} className="inline-flex min-w-0 items-center gap-1 font-medium underline-offset-4 hover:underline">
+            <span className="truncate">{author}</span>
+            <ExternalLink aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+          </a>
+        ) : (
+          <span className="font-medium text-muted-foreground">{author}</span>
+        )}
+        <time dateTime={c.postedAt} className="text-xs text-muted-foreground">
+          {formatDateTime(c.postedAt, prefs)}
+        </time>
+        {c.likeCount !== null && c.likeCount > 0 ? <span className="text-xs text-muted-foreground">{t('likes', { count: c.likeCount })}</span> : null}
+        {c.isQuestion ? <Badge variant="secondary">{t('question')}</Badge> : null}
+        {c.repliedByOwner === true ? <Badge variant="outline">{t('replied')}</Badge> : null}
+        {status === 'hidden' ? <Badge variant="outline">{t('hidden')}</Badge> : null}
+      </div>
+      <p className="break-words whitespace-pre-wrap">
+        {text}
+        {cut ? <span title={t('more')}>…</span> : null}
+      </p>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        {c.post ? (
+          <Link href={postLabHref(accountId, c.mediaId, scopeQuery)} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+            {t('onPost', { date: formatDate(c.post.postedAt, prefs) })}
+          </Link>
+        ) : (
+          <span className="text-xs text-muted-foreground">{t('postGone')}</span>
+        )}
+        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      </div>
+    </article>
+  );
+}
+```
+
+- [ ] **Step 4: Run the test**
+
+Run: `npx vitest run tests/comment-row.test.tsx tests/messages.test.ts` → PASS (6 new tests). Then `npx tsc --noEmit` and `npx eslint components/account/CommentRow.tsx tests/comment-row.test.tsx`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/account/CommentRow.tsx tests/comment-row.test.tsx
+git commit -m "feat(comments): CommentRow (text as text, capped; Post Lab link; actions slot and status for 15d)" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+```
+
+---
