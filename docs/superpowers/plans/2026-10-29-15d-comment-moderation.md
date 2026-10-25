@@ -147,13 +147,13 @@ Webhooks; bulk actions; a "hidden comments" inbox; reading `hidden` from Instagr
 | 6 | Alerts: `moderation_paused` | 1 (names), 2 | `lib/alerts/settings.ts`, `lib/alerts/rules.ts`, `lib/alerts/store.ts`, `lib/alerts/run.ts`, `lib/alerts/message.ts`, `tests/alert-settings.test.ts`, `tests/alerts-moderation.test.ts` | 5 |
 | 7 | Service: moderate, undo, rules, auto-hide switch | 3, 4, 5 | `lib/moderation/service.ts`, `tests/moderation-service.test.ts` | 8 |
 | 8 | Auto-hide pass in the tick | 3, 4, 5 | `lib/moderation/auto.ts`, `lib/sync/tick.ts`, `lib/sync/deps.ts`, `tests/moderation-auto.test.ts`, `tests/sync-tick-moderation.test.ts` | 7 |
-| 9 | Server actions + privacy guard | 7, 8 | `app/(app)/accounts/moderation-actions.ts`, `tests/moderation-actions.test.ts`, `tests/moderation-privacy.test.ts` | 10, 11 |
-| 10 | Comment row menu + dialogs | 2, 7 (types) | `components/account/CommentActions.tsx`, `tests/comment-actions.test.tsx` | 9, 11 |
-| 11 | Moderation tab component | 2, 5, 7 (types) | `components/account/ModerationTab.tsx`, `tests/moderation-tab.test.tsx` | 9, 10 |
+| 9 | Server actions + privacy guard | 7, 8 | `app/(app)/accounts/moderation-actions.ts`, `tests/moderation-actions.test.ts`, `tests/moderation-privacy.test.ts` | 10 |
+| 10 | Comment row menu + dialogs (+ the shared `useModerationRun` hook) | 2, 7 (types) | `components/account/CommentActions.tsx`, `tests/comment-actions.test.tsx` | 9 |
+| 11 | Moderation tab component | 2, 5, 7 (types), 10 (`useModerationRun`) | `components/account/ModerationTab.tsx`, `tests/moderation-tab.test.tsx` | — |
 | 12 | Wiring: tab, page cases, Comments tab actions | 9, 10, 11 (+ 15c) | `lib/dashboard/account.ts`, `components/account/TabSkeleton.tsx`, `app/(app)/accounts/[id]/(tabs)/page.tsx`, `components/account/CommentActions.tsx`, `tests/dashboard-account.test.ts`, `tests/account-view.test.tsx`, `tests/account-page.test.tsx` | — |
 | 13 | Docs, final check | all | `docs/RUNBOOK_MODERATION.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/HANDOVER.md`, `docs/PROGRESS.md`, `docs/UI_STANDARDS.md`, `docs/META_SETUP.md` | — |
 
-Run order: **wave A = 1, 2, 3, 4 · wave B = 5, 6 · wave C = 7, 8 · wave D = 9, 10, 11 · wave E = 12 · wave F = 13.** Tasks in one wave touch disjoint files. Each task leaves `main` green: the new modules are unused until Task 12 wires them (Task 8 wires the tick pass, which does nothing until the migration exists AND the owner switches auto-hide on; Task 6's alert kind needs its messages from Task 2, hence wave B). Tasks 10 and 11 take the server actions as PROPS (the page passes them, like `deleteSnapshot` in 15b), so they import only types from Task 7 and run beside Task 9.
+Run order: **wave A = 1, 2, 3, 4 · wave B = 5, 6 · wave C = 7, 8 · wave D = 9, 10 · wave E = 11 · wave F = 12 · wave G = 13.** Tasks in one wave touch disjoint files. Each task leaves `main` green: the new modules are unused until Task 12 wires them (Task 8 wires the tick pass, which does nothing until the migration exists AND the owner switches auto-hide on; Task 6's alert kind needs its messages from Task 2, hence wave B). Tasks 10 and 11 take the server actions as PROPS (the page passes them, like `deleteSnapshot` in 15b), so they import only types from Tasks 5/7 and Task 10 runs beside Task 9; Task 11 reuses Task 10's `useModerationRun` hook (CLAUDE.md: extract on the second use), hence its own wave.
 
 ---
 
@@ -380,7 +380,7 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
 
 **Interfaces:**
 - Produces (exact keys later tasks read): `pages.account.tab.moderation`; the object `pages.account.moderation` (menu, row actions, the three dialogs, `done.*`, `errors.*` = every `ModerationError` and `RuleError` key, `intro`, `noScope.*`, `notReady.*`, `auto.*`, `preview.*`, `rules.*`, `ruleLabel.*`, `log.*`); `notifications.kinds.moderation_paused.{title,body}`.
-- Placeholders: `{username}`, `{count}` (plural selectors and formatted counts), `{max}`, `{word}`, `{rule}`, `{date}`, `{first}`/`{last}`/`{total}`. Numbers passed in are formatted with `formatNumber` (except plural selectors).
+- Placeholders: `{username}`, `{count}` (a plural SELECTOR in `auto.enableBody` / `preview.count`, whose shown number is `{n}`; elsewhere a formatted count), `{n}`, `{max}`, `{word}`, `{rule}`, `{date}`, `{first}`/`{last}`/`{total}`. Every shown number is formatted with `formatNumber` (the owner's number format); `#` is never used.
 
 - [ ] **Step 1: Insert the account keys** — one text edit per file. Anchor = the `"tab": {` line of `pages.account` (after 15c it ends with `"comments": "…" },`). Add `, "moderation": "Moderation"` (zh-CN `, "moderation": "评论管理"`) as its last entry and insert the object below directly AFTER that line (6-space indentation).
 
@@ -458,13 +458,13 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
           "pausedFailing": "Auto-hide is paused after repeated errors from Instagram. Switch it on again to retry.",
           "pausedSince": "Paused since {date}",
           "enableTitle": "Switch on auto-hide?",
-          "enableBody": "{count, plural, =0 {No comment matches your rules right now.} one {# comment that is already here will be hidden.} other {# comments that are already here will be hidden.}} After that, new matching comments are hidden within about an hour, up to 20 every 30 minutes. Every hide is listed in the log and can be undone.",
+          "enableBody": "{count, plural, =0 {No comment matches your rules right now.} one {{n} comment that is already here will be hidden.} other {{n} comments that are already here will be hidden.}} After that, new matching comments are hidden within about an hour, up to 20 every 30 minutes. Every hide is listed in the log and can be undone.",
           "enableConfirm": "Switch on",
           "noRules": "Add a banned word or switch on a spam pattern first."
         },
         "preview": {
           "title": "Matching now",
-          "count": "{count, plural, =0 {No visible comment matches your rules.} one {# visible comment matches your rules.} other {# visible comments match your rules.}}",
+          "count": "{count, plural, =0 {No visible comment matches your rules.} one {{n} visible comment matches your rules.} other {{n} visible comments match your rules.}}",
           "basis": "Checked against the newest {count} stored comments.",
           "by": "Matches: {rule}"
         },
@@ -582,13 +582,13 @@ git commit -m "feat(db): comment moderation tables (settings, rules, append-only
           "pausedFailing": "Instagram 多次返回错误，自动隐藏已暂停。再次开启即可重试。",
           "pausedSince": "暂停于 {date}",
           "enableTitle": "开启自动隐藏？",
-          "enableBody": "{count, plural, =0 {目前没有评论符合你的规则。} other {现有的 # 条评论将被隐藏。}}之后，新的符合规则的评论会在大约一小时内被隐藏，每 30 分钟最多 20 条。每次隐藏都会记录在管理记录中，并可撤销。",
+          "enableBody": "{count, plural, =0 {目前没有评论符合你的规则。} other {现有的 {n} 条评论将被隐藏。}}之后，新的符合规则的评论会在大约一小时内被隐藏，每 30 分钟最多 20 条。每次隐藏都会记录在管理记录中，并可撤销。",
           "enableConfirm": "开启",
           "noRules": "请先添加屏蔽词或开启一种垃圾评论模式。"
         },
         "preview": {
           "title": "当前符合的评论",
-          "count": "{count, plural, =0 {没有可见评论符合你的规则。} other {有 # 条可见评论符合你的规则。}}",
+          "count": "{count, plural, =0 {没有可见评论符合你的规则。} other {有 {n} 条可见评论符合你的规则。}}",
           "basis": "已检查最新存储的 {count} 条评论。",
           "by": "符合：{rule}"
         },
@@ -1235,7 +1235,7 @@ export interface ModerationSettings { autoHide: boolean; pausedAt: string | null
 export interface ModerationData {
   settings: ModerationSettings;
   rules: ModerationRule[];
-  log: { rows: LogEntry[]; total: number; page: number; pages: number };
+  log: { rows: LogEntry[]; total: number; page: number; pages: number; size: number }; // size = LOG_PAGE (the client cannot import it)
   preview: { count: number; scanned: number; sample: { id: string; authorUsername: string | null; snippet: string | null; rule: ModerationRule }[] };
 }
 export interface ActionAccount { id: string; username: string; status: AccountStatus; grantedScopes: string[] | null }
@@ -1504,7 +1504,7 @@ export interface ModerationSettings {
 export interface ModerationData {
   settings: ModerationSettings;
   rules: ModerationRule[];
-  log: { rows: LogEntry[]; total: number; page: number; pages: number };
+  log: { rows: LogEntry[]; total: number; page: number; pages: number; size: number };
   preview: { count: number; scanned: number; sample: { id: string; authorUsername: string | null; snippet: string | null; rule: ModerationRule }[] };
 }
 export interface ActionAccount {
@@ -1603,6 +1603,7 @@ export async function loadModeration(db: SupabaseClient, accountId: string, ownU
       total,
       page: shownPage,
       pages: Math.max(1, Math.ceil(total / LOG_PAGE)),
+      size: LOG_PAGE,
     },
     preview: { count: picks.length, scanned: visible.length, sample: picks.slice(0, PREVIEW_SAMPLE).map((p) => ({ id: p.comment.id, authorUsername: p.comment.authorUsername, snippet: snippet(p.comment.text), rule: p.rule })) },
   };
@@ -3012,7 +3013,7 @@ describe('moderation actions', () => {
     requireOwner.mockRejectedValue(new Error('NEXT_REDIRECT'));
     await expect(run()).rejects.toThrow('NEXT_REDIRECT');
     expect(calls).toEqual([]);
-    for (const f of Object.values(svc)) expect(f).toHaveBeenCalledTimes(1);
+    expect(Object.values(svc).reduce((n, f) => n + f.mock.calls.length, 0)).toBe(1); // only the first, authorised call
   });
 
   it('maps each action to the service input (the browser picks no kind it should not)', async () => {
