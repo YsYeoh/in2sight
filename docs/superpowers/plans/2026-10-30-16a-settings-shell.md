@@ -4134,3 +4134,252 @@ Notes: `matchMedia('(prefers-color-scheme: dark)')` reads the COLOUR SCHEME, not
 git add supabase/migrations/20261030000001_prefs_auto_mode.sql tests/prefs-auto-mode.test.tsx lib/prefs.ts lib/pwa.ts components/providers/PrefsProvider.tsx app/layout.tsx components/shared/ModeToggle.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts
 git commit -m "feat(prefs): Auto mode follows the device's light or dark setting; profiles.mode accepts auto (migration NOT applied) (Plan 16a)"
 ```
+
+---
+
+### Task 11: Styleguide demo, UI standard 18 + guard, runbook, docs
+
+**Files:**
+- Modify: `app/styleguide/StandardsGallery.tsx`, `tests/standards-gallery.test.tsx`, `tests/ui-standards.test.ts`, `docs/UI_STANDARDS.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/PROGRESS.md`, `docs/HANDOVER.md`
+- Create: `docs/RUNBOOK_SETTINGS.md`
+
+Runs in W4 beside Task 9 (disjoint files). The guard's `<PrefsBar` check expects ONLY `app/styleguide/page.tsx`, which is true once Task 9 has deleted the old settings page: if this task is merged before Task 9, that one assertion fails until Task 9 lands — merge Task 9 FIRST in W4 (orchestrator note).
+
+- [ ] **Step 1: Code and tests** (Edit tool, exact text):
+
+`app/styleguide/StandardsGallery.tsx` — replace (each exactly once):
+
+```tsx
+import type { ReactNode } from 'react';
+```
+→
+```tsx
+import { useState, type ReactNode } from 'react';
+```
+
+```tsx
+import { FilterSearch, FilterSelect, FilterToolbar } from '@/components/shared/FilterToolbar';
+```
+→
+```tsx
+import { SaveBar } from '@/components/settings/SaveBar';
+import { FilterSearch, FilterSelect, FilterToolbar } from '@/components/shared/FilterToolbar';
+```
+
+```tsx
+import { RangeBar } from '@/components/shared/RangeBar';
+```
+→
+```tsx
+import { RangeBar } from '@/components/shared/RangeBar';
+import { Segmented } from '@/components/shared/Segmented';
+```
+
+```tsx
+import { DEFAULT_SCOPE, resolveScope } from '@/lib/time-scope/scope';
+```
+→
+```tsx
+import { DENSITIES, type Density } from '@/lib/prefs';
+import { DEFAULT_SCOPE, resolveScope } from '@/lib/time-scope/scope';
+```
+
+```tsx
+// The standard pieces (docs/UI_STANDARDS.md)
+```
+→
+```tsx
+// Segmented + SaveBar (rule 18): a local demo form; nothing is saved anywhere
+function SaveBarDemo() {
+  const s = useTranslations('styleguide.standards');
+  const tp = useTranslations('prefs');
+  const tn = useTranslations('settings.notifications');
+  const [value, setValue] = useState<Density>('dense');
+  const [stored, setStored] = useState<Density>('dense');
+  const [result, setResult] = useState<'saved' | 'error' | null>(null);
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setStored(value);
+        setResult('saved');
+      }}
+    >
+      <Segmented label={s('segmented')} value={value} options={DENSITIES.map((d) => ({ value: d, label: tp(d) }))} onChange={setValue} />
+      <SaveBar dirty={value !== stored} pending={false} result={result} error={tn('saveError')} saved={tn('saved')} onDiscard={() => setValue(stored)} />
+    </form>
+  );
+}
+
+// The standard pieces (docs/UI_STANDARDS.md)
+```
+
+```tsx
+      <Piece title={s('scrollbar')}>
+```
+→
+```tsx
+      <Piece title={s('saveBar')}>
+        <SaveBarDemo />
+      </Piece>
+
+      <Piece title={s('scrollbar')}>
+```
+
+`tests/ui-standards.test.ts` — replace (each exactly once):
+
+```ts
+  it('rule 8: one scrollbar, styled only in styles/scrollbar.css', () => {
+```
+→
+```ts
+  it('rule 18: settings save model: SaveBar only inside a form, the old pill bar only in the styleguide, no swallowed prefs saves', () => {
+    for (const [f, s] of src) if (/<SaveBar\b/.test(s)) expect(s, f).toMatch(/<form\b/);
+    expect(src.filter(([, s]) => /<PrefsBar\b/.test(s)).map(([f]) => f)).toEqual(['app/styleguide/page.tsx']);
+    expect(read('components/providers/PrefsProvider.tsx')).not.toMatch(/\.catch\(\(\) => \{\}\)/);
+    expect(read('app/actions.ts')).not.toMatch(/catch \{\s*\/\//); // the old "// the cookie is already saved" swallow
+  });
+
+  it('rule 8: one scrollbar, styled only in styles/scrollbar.css', () => {
+```
+
+`tests/standards-gallery.test.tsx` — add `import userEvent from '@testing-library/user-event';` after the first import line, and append this case inside the `describe.each` callback, right after the existing `it(...)` (it ends with `toEqual(['default', 'default', 'default']);` and `  });`):
+
+```tsx
+  it('rule 18: a segmented control in a form with the save bar (Save only when changed; saving announces it)', async () => {
+    render(
+      <NextIntlClientProvider locale={locale} messages={messages}>
+        <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={() => {}}>
+          <StandardsGallery today="2026-10-17" />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    const s = messages.styleguide.standards;
+    expect(screen.getByText(s.saveBar)).toBeInTheDocument();
+    const seg = screen.getByRole('group', { name: s.segmented });
+    const save = screen.getByRole('button', { name: messages.common.save });
+    expect(save).toBeDisabled();
+    await userEvent.click(within(seg).getByRole('button', { name: messages.prefs.comfortable }));
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    expect(screen.getAllByRole('status').some((el) => el.textContent === messages.settings.notifications.saved)).toBe(true); // the range bar has its own status line
+  });
+```
+
+
+Run: `npx vitest run tests/standards-gallery.test.tsx tests/ui-standards.test.ts` — Expected: PASS once Task 9 is merged (see above).
+
+- [ ] **Step 2: `docs/UI_STANDARDS.md`** — insert after rule 17 (before the line starting `**A new list page:**`):
+
+```markdown
+18. **Settings save in one of two ways, never silently.** Preferences (theme, mode, density, corners, language, formats, timezone) apply at once and save in the background: a short "Saved" toast, or a lasting error toast with Retry (`PrefsProvider` `status` / `retry`, shown by `PrefsSaveNotice`; never `.catch(() => {})`). A form (alert rules; later the password) saves explicitly: dirty tracking against the last stored values, `SaveBar` as the form's last child (sticky at the bottom, Discard + Save, Save disabled while clean, success `role="status"`, error `role="alert"`) and the unsaved-changes guard (`useUnsavedGuard`, `confirmLeave`). A small set of exclusive options is a `Segmented` control (one `--ctl` high, wraps at 360 px); more than four options or long labels is a native select. No pill walls. Settings sections live at `/settings/<section>` (`lib/settings/sections.ts`), one zero-prop component each. → `components/settings/SaveBar.tsx`, `components/settings/unsaved.ts`, `components/shared/Segmented.tsx`, `components/providers/PrefsSaveNotice.tsx`.
+```
+
+- [ ] **Step 3: `docs/RUNBOOK_SETTINGS.md`** (new):
+
+````markdown
+# Runbook: Settings redesign (Plan 16a) — live checks
+
+Nothing here has been verified live. Do it with the owner, signed in with 2FA, on the deployed app, in this order. Report yes/no per step.
+
+## 0. The migration (Auto mode) — BEFORE deploying, on the owner's go-ahead
+`supabase/migrations/20261030000001_prefs_auto_mode.sql` widens the `profiles.mode` CHECK list to `light, dark, auto` (nothing else).
+```
+node --env-file=.env.local scripts/sb.mjs migration list        # expect only 20261030000001 pending
+node --env-file=.env.local scripts/sb.mjs db push --dry-run     # expect exactly that file
+node --env-file=.env.local scripts/sb.mjs db push --yes
+node --env-file=.env.local scripts/sb.mjs migration list        # expect N local / N remote / 0 mismatched
+```
+If `drop constraint profiles_mode_check` fails (a different name), STOP: the file runs as one transaction, so nothing was changed; report the error. Without the migration, choosing Auto shows the "Couldn't save" toast with Retry (by design: visible, not silent).
+
+## 1. Routes and the shell tab
+1. User menu → Settings: the tab shows `/settings/appearance` (redirected), title "Settings". `/settings?tab=account` → Security; `/settings/bogus` → not found.
+2. Each section from the left list (desktop) and from the "Section" select (phone width): the URL changes, Back/Forward in the tab strip move between sections, Refresh keeps the section.
+3. Inside the tab nothing breaks out to the top window; Reconnect (Accounts & sync) and Connect leave the shell as before (Instagram login in the whole window).
+
+## 2. Appearance and Language & formats (instant save)
+1. Change theme, mode, density, corners: the whole app changes at once, the preview card too, a "Saved" toast appears once (not stacked). Another open tab follows within a second.
+2. Auto: with the device in dark mode the app is dark at once and after a reload there is NO light flash; switch the device to light: the app follows without reload. The header moon/sun toggle switches to the opposite of what is shown.
+3. Failure path: DevTools → Network → Offline, change density: the change applies, an error toast with Retry stays; back Online → Retry → "Saved". Reload: the density is the saved one.
+4. Language & formats: date / number options show samples; the Example line changes with every pick; timezone UTC moves the example from 15 Mar to 14 Mar; switching language reloads the app in the new language (zh-CN strings fit at 360 px).
+
+## 3. Notifications
+1. This device: Enable → permission prompt → "On for this device"; **Send a test notification** → a notification "in2sight test" arrives on THIS device only (other devices stay silent). Turn off works.
+2. Alert rules: Save is disabled until a change; change a threshold → "You have unsaved changes" bar stays visible at the bottom while scrolling (phone: above the bottom bar); Discard restores; Save → "Saved" and the server's value (e.g. 500 % becomes 90). With a change pending, pick another section → "Leave without saving?"; Cancel stays; reload → the browser's leave prompt.
+3. Devices: each device as "Browser · System — Added date"; Remove asks, then the row disappears. Removing the current device: push stops for it; the card above may still say "On" until it is turned off and on (known limit).
+
+## 4. Accounts & sync
+1. Each active / needs-reconnect account with status, token days, last sync; archived accounts not listed; "Manage accounts" opens `/accounts` in the same tab.
+2. Sync now on one account: a "Syncing…" line, then "Synced @name" and a fresh last-sync time (up to about a minute; no timeout before 60 s). A second Sync now on the same account while running → "A sync is already running for this account."
+3. An account without the comments scope shows "Reconnect to enable comments".
+
+## 5. Security and Data & privacy
+Security shows "Signed in as" and two-factor exactly as before (enrol / disable still work). Data & privacy shows the "What in2sight stores" card.
+
+## 6. Layout and a11y
+Every section at 360 / 768 / 1280 px in light and dark of two themes: no horizontal scroll, one control height per row, no pill walls. Keyboard only: Tab through the section list (the open one is announced as current page), every control has a label, saved / error messages are read out.
+
+## Known limits (by design)
+The unsaved-changes guard does not cover the shell's sidebar, tab strip, bottom bar, closing a tab or browser Back. The devices list does not mark this device. Auto mode's browser-bar colour follows after the page loads.
+````
+
+- [ ] **Step 4: `docs/SPEC.md`** — insert before `## 8. UI (v1)`:
+
+```markdown
+## 7k. Settings (Plan 16a; creator-toolkit design §7)
+Status: code complete, NOT verified live (`docs/RUNBOOK_SETTINGS.md`); migration `20261030000001_prefs_auto_mode` (profiles.mode accepts `auto`) to apply before deploying.
+
+`/settings` redirects to `/settings/appearance`; sections (registry `lib/settings/sections.ts`, one zero-prop component each in `components/settings/sections/`): **Appearance** (theme, mode light / dark / auto, density, corners, live preview), **Language & formats** (language, date / time / number format with rendered samples, week start, timezone with "your days start at midnight in this timezone", live example), **Notifications** (this device: permission, on/off, test notification to this device only; alert rules with thresholds; devices list with remove), **Accounts & sync** (status, token, last sync, Sync now, Reconnect, comments-scope hint; full management on `/accounts`), **Security** (email, 2FA; Plan 16b adds password and sessions), **Data & privacy** (what is stored; Plan 16c adds storage, export all, delete all). Desktop: a left section list; phone: a "Section" select. Save model (UI standard 18): preferences instant with a "Saved" toast or an error toast with Retry (never silent); forms explicit with a sticky save bar, dirty tracking and an unsaved-changes guard (reload / closing the window, the settings section nav). Old tab names (`?tab=general|notifications|account`) redirect to their sections.
+```
+
+and in §8b.4 replace `\`data-mode\` being \`light\` / \`dark\`)` with `\`data-mode\` being \`light\` / \`dark\`; the preference may be \`auto\`, resolved on the device before first paint, Plan 16a)`.
+
+- [ ] **Step 5: `docs/TODO.md`** — insert before `## 6b. Next (Plan 14/15 Settings)`:
+
+```markdown
+## 6o. Settings redesign (Plan 16a)
+- [x] Sections with their own URLs (`/settings/<section>`), section list / phone select, old tab names redirect (code done; live verification pending — docs/RUNBOOK_SETTINGS.md §1)
+- [x] One save model: preferences instant with a toast and Retry on failure (PrefsProvider no longer swallows errors); forms with dirty tracking, sticky save bar, unsaved-changes guard (code done; live verification pending — §2, §3)
+- [x] Appearance with live preview and Auto mode; Language & formats with samples and the timezone explanation (code done; live verification pending — §2)
+- [x] Notifications: test notification to this device, devices list with remove (code done; live verification pending — §3)
+- [x] Accounts & sync overview with Sync now / Reconnect (code done; live verification pending — §4)
+- [ ] Apply migration `20261030000001_prefs_auto_mode` (owner go-ahead, before deploying; RUNBOOK_SETTINGS §0)
+- Known: the unsaved-changes guard does not cover the shell's own navigation; the devices list does not mark this device.
+```
+
+- [ ] **Step 6: `docs/PROGRESS.md`** — §3 append the bullet:
+
+```markdown
+- **16a: Settings redesign (shell, sections, save model; NOT verified live).** `/settings/<section>` (Appearance with live preview and Auto mode, Language & formats, Notifications with test push and devices, Accounts & sync, Security, Data & privacy placeholders for 16b/16c), preferences instant with toast + Retry, forms with a sticky save bar. Migration `20261030000001_prefs_auto_mode` (owner applies before deploying). `RUNBOOK_SETTINGS`.
+```
+
+§5 append the table row `| 20261030000001_prefs_auto_mode | profiles.mode CHECK list gains 'auto' (Plan 16a; **NOT applied**: owner go-ahead, apply BEFORE deploying; docs/RUNBOOK_SETTINGS.md §0) |`; §6 append item `7. **\`docs/RUNBOOK_SETTINGS.md\`** (Plan 16a): §0 migration first, then §1–§6.`; §7 item 2: after "sections with their own URLs, one consistent save model," add "(**built in Plan 16a**; password and sessions are Plan 16b)"; §8 append `- 16a: section ids appearance / language / notifications / accounts / security / data, phone section select, Auto mode with one migration, Accounts & sync as an overview (management on /accounts), devices list without a this-device mark, "Saved" toast on every preference change, guard only on reload and the settings nav.`
+
+- [ ] **Step 7: `docs/HANDOVER.md`** — at the end of §2 ("What to do next") add: `- Plan 16a (Settings shell, sections, save model) is BUILT, not verified live: docs/RUNBOOK_SETTINGS.md (migration 20261030000001 first). Plan 16b (Security) replaces components/settings/sections/SecuritySection.tsx; Plan 16c replaces DataSection.tsx.`
+
+- [ ] **Step 8: Verify** — `npx vitest run tests/standards-gallery.test.tsx tests/ui-standards.test.ts tests/messages.test.ts`, `npx tsc --noEmit`, `npx eslint app/styleguide/StandardsGallery.tsx tests/standards-gallery.test.tsx tests/ui-standards.test.ts`. Expected: PASS (after Task 9), clean.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add app/styleguide/StandardsGallery.tsx tests/standards-gallery.test.tsx tests/ui-standards.test.ts docs/UI_STANDARDS.md docs/RUNBOOK_SETTINGS.md docs/SPEC.md docs/TODO.md docs/PROGRESS.md docs/HANDOVER.md
+git commit -m "docs(settings): UI standard 18, styleguide demo, RUNBOOK_SETTINGS, SPEC 7k, TODO 6o (Plan 16a)"
+```
+
+---
+
+## After the last wave (orchestrator)
+
+1. `rm -rf .next`, full `npm run check > log 2>&1`, READ the log.
+2. Opus read-only review with the Review Focus list above, then ONE fix wave, then check again.
+3. Do NOT apply the migration or push without the owner's go-ahead (RUNBOOK_SETTINGS §0 order: apply, then deploy).
+
+## Interfaces for Plans 16b and 16c (the section contract)
+
+- **Registry:** `lib/settings/sections.ts` — `SECTION_IDS = ['appearance', 'language', 'notifications', 'accounts', 'security', 'data']`, `SectionId`, `SECTIONS` (`{ id, icon }`), `DEFAULT_SECTION`, `isSectionId`, `sectionHref(id)` (`/settings/<id>`), `routeSettings`. Titles / descriptions: `settings.sections.<id>.title|description` (en + zh-CN). 16b/16c add NO ids and do not touch the registry or the page.
+- **Components:** `components/settings/sections/<Id>Section.tsx` exporting `<Id>Section` with NO props (`AppearanceSection`, `LanguageSection`, `NotificationsSection`, `AccountsSection`, `SecuritySection`, `DataSection`). Server components may be async and call `requireOwner()` themselves (React.cache). The page (`app/(app)/settings/[[...section]]/page.tsx`) renders the heading and description from the registry keys and then `<View />`. `tests/settings-page.test.tsx` pins the file names and the zero-prop export (`export (async )?function <Id>Section()`).
+- **16b:** REPLACES `components/settings/sections/SecuritySection.tsx` (16a's version: `export async function SecuritySection()` rendering the "Signed in as" card + `TwoFactorCard` with `startEnrollAction` / `confirmEnrollAction` / `disableAction` from `app/(app)/settings/actions.ts`). Its own actions go in `app/(app)/settings/security-actions.ts` (16a edits `actions.ts`). The settings URL is `/settings/security`. `tests/settings-page.test.tsx` stubs every section, so a richer SecuritySection needs no change there. A credential form need not use `SaveBar` (16b's deliberate choice; UI standard 18 is about settings forms, the password form is one-shot with inline status / alert).
+- **16c:** REPLACES `components/settings/sections/DataSection.tsx` (16a's version: `export async function DataSection()`, keys `settings.data.*`, which 16c may keep or remove).
+- **Save model pieces for later forms:** `SaveBar` (`dirty`, `pending`, `result`, `error`, `saved`, `onDiscard`; the last child of a `<form>`), `useUnsavedGuard(dirty)`, `confirmLeave(message)`, `Segmented`.
+- **Revalidation:** settings actions call `revalidatePath('/settings', 'layout')`.
