@@ -12,7 +12,7 @@ const files = (readdirSync(APP, { recursive: true }) as string[]).map((f) => f.r
 const dirsWith = (name: string) => files.filter((f) => f === name || f.endsWith(`/${name}`)).map((f) => (f.includes('/') ? posix.dirname(f) : ''));
 
 // Pages that need no skeleton: redirects, public entry pages, static shells and the dev gallery.
-const NO_SKELETON = new Set(['', 'login', 'login/verify', 'setup', 'offline', 'styleguide', 'report/print']);
+const NO_SKELETON = new Set(['', 'login', 'login/verify', 'login/forgot', 'login/reset', 'auth/confirm', 'setup', 'offline', 'styleguide', 'report/print']);
 // A loading.tsx wraps every page BELOW it too. Only these nested pages may sit under someone else's skeleton.
 const NESTED_OK = new Set(['report/print']); // static, renders nothing async: the boundary never shows
 

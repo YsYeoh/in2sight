@@ -12,6 +12,9 @@ describe('FrameBreakout', () => {
   it.each([
     ['/login', true],
     ['/login/verify', true],
+    ['/login/forgot', true],
+    ['/login/reset', true],
+    ['/auth/confirm', true],
     ['/setup', true],
     ['/auth/signout', true],
     ['/report', true],
