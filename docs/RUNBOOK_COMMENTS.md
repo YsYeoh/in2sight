@@ -5,7 +5,7 @@ Status: code complete on local `main`, NOT pushed, NOTHING verified live. The mi
 The account page's **Comments** tab (Overview, Growth, Posts, Stories, **Comments**, Followers): All comments, Unanswered
 questions, Fans, Topics, Not following you. It only READS what the sync already stores (Plan 11b: top-level comments of
 feed posts and Reels of the last 30 days, hourly, only for accounts with the comments scope). Nothing here calls
-Instagram or changes anything (reply / hide / delete is Plan 15d, planned and not built).
+Instagram or changes anything (reply / hide / delete is Plan 15d: built on `main`, NOT applied or verified live, see RUNBOOK_MODERATION).
 
 Commenter usernames and comment texts are third-party personal data. In every step below report only yes/no and counts:
 never paste usernames, comment texts or screenshots that show them into chats, issues or commits.
@@ -92,7 +92,7 @@ is an index on `(account_id, lower(author_username))` (a new migration).
   Stories have no comments here (Story replies are private messages). History starts at the Reconnect, so for the first 30
   to 60 days "New fans" cannot tell a long-time fan from a new one (the tab says so until 30 days of history exist).
 - Thread replies, Instagram's hidden flag and commenter ids are not read: "Reply seen" is derived from your own top-level
-  @mentions; a renamed account counts as a new fan (Plan 15d reads replies and the hidden flag).
+  @mentions; a renamed account counts as a new fan (reading thread replies and the hidden flag is a follow-up to Plan 15d, after its live probe P5).
 - The question rule is a rule (question marks, English question words at the start, Chinese question words anywhere):
   it misses some questions and flags some non-questions. Topics use the newest 1,000 comments of the range.
 
