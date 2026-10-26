@@ -18,6 +18,7 @@ export function TabSkeleton({ tab }: { tab: Tab }) {
         </div>
       );
     case 'comments':
+    case 'moderation':
     case 'followers':
       return (
         <div aria-busy="true" className="grid min-w-0 gap-[var(--gp)]">

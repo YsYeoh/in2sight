@@ -58,7 +58,7 @@ function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
 
 describe('AccountView', () => {
   const head = { id: ID, username: 'brand.one', displayName: 'Brand One', groupName: 'Brand X' };
-  const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories' | 'comments' | 'followers', q = '', children = <p>panel</p>) => (
+  const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories' | 'comments' | 'moderation' | 'followers', q = '', children = <p>panel</p>) => (
     <AccountView account={head} tab={tab} scope={scopeOf(q)} today={TODAY}>
       {children}
     </AccountView>
@@ -81,7 +81,7 @@ describe('AccountView', () => {
     wrap(frame('posts', '', <p>posts panel</p>));
     const list = screen.getByRole('tablist', { name: en.pages.account.tabs });
     const tabs = within(list).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories', 'Comments', 'Followers']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories', 'Comments', 'Moderation', 'Followers']);
     expect(list).toHaveAttribute('data-variant', 'line');
     expect(within(list).getByRole('tab', { name: 'Posts' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel')).toHaveTextContent('posts panel');
@@ -110,7 +110,7 @@ describe('AccountView', () => {
     expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?from=7d&cmp=yoy');
     await user.click(screen.getByRole('tab', { name: 'Posts' }));
     expect(push).toHaveBeenCalledWith(`?tab=posts&${q}`, { scroll: false });
-    for (const tab of ['posts', 'stories', 'comments', 'followers'] as const) {
+    for (const tab of ['posts', 'stories', 'comments', 'moderation', 'followers'] as const) {
       cleanup();
       wrap(frame(tab, 'from=90d'));
       expect(screen.queryByRole('navigation', { name: en.timeScope.presets })).toBeNull();

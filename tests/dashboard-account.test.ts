@@ -17,8 +17,8 @@ const opts = optsOf('from=7d');
 
 describe('parseTab', () => {
   it('accepts the six tabs only; the old Audience tab and injections fall back to overview', () => {
-    expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'followers']);
-    expect(['overview', 'growth', 'posts', 'stories', 'comments', 'followers', 'audience', 'GROWTH'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'followers', 'overview', 'overview']);
+    expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers']);
+    expect(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers', 'audience', 'GROWTH'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers', 'overview', 'overview']);
     for (const bad of [undefined, '', 'POSTS', 'settings', '<script>alert(1)</script>', 'posts ', ['posts', 'audience'], 42, '__proto__', 'constructor']) expect(parseTab(bad)).toBe('overview');
   });
 });
