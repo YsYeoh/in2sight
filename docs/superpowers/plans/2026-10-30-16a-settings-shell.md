@@ -120,3 +120,777 @@ Change password, forgot / reset password, sessions (Plan 16b). Storage used, exp
 | 11 | Styleguide, UI standard 18 + guard, runbook, docs | 3, 6 (and the names of 9) | `app/styleguide/StandardsGallery.tsx`, `docs/UI_STANDARDS.md`, `tests/ui-standards.test.ts`, `docs/RUNBOOK_SETTINGS.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/PROGRESS.md`, `docs/HANDOVER.md` | 9 |
 
 **Waves:** W1 = 1, 4, 5 · W2 = 2, 3, 8 · W3 = 6, 7, 10 · W4 = 9, 11. After each wave the orchestrator cherry-picks, removes the worktrees, `rm -rf .next`, and runs `npm run check` (implementer-rules "Orchestrator checklist"). Every task leaves `main` green on its own: until Task 9 the old `/settings` page keeps working (Tasks 4 and 6 keep the props it passes; Task 2 keeps `update`'s call shape).
+
+---
+
+### Task 1: i18n — every new key (additions only)
+
+**Files:** Modify `messages/en.json`, `messages/zh-CN.json`.
+
+Every key the later tasks use. Additions only, plus ONE changed value (`settings.subtitle`, both locales). `settings.tabs` stays until Task 9 removes it (the old page uses it until then).
+
+- [ ] **Step 1: Insert the blocks below** (Edit tool; each anchor occurs exactly once; the replacement keeps the anchor line, now with a trailing comma where needed). Note the third anchor REPLACES the `subtitle` value.
+
+#### `messages/en.json`
+
+1. Replace the anchor
+
+```json
+    "sun": "Sunday"
+  },
+```
+
+   with
+
+```json
+    "sun": "Sunday",
+    "auto": "Auto"
+  },
+```
+
+2. Replace the anchor
+
+```json
+      "sampleReach": "Most reach"
+```
+
+   with
+
+```json
+      "sampleReach": "Most reach",
+      "segmented": "Segmented control",
+      "saveBar": "Save bar"
+```
+
+3. Replace the anchor
+
+```json
+    "subtitle": "Appearance, formats and security",
+```
+
+   with
+
+```json
+    "subtitle": "Appearance, notifications, accounts and security",
+    "sections": {
+      "nav": "Settings sections",
+      "pick": "Section",
+      "appearance": {
+        "title": "Appearance",
+        "description": "Theme, light or dark, density and corners. Changes apply at once and are saved for every device."
+      },
+      "language": {
+        "title": "Language & formats",
+        "description": "Language, date, time and number formats, week start and timezone."
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Push on this device, which alerts you get, and the devices that receive them."
+      },
+      "accounts": {
+        "title": "Accounts & sync",
+        "description": "The state of each connected account. Groups, archive and delete are on the Accounts page."
+      },
+      "security": {
+        "title": "Security",
+        "description": "How you sign in and how your account is protected."
+      },
+      "data": {
+        "title": "Data & privacy",
+        "description": "What in2sight stores and how to remove it."
+      }
+    },
+    "unsaved": {
+      "bar": "You have unsaved changes",
+      "discard": "Discard",
+      "confirm": "Leave without saving? Your changes to this section will be lost."
+    },
+    "prefsSave": {
+      "saved": "Saved",
+      "error": "Couldn't save this setting. It works on this device until you reload.",
+      "retry": "Retry"
+    },
+    "appearance": {
+      "themeHint": "Colours for the whole app, charts included.",
+      "modeHint": "Auto follows your device's light or dark setting.",
+      "densityHint": "Dense fits more on the screen; Comfortable gives more space.",
+      "radiusHint": "How round the corners of buttons and cards are.",
+      "previewTitle": "Preview",
+      "previewDescription": "How pages look with these choices.",
+      "previewHeading": "Weekly reach",
+      "previewBody": "Your Reels reached more people than usual this week.",
+      "previewKpi": "Reach",
+      "previewPrimary": "Save",
+      "previewSecondary": "Cancel",
+      "previewBadge": "New",
+      "previewInput": "Search posts",
+      "previewChart": "Chart colours"
+    },
+    "language": {
+      "languageHint": "The app reloads in the new language.",
+      "formatsTitle": "Formats",
+      "formatsDescription": "How dates, times and numbers are written everywhere, exports included.",
+      "timezoneHint": "Your days start at midnight in this timezone. It changes where each day begins and ends in every chart, list and alert.",
+      "sample": "Example: {date} · {number}"
+    },
+    "accountsSync": {
+      "list": "Connected accounts",
+      "manage": "Manage accounts",
+      "syncNow": "Sync now",
+      "reconnect": "Reconnect",
+      "synced": "Synced @{username}",
+      "lastSync": "Last sync",
+      "empty": "No accounts connected yet.",
+      "emptyAction": "Connect an account"
+    },
+    "data": {
+      "title": "What in2sight stores",
+      "insights": "Insights, posts, Stories and audience numbers of your connected accounts, kept from the day you connected them.",
+      "covers": "Cover images of your posts and Stories, in private storage.",
+      "comments": "Comments on your posts and the follower exports you upload. These are other people's data: only you can see them.",
+      "delete": "Deleting an account on the Accounts page removes all of its data. Nothing is shared with anyone.",
+      "soon": "Export and delete-everything tools are coming."
+    },
+```
+
+4. Replace the anchor
+
+```json
+      "saveError": "Couldn't save. Try again."
+```
+
+   with
+
+```json
+      "saveError": "Couldn't save. Try again.",
+      "testSend": "Send a test notification",
+      "testSent": "Sent. It should appear on this device in a few seconds.",
+      "testTitle": "in2sight test",
+      "testBody": "Push notifications work on this device.",
+      "testErrors": {
+        "not_configured": "Push isn't set up on the server yet.",
+        "gone": "This device's subscription has expired. Turn notifications off and on again.",
+        "failed": "The push service didn't accept the test. Try again later.",
+        "invalid": "This device isn't subscribed.",
+        "unexpected": "Something went wrong. Try again."
+      },
+      "devicesTitle": "Devices",
+      "devicesDescription": "Every browser or phone that gets push notifications. Remove one you no longer use.",
+      "devicesHint": "To stop push on this device, use Turn off above.",
+      "devicesEmpty": "No device gets push notifications yet.",
+      "devicesUnknown": "Unknown device",
+      "devicesAdded": "Added {date}",
+      "devicesRemove": "Remove",
+      "devicesRemoveTitle": "Remove {device}?",
+      "devicesRemoveBody": "It stops getting push notifications. You can turn them on again on that device.",
+      "devicesError": "Couldn't remove the device. Try again.",
+      "devicesLoadError": "Couldn't load the devices."
+```
+
+#### `messages/zh-CN.json`
+
+1. Replace the anchor
+
+```json
+    "sun": "周日"
+  },
+```
+
+   with
+
+```json
+    "sun": "周日",
+    "auto": "自动"
+  },
+```
+
+2. Replace the anchor
+
+```json
+      "sampleReach": "覆盖最多"
+```
+
+   with
+
+```json
+      "sampleReach": "覆盖最多",
+      "segmented": "分段选择器",
+      "saveBar": "保存栏"
+```
+
+3. Replace the anchor
+
+```json
+    "subtitle": "外观、格式与安全",
+```
+
+   with
+
+```json
+    "subtitle": "外观、通知、账号与安全",
+    "sections": {
+      "nav": "设置分区",
+      "pick": "分区",
+      "appearance": {
+        "title": "外观",
+        "description": "主题、浅色或深色、密度和圆角。更改立即生效，并保存到所有设备。"
+      },
+      "language": {
+        "title": "语言与格式",
+        "description": "语言、日期、时间和数字格式、每周起始日和时区。"
+      },
+      "notifications": {
+        "title": "通知",
+        "description": "此设备的推送、你要接收哪些提醒，以及接收提醒的设备。"
+      },
+      "accounts": {
+        "title": "账号与同步",
+        "description": "每个已连接账号的状态。分组、归档和删除在“账号”页面。"
+      },
+      "security": {
+        "title": "安全",
+        "description": "你如何登录，以及账号如何受到保护。"
+      },
+      "data": {
+        "title": "数据与隐私",
+        "description": "in2sight 存储了哪些数据，以及如何删除。"
+      }
+    },
+    "unsaved": {
+      "bar": "你有未保存的更改",
+      "discard": "放弃更改",
+      "confirm": "不保存就离开？此分区的更改将会丢失。"
+    },
+    "prefsSave": {
+      "saved": "已保存",
+      "error": "无法保存此设置。在你重新加载之前，它仅在此设备上生效。",
+      "retry": "重试"
+    },
+    "appearance": {
+      "themeHint": "整个应用（包括图表）的配色。",
+      "modeHint": "“自动”会跟随设备的浅色或深色设置。",
+      "densityHint": "“紧凑”可在屏幕上显示更多内容；“宽松”留出更多空间。",
+      "radiusHint": "按钮和卡片的圆角程度。",
+      "previewTitle": "预览",
+      "previewDescription": "按这些选择显示的页面效果。",
+      "previewHeading": "每周覆盖人数",
+      "previewBody": "本周你的 Reels 覆盖的人数比平时多。",
+      "previewKpi": "覆盖人数",
+      "previewPrimary": "保存",
+      "previewSecondary": "取消",
+      "previewBadge": "新",
+      "previewInput": "搜索帖子",
+      "previewChart": "图表颜色"
+    },
+    "language": {
+      "languageHint": "应用会以新语言重新加载。",
+      "formatsTitle": "格式",
+      "formatsDescription": "日期、时间和数字在各处（包括导出）的写法。",
+      "timezoneHint": "你的每一天从此时区的午夜开始。它决定所有图表、列表和提醒中每天的起止时间。",
+      "sample": "示例：{date} · {number}"
+    },
+    "accountsSync": {
+      "list": "已连接的账号",
+      "manage": "管理账号",
+      "syncNow": "立即同步",
+      "reconnect": "重新连接",
+      "synced": "已同步 @{username}",
+      "lastSync": "最近同步",
+      "empty": "还没有连接任何账号。",
+      "emptyAction": "连接账号"
+    },
+    "data": {
+      "title": "in2sight 存储的数据",
+      "insights": "已连接账号的洞察数据、帖子、快拍和受众数字，从你连接账号当天开始保存。",
+      "covers": "帖子和快拍的封面图片，存放在私有存储中。",
+      "comments": "你帖子下的评论以及你上传的粉丝导出文件。这些是他人的数据：只有你能看到。",
+      "delete": "在“账号”页面删除账号会删除它的全部数据。数据不会与任何人共享。",
+      "soon": "导出和全部删除工具即将推出。"
+    },
+```
+
+4. Replace the anchor
+
+```json
+      "saveError": "保存失败，请重试。"
+```
+
+   with
+
+```json
+      "saveError": "保存失败，请重试。",
+      "testSend": "发送测试通知",
+      "testSent": "已发送，几秒钟内应会出现在此设备上。",
+      "testTitle": "in2sight 测试",
+      "testBody": "此设备可以接收推送通知。",
+      "testErrors": {
+        "not_configured": "服务器尚未设置推送。",
+        "gone": "此设备的订阅已失效。请关闭通知后再重新开启。",
+        "failed": "推送服务未接受这条测试通知。请稍后重试。",
+        "invalid": "此设备尚未订阅。",
+        "unexpected": "出了点问题，请重试。"
+      },
+      "devicesTitle": "设备",
+      "devicesDescription": "所有接收推送通知的浏览器或手机。移除不再使用的设备。",
+      "devicesHint": "要停止此设备的推送，请使用上方的“在此设备上关闭”。",
+      "devicesEmpty": "还没有设备接收推送通知。",
+      "devicesUnknown": "未知设备",
+      "devicesAdded": "添加于 {date}",
+      "devicesRemove": "移除",
+      "devicesRemoveTitle": "移除 {device}？",
+      "devicesRemoveBody": "它将不再收到推送通知。你可以在该设备上重新开启。",
+      "devicesError": "无法移除该设备，请重试。",
+      "devicesLoadError": "无法加载设备列表。"
+```
+
+- [ ] **Step 2: Verify**
+
+Run: `npx vitest run tests/messages.test.ts tests/ui-standards.test.ts`
+Expected: PASS (same keys in both locales, placeholders `{username}`, `{date}`, `{number}`, `{device}` match, zh-CN differs from en, no abbreviated range labels).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add messages/en.json messages/zh-CN.json
+git commit -m "feat(settings): i18n keys for the settings sections and the save model (Plan 16a)"
+```
+
+---
+
+### Task 2: The instant save model (`setPrefs` result, provider status + retry, the toast)
+
+**Files:**
+- Modify: `lib/prefs.sync.server.ts`, `app/actions.ts`, `components/providers/PrefsProvider.tsx` (whole file below), `app/layout.tsx`, `tests/set-prefs.test.ts`, `tests/prefs-sync-server.test.ts`, `tests/prefs-provider.test.tsx`
+- Create: `components/providers/PrefsSaveNotice.tsx`, `tests/prefs-save-notice.test.tsx`
+
+**Interfaces produced:** `persistPrefsToProfile(prefs, keys): Promise<boolean>`; `export type SetPrefsResult = { ok: boolean }`, `setPrefs(partial: unknown): Promise<SetPrefsResult>`; `usePrefs(): { prefs; update(partial): void; status: SaveStatus; retry(): void }`, `export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'`; `PrefsSaveNotice`, `PREFS_TOAST_ID = 'prefs-save'`. `update` keeps its call shape (`void`), so no caller changes.
+
+- [ ] **Step 1: Update the existing tests (they fail until Step 3)**
+
+`tests/set-prefs.test.ts` — replace (each exactly once):
+
+```ts
+const persistPrefsToProfile = vi.fn<(prefs: unknown, keys: unknown) => Promise<void>>();
+```
+→
+```ts
+const persistPrefsToProfile = vi.fn<(prefs: unknown, keys: unknown) => Promise<boolean>>();
+```
+`  persistPrefsToProfile.mockReset().mockResolvedValue(undefined);` → `  persistPrefsToProfile.mockReset().mockResolvedValue(true);`
+`    await expect(setPrefs(junk)).resolves.toBeUndefined();` → `    await expect(setPrefs(junk)).resolves.toEqual({ ok: true });`
+`    persistPrefsToProfile.mockImplementation(async () => void order.push('profile'));` → `    persistPrefsToProfile.mockImplementation(async () => (order.push('profile'), true));`
+`    await expect(setPrefs({ mode: 'dark' })).resolves.toBeUndefined();` → `    await expect(setPrefs({ mode: 'dark' })).resolves.toEqual({ ok: false });`
+
+and insert before `  it('persists only the keys the patch named, never unknown ones', async () => {`:
+
+```ts
+  it('answers ok: false when the profile write failed (the cookie is still written and the layout revalidated)', async () => {
+    persistPrefsToProfile.mockResolvedValue(false);
+    await expect(setPrefs({ mode: 'dark' })).resolves.toEqual({ ok: false });
+    expect(written().mode).toBe('dark');
+    expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
+  });
+
+```
+
+`tests/prefs-sync-server.test.ts` — replace (each exactly once):
+
+```ts
+    await persistPrefsToProfile(custom, ['theme']);
+    expect(f.upserts).toHaveLength(1);
+```
+→
+```ts
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(true);
+    expect(f.upserts).toHaveLength(1);
+```
+```ts
+    await persistPrefsToProfile(custom, []);
+    expect(f.upserts).toEqual([]);
+```
+→
+```ts
+    await expect(persistPrefsToProfile(custom, [])).resolves.toBe(true);
+    expect(f.upserts).toEqual([]);
+```
+```ts
+    configured.mockReturnValue(false);
+    await persistPrefsToProfile(custom, ['theme']);
+```
+→
+```ts
+    configured.mockReturnValue(false);
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(true);
+```
+```ts
+    getSessionInfo.mockResolvedValue({ ...session, signedIn: false, userId: null });
+    await persistPrefsToProfile(custom, ['theme']);
+```
+→
+```ts
+    getSessionInfo.mockResolvedValue({ ...session, signedIn: false, userId: null });
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(true);
+```
+and in `'never throws, even if the client cannot be created or the write fails'` both `.resolves.toBeUndefined();` → `.resolves.toBe(false);`.
+
+`tests/prefs-provider.test.tsx` — the first import line becomes `import { render, screen, waitFor } from '@testing-library/react';`; the `Probe` gets the status, retry and a second key:
+
+```tsx
+  const { prefs, update } = usePrefs();
+  return (
+    <div>
+      <span data-testid="mode">{prefs.mode}</span>
+```
+→
+```tsx
+  const { prefs, update, status, retry } = usePrefs();
+  return (
+    <div>
+      <span data-testid="status">{status}</span>
+      <button onClick={retry}>retry</button>
+      <button onClick={() => update({ density: 'comfortable' })}>comfortable</button>
+      <span data-testid="mode">{prefs.mode}</span>
+```
+and insert before `  it('usePrefs outside the provider throws a helpful error', () => {`:
+
+```tsx
+  it('reports saving, then saved; a void persist result counts as saved', async () => {
+    let finish!: () => void;
+    const persist = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    expect(screen.getByTestId('status')).toHaveTextContent('idle');
+    await userEvent.click(screen.getByText('dark'));
+    expect(screen.getByTestId('status')).toHaveTextContent('saving');
+    finish();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('saved'));
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('network'))],
+    ['answers ok: false', () => Promise.resolve({ ok: false })],
+  ])('a save that %s is an error, never swallowed', async (_name, outcome) => {
+    const persist = vi.fn(outcome);
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('dark'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    expect(html().getAttribute('data-mode')).toBe('dark'); // still applied here
+  });
+
+  it('retry re-sends every unsaved key with its current value, then reports saved', async () => {
+    const persist = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('dark'));
+    await userEvent.click(screen.getByText('comfortable'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    await userEvent.click(screen.getByText('retry'));
+    expect(persist).toHaveBeenLastCalledWith({ mode: 'dark', density: 'comfortable' });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('saved'));
+  });
+
+  it('a later successful save of the same key clears its error', async () => {
+    const persist = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('dark'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    await userEvent.click(screen.getByRole('button', { name: 'dark' }));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('saved'));
+  });
+
+  it('retry with nothing unsaved does not call persist', async () => {
+    const persist = vi.fn();
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('retry'));
+    expect(persist).not.toHaveBeenCalled();
+  });
+```
+
+Create `tests/prefs-save-notice.test.tsx`:
+
+```tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
+
+import { PrefsProvider, usePrefs } from '@/components/providers/PrefsProvider';
+import { PREFS_TOAST_ID, PrefsSaveNotice } from '@/components/providers/PrefsSaveNotice';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+function Probe() {
+  const { update } = usePrefs();
+  return <button onClick={() => update({ theme: 'forest' })}>forest</button>;
+}
+
+function setup(persist: (p: unknown) => unknown) {
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={persist as never}>
+        <Probe />
+        <PrefsSaveNotice />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  toast.success.mockReset();
+  toast.error.mockReset();
+});
+
+describe('PrefsSaveNotice', () => {
+  it('nothing on first render (status idle)', () => {
+    setup(vi.fn());
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('a saved change shows one short "Saved" toast with the fixed id', async () => {
+    setup(vi.fn(async () => ({ ok: true })));
+    await userEvent.click(screen.getByText('forest'));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(en.settings.prefsSave.saved, { id: PREFS_TOAST_ID, duration: 2000 }));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('a failed save shows a lasting error with Retry, and Retry saves again', async () => {
+    const persist = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    setup(persist);
+    await userEvent.click(screen.getByText('forest'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    const [text, opts] = toast.error.mock.calls[0] as [string, { id: string; duration: number; action: { label: string; onClick: () => void } }];
+    expect(text).toBe(en.settings.prefsSave.error);
+    expect(opts).toMatchObject({ id: PREFS_TOAST_ID, duration: Infinity, action: { label: en.settings.prefsSave.retry } });
+    opts.action.onClick();
+    await waitFor(() => expect(persist).toHaveBeenCalledTimes(2));
+    expect(persist).toHaveBeenLastCalledWith({ theme: 'forest' });
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+  });
+});
+```
+
+Run: `npx vitest run tests/set-prefs.test.ts tests/prefs-sync-server.test.ts tests/prefs-provider.test.tsx tests/prefs-save-notice.test.tsx`
+Expected: FAIL (`setPrefs` resolves `undefined`; `status` is not in the context; `PrefsSaveNotice` does not exist).
+
+- [ ] **Step 2: `lib/prefs.sync.server.ts`** — replace the doc comment and body of `persistPrefsToProfile` (from `/**` above it to the end of the file) with:
+
+```ts
+/**
+ * Called by setPrefs after the cookie is written. Never throws.
+ * Writes only `keys` (what this save changed): a stale cookie on this device must not clobber the other columns.
+ * A missing row is created with the column defaults for everything not sent.
+ * true = saved, or nothing to save (no keys, Supabase not configured, no session); false = the write failed (the caller shows Retry).
+ */
+export async function persistPrefsToProfile(prefs: Prefs, keys: readonly (keyof Prefs)[]): Promise<boolean> {
+  try {
+    if (keys.length === 0 || !isSupabaseConfigured()) return true;
+    const supabase = await createServerSupabase();
+    const info = await getSessionInfo(supabase);
+    if (!info.userId) return true;
+    const { error } = await supabase.from('profiles').upsert({ ...prefsPatchToRow(info.userId, prefs, keys), updated_at: new Date().toISOString() });
+    if (!error) return true;
+    warn('save');
+    return false;
+  } catch {
+    warn('save');
+    return false;
+  }
+}
+```
+
+- [ ] **Step 3: `app/actions.ts`** — replace everything from `/** Merge a partial update` to the end of the file with:
+
+```ts
+export type SetPrefsResult = { ok: boolean };
+
+/**
+ * Merge a partial update onto the current preferences cookie. Input is untrusted: parsePrefs validates every field.
+ * Never throws. `ok: false` = the cookie was written but the profile row was not (PrefsProvider then offers Retry).
+ */
+export async function setPrefs(partial: unknown): Promise<SetPrefsResult> {
+  const jar = await cookies();
+  const current = parsePrefsCookie(jar.get(PREFS_COOKIE)?.value);
+  const patch = partial !== null && typeof partial === 'object' && !Array.isArray(partial) ? partial : {};
+  const next = parsePrefs({ ...current, ...patch });
+  jar.set(PREFS_COOKIE, serializePrefs(next), { path: '/', maxAge: 60 * 60 * 24 * 365, sameSite: 'lax' });
+  const keys = (Object.keys(patch) as (keyof Prefs)[]).filter((k) => Object.hasOwn(DEFAULT_PREFS, k)); // only what this save changed
+  const ok = await persistPrefsToProfile(next, keys).catch(() => false); // it never throws; a rejection still counts as not saved
+  revalidatePath('/', 'layout');
+  return { ok };
+}
+```
+
+- [ ] **Step 4: `components/providers/PrefsProvider.tsx`** — replace the whole file with:
+
+```tsx
+'use client';
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { htmlAttrs, parsePrefs, type Prefs } from '@/lib/prefs';
+import { themeColor } from '@/lib/pwa';
+import { isFramed } from '@/lib/tabs/protocol';
+
+/** `{ ok: false }` (or a rejection) = not saved; anything else (including void) = saved. */
+type Persist = (partial: Partial<Prefs>) => Promise<{ ok: boolean } | void> | { ok: boolean } | void;
+
+/** idle = nothing saved yet in this document; error = at least one change is not saved (retry() re-sends it). */
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+interface PrefsContextValue {
+  prefs: Prefs;
+  update: (partial: Partial<Prefs>) => void;
+  status: SaveStatus;
+  retry: () => void;
+}
+
+const PrefsContext = createContext<PrefsContextValue | null>(null);
+
+/**
+ * Every document of the app (the tab shell and each tab's frame, Plan 14c; also other windows) has its own provider: a
+ * change made in one is sent to the others on this same-origin channel and applied there at once. A language change is
+ * sent after it is saved and makes the top window reload (server-rendered text); other format changes reach the
+ * server-rendered parts of another tab on its next navigation or Refresh.
+ */
+export const PREFS_CHANNEL = 'in2sight:prefs';
+
+export function applyPrefsToDocument(p: Prefs, el: HTMLElement = document.documentElement): void {
+  for (const [name, value] of Object.entries(htmlAttrs(p))) el.setAttribute(name, value);
+  el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p));
+}
+
+const pickKeys = (p: Prefs, keys: string[]): Partial<Prefs> => Object.fromEntries(keys.filter((k) => Object.hasOwn(p, k)).map((k) => [k, p[k as keyof Prefs]]));
+
+export function PrefsProvider({ initial, persist, children }: { initial: Prefs; persist: Persist; children: ReactNode }) {
+  const [prefs, setPrefs] = useState<Prefs>(initial);
+  const [status, setStatus] = useState<SaveStatus>('idle');
+  const channel = useRef<BroadcastChannel | null>(null);
+  const latest = useRef(prefs);
+  const unsaved = useRef<Partial<Prefs>>({}); // keys whose last save failed (retry sends their CURRENT values)
+  const inflight = useRef(0);
+
+  useEffect(() => {
+    latest.current = prefs;
+  }, [prefs]);
+
+  // changes made in the app's other documents (other tabs, the shell): parsePrefs validates them like any input
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const ch = new BroadcastChannel(PREFS_CHANNEL);
+    ch.onmessage = (e: MessageEvent) => {
+      const partial = e.data !== null && typeof e.data === 'object' ? (e.data as Partial<Prefs>) : {};
+      const next = parsePrefs({ ...latest.current, ...partial });
+      setPrefs(next);
+      applyPrefsToDocument(next);
+      if ('locale' in partial && !isFramed()) window.location.reload(); // the frames reload with the shell
+    };
+    channel.current = ch;
+    return () => {
+      ch.close();
+      channel.current = null;
+    };
+  }, []);
+
+  // Never swallowed: a failure keeps the keys in `unsaved` and sets status 'error' until a later save of them succeeds.
+  const save = useCallback(
+    (partial: Partial<Prefs>) => {
+      inflight.current++;
+      setStatus('saving');
+      void Promise.resolve()
+        .then(() => persist(partial))
+        .then(
+          (r) => !(r !== null && typeof r === 'object' && r.ok === false),
+          () => false,
+        )
+        .then((ok) => {
+          inflight.current--;
+          const keys = Object.keys(partial);
+          if (ok) for (const k of keys) delete unsaved.current[k as keyof Prefs];
+          else unsaved.current = { ...unsaved.current, ...pickKeys(latest.current, keys) };
+          if (ok && 'locale' in partial) channel.current?.postMessage(partial); // the others reload: the cookie is saved now
+          setStatus(Object.keys(unsaved.current).length > 0 ? 'error' : inflight.current > 0 ? 'saving' : 'saved');
+        });
+    },
+    [persist],
+  );
+
+  const update = useCallback(
+    (partial: Partial<Prefs>) => {
+      const next = parsePrefs({ ...prefs, ...partial }); // validates: bad values fall back
+      setPrefs(next);
+      latest.current = next;
+      applyPrefsToDocument(next); // instant, no waiting for the server
+      save(partial);
+      if (!('locale' in partial)) channel.current?.postMessage(partial);
+    },
+    [prefs, save],
+  );
+
+  const retry = useCallback(() => {
+    const p = unsaved.current;
+    if (Object.keys(p).length > 0) save({ ...p });
+  }, [save]);
+
+  const value = useMemo(() => ({ prefs, update, status, retry }), [prefs, update, status, retry]);
+  return <PrefsContext.Provider value={value}>{children}</PrefsContext.Provider>;
+}
+
+export function usePrefs(): PrefsContextValue {
+  const ctx = useContext(PrefsContext);
+  if (!ctx) throw new Error('usePrefs must be used inside <PrefsProvider>');
+  return ctx;
+}
+```
+
+Why the details: `unsaved` keeps the CURRENT value of each key whose save failed, so Retry never re-sends a stale value; `inflight` keeps the status at `saving` while another save is still running, whatever order the answers arrive in; a language change is broadcast only after a SUCCESSFUL save (the other documents reload and must find the new cookie); other changes are broadcast at once (unchanged).
+
+- [ ] **Step 5: Create `components/providers/PrefsSaveNotice.tsx`**
+
+```tsx
+'use client';
+
+import { useEffect } from 'react';
+import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+
+export const PREFS_TOAST_ID = 'prefs-save';
+
+/**
+ * Shows PrefsProvider's save status (Plan 16a save model): a short "Saved", or an error that stays until Retry or dismiss.
+ * One toast id, so quick changes replace one toast instead of stacking. Mounted once per document (root layout); a change
+ * that arrives from another document over the channel is not saved here and shows nothing.
+ */
+export function PrefsSaveNotice() {
+  const t = useTranslations('settings.prefsSave');
+  const { status, retry } = usePrefs();
+  useEffect(() => {
+    if (status === 'saved') toast.success(t('saved'), { id: PREFS_TOAST_ID, duration: 2000 });
+    else if (status === 'error') toast.error(t('error'), { id: PREFS_TOAST_ID, duration: Infinity, action: { label: t('retry'), onClick: retry } });
+  }, [status, retry, t]);
+  return null;
+}
+```
+
+- [ ] **Step 6: Mount it in `app/layout.tsx`** — add the import after the `PrefsProvider` import:
+
+```tsx
+import { PrefsSaveNotice } from '@/components/providers/PrefsSaveNotice';
+```
+and the element right after `<Toaster position="bottom-right" />`:
+```tsx
+            <PrefsSaveNotice />
+```
+
+- [ ] **Step 7: Verify**
+
+Run: `npx vitest run tests/set-prefs.test.ts tests/prefs-sync-server.test.ts tests/prefs-provider.test.tsx tests/prefs-save-notice.test.tsx tests/prefs-sync.test.tsx tests/prefs-bar.test.tsx tests/pwa.test.ts` then `npx tsc --noEmit` and `npx eslint app/actions.ts lib/prefs.sync.server.ts components/providers app/layout.tsx tests/prefs-save-notice.test.tsx tests/prefs-provider.test.tsx tests/set-prefs.test.ts tests/prefs-sync-server.test.ts`
+Expected: all PASS, no type or lint errors.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add app/actions.ts lib/prefs.sync.server.ts components/providers/PrefsProvider.tsx components/providers/PrefsSaveNotice.tsx app/layout.tsx tests/set-prefs.test.ts tests/prefs-sync-server.test.ts tests/prefs-provider.test.tsx tests/prefs-save-notice.test.tsx
+git commit -m "feat(prefs): no silent save failures: setPrefs answers ok, the provider reports status and retries, a toast shows it (Plan 16a)"
+```
