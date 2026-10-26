@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useTranslations } from 'next-intl';
+import { SaveBar } from '@/components/settings/SaveBar';
 import { FormField } from '@/components/shared/FormField';
-import { LoadingButton } from '@/components/shared/LoadingButton';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -15,24 +15,34 @@ export interface AlertSettingsFormProps {
 }
 
 const NUMBERS = ['reachDropPct', 'takingOffRatio', 'syncFailures'] as const;
+type Nums = Record<(typeof NUMBERS)[number], string>;
 
+// numbers are kept and sent as typed text; the server parses them (empty = the default), clamps and returns what it stored
+const numsOf = (s: AlertSettings): Nums => Object.fromEntries(NUMBERS.map((k) => [k, String(s[k])])) as Nums;
+
+/** Explicit save (Plan 16a): dirty = differs from what the server last stored; the sticky SaveBar saves or discards. */
 export function AlertSettingsForm({ initial, save }: AlertSettingsFormProps) {
   const t = useTranslations('settings.notifications');
   const tk = useTranslations('notifications.kinds');
-  const tc = useTranslations('common');
+  const [stored, setStored] = useState(initial);
   const [push, setPush] = useState(initial.push);
-  // numbers are kept and sent as typed text; the server parses them (empty = the default), clamps and returns what it stored
-  const [nums, setNums] = useState(() => Object.fromEntries(NUMBERS.map((k) => [k, String(initial[k])])) as Record<(typeof NUMBERS)[number], string>);
+  const [nums, setNums] = useState(() => numsOf(initial));
   const [result, setResult] = useState<'saved' | 'error' | null>(null);
   const [pending, start] = useTransition();
+  const dirty = JSON.stringify({ push, nums }) !== JSON.stringify({ push: stored.push, nums: numsOf(stored) });
+
+  const reset = (s: AlertSettings) => {
+    setPush(s.push);
+    setNums(numsOf(s));
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     start(async () => {
-      const r = await save({ push, ...Object.fromEntries(NUMBERS.map((k) => [k, nums[k]])) });
+      const r = await save({ push, ...nums });
       if (!r.ok) return setResult('error');
-      setPush(r.settings.push);
-      setNums(Object.fromEntries(NUMBERS.map((k) => [k, String(r.settings[k])])) as typeof nums);
+      setStored(r.settings);
+      reset(r.settings); // the server's normalised values win
       setResult('saved');
     });
   };
@@ -60,21 +70,7 @@ export function AlertSettingsForm({ initial, save }: AlertSettingsFormProps) {
               </FormField>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <LoadingButton type="submit" pending={pending}>
-              {tc('save')}
-            </LoadingButton>
-            {result === 'saved' ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                {t('saved')}
-              </p>
-            ) : null}
-            {result === 'error' ? (
-              <p role="alert" className="text-sm text-destructive">
-                {t('saveError')}
-              </p>
-            ) : null}
-          </div>
+          <SaveBar dirty={dirty} pending={pending} result={result} error={t('saveError')} saved={t('saved')} onDiscard={() => reset(stored)} />
         </form>
       </CardContent>
     </Card>
