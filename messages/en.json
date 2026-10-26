@@ -380,7 +380,127 @@
       "calendar": "Calendar",
       "instagram": "Open on Instagram",
       "tabs": "Account sections",
-      "tab": { "overview": "Overview", "growth": "Growth", "posts": "Posts", "stories": "Stories", "comments": "Comments", "followers": "Followers" },
+      "tab": { "overview": "Overview", "growth": "Growth", "posts": "Posts", "stories": "Stories", "comments": "Comments", "followers": "Followers", "moderation": "Moderation" },
+      "moderation": {
+        "menu": "Moderate comment",
+        "reply": "Reply",
+        "hide": "Hide",
+        "unhide": "Unhide",
+        "delete": "Delete",
+        "ownHint": "Instagram always shows your own comments, so they can't be hidden.",
+        "cancel": "Cancel",
+        "replyDialog": {
+          "title": "Reply to @{username}",
+          "titleNoName": "Reply to this comment",
+          "description": "Your reply appears under this comment on Instagram. You can delete it later from the moderation log.",
+          "label": "Your reply",
+          "count": "{count} of {max} characters",
+          "send": "Send reply"
+        },
+        "hideDialog": {
+          "title": "Hide this comment?",
+          "body": "A hidden comment stays on Instagram, but only you and the person who wrote it can see it. You can unhide it at any time.",
+          "confirm": "Hide"
+        },
+        "unhideDialog": {
+          "title": "Unhide this comment?",
+          "body": "Everyone can see this comment again. Auto-hide will never hide it again.",
+          "confirm": "Unhide"
+        },
+        "deleteDialog": {
+          "title": "Delete this comment for good?",
+          "body": "Deleting removes the comment from Instagram for everyone. It cannot be undone, not on Instagram and not here. To keep it out of sight but recoverable, hide it instead. Type {word} to confirm.",
+          "word": "DELETE",
+          "confirm": "Delete permanently"
+        },
+        "done": { "hide": "Comment hidden.", "unhide": "Comment visible again.", "delete": "Comment deleted.", "reply": "Reply posted.", "undo": "Undone." },
+        "errors": {
+          "invalid": "Something in this request is not valid. Reload the page and try again.",
+          "not_found": "This comment is no longer here. Reload the page.",
+          "not_active": "This account is archived. Restore it to moderate comments.",
+          "reconnect": "Instagram did not allow this. Reconnect the account on the Accounts page, then try again.",
+          "duplicate": "This was already sent.",
+          "too_many": "Too many actions in a minute. Wait a moment, then try again.",
+          "already_done": "Already done. The page now shows the current state.",
+          "cannot_undo": "This action cannot be undone.",
+          "not_ready": "Moderation needs a database update first.",
+          "rate_limited": "Instagram is limiting requests right now. Try again later.",
+          "comment_gone": "This comment no longer exists on Instagram.",
+          "not_allowed": "Instagram does not allow this for this comment.",
+          "instagram_unavailable": "Instagram did not answer. Try again in a moment.",
+          "unknown_outcome": "Instagram did not confirm. The reply may have been posted: check on Instagram before sending it again.",
+          "unexpected": "Something went wrong. Nothing was changed here; check on Instagram before trying again.",
+          "invalid_word": "Enter a word or phrase of 1 to 50 characters.",
+          "duplicate_rule": "This word is already on the list.",
+          "too_many_rules": "You have reached the limit of banned words for this account.",
+          "no_rules": "Add a banned word or switch on a spam pattern first."
+        },
+        "intro": "Reply to, hide and delete comments from the Comments tab. Here you set the rules that hide spam automatically and see everything that was done.",
+        "noScope": {
+          "title": "Reconnect to enable comments",
+          "body": "This account was connected before in2sight asked for the comments permission, or Instagram no longer accepts the connection. Reconnect it once on the Accounts page to reply, hide and delete.",
+          "link": "Open Accounts"
+        },
+        "notReady": {
+          "title": "Moderation needs a database update",
+          "body": "Apply the moderation migration first (docs/RUNBOOK_MODERATION.md §0)."
+        },
+        "auto": {
+          "title": "Auto-hide",
+          "description": "Hides comments that match your rules, up to 20 every 30 minutes. It never deletes anything and never hides a comment you have unhidden.",
+          "switch": "Hide matching comments automatically",
+          "pausedReconnect": "Auto-hide is paused: Instagram refused the permission. Reconnect the account, then switch it on again.",
+          "pausedFailing": "Auto-hide is paused after repeated errors from Instagram. Switch it on again to retry.",
+          "pausedSince": "Paused since {date}",
+          "enableTitle": "Switch on auto-hide?",
+          "enableBody": "{count, plural, =0 {No comment matches your rules right now.} one {{n} comment that is already here will be hidden.} other {{n} comments that are already here will be hidden.}} After that, new matching comments are hidden within about an hour, up to 20 every 30 minutes. Every hide is listed in the log and can be undone.",
+          "enableConfirm": "Switch on",
+          "noRules": "Add a banned word or switch on a spam pattern first."
+        },
+        "preview": {
+          "title": "Matching now",
+          "count": "{count, plural, =0 {No visible comment matches your rules.} one {{n} visible comment matches your rules.} other {{n} visible comments match your rules.}}",
+          "basis": "Checked against the newest {count} stored comments.",
+          "by": "Matches: {rule}"
+        },
+        "rules": {
+          "title": "Rules",
+          "description": "Words and patterns that mark a comment as spam. Upper and lower case and full-width characters count as the same.",
+          "spamTitle": "Spam patterns",
+          "link": { "label": "Links", "hint": "Web addresses such as www…, https://… or name.com" },
+          "mentions": { "label": "Many mentions", "hint": "4 or more @mentions in one comment" },
+          "repeat": { "label": "Repeated characters", "hint": "The same character 8 or more times in a row" },
+          "emoji": { "label": "Emoji floods", "hint": "10 or more emoji with almost no text" },
+          "wordsTitle": "Banned words",
+          "wordLabel": "Word or phrase",
+          "wordHint": "Up to 50 characters. Chinese, Japanese and Korean words always match inside longer text.",
+          "wholeWord": "Whole word only",
+          "add": "Add",
+          "remove": "Remove {word}",
+          "empty": "No banned words yet.",
+          "count": "{count} of {max} words",
+          "wholeBadge": "whole word"
+        },
+        "ruleLabel": { "word": "“{word}”", "link": "Links", "mentions": "Many mentions", "repeat": "Repeated characters", "emoji": "Emoji floods", "removed": "a removed rule" },
+        "log": {
+          "title": "Moderation log",
+          "description": "Every reply, hide, unhide and delete, by you or by a rule. The comment is shown only while it is still stored.",
+          "empty": "Nothing has been done yet.",
+          "range": "{first}–{last} of {total}",
+          "actions": { "reply": "Replied", "hide": "Hidden", "unhide": "Unhidden", "delete": "Deleted", "delete_reply": "Reply deleted" },
+          "byOwner": "By you",
+          "byRule": "By rule: {rule}",
+          "results": { "ok": "Done", "pending": "In progress", "unknown": "Outcome unknown — check on Instagram" },
+          "gone": "Comment no longer stored",
+          "undone": "Undone {date}",
+          "undo": { "unhide": "Unhide", "delete_reply": "Delete reply" },
+          "undoTitle": { "unhide": "Unhide this comment?", "delete_reply": "Delete your reply?" },
+          "undoBody": {
+            "unhide": "Everyone can see this comment again. Auto-hide will never hide it again.",
+            "delete_reply": "Your reply is removed from Instagram. This cannot be undone."
+          }
+        }
+      },
       "commentInsights": {
         "intro": "Comments on your posts and Reels, read every hour for posts of the last 30 days. Stories have no comments here (Story replies are private messages), and replies inside a comment thread are not read yet.",
         "since": "Comments read since {date}.",
@@ -916,6 +1036,10 @@
       "taking_off": {
         "title": "Post taking off",
         "body": "A post by @{username} has {ratio}× its usual reach."
+      },
+      "moderation_paused": {
+        "title": "Auto-hide paused",
+        "body": "Auto-hide for @{username} is paused because Instagram refused to hide a comment. Open Moderation to see why and switch it on again."
       }
     }
   },
