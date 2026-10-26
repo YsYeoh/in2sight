@@ -3017,3 +3017,290 @@ export function LanguageSection() {
 git add components/settings/sections/AppearanceSection.tsx components/settings/sections/LanguageSection.tsx tests/settings-appearance.test.tsx tests/settings-language.test.tsx
 git commit -m "feat(settings): Appearance with a live preview, Language & formats with samples and the timezone explanation (Plan 16a)"
 ```
+
+---
+
+### Task 8: Accounts & sync section
+
+**Files:** Create `components/settings/AccountsOverview.tsx`, `components/settings/sections/AccountsSection.tsx`, `tests/settings-accounts.test.tsx`.
+
+**Interfaces produced:** `AccountsOverviewProps { accounts; sync; now; syncNow }`, `AccountsOverview`, `AccountsSection()` (async server component, no props). Uses Task 5's `AccountParts`, the existing `StatusBadge`, `TokenMeter`, `connectHref`, `tokenStatus`, `syncNowAction`, `loadAccounts`, `loadSyncStatus`; keys `settings.accountsSync.*`, `accounts.columns.token`, `accounts.errors.*`, `loading.syncing`. The page that renders it exports `maxDuration = 60` (Task 9).
+
+- [ ] **Step 1: Test** `tests/settings-accounts.test.tsx`:
+
+```tsx
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+
+const refresh = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
+const server = vi.hoisted(() => ({ accounts: [] as unknown[], sync: {} as Record<string, unknown>, calls: [] as string[] }));
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => (server.calls.push('owner'), { userId: 'u1', email: null }) }));
+vi.mock('@/lib/dashboard/cached', () => ({ loadAccounts: async () => (server.calls.push('accounts'), server.accounts), loadSyncStatus: async () => server.sync }));
+vi.mock('@/app/(app)/accounts/actions', () => ({ syncNowAction: vi.fn() }));
+
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { AccountsOverview, type AccountsOverviewProps } from '@/components/settings/AccountsOverview';
+import { AccountsSection } from '@/components/settings/sections/AccountsSection';
+import { COMMENTS_SCOPE } from '@/lib/accounts/scopes';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const S = en.settings.accountsSync;
+const NOW = '2026-10-26T00:00:00Z';
+const acc = (o: Partial<StoredAccount>): StoredAccount => ({ id: 'a1', igUserId: '1', username: 'yseny_', displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: '2026-12-01T00:00:00Z', connectedAt: '2026-10-01T00:00:00Z', grantedScopes: [COMMENTS_SCOPE], ...o });
+const ACCOUNTS = [acc({}), acc({ id: 'a2', username: 'penangclowns', status: 'needs_reconnect', groupName: 'Clients', grantedScopes: [] })];
+
+function view(o: Partial<AccountsOverviewProps> = {}) {
+  const props: AccountsOverviewProps = { accounts: ACCOUNTS, sync: { a1: { lastSuccessAt: '2026-10-25T10:00:00Z', lastErrorKey: null, consecutiveFailures: 0 } }, now: NOW, syncNow: vi.fn(async () => ({ ok: true })), ...o };
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <AccountsOverview {...props} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return props;
+}
+
+beforeEach(() => {
+  refresh.mockReset();
+  server.calls.length = 0;
+});
+
+describe('AccountsOverview', () => {
+  it('one card per account: name, status, token, last sync; Manage accounts links to /accounts', () => {
+    view();
+    const cards = screen.getAllByRole('listitem');
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0]).getByText('@yseny_')).toBeInTheDocument();
+    expect(within(cards[0]).getByText(en.accounts.status.active)).toBeInTheDocument();
+    expect(within(cards[1]).getAllByText(en.accounts.status.reconnect)).toHaveLength(2); // the status badge and the Reconnect link
+    expect(within(cards[0]).getByText(en.accounts.columns.token)).toBeInTheDocument();
+    expect(within(cards[1]).getByText(en.accounts.sync.never)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: S.manage })).toHaveAttribute('href', '/accounts');
+  });
+
+  it('Sync now only for active accounts; Reconnect always, leaving the tab frame', () => {
+    view();
+    const [a, b] = screen.getAllByRole('listitem');
+    expect(within(a).getByRole('button', { name: S.syncNow })).toBeEnabled();
+    expect(within(b).queryByRole('button', { name: S.syncNow })).toBeNull();
+    const re = within(b).getByRole('link', { name: S.reconnect });
+    expect(re).toHaveAttribute('target', '_top');
+    expect(re.getAttribute('href')).toContain('Clients');
+  });
+
+  it('the comments hint shows only for an active account without the scope', () => {
+    view({ accounts: [acc({ grantedScopes: [] })] });
+    expect(screen.getByRole('link', { name: en.accounts.commentsHint })).toHaveAttribute('target', '_top');
+  });
+
+  it('Sync now runs the action, announces the result and refreshes', async () => {
+    const p = view();
+    await userEvent.click(screen.getByRole('button', { name: S.syncNow }));
+    expect(p.syncNow).toHaveBeenCalledWith('a1');
+    expect(await screen.findByText('Synced @yseny_')).toHaveAttribute('role', 'status');
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it('a refused sync shows the translated error key', async () => {
+    view({ syncNow: vi.fn(async () => ({ ok: false, error: 'busy' })) });
+    await userEvent.click(screen.getByRole('button', { name: S.syncNow }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(en.accounts.errors.busy));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('no accounts: an empty state with a link to connect one', () => {
+    view({ accounts: [] });
+    expect(screen.getByText(S.empty)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: S.emptyAction })).toHaveAttribute('href', '/accounts');
+  });
+});
+
+describe('AccountsSection (server)', () => {
+  it('checks the owner first and leaves archived accounts out', async () => {
+    server.accounts = [...ACCOUNTS, acc({ id: 'a3', username: 'old', status: 'archived' })];
+    const el = (await AccountsSection()) as React.ReactElement<AccountsOverviewProps>;
+    expect(server.calls[0]).toBe('owner');
+    expect(el.props.accounts.map((a) => a.id)).toEqual(['a1', 'a2']);
+    expect(typeof el.props.syncNow).toBe('function');
+  });
+});
+```
+
+Run: `npx vitest run tests/settings-accounts.test.tsx` — Expected: FAIL (modules not found).
+
+- [ ] **Step 2: `components/settings/AccountsOverview.tsx`**
+
+```tsx
+'use client';
+
+// Settings -> Accounts & sync (Plan 16a): the state of each account and the two everyday actions. Everything else
+// (groups, archive, delete, connect, import progress) stays on /accounts, linked at the top.
+import { useState } from 'react';
+import Link from 'next/link';
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { CommentsHint, Identity, SyncInfo } from '@/components/accounts/AccountParts';
+import { connectHref } from '@/components/accounts/ConnectDialog';
+import { StatusBadge } from '@/components/accounts/StatusBadge';
+import { TokenMeter } from '@/components/accounts/TokenMeter';
+import { EmptyState } from '@/components/shared/EmptyState';
+import { InsightOrb } from '@/components/shared/InsightOrb';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { tokenStatus } from '@/lib/accounts/token-status';
+import type { StoredAccount } from '@/lib/accounts/types';
+import type { SyncStatus } from '@/lib/sync/store';
+
+export interface AccountsOverviewProps {
+  /** non-archived accounts (the section filters) */
+  accounts: StoredAccount[];
+  sync: Record<string, SyncStatus>;
+  /** ISO, computed on the server so first paint matches the client */
+  now: string;
+  syncNow: (id: string) => Promise<{ ok: boolean; error?: string }>;
+}
+
+type Note = { ok: true; username: string } | { ok: false; text: string } | null;
+
+export function AccountsOverview({ accounts, sync, now, syncNow }: AccountsOverviewProps) {
+  const t = useTranslations('settings.accountsSync');
+  const ta = useTranslations('accounts');
+  const tErr = useTranslations('accounts.errors');
+  const tl = useTranslations('loading');
+  const router = useRouter();
+  const [busy, setBusy] = useState<StoredAccount | null>(null);
+  const [note, setNote] = useState<Note>(null);
+  const nowDate = new Date(now);
+  const errorText = (code?: string) => (code && tErr.has(code) ? tErr(code) : tErr('unexpected'));
+
+  // a sync runs up to ~35 s inside the action (maxDuration 60 on the settings page)
+  const run = async (a: StoredAccount) => {
+    setBusy(a);
+    setNote(null);
+    try {
+      const r = await syncNow(a.id);
+      if (r.ok) {
+        setNote({ ok: true, username: a.username });
+        router.refresh();
+      } else setNote({ ok: false, text: errorText(r.error) });
+    } catch (e) {
+      if (isRedirectError(e)) throw e;
+      setNote({ ok: false, text: errorText() });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const manage = (
+    <Button asChild variant="outline">
+      <Link href="/accounts">{t('manage')}</Link>
+    </Button>
+  );
+
+  return (
+    <div className="grid gap-[var(--gp)]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{t('list')}</h3>
+        {manage}
+      </div>
+      {busy ? (
+        <p role="status" className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+          <InsightOrb size="xs" decorative />
+          <span className="min-w-0 break-words">{tl('syncing', { username: busy.username })}</span>
+        </p>
+      ) : null}
+      {note?.ok ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t('synced', { username: note.username })}
+        </p>
+      ) : null}
+      {note && !note.ok ? (
+        <p role="alert" className="text-sm text-destructive">
+          {note.text}
+        </p>
+      ) : null}
+      {accounts.length === 0 ? (
+        <EmptyState
+          title={t('empty')}
+          action={
+            <Button asChild>
+              <Link href="/accounts">{t('emptyAction')}</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <ul className="grid gap-[var(--gp)] lg:grid-cols-2">
+          {accounts.map((a) => (
+            <li key={a.id} className="min-w-0">
+              <Card>
+                <CardContent className="grid gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <Identity a={a} />
+                    <StatusBadge status={a.status} token={tokenStatus(a.tokenExpiresAt, nowDate).state} />
+                  </div>
+                  <CommentsHint a={a} />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-1">
+                      <span className="text-xs text-muted-foreground">{ta('columns.token')}</span>
+                      <TokenMeter expiresAt={a.tokenExpiresAt} now={nowDate} />
+                    </div>
+                    <div className="grid gap-1 text-sm">
+                      <span className="text-xs text-muted-foreground">{t('lastSync')}</span>
+                      <SyncInfo s={sync[a.id]} />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {a.status === 'active' ? (
+                      <LoadingButton variant="outline" pending={busy?.id === a.id} disabled={busy !== null} onClick={() => void run(a)}>
+                        {t('syncNow')}
+                      </LoadingButton>
+                    ) : null}
+                    <Button asChild variant="outline">
+                      <a href={connectHref(a.groupName)} target="_top">
+                        {t('reconnect')}
+                      </a>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: `components/settings/sections/AccountsSection.tsx`**
+
+```tsx
+import { syncNowAction } from '@/app/(app)/accounts/actions';
+import { AccountsOverview } from '@/components/settings/AccountsOverview';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
+
+/** Settings -> Accounts & sync (Plan 16a). Owner-session reads (RLS), shared per request with the layout (React.cache). */
+export async function AccountsSection() {
+  await requireOwner();
+  const [accounts, sync] = await Promise.all([loadAccounts(), loadSyncStatus()]);
+  return <AccountsOverview accounts={accounts.filter((a) => a.status !== 'archived')} sync={sync} now={new Date().toISOString()} syncNow={syncNowAction} />;
+}
+```
+
+- [ ] **Step 4: Verify** — `npx vitest run tests/settings-accounts.test.tsx tests/accounts-view.test.tsx`, `npx tsc --noEmit`, `npx eslint components/settings/AccountsOverview.tsx components/settings/sections/AccountsSection.tsx tests/settings-accounts.test.tsx`. Expected: PASS, clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/settings/AccountsOverview.tsx components/settings/sections/AccountsSection.tsx tests/settings-accounts.test.tsx
+git commit -m "feat(settings): Accounts & sync overview with Sync now and Reconnect (Plan 16a)"
+```
