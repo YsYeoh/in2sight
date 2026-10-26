@@ -223,12 +223,19 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Notifications: test notification to this device, devices list with remove (code done; live verification pending — §3)
 - [x] Accounts & sync overview with Sync now / Reconnect (code done; live verification pending — §4)
 - [ ] Apply migration `20261030000001_prefs_auto_mode` (owner go-ahead, before deploying; RUNBOOK_SETTINGS §0; NOT applied: until then choosing Auto shows a save-failed toast with Retry)
-- [ ] Security section is a placeholder (email + 2FA) until Plan 16b; Data & privacy is a placeholder until Plan 16c
+- [x] Security section: password and sessions added by Plan 16b (see 6p); [ ] Data & privacy is a placeholder until Plan 16c
 - Known: the unsaved-changes guard does not cover the shell's own navigation; the devices list does not mark this device.
 
+## 6p. Security (Plan 16b)
+- [x] Change password, forgot / reset password, sign out other devices (code done on local `main`, NOT pushed; no migration; live verification pending: docs/RUNBOOK_SECURITY.md)
+- [ ] Owner prerequisites (RUNBOOK_SECURITY §0: SMTP, template, Site URL, password minimum, sign-ups off); forgot / reset cannot work before these
+- [ ] RUNBOOK_SECURITY §1–§6 walked through by the owner
+- [ ] Open questions L1, L2, L4, L8, L9 answered live (plan 2026-10-30-16b)
+- Known: no session list (Supabase has no API for it), no durable lockout and no CAPTCHA (cookie friction + Supabase limits only), no breached-password check; another device keeps working up to 1 hour after "Sign out other devices", a change or a reset.
+
 ## 6b. Next (Plan 14/15 Settings)
-- [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
-- [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)
+- [x] **Forgot / reset password** (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md) (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
+- [x] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md; no session list is possible, one "Sign out other devices" button) (owner currently changes it via the Auth admin API on request)
 
 ## 7. Later
 - [ ] (C) Weekly AI summary per account via Claude API

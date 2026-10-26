@@ -20,7 +20,7 @@ here as you go. **No secrets belong in this file** (no passwords, tokens, keys, 
 ## Accounts and login
 - [ ] Change the password that was typed in chat (Supabase dashboard -> Authentication -> Users, or your sign-in flow).
 - [ ] Supabase Auth -> URL configuration: set **Site URL** to the real domain (see [SETUP_SUPABASE.md](SETUP_SUPABASE.md)).
-- [ ] Only if/when forgot-password is built (TODO §6b): custom SMTP in Supabase plus the redirect URL. Not needed before.
+- [ ] Supabase Auth for password reset (forgot / reset is built, Plan 16b; it cannot work before this): [RUNBOOK_SECURITY §0](RUNBOOK_SECURITY.md) (custom SMTP, Reset Password template, Site URL https://in2sight.yongsen.space, password minimum 12, email limit 10 per hour, sign-ups off). Then the live checks in RUNBOOK_SECURITY §1–§6.
 - [ ] Meta deauthorize callback: check it flags an account; if not, report what id Meta sent
       ([RUNBOOK_META.md](RUNBOOK_META.md)).
 

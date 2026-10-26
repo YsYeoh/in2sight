@@ -30,4 +30,6 @@ If the Supabase URL or publishable key is missing, the app shows `/setup` listin
 
 ## Recovery
 
-Lost authenticator: remove the factor in the Supabase dashboard (*Authentication → Users → your user → factors*), then sign in with the password only and re-enable 2FA in Settings → Account. Because RLS only demands `aal2` while a verified factor exists, removing the factor also restores `aal1` access to your data.
+Lost authenticator: remove the factor in the Supabase dashboard (*Authentication → Users → your user → factors*), then sign in with the password only and re-enable 2FA in Settings → Security. Because RLS only demands `aal2` while a verified factor exists, removing the factor also restores `aal1` access to your data.
+
+Forgot password (Plan 16b): the login page's "Forgot password?" sends a recovery email; the link still needs your authenticator code. Setup and live checks: docs/RUNBOOK_SECURITY.md. Lost authenticator AND forgot password: the dashboard route above, then reset.
