@@ -1916,3 +1916,728 @@ export function CommentsHint({ a }: { a: StoredAccount }) {
 git add components/accounts/AccountParts.tsx components/accounts/AccountsView.tsx tests/account-parts.test.tsx
 git commit -m "refactor(accounts): share Identity, SyncInfo and CommentsHint (Plan 16a)"
 ```
+
+---
+
+### Task 6: Notifications pieces — explicit save for alert rules, the test button, the devices list
+
+**Files:**
+- Modify: `components/settings/AlertSettingsForm.tsx` (whole file), `components/settings/NotificationsCard.tsx` (whole file), `tests/settings-notifications.test.tsx` (whole file)
+- Create: `components/settings/DeviceList.tsx`, `tests/device-list.test.tsx`
+
+**Interfaces:** `AlertSettingsFormProps` unchanged. `NotificationsCardProps` gains optional `test?: (endpoint: string) => Promise<{ ok: boolean; error?: string }>` (the old page passes none, so it keeps working until Task 9). `DeviceListProps { devices: PushDevice[] | null; remove: (id: number) => Promise<{ ok: boolean; error?: string }> }`. Uses Task 3's `SaveBar` and Task 4's `PushDevice` TYPE only (no runtime import of the actions).
+
+- [ ] **Step 1: Tests.** Replace `tests/settings-notifications.test.tsx` with the version below (unchanged cases kept verbatim; changed: "a failed save shows an error and keeps the changes" now changes a field first because Save is disabled while clean; new: clean / dirty / Discard / beforeunload cases and three test-button cases):
+
+```tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { AlertSettingsForm, type AlertSettingsFormProps } from '@/components/settings/AlertSettingsForm';
+import { NotificationsCard, type NotificationsCardProps } from '@/components/settings/NotificationsCard';
+import { DEFAULT_ALERT_SETTINGS, parseAlertSettings } from '@/lib/alerts/settings';
+
+// jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
+const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
+const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
+const NAV_PROPS = ['serviceWorker', 'userAgent', 'platform', 'maxTouchPoints'];
+beforeEach(() => {
+  Object.assign(Element.prototype, DOM_STUBS);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  for (const k of NAV_PROPS) delete (navigator as unknown as Record<string, unknown>)[k]; // own props shadowing jsdom's getters
+});
+afterAll(() => {
+  for (const [k, d] of originals) {
+    if (d) Object.defineProperty(Element.prototype, k, d);
+    else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+  }
+});
+
+const setNav = (k: string, value: unknown) => Object.defineProperty(navigator, k, { value, configurable: true });
+const KEY = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U';
+const JSON_SUB = { endpoint: 'https://push.example/1', expirationTime: null, keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) } };
+
+/** A browser with service workers, PushManager and Notification, all faked. */
+function browser(o: { permission?: NotificationPermission; prompt?: NotificationPermission; subscribed?: boolean } = {}) {
+  const sub = { endpoint: JSON_SUB.endpoint, toJSON: () => JSON_SUB, unsubscribe: vi.fn(async () => true) };
+  let current = o.subscribed ? sub : null;
+  const pushManager = { getSubscription: vi.fn(async () => current), subscribe: vi.fn(async () => ((current = sub), sub)) };
+  const reg = { pushManager };
+  const sw = { getRegistration: vi.fn(async () => reg), register: vi.fn(async () => reg), ready: Promise.resolve(reg) };
+  const N = { permission: o.permission ?? 'default', requestPermission: vi.fn(async () => o.prompt ?? 'granted') };
+  setNav('serviceWorker', sw);
+  vi.stubGlobal('PushManager', function PushManager() {});
+  vi.stubGlobal('Notification', N);
+  return { sub, sw, pushManager, N };
+}
+
+function card(o: Partial<NotificationsCardProps> = {}) {
+  const props: NotificationsCardProps = { vapidPublicKey: KEY, swEnabled: true, save: vi.fn(async () => ({ ok: true })), remove: vi.fn(async () => ({ ok: true })), ...o };
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <NotificationsCard {...props} />
+    </NextIntlClientProvider>,
+  );
+  return props;
+}
+const M = en.settings.notifications;
+
+describe('NotificationsCard', () => {
+  it('never asks for permission on its own; enabling subscribes with the VAPID key and stores the subscription', async () => {
+    const b = browser();
+    const p = card();
+    const button = await screen.findByRole('button', { name: M.enable });
+    expect(b.N.requestPermission).not.toHaveBeenCalled();
+    await userEvent.click(button);
+    expect(b.N.requestPermission).toHaveBeenCalledOnce();
+    expect(b.pushManager.subscribe).toHaveBeenCalledWith({ userVisibleOnly: true, applicationServerKey: expect.any(Uint8Array) });
+    expect((b.pushManager.subscribe.mock.calls[0] as unknown as [{ applicationServerKey: Uint8Array }])[0].applicationServerKey).toHaveLength(65);
+    expect(p.save).toHaveBeenCalledWith(JSON_SUB, navigator.userAgent);
+    expect(await screen.findByText(M.on)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: M.disable })).toBeInTheDocument();
+  });
+
+  it('the user denies the prompt: blocked message, nothing subscribed or stored', async () => {
+    const b = browser({ prompt: 'denied' });
+    const p = card();
+    await userEvent.click(await screen.findByRole('button', { name: M.enable }));
+    expect(await screen.findByText(M.denied)).toBeInTheDocument();
+    expect(b.pushManager.subscribe).not.toHaveBeenCalled();
+    expect(p.save).not.toHaveBeenCalled();
+  });
+
+  it('the user dismisses the prompt: stays off, the button is still there', async () => {
+    browser({ prompt: 'default' });
+    card();
+    await userEvent.click(await screen.findByRole('button', { name: M.enable }));
+    expect(await screen.findByRole('button', { name: M.enable })).toBeEnabled();
+  });
+
+  it('permission already blocked: explains how to unblock, no button', async () => {
+    browser({ permission: 'denied' });
+    card();
+    expect(await screen.findByText(M.denied)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: M.enable })).toBeNull();
+  });
+
+  it('saving fails: the fresh browser subscription is removed again and an error shows', async () => {
+    const b = browser();
+    card({ save: vi.fn(async () => ({ ok: false })) });
+    await userEvent.click(await screen.findByRole('button', { name: M.enable }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.error);
+    expect(b.sub.unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('already subscribed: turning off deletes the stored endpoint and unsubscribes', async () => {
+    const b = browser({ subscribed: true });
+    const p = card();
+    await userEvent.click(await screen.findByRole('button', { name: M.disable }));
+    expect(p.remove).toHaveBeenCalledWith(JSON_SUB.endpoint);
+    expect(b.sub.unsubscribe).toHaveBeenCalledOnce();
+    expect(await screen.findByRole('button', { name: M.enable })).toBeInTheDocument();
+  });
+
+  it('turning off when the server refuses keeps the device subscribed and shows an error', async () => {
+    const b = browser({ subscribed: true });
+    card({ remove: vi.fn(async () => ({ ok: false })) });
+    await userEvent.click(await screen.findByRole('button', { name: M.disable }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.error);
+    expect(b.sub.unsubscribe).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: M.disable })).toBeInTheDocument();
+  });
+
+  it('a service worker is registered on demand when none exists yet', async () => {
+    const b = browser();
+    b.sw.getRegistration.mockResolvedValueOnce(undefined as never).mockResolvedValueOnce(undefined as never);
+    card();
+    await userEvent.click(await screen.findByRole('button', { name: M.enable }));
+    await waitFor(() => expect(b.sw.register).toHaveBeenCalledWith('/sw.js'));
+  });
+
+  it('development build (service worker off): explains it, no button, nothing registered', async () => {
+    const b = browser();
+    card({ swEnabled: false });
+    expect(await screen.findByText(M.devOnly)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: M.enable })).toBeNull();
+    expect(b.sw.register).not.toHaveBeenCalled();
+    expect(b.N.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('unsupported browser: says so, no button', async () => {
+    card();
+    expect(await screen.findByText(M.unsupported)).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('iPhone Safari without the installed app: Home Screen hint instead', async () => {
+    setNav('userAgent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1');
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    card();
+    expect(await screen.findByText(M.iosInstall)).toBeInTheDocument();
+  });
+
+  it('push on: "Send a test notification" sends to THIS endpoint and says it was sent', async () => {
+    browser({ subscribed: true });
+    const test = vi.fn(async () => ({ ok: true }));
+    card({ test });
+    await userEvent.click(await screen.findByRole('button', { name: M.testSend }));
+    expect(test).toHaveBeenCalledWith(JSON_SUB.endpoint);
+    expect(await screen.findByRole('status')).toHaveTextContent(M.testSent);
+  });
+
+  it('a refused test shows the translated reason; an unknown key falls back to unexpected', async () => {
+    browser({ subscribed: true });
+    const test = vi.fn().mockResolvedValueOnce({ ok: false, error: 'gone' }).mockResolvedValueOnce({ ok: false, error: 'weird' });
+    card({ test });
+    const button = await screen.findByRole('button', { name: M.testSend });
+    await userEvent.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.testErrors.gone);
+    await userEvent.click(button);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(M.testErrors.unexpected));
+  });
+
+  it('no test prop: no test button (push off shows none either)', async () => {
+    browser({ subscribed: true });
+    card();
+    await screen.findByRole('button', { name: M.disable });
+    expect(screen.queryByRole('button', { name: M.testSend })).toBeNull();
+  });
+
+  it('no VAPID key on the server: not-configured note', async () => {
+    browser();
+    card({ vapidPublicKey: null });
+    expect(await screen.findByText(M.notConfigured)).toBeInTheDocument();
+  });
+});
+
+describe('AlertSettingsForm', () => {
+  function form(o: Partial<AlertSettingsFormProps> = {}) {
+    const props: AlertSettingsFormProps = { initial: DEFAULT_ALERT_SETTINGS, save: vi.fn(async (raw: unknown) => ({ ok: true as const, settings: { ...DEFAULT_ALERT_SETTINGS, ...(raw as object), syncFailures: 3 } })), ...o };
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <AlertSettingsForm {...props} />
+      </NextIntlClientProvider>,
+    );
+    return props;
+  }
+
+  it('one labelled switch per alert type with the SPEC defaults (taking off off)', () => {
+    form();
+    expect(screen.getByRole('switch', { name: en.notifications.kinds.needs_reconnect.title })).toBeChecked();
+    expect(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title })).not.toBeChecked();
+    expect(screen.getByLabelText(M.reachDropPct)).toHaveValue(20);
+  });
+
+  it('saves toggles and thresholds, then shows what the server stored', async () => {
+    const p = form();
+    await userEvent.click(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title }));
+    const pct = screen.getByLabelText(M.reachDropPct);
+    await userEvent.clear(pct);
+    await userEvent.type(pct, '35');
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(p.save).toHaveBeenCalledWith(expect.objectContaining({ push: expect.objectContaining({ taking_off: true }), reachDropPct: '35', takingOffRatio: '2', syncFailures: '2' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(M.saved);
+    expect(screen.getByLabelText(M.syncFailures)).toHaveValue(3); // the server's normalised value wins
+  });
+
+  it('an emptied number field is saved as the default, not the minimum', async () => {
+    const p = form({ initial: { ...DEFAULT_ALERT_SETTINGS, reachDropPct: 50 }, save: vi.fn(async (raw: unknown) => ({ ok: true as const, settings: parseAlertSettings(raw) })) });
+    const pct = screen.getByLabelText(M.reachDropPct);
+    await userEvent.clear(pct);
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(p.save).toHaveBeenCalledWith(expect.objectContaining({ reachDropPct: '' }));
+    await waitFor(() => expect(pct).toHaveValue(DEFAULT_ALERT_SETTINGS.reachDropPct));
+  });
+
+  it('out-of-range numbers are stopped by the browser (min/max) before reaching the server', async () => {
+    const p = form();
+    const pct = screen.getByLabelText(M.reachDropPct);
+    expect(pct).toHaveAttribute('min', '5');
+    expect(pct).toHaveAttribute('max', '90');
+    await userEvent.clear(pct);
+    await userEvent.type(pct, '500');
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(p.save).not.toHaveBeenCalled();
+  });
+
+  it('a failed save shows an error and keeps the changes', async () => {
+    form({ save: vi.fn(async () => ({ ok: false as const, error: 'unexpected' })) });
+    await userEvent.click(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.saveError);
+    expect(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title })).toBeChecked();
+  });
+
+  it('Save is disabled until something changes; changing it back makes it clean again', async () => {
+    form();
+    const save = screen.getByRole('button', { name: en.common.save });
+    expect(save).toBeDisabled();
+    const sw = screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title });
+    await userEvent.click(sw);
+    expect(save).toBeEnabled();
+    expect(screen.getByText(en.settings.unsaved.bar)).toBeInTheDocument();
+    await userEvent.click(sw);
+    expect(save).toBeDisabled();
+  });
+
+  it('Discard restores the stored values without saving', async () => {
+    const p = form();
+    const pct = screen.getByLabelText(M.reachDropPct);
+    await userEvent.clear(pct);
+    await userEvent.type(pct, '40');
+    await userEvent.click(screen.getByRole('button', { name: en.settings.unsaved.discard }));
+    expect(pct).toHaveValue(20);
+    expect(p.save).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: en.common.save })).toBeDisabled();
+  });
+
+  it('while there are unsaved changes, leaving the page asks first', async () => {
+    form();
+    await userEvent.click(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title }));
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+});
+```
+
+Create `tests/device-list.test.tsx`:
+
+```tsx
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+
+const refresh = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
+
+import { DeviceList, type DeviceListProps } from '@/components/settings/DeviceList';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const M = en.settings.notifications;
+const DEVICES = [
+  { id: 7, label: 'Chrome · Windows', createdAt: '2026-10-12T08:00:00Z' },
+  { id: 3, label: null, createdAt: '2026-10-01T08:00:00Z' },
+];
+
+function list(o: Partial<DeviceListProps> = {}) {
+  const props: DeviceListProps = { devices: DEVICES, remove: vi.fn(async () => ({ ok: true })), ...o };
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <DeviceList {...props} />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return props;
+}
+
+beforeEach(() => refresh.mockReset());
+
+describe('DeviceList', () => {
+  it('one row per device: its label (or Unknown device) and the date it was added', () => {
+    list();
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(within(items[0]).getByText('Chrome · Windows')).toBeInTheDocument();
+    expect(within(items[0]).getByText('Added 12 Oct 2026')).toBeInTheDocument();
+    expect(within(items[1]).getByText(M.devicesUnknown)).toBeInTheDocument();
+    expect(screen.getByText(M.devicesHint)).toBeInTheDocument();
+  });
+
+  it('empty and failed reads say so (a failed read is not "no devices")', () => {
+    list({ devices: [] });
+    expect(screen.getByText(M.devicesEmpty)).toBeInTheDocument();
+  });
+
+  it('a failed read is an alert', () => {
+    list({ devices: null });
+    expect(screen.getByRole('alert')).toHaveTextContent(M.devicesLoadError);
+  });
+
+  it('Remove asks first, then removes by id and refreshes', async () => {
+    const p = list();
+    await userEvent.click(within(screen.getAllByRole('listitem')[0]).getByRole('button', { name: M.devicesRemove }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Remove Chrome · Windows?')).toBeInTheDocument();
+    expect(p.remove).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole('button', { name: M.devicesRemove }));
+    expect(p.remove).toHaveBeenCalledWith(7);
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  });
+
+  it('a refused remove keeps the dialog open with the error', async () => {
+    list({ remove: vi.fn(async () => ({ ok: false, error: 'unexpected' })) });
+    await userEvent.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: M.devicesRemove }));
+    const dialog = await screen.findByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: M.devicesRemove }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(M.devicesError);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
+```
+
+Run: `npx vitest run tests/settings-notifications.test.tsx tests/device-list.test.tsx` — Expected: FAIL (no Discard / disabled Save, no test button, `DeviceList` missing).
+
+- [ ] **Step 2: `components/settings/AlertSettingsForm.tsx`** — replace the whole file:
+
+```tsx
+'use client';
+
+import { useState, useTransition } from 'react';
+import { useTranslations } from 'next-intl';
+import { SaveBar } from '@/components/settings/SaveBar';
+import { FormField } from '@/components/shared/FormField';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { ALERT_KINDS, LIMITS, type AlertSettings } from '@/lib/alerts/settings';
+
+export interface AlertSettingsFormProps {
+  initial: AlertSettings;
+  save: (raw: unknown) => Promise<{ ok: true; settings: AlertSettings } | { ok: false; error: string }>;
+}
+
+const NUMBERS = ['reachDropPct', 'takingOffRatio', 'syncFailures'] as const;
+type Nums = Record<(typeof NUMBERS)[number], string>;
+
+// numbers are kept and sent as typed text; the server parses them (empty = the default), clamps and returns what it stored
+const numsOf = (s: AlertSettings): Nums => Object.fromEntries(NUMBERS.map((k) => [k, String(s[k])])) as Nums;
+
+/** Explicit save (Plan 16a): dirty = differs from what the server last stored; the sticky SaveBar saves or discards. */
+export function AlertSettingsForm({ initial, save }: AlertSettingsFormProps) {
+  const t = useTranslations('settings.notifications');
+  const tk = useTranslations('notifications.kinds');
+  const [stored, setStored] = useState(initial);
+  const [push, setPush] = useState(initial.push);
+  const [nums, setNums] = useState(() => numsOf(initial));
+  const [result, setResult] = useState<'saved' | 'error' | null>(null);
+  const [pending, start] = useTransition();
+  const dirty = JSON.stringify({ push, nums }) !== JSON.stringify({ push: stored.push, nums: numsOf(stored) });
+
+  const reset = (s: AlertSettings) => {
+    setPush(s.push);
+    setNums(numsOf(s));
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    start(async () => {
+      const r = await save({ push, ...nums });
+      if (!r.ok) return setResult('error');
+      setStored(r.settings);
+      reset(r.settings); // the server's normalised values win
+      setResult('saved');
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('rulesTitle')}</CardTitle>
+        <CardDescription>{t('rulesDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={submit} className="flex flex-col gap-[var(--gp)]">
+          <fieldset className="flex flex-col gap-3">
+            <legend className="mb-2 text-sm font-medium">{t('pushFor')}</legend>
+            {ALERT_KINDS.map((k) => (
+              <FormField key={k} id={`push-${k}`} label={tk(`${k}.title`)} className="flex-row items-center justify-between gap-3">
+                {(p) => <Switch {...p} checked={push[k]} onCheckedChange={(v) => setPush((s) => ({ ...s, [k]: v }))} />}
+              </FormField>
+            ))}
+          </fieldset>
+          <div className="grid gap-[var(--gp)] md:grid-cols-3">
+            {NUMBERS.map((k) => (
+              <FormField key={k} id={`alert-${k}`} label={t(k)} hint={t(`${k}Hint`)}>
+                {(p) => <Input {...p} type="number" inputMode="decimal" min={LIMITS[k][0]} max={LIMITS[k][1]} step={LIMITS[k][2] ? 0.1 : 1} value={nums[k]} onChange={(e) => setNums((s) => ({ ...s, [k]: e.target.value }))} />}
+              </FormField>
+            ))}
+          </div>
+          <SaveBar dirty={dirty} pending={pending} result={result} error={t('saveError')} saved={t('saved')} onDiscard={() => reset(stored)} />
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+- [ ] **Step 3: `components/settings/NotificationsCard.tsx`** — replace the whole file (changes: the `test` prop and `TEST_ERRORS`, `sendTest`, the "on" row with both buttons in one default-size row, the test result lines; everything else verbatim):
+
+```tsx
+'use client';
+
+import { useEffect, useState, useTransition } from 'react';
+import { useTranslations } from 'next-intl';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { vapidKeyBytes } from '@/lib/push/subscription';
+import { isIos, isStandalone } from '@/lib/pwa';
+
+type Result = { ok: boolean };
+type Status = 'checking' | 'dev-only' | 'unsupported' | 'ios-install' | 'not-configured' | 'denied' | 'off' | 'on';
+
+export interface NotificationsCardProps {
+  vapidPublicKey: string | null;
+  /** Same production-only flag as <ServiceWorker>: in dev the worker is never registered, so push can't work. */
+  swEnabled: boolean;
+  save: (subscription: unknown, userAgent: string) => Promise<Result>;
+  remove: (endpoint: string) => Promise<Result>;
+  /** "Send a test notification" to this device (Plan 16a); omitted = no button */
+  test?: (endpoint: string) => Promise<{ ok: boolean; error?: string }>;
+}
+
+const TEST_ERRORS = ['not_configured', 'gone', 'failed', 'invalid', 'unexpected'] as const;
+
+export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove, test }: NotificationsCardProps) {
+  const t = useTranslations('settings.notifications');
+  const [status, setStatus] = useState<Status>('checking');
+  const [error, setError] = useState(false);
+  const [pending, start] = useTransition();
+  const [testing, startTest] = useTransition();
+  const [tested, setTested] = useState<{ ok: true } | { ok: false; key: (typeof TEST_ERRORS)[number] } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const set = (s: Status) => alive && setStatus(s);
+    (async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return set(isIos() && !isStandalone() ? 'ios-install' : 'unsupported');
+      if (!swEnabled) return set('dev-only');
+      if (!vapidPublicKey) return set('not-configured');
+      if (Notification.permission === 'denied') return set('denied');
+      const reg = await navigator.serviceWorker.getRegistration();
+      set((await reg?.pushManager.getSubscription()) ? 'on' : 'off');
+    })().catch(() => set('off'));
+    return () => {
+      alive = false;
+    };
+  }, [vapidPublicKey, swEnabled]);
+
+  // permission is requested ONLY here, from the explicit button (SPEC §7c)
+  const enable = () =>
+    start(async () => {
+      setError(false);
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return setStatus(permission === 'denied' ? 'denied' : 'off');
+        if (!(await navigator.serviceWorker.getRegistration())) await navigator.serviceWorker.register('/sw.js');
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKeyBytes(vapidPublicKey!) });
+        const r = await save(sub.toJSON(), navigator.userAgent);
+        if (!r.ok) {
+          await sub.unsubscribe().catch(() => false); // not stored: don't leave a subscription nobody sends to
+          return setError(true);
+        }
+        setStatus('on');
+      } catch {
+        setError(true);
+      }
+    });
+
+  const sendTest = () =>
+    startTest(async () => {
+      setTested(null);
+      try {
+        const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+        if (!sub || !test) return setTested({ ok: false, key: 'invalid' });
+        const r = await test(sub.endpoint);
+        const key = (TEST_ERRORS as readonly string[]).includes(r.error ?? '') ? (r.error as (typeof TEST_ERRORS)[number]) : 'unexpected';
+        setTested(r.ok ? { ok: true } : { ok: false, key });
+      } catch {
+        setTested({ ok: false, key: 'unexpected' });
+      }
+    });
+
+  const disable = () =>
+    start(async () => {
+      setError(false);
+      setTested(null);
+      try {
+        const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+        if (sub) {
+          if (!(await remove(sub.endpoint)).ok) return setError(true); // keep the browser subscription so both sides still agree
+          await sub.unsubscribe();
+        }
+        setStatus('off');
+      } catch {
+        setError(true);
+      }
+    });
+
+  const note = (key: 'checking' | 'devOnly' | 'unsupported' | 'iosInstall' | 'notConfigured' | 'denied') => <p className="text-sm text-muted-foreground">{t(key)}</p>;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          {t('pushTitle')}
+          {status === 'on' ? <Badge variant="secondary">{t('on')}</Badge> : null}
+        </CardTitle>
+        <CardDescription>{t('pushDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-[var(--gp)]">
+        {status === 'checking' ? note('checking') : null}
+        {status === 'dev-only' ? note('devOnly') : null}
+        {status === 'unsupported' ? note('unsupported') : null}
+        {status === 'ios-install' ? note('iosInstall') : null}
+        {status === 'not-configured' ? note('notConfigured') : null}
+        {status === 'denied' ? note('denied') : null}
+        {status === 'off' ? (
+          <div className="flex flex-col items-start gap-1.5">
+            <LoadingButton onClick={enable} pending={pending}>
+              {t('enable')}
+            </LoadingButton>
+            <p className="text-xs text-muted-foreground">{t('enableHint')}</p>
+          </div>
+        ) : null}
+        {status === 'on' ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <LoadingButton variant="outline" onClick={disable} pending={pending} disabled={testing}>
+              {t('disable')}
+            </LoadingButton>
+            {test ? (
+              <LoadingButton variant="outline" onClick={sendTest} pending={testing} disabled={pending}>
+                {t('testSend')}
+              </LoadingButton>
+            ) : null}
+          </div>
+        ) : null}
+        {tested?.ok ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t('testSent')}
+          </p>
+        ) : null}
+        {tested && !tested.ok ? (
+          <p role="alert" className="text-sm text-destructive">
+            {t(`testErrors.${tested.key}`)}
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {t('error')}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+- [ ] **Step 4: `components/settings/DeviceList.tsx`**
+
+```tsx
+'use client';
+
+import { useState } from 'react';
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDate } from '@/lib/format';
+import type { PushDevice } from '@/lib/push/devices';
+
+export interface DeviceListProps {
+  /** null = the list could not be read */
+  devices: PushDevice[] | null;
+  remove: (id: number) => Promise<{ ok: boolean; error?: string }>;
+}
+
+/** Every device that gets push (Plan 16a). Remove asks first; the list refreshes from the server afterwards. */
+export function DeviceList({ devices, remove }: DeviceListProps) {
+  const t = useTranslations('settings.notifications');
+  const tc = useTranslations('common');
+  const { prefs } = usePrefs();
+  const router = useRouter();
+  const [pick, setPick] = useState<PushDevice | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = (d: PushDevice) => d.label ?? t('devicesUnknown');
+
+  const confirm = async () => {
+    if (!pick) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await remove(pick.id);
+      if (!r.ok) return setError(t('devicesError'));
+      setPick(null);
+      router.refresh();
+    } catch (e) {
+      if (isRedirectError(e)) throw e;
+      setError(t('devicesError'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('devicesTitle')}</CardTitle>
+        <CardDescription>{t('devicesDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {devices === null ? (
+          <p role="alert" className="text-sm text-destructive">
+            {t('devicesLoadError')}
+          </p>
+        ) : devices.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('devicesEmpty')}</p>
+        ) : (
+          <ul className="divide-y divide-border rounded-md border border-border">
+            {devices.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{name(d)}</p>
+                  <p className="text-xs text-muted-foreground">{t('devicesAdded', { date: formatDate(d.createdAt, prefs) })}</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => (setError(null), setPick(d))}>
+                  {t('devicesRemove')}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-muted-foreground">{t('devicesHint')}</p>
+      </CardContent>
+      {pick ? (
+        <ConfirmDialog
+          open
+          title={t('devicesRemoveTitle', { device: name(pick) })}
+          body={t('devicesRemoveBody')}
+          confirmLabel={t('devicesRemove')}
+          cancelLabel={tc('cancel')}
+          busy={busy}
+          error={error}
+          onConfirm={() => void confirm()}
+          onClose={() => setPick(null)}
+        />
+      ) : null}
+    </Card>
+  );
+}
+```
+
+(`size="sm"` on Remove is allowed: a button inside a list row, rule 5.)
+
+- [ ] **Step 5: Verify** — `npx vitest run tests/settings-notifications.test.tsx tests/device-list.test.tsx tests/settings-save-bar.test.tsx`, `npx tsc --noEmit`, `npx eslint components/settings/AlertSettingsForm.tsx components/settings/NotificationsCard.tsx components/settings/DeviceList.tsx tests/settings-notifications.test.tsx tests/device-list.test.tsx`. Expected: PASS, clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add components/settings/AlertSettingsForm.tsx components/settings/NotificationsCard.tsx components/settings/DeviceList.tsx tests/settings-notifications.test.tsx tests/device-list.test.tsx
+git commit -m "feat(settings): alert rules save explicitly with a save bar; test notification; devices list (Plan 16a)"
+```
