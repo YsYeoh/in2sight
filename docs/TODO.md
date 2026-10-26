@@ -201,9 +201,20 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6m. Comment insights (Plan 15c, read-only)
 - [x] Migration `20261029000001_comment_insights.sql` (`comment_list`, `comment_fans`, `comment_outsiders`, comments policy InitPlan) _(written and tested; NOT applied to the live database — owner go-ahead, BEFORE deploying, docs/RUNBOOK_COMMENTS.md §0; it also rewrites the existing `comments_owner_select` policy into InitPlan form)_
-- [x] Comments tab (Overview, Growth, Posts, Stories, Comments, Followers): All comments with search / comment date / post / show only and server pages, Unanswered questions, Fans (top, new, gone quiet), Topics (en + zh, no AI), Not following you (newest follower export); "Reconnect to enable comments" without the scope _(code done on local `main`, NOT pushed; NOT verified live)_
+- [x] Comments tab (Overview, Growth, Posts, Stories, Comments, Followers; Plan 15d later put Moderation between Comments and Followers): All comments with search / comment date / post / show only and server pages, Unanswered questions, Fans (top, new, gone quiet), Topics (en + zh, no AI), Not following you (newest follower export); "Reconnect to enable comments" without the scope _(code done on local `main`, NOT pushed; NOT verified live)_
 - [ ] Owner: apply the migration (runbook §0); Reconnect each account once (§1); a real comment from another account (§2, gate); views, layout, privacy, speed (§3–§6); confirm the plan's open questions (fifth tab before Followers, fan rules, derived "reply seen", no export, question words, topics from the newest 1,000)
-- [ ] Plan 15d (moderation; plan written in `docs/superpowers/plans/2026-10-29-15d-comment-moderation.md`, NOT built): reply / hide / delete, banned words + spam auto-hide with undo log; read thread replies and the hidden flag (makes "Unanswered questions" exact)
+- [x] Plan 15d (moderation) is built: see 6n. Still open: read thread replies and the hidden flag (makes "Unanswered questions" exact; a small follow-up plan after probe P5, NOT in 15d)
+
+## 6n. Comment moderation (Plan 15d)
+- [x] Migration `20261029000002_comment_moderation.sql` (code done; NOT applied: owner go-ahead, after or together with `20261029000001`, BEFORE deploying; RUNBOOK_MODERATION §0)
+- [x] Meta write client + error keys; service (log first, double-submit guard, wrong-account guard); server actions _(code done on local `main`, NOT pushed; nothing has ever been sent to Instagram)_
+- [x] Rules (words + 4 spam patterns), preview, auto-hide pass in the tick (capped, idempotent, pauses; OFF by default), `moderation_paused` alert
+- [x] Comment row menu (reply / hide / unhide / delete), Moderation tab (auto-hide, rules, log with Undo and pages); tab order Overview, Growth, Posts, Stories, Comments, Moderation, Followers
+- [ ] Owner: apply the migration (15c's first or together); Reconnect each account once for the comments scope
+- [ ] Live probes P1–P8 on a throwaway comment of the owner's own test post (RUNBOOK_MODERATION §1) — BEFORE switching auto-hide on; this WRITES to the real Instagram account
+- [ ] Layout, rules/auto-hide and privacy checks (RUNBOOK_MODERATION §2–§5)
+- [ ] Watch the tick duration after auto-hide is on (35 s sync + 10 s alerts + up to 5 s auto-hide of a 60 s route limit; Server-Timing / `sync_runs` durations, RUNBOOK_MODERATION §4)
+- Known: hides done in the Instagram app are not seen (P5); no Simplified/Traditional folding; auto-hide only sees stored comments (last 30 days of posts).
 
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
