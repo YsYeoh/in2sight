@@ -5,6 +5,7 @@ import { EllipsisVertical, Plus, Users } from 'lucide-react';
 import { isRedirectError } from 'next/dist/client/components/redirect-error';
 import { useTranslations } from 'next-intl';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { CommentsHint, Identity, SyncInfo } from '@/components/accounts/AccountParts';
 import { connectHref, ConnectDialog } from '@/components/accounts/ConnectDialog';
 import { GroupDialog } from '@/components/accounts/GroupDialog';
 import { StatusBadge } from '@/components/accounts/StatusBadge';
@@ -17,17 +18,15 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { InsightOrb } from '@/components/shared/InsightOrb';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Alert } from '@/components/ui/alert';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { normalizeGroup } from '@/lib/accounts/group';
-import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import { tokenStatus } from '@/lib/accounts/token-status';
 import type { StoredAccount } from '@/lib/accounts/types';
-import { formatDate, formatDateTime, formatNumber } from '@/lib/format';
+import { formatDate, formatNumber } from '@/lib/format';
 import type { AccountProgress } from '@/lib/sync/progress';
 import type { SyncStatus } from '@/lib/sync/store';
 
@@ -55,46 +54,6 @@ interface RowProps {
   onEditGroup: (a: StoredAccount) => void;
   onArchive: (a: StoredAccount) => void;
   onSyncNow: (a: StoredAccount) => void;
-}
-
-// "last synced" plus the latest error, translated from the key the sync stored
-function SyncInfo({ s }: { s?: SyncStatus }) {
-  const t = useTranslations('accounts');
-  const tErr = useTranslations('accounts.errors');
-  const { prefs } = usePrefs();
-  const err = s?.lastErrorKey && s.consecutiveFailures > 0 ? s.lastErrorKey : null;
-  return (
-    <div className="grid min-w-0 gap-0.5">
-      <span>{s?.lastSuccessAt ? formatDateTime(s.lastSuccessAt, prefs) : t('sync.never')}</span>
-      {err ? <span className="text-xs text-destructive">{tErr.has(err) ? tErr(err) : tErr('unexpected')}</span> : null}
-    </div>
-  );
-}
-
-function Identity({ a }: { a: StoredAccount }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <Avatar>
-        <AvatarFallback>{[...a.username][0]?.toUpperCase()}</AvatarFallback>
-      </Avatar>
-      <div className="min-w-0">
-        <p className="truncate font-medium">@{a.username}</p>
-        {a.displayName ? <p className="truncate text-xs text-muted-foreground">{a.displayName}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-// an active account whose token lacks the comments scope (connected before it was requested, or declined): one
-// Reconnect grants it. Needs-reconnect accounts already say "Reconnect"; archived ones are not synced.
-function CommentsHint({ a }: { a: StoredAccount }) {
-  const t = useTranslations('accounts');
-  if (a.status !== 'active' || hasScope(a, COMMENTS_SCOPE)) return null;
-  return (
-    <a href={connectHref(a.groupName)} target="_top" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
-      {t('commentsHint')}
-    </a>
-  );
 }
 
 function GroupBadge({ name }: { name: string | null }) {
