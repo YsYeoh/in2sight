@@ -103,7 +103,7 @@ describe('persistPrefsToProfile', () => {
   it('upserts the row for the signed-in user through the user-session client, stamping updated_at', async () => {
     const f = fakeClient();
     createServerSupabase.mockResolvedValue(f.client);
-    await persistPrefsToProfile(custom, ['theme']);
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(true);
     expect(f.upserts).toHaveLength(1);
     expect(Object.keys(f.upserts[0] as object).sort()).toEqual(['theme', 'updated_at', 'user_id']);
     expect(f.upserts[0]).toMatchObject({ user_id: 'u1', theme: 'forest' });
@@ -121,14 +121,14 @@ describe('persistPrefsToProfile', () => {
   it('writes nothing when the patch had no preference keys', async () => {
     const f = fakeClient();
     createServerSupabase.mockResolvedValue(f.client);
-    await persistPrefsToProfile(custom, []);
+    await expect(persistPrefsToProfile(custom, [])).resolves.toBe(true);
     expect(f.upserts).toEqual([]);
     expect(createServerSupabase).not.toHaveBeenCalled();
   });
 
   it('is a no-op when Supabase is not configured (no client is even created)', async () => {
     configured.mockReturnValue(false);
-    await persistPrefsToProfile(custom, ['theme']);
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(true);
     expect(createServerSupabase).not.toHaveBeenCalled();
   });
 
@@ -136,15 +136,15 @@ describe('persistPrefsToProfile', () => {
     const f = fakeClient();
     createServerSupabase.mockResolvedValue(f.client);
     getSessionInfo.mockResolvedValue({ ...session, signedIn: false, userId: null });
-    await persistPrefsToProfile(custom, ['theme']);
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(true);
     expect(f.upserts).toEqual([]);
   });
 
   it('never throws, even if the client cannot be created or the write fails', async () => {
     createServerSupabase.mockRejectedValue(new Error('no env'));
-    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBeUndefined();
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(false);
     createServerSupabase.mockResolvedValue(fakeClient({ writeError: true }).client);
-    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBeUndefined();
+    await expect(persistPrefsToProfile(custom, ['theme'])).resolves.toBe(false);
     expect(JSON.stringify((console.error as unknown as { mock: { calls: unknown[] } }).mock.calls)).not.toContain('secret-token');
   });
 });

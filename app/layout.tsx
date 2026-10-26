@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { PrefsSaveNotice } from '@/components/providers/PrefsSaveNotice';
 import { ServiceWorker } from '@/components/pwa/ServiceWorker';
 import { FrameBreakout } from '@/components/shared/FrameBreakout';
 import { NavigationProgress } from '@/components/shared/NavigationProgress';
@@ -44,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <FrameBreakout />
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster position="bottom-right" />
+            <PrefsSaveNotice />
             <ServiceWorker enabled={process.env.NODE_ENV === 'production'} />
           </PrefsProvider>
         </NextIntlClientProvider>
