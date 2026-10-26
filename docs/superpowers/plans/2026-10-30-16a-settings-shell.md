@@ -24,7 +24,7 @@
 - **Unsaved-changes guard (deliberately small):** while a form is dirty, (1) `beforeunload` asks before a reload or closing the window, and (2) the settings section nav (list links and the phone select) asks `window.confirm("Leave without saving? Your changes to this section will be lost.")`. Not guarded (documented in the runbook): the shell's sidebar / tab strip / bottom bar (they navigate the frame by message), closing a tab in the strip, browser Back. A module-level counter in `components/settings/unsaved.ts`, no context, no router patching.
 - **Appearance:** four grouped cards on the left (Theme: Ink / Sunset / Forest / Mono; Mode: Light / Dark / Auto; Density: Dense / Comfortable; Corners: Sharp / Soft / Round), each a `Segmented` control with a one-line hint; on the right (`lg`, stacked below on smaller screens) a **live preview card** that shows real pieces in the current tokens: a heading and body text, a KPI ("Reach 12,480 · +8.2%" through `lib/format.ts`), a primary and an outline button, a badge, an input, and a six-bar strip in `--chart-1..6`. The whole app re-themes instantly anyway; the preview shows the controls side by side without leaving Settings. Theme names are proper nouns and stay untranslated (as in `PrefsBar`).
 - ⚠ **"Auto" mode (follow the device's light/dark setting) is in this plan** because the approved spec lists it. It needs the plan's ONLY migration, `20261030000001_prefs_auto_mode.sql` (the `profiles.mode` CHECK list gains `'auto'`), applied BEFORE deploying (until then choosing Auto works on the device but the save toast says it failed, with Retry — visible, not silent). The server cannot know the device's scheme, so the page is rendered `data-mode="light"` plus `data-mode-auto="true"`, a 3-line inline script in `<head>` switches to `dark` before first paint when `prefers-color-scheme: dark` matches, and `PrefsProvider` follows later changes of the device setting. `matchMedia` is used for the COLOUR SCHEME only (the "no matchMedia" rule is about layout). The header's moon/sun toggle flips the mode that is SHOWN (Auto showing dark → Light). Task 10 is self-contained and can be dropped without touching the other tasks (Open question 1).
-- **Language & formats:** Language (`Segmented`: English / 简体中文; hint "The app reloads in the new language"), Formats card (Date format = a `Select` whose options are the sample date rendered in each format; Time format = `Segmented` with samples "21:30" / "9:30 PM"; Number format = `Select` with "1,234,567.89" rendered per format; Week starts on = `Segmented` Monday / Sunday), Timezone card (`Select` of `withCurrentZone(...)` plus the plain explanation: "Your days start at midnight in this timezone. It changes where each day begins and ends in every chart, list and alert."), and a **live sample** line under the cards: "Example: 15 Mar 2026, 07:30 · 1,234,567.89" = `formatDateTime(SAMPLE_AT, prefs)` and `formatNumber(1234567.89, prefs)`, where `SAMPLE_AT = '2026-03-14T23:30:00Z'` (fixed, so the server and client render the same text; 23:30 UTC is already the next day in Asia, so switching the timezone visibly moves the date).
+- **Language & formats:** Language (`Segmented`: English / 简体中文; hint "The app reloads in the new language"), Formats card (Date format = a `Select` whose options are the sample date rendered in each format; Time format = `Segmented` with samples "07:30" / "7:30 AM" (the sample instant in the chosen timezone); Number format = `Select` with "1,234,567.89" rendered per format; Week starts on = `Segmented` Monday / Sunday), Timezone card (`Select` of `withCurrentZone(...)` plus the plain explanation: "Your days start at midnight in this timezone. It changes where each day begins and ends in every chart, list and alert."), and a **live sample** line under the cards: "Example: 15 Mar 2026 07:30 · 1,234,567.89" = `formatDateTime(SAMPLE_AT, prefs)` and `formatNumber(1234567.89, prefs)`, where `SAMPLE_AT = '2026-03-14T23:30:00Z'` (fixed, so the server and client render the same text; 23:30 UTC is already the next day in Asia, so switching the timezone visibly moves the date).
 - **Notifications:** moved in as-is, plus two additions. (1) **Test notification:** when push is on for this device, "Send a test notification" calls `sendTestPushAction(endpoint)`: the server looks the endpoint up in the owner's `push_subscriptions` (RLS), sends ONE push to it only (title "in2sight test", body "Push notifications work on this device.", url `/settings/notifications`, tag `test`) and answers `ok` or an error key (`not_configured`, `gone` (the push service dropped it; the row is pruned), `failed`, `invalid`, `unexpected`). (2) **Devices list:** every stored subscription as "Chrome · Windows — added 12 Oct 2026" (label derived on the server from the stored user agent by `deviceLabel`, literal product names, "Unknown device" otherwise), newest first, max 20 (the existing `MAX_SUBSCRIPTIONS`), each with Remove (a `ConfirmDialog`) → `deleteDeviceAction(id)`. The endpoint never reaches the list (ids only). The current device is NOT marked in the list (that would need the browser's endpoint matched against server rows); the list says "To stop push on this device, use Turn off above." (Open question 4). Alert rules (`AlertSettingsForm`) keep their fields and ranges and gain the explicit-save model.
 - **Accounts & sync = a compact overview, not a second Accounts page.** One card per non-archived account: avatar initial + @username (+ display name), status badge (`StatusBadge`), the comments-scope hint ("Reconnect to enable comments", `CommentsHint`), token meter (`TokenMeter`: days left), last sync and the latest error (`SyncInfo`), and two buttons: **Sync now** (active accounts; `syncNowAction` from `app/(app)/accounts/actions.ts`, busy state, result announced, page refreshed) and **Reconnect** (a link to `connectHref(groupName)` with `target="_top"`, like the Accounts page). A header link **Manage accounts** → `/accounts` (groups, archive, delete, connect a new account, import progress live there). No groups, no archived list, no live import progress panel, no connect dialog (Open question 3). `Identity`, `SyncInfo` and `CommentsHint` move out of `AccountsView.tsx` into `components/accounts/AccountParts.tsx` (second use → extract; CLAUDE.md). The page segment exports `maxDuration = 60` because a server action inherits its page's limit and Sync now runs a tick (as `accounts/(list)/page.tsx` does).
 - **Security (16a):** the existing "Signed in as" card and `TwoFactorCard`, unchanged, moved from the old Account tab into `SecuritySection.tsx`. **Plan 16b REPLACES that file** (keeps its name and export) and adds change password and sessions; 16a ships it so two-factor never disappears between the plans.
@@ -2640,4 +2640,380 @@ export function DeviceList({ devices, remove }: DeviceListProps) {
 ```bash
 git add components/settings/AlertSettingsForm.tsx components/settings/NotificationsCard.tsx components/settings/DeviceList.tsx tests/settings-notifications.test.tsx tests/device-list.test.tsx
 git commit -m "feat(settings): alert rules save explicitly with a save bar; test notification; devices list (Plan 16a)"
+```
+
+---
+
+### Task 7: Appearance and Language & formats sections
+
+**Files:** Create `components/settings/sections/AppearanceSection.tsx`, `components/settings/sections/LanguageSection.tsx`, `tests/settings-appearance.test.tsx`, `tests/settings-language.test.tsx`.
+
+**Interfaces produced:** `AppearanceSection()` and `LanguageSection()` (client, no props — the section contract), `SAMPLE_AT = '2026-03-14T23:30:00Z'`, `SAMPLE_NUMBER = 1234567.89`. They use `usePrefs().update` only (the toast is `PrefsSaveNotice`'s job, Task 2), `Segmented` (Task 3) and native selects (rule 9; no Radix stubs needed). The Mode control lists `MODES`, so it shows Auto as soon as Task 10 lands (the tests count `MODES.length`, not 2 or 3).
+
+- [ ] **Step 1: Tests**
+
+`tests/settings-appearance.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { AppearanceSection } from '@/components/settings/sections/AppearanceSection';
+import { DEFAULT_PREFS, MODES } from '@/lib/prefs';
+
+function setup(locale: 'en' | 'zh-CN' = 'en') {
+  const persist = vi.fn(async () => ({ ok: true }));
+  render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'en' ? en : zh}>
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={persist}>
+        <AppearanceSection />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return persist;
+}
+const P = en.prefs;
+const A = en.settings.appearance;
+
+describe('AppearanceSection', () => {
+  it('four groups, each one segmented control with its current value pressed (no pill wall)', () => {
+    setup();
+    for (const name of [P.theme, P.mode, P.density, P.radius]) expect(screen.getByRole('group', { name })).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: P.theme })).getByRole('button', { name: 'Ink' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(screen.getByRole('group', { name: P.mode })).getAllByRole('button')).toHaveLength(MODES.length);
+    expect(within(screen.getByRole('group', { name: P.radius })).getByRole('button', { name: P.soft })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(A.modeHint)).toBeInTheDocument();
+  });
+
+  it('a pick applies to the page at once and saves only that key', async () => {
+    const persist = setup();
+    await userEvent.click(within(screen.getByRole('group', { name: P.theme })).getByRole('button', { name: 'Sunset' }));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('sunset');
+    expect(persist).toHaveBeenLastCalledWith({ theme: 'sunset' });
+    await userEvent.click(within(screen.getByRole('group', { name: P.density })).getByRole('button', { name: P.comfortable }));
+    expect(document.documentElement.getAttribute('data-density')).toBe('comfortable');
+    expect(persist).toHaveBeenLastCalledWith({ density: 'comfortable' });
+  });
+
+  it('the preview shows real pieces with formatted numbers and the six chart colours', () => {
+    setup();
+    expect(screen.getByText(A.previewTitle)).toBeInTheDocument();
+    expect(screen.getByText('12,480')).toBeInTheDocument();
+    expect(screen.getByText('+8.2%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: A.previewPrimary })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: A.previewInput })).toBeInTheDocument();
+    const bars = screen.getByRole('img', { name: A.previewChart }).children;
+    expect([...bars].map((b) => [...b.classList].find((c) => c.startsWith('bg-chart-')))).toEqual(['bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4', 'bg-chart-5', 'bg-chart-6']);
+  });
+
+  it('zh-CN: translated labels, theme names stay proper nouns', () => {
+    setup('zh-CN');
+    expect(screen.getByRole('group', { name: zh.prefs.mode })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: zh.prefs.dark })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Forest' })).toBeInTheDocument();
+  });
+});
+```
+
+`tests/settings-language.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { LanguageSection, SAMPLE_AT, SAMPLE_NUMBER } from '@/components/settings/sections/LanguageSection';
+import { formatNumber } from '@/lib/format';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+function setup() {
+  const persist = vi.fn(async () => ({ ok: true }));
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={persist}>
+        <LanguageSection />
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+  return persist;
+}
+const P = en.prefs;
+const L = en.settings.language;
+const sample = (date: string, prefs = DEFAULT_PREFS) => L.sample.replace('{date}', date).replace('{number}', formatNumber(SAMPLE_NUMBER, prefs));
+
+describe('LanguageSection', () => {
+  it('fixed sample instant (server and client render the same text)', () => {
+    expect(SAMPLE_AT).toBe('2026-03-14T23:30:00Z');
+  });
+
+  it('date and number formats are labelled selects whose options are rendered samples', () => {
+    setup();
+    const date = screen.getByLabelText(P.dateFormat);
+    expect(within(date).getAllByRole('option').map((o) => o.textContent)).toEqual(['2026-03-15', '15/03/2026', '03/15/2026', '15 Mar 2026']);
+    expect(date).toHaveValue('D MMM YYYY');
+    const num = screen.getByLabelText(P.numberFormat);
+    expect(within(num).getAllByRole('option')[1]).toHaveTextContent('1.234.567,89');
+    for (const el of [date, num]) expect(el.classList.contains('h-[var(--ctl)]')).toBe(true);
+  });
+
+  it('time format and week start are segmented controls; time labels are samples', () => {
+    setup();
+    const time = screen.getByRole('group', { name: P.timeFormat });
+    expect(within(time).getAllByRole('button').map((b) => b.textContent)).toEqual(['07:30', '7:30 AM']);
+    expect(within(screen.getByRole('group', { name: P.weekStart })).getByRole('button', { name: P.mon })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('the timezone explanation is plain and the live sample follows every change', async () => {
+    const persist = setup();
+    expect(screen.getByText(L.timezoneHint)).toBeInTheDocument();
+    expect(screen.getByText(sample('15 Mar 2026 07:30'))).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText(P.timezone), 'UTC');
+    expect(persist).toHaveBeenLastCalledWith({ timezone: 'UTC' });
+    expect(screen.getByText(sample('14 Mar 2026 23:30'))).toBeInTheDocument(); // the day moved back: where days start changed
+    await userEvent.selectOptions(screen.getByLabelText(P.dateFormat), 'YYYY-MM-DD');
+    expect(persist).toHaveBeenLastCalledWith({ dateFormat: 'YYYY-MM-DD' });
+    expect(screen.getByText(sample('2026-03-14 23:30'))).toBeInTheDocument();
+  });
+
+  it('language: proper names, saved like any preference', async () => {
+    const persist = setup();
+    const group = screen.getByRole('group', { name: P.language });
+    expect(within(group).getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(within(group).getByRole('button', { name: '简体中文' }));
+    expect(persist).toHaveBeenLastCalledWith({ locale: 'zh-CN' });
+    expect(screen.getByText(L.languageHint)).toBeInTheDocument();
+  });
+});
+```
+
+Run: `npx vitest run tests/settings-appearance.test.tsx tests/settings-language.test.tsx` — Expected: FAIL (modules not found).
+
+- [ ] **Step 2: `components/settings/sections/AppearanceSection.tsx`**
+
+```tsx
+'use client';
+
+// Settings -> Appearance (Plan 16a). Every pick applies at once and is saved in the background (PrefsProvider; the toast
+// comes from PrefsSaveNotice). The preview shows real pieces in the current tokens.
+import type { ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { Segmented } from '@/components/shared/Segmented';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { formatDelta, formatNumber } from '@/lib/format';
+import { DENSITIES, MODES, RADII, THEMES, type Theme } from '@/lib/prefs';
+
+// proper nouns, not translated (as in PrefsBar)
+const THEME_NAMES: Record<Theme, string> = { ink: 'Ink', sunset: 'Sunset', forest: 'Forest', mono: 'Mono' };
+const BARS = [
+  ['bg-chart-1', 'h-[40%]'],
+  ['bg-chart-2', 'h-[70%]'],
+  ['bg-chart-3', 'h-[55%]'],
+  ['bg-chart-4', 'h-[90%]'],
+  ['bg-chart-5', 'h-[65%]'],
+  ['bg-chart-6', 'h-[80%]'],
+] as const;
+
+function Group({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{hint}</CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function Preview() {
+  const t = useTranslations('settings.appearance');
+  const { prefs } = usePrefs();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('previewTitle')}</CardTitle>
+        <CardDescription>{t('previewDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div>
+          <h3 className="font-medium">{t('previewHeading')}</h3>
+          <p className="text-sm text-muted-foreground">{t('previewBody')}</p>
+        </div>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="text-sm text-muted-foreground">{t('previewKpi')}</span>
+          <span className="text-[length:var(--fv)] font-semibold">{formatNumber(12480, prefs)}</span>
+          <Badge variant="secondary">{formatDelta(0.082, prefs)}</Badge>
+          <Badge>{t('previewBadge')}</Badge>
+        </div>
+        <div role="img" aria-label={t('previewChart')} className="flex h-12 items-end gap-1">
+          {BARS.map(([bg, h]) => (
+            <span key={bg} className={`flex-1 rounded-t-[var(--rs)] ${bg} ${h}`} />
+          ))}
+        </div>
+        <Input aria-label={t('previewInput')} placeholder={t('previewInput')} />
+        <div className="flex flex-wrap gap-2">
+          <Button type="button">{t('previewPrimary')}</Button>
+          <Button type="button" variant="outline">
+            {t('previewSecondary')}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function AppearanceSection() {
+  const t = useTranslations('settings.appearance');
+  const tp = useTranslations('prefs');
+  const { prefs, update } = usePrefs();
+  return (
+    <div className="grid gap-[var(--gp)] lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
+      <div className="grid min-w-0 gap-[var(--gp)]">
+        <Group title={tp('theme')} hint={t('themeHint')}>
+          <Segmented label={tp('theme')} value={prefs.theme} options={THEMES.map((v) => ({ value: v, label: THEME_NAMES[v] }))} onChange={(theme) => update({ theme })} />
+        </Group>
+        <Group title={tp('mode')} hint={t('modeHint')}>
+          <Segmented label={tp('mode')} value={prefs.mode} options={MODES.map((v) => ({ value: v, label: tp(v) }))} onChange={(mode) => update({ mode })} />
+        </Group>
+        <Group title={tp('density')} hint={t('densityHint')}>
+          <Segmented label={tp('density')} value={prefs.density} options={DENSITIES.map((v) => ({ value: v, label: tp(v) }))} onChange={(density) => update({ density })} />
+        </Group>
+        <Group title={tp('radius')} hint={t('radiusHint')}>
+          <Segmented label={tp('radius')} value={prefs.radius} options={RADII.map((v) => ({ value: v, label: tp(v) }))} onChange={(radius) => update({ radius })} />
+        </Group>
+      </div>
+      <div className="min-w-0 lg:sticky lg:top-[var(--pg)]">
+        <Preview />
+      </div>
+    </div>
+  );
+}
+```
+
+(The bar heights are literal classes so Tailwind sees them; `bg-chart-N` exist via `--color-chart-N` in `app/globals.css`.)
+
+- [ ] **Step 3: `components/settings/sections/LanguageSection.tsx`**
+
+```tsx
+'use client';
+
+// Settings -> Language & formats (Plan 16a). Instant like Appearance: each pick applies at once and is saved in the
+// background; a language change reloads the app once saved (PrefsProvider). Samples are rendered by lib/format.ts.
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { FormField } from '@/components/shared/FormField';
+import { Segmented } from '@/components/shared/Segmented';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDate, formatDateTime, formatNumber, formatTime } from '@/lib/format';
+import { DATE_FORMATS, LOCALES, NUMBER_FORMATS, TIME_FORMATS, WEEK_STARTS, type Locale, type Prefs } from '@/lib/prefs';
+import { withCurrentZone } from '@/lib/timezones';
+
+/** Fixed, so the server and the client render the same text; 23:30 UTC is already the next day in Asia. */
+export const SAMPLE_AT = '2026-03-14T23:30:00Z';
+export const SAMPLE_NUMBER = 1234567.89;
+
+const LANGUAGE_NAMES: Record<Locale, string> = { en: 'English', 'zh-CN': '简体中文' }; // never translated
+const SELECT = 'h-[var(--ctl)] w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground';
+
+export function LanguageSection() {
+  const t = useTranslations('settings.language');
+  const tp = useTranslations('prefs');
+  const { prefs, update } = usePrefs();
+  const as = (patch: Partial<Prefs>) => ({ ...prefs, ...patch });
+  return (
+    <div className="grid gap-[var(--gp)]">
+      <Card>
+        <CardHeader>
+          <CardTitle>{tp('language')}</CardTitle>
+          <CardDescription>{t('languageHint')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Segmented label={tp('language')} value={prefs.locale} options={LOCALES.map((v) => ({ value: v, label: LANGUAGE_NAMES[v] }))} onChange={(locale) => update({ locale })} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('formatsTitle')}</CardTitle>
+          <CardDescription>{t('formatsDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-[var(--gp)] md:grid-cols-2">
+          <FormField id="pref-date-format" label={tp('dateFormat')}>
+            {(p) => (
+              <select {...p} className={SELECT} value={prefs.dateFormat} onChange={(e) => update({ dateFormat: e.target.value as Prefs['dateFormat'] })}>
+                {DATE_FORMATS.map((f) => (
+                  <option key={f} value={f}>
+                    {formatDate(SAMPLE_AT, as({ dateFormat: f }))}
+                  </option>
+                ))}
+              </select>
+            )}
+          </FormField>
+          <FormField id="pref-number-format" label={tp('numberFormat')}>
+            {(p) => (
+              <select {...p} className={SELECT} value={prefs.numberFormat} onChange={(e) => update({ numberFormat: e.target.value as Prefs['numberFormat'] })}>
+                {NUMBER_FORMATS.map((f) => (
+                  <option key={f} value={f}>
+                    {formatNumber(SAMPLE_NUMBER, as({ numberFormat: f }))}
+                  </option>
+                ))}
+              </select>
+            )}
+          </FormField>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium">{tp('timeFormat')}</span>
+            <Segmented label={tp('timeFormat')} value={prefs.timeFormat} options={TIME_FORMATS.map((f) => ({ value: f, label: formatTime(SAMPLE_AT, as({ timeFormat: f })) }))} onChange={(timeFormat) => update({ timeFormat })} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium">{tp('weekStart')}</span>
+            <Segmented label={tp('weekStart')} value={prefs.weekStart} options={WEEK_STARTS.map((v) => ({ value: v, label: tp(v) }))} onChange={(weekStart) => update({ weekStart })} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{tp('timezone')}</CardTitle>
+          <CardDescription>{t('timezoneHint')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormField id="pref-timezone" label={tp('timezone')} className="max-w-md">
+            {(p) => (
+              <select {...p} className={SELECT} value={prefs.timezone} onChange={(e) => update({ timezone: e.target.value })}>
+                {withCurrentZone(prefs.timezone).map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
+            )}
+          </FormField>
+        </CardContent>
+      </Card>
+
+      <p className="text-sm text-muted-foreground">
+        {t('sample', { date: formatDateTime(SAMPLE_AT, prefs), number: formatNumber(SAMPLE_NUMBER, prefs) })}
+      </p>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Verify** — `npx vitest run tests/settings-appearance.test.tsx tests/settings-language.test.tsx`, `npx tsc --noEmit`, `npx eslint components/settings/sections tests/settings-appearance.test.tsx tests/settings-language.test.tsx`. Expected: PASS, clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/settings/sections/AppearanceSection.tsx components/settings/sections/LanguageSection.tsx tests/settings-appearance.test.tsx tests/settings-language.test.tsx
+git commit -m "feat(settings): Appearance with a live preview, Language & formats with samples and the timezone explanation (Plan 16a)"
 ```
