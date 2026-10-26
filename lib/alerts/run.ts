@@ -48,9 +48,9 @@ export async function runAlerts(deps: AlertDeps, c: AlertRunContext): Promise<Al
     for (const a of accounts) {
       if (c.clock() >= c.deadline) break;
       try {
-        const [daily, posts, lastReachDropAt] = await Promise.all([deps.store.daily(a.id, fromDay), deps.store.posts(a.id), deps.store.lastReachDropAt(a.id)]);
+        const [daily, posts, lastReachDropAt, moderationPausedAt] = await Promise.all([deps.store.daily(a.id, fromDay), deps.store.posts(a.id), deps.store.lastReachDropAt(a.id), deps.store.moderationPausedAt?.(a.id) ?? null]);
         const s = states.get(a.id);
-        found.push(...evaluateRules({ account: a, sync: { consecutiveFailures: s?.consecutiveFailures ?? 0, lastSuccessAt: s?.lastSuccessAt ?? null }, daily, posts, lastReachDropAt, settings, now: c.now, tz: c.tz }));
+        found.push(...evaluateRules({ account: a, sync: { consecutiveFailures: s?.consecutiveFailures ?? 0, lastSuccessAt: s?.lastSuccessAt ?? null }, daily, posts, lastReachDropAt, moderationPausedAt, settings, now: c.now, tz: c.tz }));
       } catch {
         out.failed++;
       }

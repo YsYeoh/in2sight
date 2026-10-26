@@ -18,6 +18,8 @@ export interface AlertStore {
   daily(accountId: string, fromDay: string): Promise<DailyRow[]>;
   posts(accountId: string): Promise<Post[]>;
   lastReachDropAt(accountId: string): Promise<string | null>;
+  /** Plan 15d: paused_at when auto-hide is on but paused, else null; null before the moderation migration. Optional for fakes. */
+  moderationPausedAt?(accountId: string): Promise<string | null>;
   /** INSERT … ON CONFLICT (dedupe_key) DO NOTHING RETURNING: only the alerts that were really new come back. */
   insertNew(alerts: Alert[]): Promise<Alert[]>;
   subscriptions(): Promise<PushSub[]>;
@@ -49,6 +51,13 @@ export function supabaseAlertStore(db: SupabaseClient): AlertStore {
       const { data, error } = await db.from('notifications').select('created_at').eq('account_id', accountId).eq('kind', 'reach_drop').order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (error) fail('lastReachDropAt');
       const at = (data as Row | null)?.created_at;
+      return isStr(at) ? at : null;
+    },
+    async moderationPausedAt(accountId) {
+      const { data, error } = await db.from('moderation_settings').select('paused_at').eq('account_id', accountId).eq('auto_hide', true).not('paused_at', 'is', null).maybeSingle();
+      if (error?.code === 'PGRST205' || error?.code === '42P01') return null; // the moderation migration is not applied yet
+      if (error) fail('moderationPausedAt');
+      const at = (data as Row | null)?.paused_at;
       return isStr(at) ? at : null;
     },
     async insertNew(alerts) {

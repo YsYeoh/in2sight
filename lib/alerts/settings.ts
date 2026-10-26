@@ -1,7 +1,7 @@
 // Alert settings live in profiles.alert_settings (jsonb). Anything read from there goes through parseAlertSettings:
 // unknown keys are dropped, numbers are clamped, junk falls back to the SPEC §7c defaults. Never throws.
 
-export const ALERT_KINDS = ['token_expiring', 'needs_reconnect', 'sync_failing', 'reach_drop', 'taking_off'] as const;
+export const ALERT_KINDS = ['token_expiring', 'needs_reconnect', 'sync_failing', 'reach_drop', 'taking_off', 'moderation_paused'] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
 export interface AlertSettings {
@@ -12,7 +12,7 @@ export interface AlertSettings {
 }
 
 export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
-  push: { token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: true, taking_off: false },
+  push: { token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: true, taking_off: false, moderation_paused: true },
   reachDropPct: 20,
   takingOffRatio: 2,
   syncFailures: 2,
