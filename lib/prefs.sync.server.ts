@@ -37,16 +37,20 @@ export async function syncPrefsFromProfile(supabase: SupabaseClient): Promise<vo
  * Called by setPrefs after the cookie is written. Never throws.
  * Writes only `keys` (what this save changed): a stale cookie on this device must not clobber the other columns.
  * A missing row is created with the column defaults for everything not sent.
+ * true = saved, or nothing to save (no keys, Supabase not configured, no session); false = the write failed (the caller shows Retry).
  */
-export async function persistPrefsToProfile(prefs: Prefs, keys: readonly (keyof Prefs)[]): Promise<void> {
+export async function persistPrefsToProfile(prefs: Prefs, keys: readonly (keyof Prefs)[]): Promise<boolean> {
   try {
-    if (keys.length === 0 || !isSupabaseConfigured()) return;
+    if (keys.length === 0 || !isSupabaseConfigured()) return true;
     const supabase = await createServerSupabase();
     const info = await getSessionInfo(supabase);
-    if (!info.userId) return;
+    if (!info.userId) return true;
     const { error } = await supabase.from('profiles').upsert({ ...prefsPatchToRow(info.userId, prefs, keys), updated_at: new Date().toISOString() });
-    if (error) warn('save');
+    if (!error) return true;
+    warn('save');
+    return false;
   } catch {
     warn('save');
+    return false;
   }
 }

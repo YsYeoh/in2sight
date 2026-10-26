@@ -1,13 +1,16 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { PrefsProvider, usePrefs } from '@/components/providers/PrefsProvider';
 import { DEFAULT_PREFS } from '@/lib/prefs';
 
 function Probe() {
-  const { prefs, update } = usePrefs();
+  const { prefs, update, status, retry } = usePrefs();
   return (
     <div>
+      <span data-testid="status">{status}</span>
+      <button onClick={retry}>retry</button>
+      <button onClick={() => update({ density: 'comfortable' })}>comfortable</button>
       <span data-testid="mode">{prefs.mode}</span>
       <span data-testid="theme">{prefs.theme}</span>
       <button onClick={() => update({ mode: 'dark' })}>dark</button>
@@ -40,6 +43,55 @@ describe('PrefsProvider', () => {
     render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
     await userEvent.click(screen.getByText('dark'));
     expect(screen.getByTestId('mode')).toHaveTextContent('dark');
+  });
+
+  it('reports saving, then saved; a void persist result counts as saved', async () => {
+    let finish!: () => void;
+    const persist = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    expect(screen.getByTestId('status')).toHaveTextContent('idle');
+    await userEvent.click(screen.getByText('dark'));
+    expect(screen.getByTestId('status')).toHaveTextContent('saving');
+    finish();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('saved'));
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('network'))],
+    ['answers ok: false', () => Promise.resolve({ ok: false })],
+  ])('a save that %s is an error, never swallowed', async (_name, outcome) => {
+    const persist = vi.fn(outcome);
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('dark'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    expect(html().getAttribute('data-mode')).toBe('dark'); // still applied here
+  });
+
+  it('retry re-sends every unsaved key with its current value, then reports saved', async () => {
+    const persist = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('dark'));
+    await userEvent.click(screen.getByText('comfortable'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    await userEvent.click(screen.getByText('retry'));
+    expect(persist).toHaveBeenLastCalledWith({ mode: 'dark', density: 'comfortable' });
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('saved'));
+  });
+
+  it('a later successful save of the same key clears its error', async () => {
+    const persist = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('dark'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    await userEvent.click(screen.getByRole('button', { name: 'dark' }));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('saved'));
+  });
+
+  it('retry with nothing unsaved does not call persist', async () => {
+    const persist = vi.fn();
+    render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+    await userEvent.click(screen.getByText('retry'));
+    expect(persist).not.toHaveBeenCalled();
   });
 
   it('usePrefs outside the provider throws a helpful error', () => {

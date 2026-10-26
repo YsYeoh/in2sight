@@ -5,11 +5,17 @@ import { htmlAttrs, parsePrefs, type Prefs } from '@/lib/prefs';
 import { themeColor } from '@/lib/pwa';
 import { isFramed } from '@/lib/tabs/protocol';
 
-type Persist = (partial: Partial<Prefs>) => Promise<void> | void;
+/** `{ ok: false }` (or a rejection) = not saved; anything else (including void) = saved. */
+type Persist = (partial: Partial<Prefs>) => Promise<{ ok: boolean } | void> | { ok: boolean } | void;
+
+/** idle = nothing saved yet in this document; error = at least one change is not saved (retry() re-sends it). */
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface PrefsContextValue {
   prefs: Prefs;
   update: (partial: Partial<Prefs>) => void;
+  status: SaveStatus;
+  retry: () => void;
 }
 
 const PrefsContext = createContext<PrefsContextValue | null>(null);
@@ -27,10 +33,15 @@ export function applyPrefsToDocument(p: Prefs, el: HTMLElement = document.docume
   el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p));
 }
 
+const pickKeys = (p: Prefs, keys: string[]): Partial<Prefs> => Object.fromEntries(keys.filter((k) => Object.hasOwn(p, k)).map((k) => [k, p[k as keyof Prefs]]));
+
 export function PrefsProvider({ initial, persist, children }: { initial: Prefs; persist: Persist; children: ReactNode }) {
   const [prefs, setPrefs] = useState<Prefs>(initial);
+  const [status, setStatus] = useState<SaveStatus>('idle');
   const channel = useRef<BroadcastChannel | null>(null);
   const latest = useRef(prefs);
+  const unsaved = useRef<Partial<Prefs>>({}); // keys whose last save failed (retry sends their CURRENT values)
+  const inflight = useRef(0);
 
   useEffect(() => {
     latest.current = prefs;
@@ -54,21 +65,47 @@ export function PrefsProvider({ initial, persist, children }: { initial: Prefs; 
     };
   }, []);
 
+  // Never swallowed: a failure keeps the keys in `unsaved` and sets status 'error' until a later save of them succeeds.
+  const save = useCallback(
+    (partial: Partial<Prefs>) => {
+      inflight.current++;
+      setStatus('saving');
+      void Promise.resolve()
+        .then(() => persist(partial))
+        .then(
+          (r) => !(r !== null && typeof r === 'object' && r.ok === false),
+          () => false,
+        )
+        .then((ok) => {
+          inflight.current--;
+          const keys = Object.keys(partial);
+          if (ok) for (const k of keys) delete unsaved.current[k as keyof Prefs];
+          else unsaved.current = { ...unsaved.current, ...pickKeys(latest.current, keys) };
+          if (ok && 'locale' in partial) channel.current?.postMessage(partial); // the others reload: the cookie is saved now
+          setStatus(Object.keys(unsaved.current).length > 0 ? 'error' : inflight.current > 0 ? 'saving' : 'saved');
+        });
+    },
+    [persist],
+  );
+
   const update = useCallback(
     (partial: Partial<Prefs>) => {
       const next = parsePrefs({ ...prefs, ...partial }); // validates: bad values fall back
       setPrefs(next);
+      latest.current = next;
       applyPrefsToDocument(next); // instant, no waiting for the server
-      // ponytail: failures are swallowed — the choice stays local until the next successful save
-      const saved = Promise.resolve(persist(partial)).catch(() => {});
-      const share = () => channel.current?.postMessage(partial);
-      if ('locale' in partial) void saved.then(share); // the others reload: the cookie must be saved first
-      else share();
+      save(partial);
+      if (!('locale' in partial)) channel.current?.postMessage(partial);
     },
-    [prefs, persist],
+    [prefs, save],
   );
 
-  const value = useMemo(() => ({ prefs, update }), [prefs, update]);
+  const retry = useCallback(() => {
+    const p = unsaved.current;
+    if (Object.keys(p).length > 0) save({ ...p });
+  }, [save]);
+
+  const value = useMemo(() => ({ prefs, update, status, retry }), [prefs, update, status, retry]);
   return <PrefsContext.Provider value={value}>{children}</PrefsContext.Provider>;
 }
 

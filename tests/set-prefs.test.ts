@@ -5,7 +5,7 @@ const jar = { get: vi.fn(), set: vi.fn() };
 const revalidatePath = vi.fn();
 vi.mock('next/headers', () => ({ cookies: async () => jar }));
 vi.mock('next/cache', () => ({ revalidatePath: (...args: unknown[]) => revalidatePath(...args) }));
-const persistPrefsToProfile = vi.fn<(prefs: unknown, keys: unknown) => Promise<void>>();
+const persistPrefsToProfile = vi.fn<(prefs: unknown, keys: unknown) => Promise<boolean>>();
 vi.mock('@/lib/prefs.sync.server', () => ({ persistPrefsToProfile: (p: unknown, k: unknown) => persistPrefsToProfile(p, k), syncPrefsFromProfile: vi.fn() }));
 
 import { setPrefs } from '@/app/actions';
@@ -17,7 +17,7 @@ beforeEach(() => {
   jar.get.mockReset().mockReturnValue(undefined);
   jar.set.mockReset();
   revalidatePath.mockReset();
-  persistPrefsToProfile.mockReset().mockResolvedValue(undefined);
+  persistPrefsToProfile.mockReset().mockResolvedValue(true);
 });
 
 describe('setPrefs', () => {
@@ -32,7 +32,7 @@ describe('setPrefs', () => {
   });
 
   it.each([[null], [42], ['x'], [[]], [[{ theme: 'mono' }]]])('never throws on junk input %j and writes defaults', async (junk) => {
-    await expect(setPrefs(junk)).resolves.toBeUndefined();
+    await expect(setPrefs(junk)).resolves.toEqual({ ok: true });
     expect(written()).toEqual(DEFAULT_PREFS);
   });
 
@@ -55,7 +55,7 @@ describe('setPrefs', () => {
   it('persists the merged prefs to the profile after the cookie is written, before revalidating', async () => {
     const order: string[] = [];
     jar.set.mockImplementation(() => order.push('cookie'));
-    persistPrefsToProfile.mockImplementation(async () => void order.push('profile'));
+    persistPrefsToProfile.mockImplementation(async () => (order.push('profile'), true));
     revalidatePath.mockImplementation(() => order.push('revalidate'));
     await setPrefs({ mode: 'dark', weekStart: 'sun' });
     expect(persistPrefsToProfile).toHaveBeenCalledWith({ ...DEFAULT_PREFS, mode: 'dark', weekStart: 'sun' }, ['mode', 'weekStart']);
@@ -64,7 +64,14 @@ describe('setPrefs', () => {
 
   it('still resolves, and still revalidates, when the profile write rejects', async () => {
     persistPrefsToProfile.mockRejectedValue(new Error('db down'));
-    await expect(setPrefs({ mode: 'dark' })).resolves.toBeUndefined();
+    await expect(setPrefs({ mode: 'dark' })).resolves.toEqual({ ok: false });
+    expect(written().mode).toBe('dark');
+    expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
+  });
+
+  it('answers ok: false when the profile write failed (the cookie is still written and the layout revalidated)', async () => {
+    persistPrefsToProfile.mockResolvedValue(false);
+    await expect(setPrefs({ mode: 'dark' })).resolves.toEqual({ ok: false });
     expect(written().mode).toBe('dark');
     expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
   });
