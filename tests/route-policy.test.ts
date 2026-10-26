@@ -17,9 +17,9 @@ describe('not configured (no Supabase env)', () => {
 });
 
 describe('anonymous visitor', () => {
-  it('can only see /login', () => {
-    expect(d({ pathname: '/login' })).toEqual(next);
-    for (const p of ['/', '/overview', '/accounts', '/accounts/3', '/settings', '/tags', '/styleguide', '/setup', '/login/verify', '/api/export/xlsx']) {
+  it('can only see /login, /login/forgot and /auth/confirm', () => {
+    for (const p of ['/login', '/login/forgot', '/auth/confirm']) expect(d({ pathname: p }), p).toEqual(next);
+    for (const p of ['/', '/overview', '/accounts', '/accounts/3', '/settings', '/settings/security', '/tags', '/styleguide', '/setup', '/login/verify', '/login/reset', '/api/export/xlsx']) {
       expect(d({ pathname: p }), p).toEqual(to('/login'));
     }
   });
@@ -41,6 +41,14 @@ describe('anonymous visitor', () => {
     }
     expect(d({ pathname: '/api/instagram/callback' })).toEqual(to('/login'));
     expect(d({ pathname: '/login-help' })).toEqual(to('/login'));
+    // the Plan 16b exemptions are exact paths too
+    for (const p of ['/login/forgot/', '/login/forgot/x', '/login/forgotx', '/login/Forgot', '/auth/confirm/', '/auth/confirm/x', '/auth/confirmed', '/auth/CONFIRM', '/auth', '/auth/', '/x/auth/confirm', '/auth/confirm%2Fx']) {
+      expect(d({ pathname: p }), p).toEqual(to('/login'));
+    }
+    // reset page: never public, plus dot segments, encoded slashes and query-like suffixes
+    for (const p of ['/login/reset', '/login/reset/', '/login/resetx', '/login/Reset', '/login/forgot/..', '/login/forgot/.', '/login/./forgot', '/login/forgot%2Fx', '/login%2Fforgot', '/auth/confirm/..', '/auth/confirm/.', '/auth/./confirm', '/auth%2Fconfirm', '/login/forgot?x=1', '/auth/confirm?token_hash=x']) {
+      expect(d({ pathname: p }), p).toEqual(to('/login'));
+    }
   });
 });
 
@@ -50,7 +58,10 @@ describe('signed in, no 2FA enrolled', () => {
     for (const p of ['/overview', '/accounts', '/settings', '/styleguide', '/api/export/xlsx']) expect(d({ ...s, pathname: p }), p).toEqual(next);
   });
   it('is bounced off the entry pages to /overview', () => {
-    for (const p of ['/', '/login', '/login/verify', '/setup']) expect(d({ ...s, pathname: p }), p).toEqual(to('/overview'));
+    for (const p of ['/', '/login', '/login/verify', '/login/forgot', '/setup']) expect(d({ ...s, pathname: p }), p).toEqual(to('/overview'));
+  });
+  it('reaches /login/reset and /auth/confirm (the pages check the session themselves)', () => {
+    for (const p of ['/login/reset', '/auth/confirm']) expect(d({ ...s, pathname: p }), p).toEqual(next);
   });
 });
 
@@ -73,6 +84,25 @@ describe('signed in, 2FA verified (aal2)', () => {
     expect(d({ ...s, pathname: '/overview' })).toEqual(next);
     expect(d({ ...s, pathname: '/login' })).toEqual(to('/overview'));
     expect(d({ ...s, pathname: '/login/verify' })).toEqual(to('/overview'));
+    expect(d({ ...s, pathname: '/login/forgot' })).toEqual(to('/overview'));
+    expect(d({ ...s, pathname: '/login/reset' })).toEqual(next);
+    expect(d({ ...s, pathname: '/auth/confirm' })).toEqual(next);
+  });
+});
+
+describe('recovery session (Plan 16b): aal1 from the emailed link, 2FA enrolled', () => {
+  const s = { signedIn: true, aal: 'aal1' as const, mfaRequired: true };
+  it('reaches no owner page, API or the reset page: everything goes to /login/verify', () => {
+    const owner = ['/', '/overview', '/accounts', '/accounts/3', '/accounts/3/media/1', '/settings', '/settings/security', '/tags', '/calendar', '/explorer', '/report', '/api/export/xlsx', '/api/export/pdf', '/api/accounts/3/followers', '/login', '/login/forgot', '/login/reset', '/setup', '/styleguide'];
+    for (const p of owner) expect(d({ ...s, pathname: p }), p).toEqual(to('/login/verify'));
+  });
+  it('near-miss paths of the exemptions stay behind 2FA', () => {
+    for (const p of ['/auth/confirm/x', '/auth/confirm/', '/auth/CONFIRM', '/auth/confirmed', '/login/forgot/x', '/login/resetx', '/login/reset/']) {
+      expect(d({ ...s, pathname: p }), p).toEqual(to('/login/verify'));
+    }
+  });
+  it('may only finish 2FA, sign out, or open another recovery link', () => {
+    for (const p of ['/login/verify', '/auth/signout', '/auth/confirm']) expect(d({ ...s, pathname: p }), p).toEqual(next);
   });
 });
 
@@ -89,7 +119,7 @@ describe('/auth/signout (the way out for a signed-in non-owner)', () => {
 
 describe('invariants', () => {
   it('never redirects to the page it is already on (no loops) and only to known destinations', () => {
-    const paths = ['/', '/login', '/login/verify', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags', '/api/cron/sync', '/auth/signout', '/report', '/report/print'];
+    const paths = ['/', '/login', '/login/verify', '/login/forgot', '/login/reset', '/auth/confirm', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags', '/api/cron/sync', '/auth/signout', '/report', '/report/print'];
     for (const configured of [true, false])
       for (const signedIn of [true, false])
         for (const aal of ['aal1', 'aal2', null] as const)
@@ -104,7 +134,7 @@ describe('invariants', () => {
   });
 
   it('every redirect target is itself allowed for that visitor (one hop settles)', () => {
-    const paths = ['/', '/login', '/login/verify', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags', '/auth/signout', '/report', '/report/print'];
+    const paths = ['/', '/login', '/login/verify', '/login/forgot', '/login/reset', '/auth/confirm', '/setup', '/styleguide', '/overview', '/accounts', '/settings', '/tags', '/auth/signout', '/report', '/report/print'];
     for (const configured of [true, false])
       for (const signedIn of [true, false])
         for (const aal of ['aal1', 'aal2', null] as const)
