@@ -306,11 +306,6 @@
       "delete": "Deleting an account on the Accounts page removes all of its data. Nothing is shared with anyone.",
       "soon": "Export and delete-everything tools are coming."
     },
-    "tabs": {
-      "general": "General",
-      "account": "Account",
-      "notifications": "Notifications"
-    },
     "account": {
       "email": "Signed in as"
     },
