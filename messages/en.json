@@ -189,7 +189,9 @@
       "email": "Email",
       "password": "Password",
       "submit": "Sign in",
-      "submitting": "Signing in…"
+      "submitting": "Signing in…",
+      "forgotLink": "Forgot password?",
+      "resetDone": "Password changed. Sign in with your new password."
     },
     "errors": {
       "missing_fields": "Enter your email and password.",
@@ -205,6 +207,75 @@
       "code": "Verification code",
       "submit": "Verify",
       "signOut": "Use a different account"
+    },
+    "forgot": {
+      "title": "Reset your password",
+      "hint": "Enter the email you sign in with. If it belongs to the owner's account, we send a link to choose a new password.",
+      "email": "Email",
+      "submit": "Send reset link",
+      "sent": "If that email belongs to the owner's account, a reset link is on its way. It works once and expires after 1 hour. Check your spam folder too.",
+      "cooldown": "A link was requested a moment ago. Wait a minute before asking again.",
+      "invalid_email": "Enter a valid email address.",
+      "back": "Back to sign in"
+    },
+    "confirm": {
+      "title": "Reset your password",
+      "hint": "Continue to use this reset link. If two-step verification is on, you enter your authenticator code next.",
+      "submit": "Continue",
+      "link_invalid": "This link has expired or was already used. Request a new one.",
+      "requestNew": "Request a new link"
+    },
+    "reset": {
+      "title": "Choose a new password",
+      "hint": "After saving, every device is signed out and you sign in again with the new password.",
+      "submit": "Save new password",
+      "expiredTitle": "This reset has expired",
+      "expiredBody": "A reset must be finished within 15 minutes of opening the link. Request a new link from the sign-in page, or change your password in Settings.",
+      "toSettings": "Go to Settings"
+    },
+    "password": {
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "show": "Show password",
+      "rules": "At least 12 characters. A long phrase is stronger than a short password full of symbols.",
+      "strength": "Strength: {level}",
+      "levels": {
+        "weak": "Too weak",
+        "fair": "Fair",
+        "good": "Good",
+        "strong": "Strong",
+        "veryStrong": "Very strong"
+      },
+      "issues": {
+        "too_short": "Use at least 12 characters.",
+        "too_long": "Use at most 72 characters (fewer with Chinese characters or emoji).",
+        "too_simple": "Use more different characters.",
+        "has_email": "Don't put your email name in the password."
+      },
+      "errors": {
+        "missing_fields": "Fill in every password field.",
+        "mismatch": "The new passwords don't match.",
+        "weak": "Choose a stronger password (see the rules above).",
+        "wrong_password": "The current password is wrong.",
+        "same_password": "The new password must be different from the current one.",
+        "rate_limited": "Too many attempts. Wait a few minutes and try again.",
+        "link_expired": "This reset has expired. Request a new link.",
+        "unexpected": "Something went wrong. Please try again."
+      }
+    },
+    "security": {
+      "passwordTitle": "Password",
+      "passwordHint": "Change the password you sign in with. Your other devices are signed out afterwards.",
+      "passwordSubmit": "Change password",
+      "passwordChanged": "Password changed. Your other devices were signed out.",
+      "passwordChangedOthersFailed": "Password changed, but your other devices could not be signed out. Use “Sign out other devices” below.",
+      "sessionsTitle": "Signed-in devices",
+      "sessionsHint": "in2sight cannot list your devices. You can sign out every device except this one.",
+      "sessionsNote": "A device that is open right now can keep working until its sign-in expires (up to 1 hour).",
+      "signOutOthers": "Sign out other devices",
+      "signedOutOthers": "Your other devices were signed out.",
+      "signOutOthersFailed": "Signing out the other devices failed. Try again."
     }
   },
   "settings": {
