@@ -1,8 +1,13 @@
+import { Component, type ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
+
+const refresh = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
+
 import { AlertSettingsForm, type AlertSettingsFormProps } from '@/components/settings/AlertSettingsForm';
 import { NotificationsCard, type NotificationsCardProps } from '@/components/settings/NotificationsCard';
 import { DEFAULT_ALERT_SETTINGS, parseAlertSettings } from '@/lib/alerts/settings';
@@ -12,6 +17,7 @@ const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {},
 const originals = Object.keys(DOM_STUBS).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)] as const);
 const NAV_PROPS = ['serviceWorker', 'userAgent', 'platform', 'maxTouchPoints'];
 beforeEach(() => {
+  refresh.mockReset();
   Object.assign(Element.prototype, DOM_STUBS);
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 });
@@ -160,13 +166,34 @@ describe('NotificationsCard', () => {
 
   it('a refused test shows the translated reason; an unknown key falls back to unexpected', async () => {
     browser({ subscribed: true });
-    const test = vi.fn().mockResolvedValueOnce({ ok: false, error: 'gone' }).mockResolvedValueOnce({ ok: false, error: 'weird' });
+    const test = vi.fn().mockResolvedValueOnce({ ok: false, error: 'failed' }).mockResolvedValueOnce({ ok: false, error: 'weird' });
     card({ test });
     const button = await screen.findByRole('button', { name: M.testSend });
     await userEvent.click(button);
-    expect(await screen.findByRole('alert')).toHaveTextContent(M.testErrors.gone);
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.testErrors.failed);
     await userEvent.click(button);
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(M.testErrors.unexpected));
+  });
+
+  it('a test answered "gone" (the server pruned the dead endpoint): the card turns off and the page re-reads the devices', async () => {
+    const b = browser({ subscribed: true });
+    card({ test: vi.fn(async () => ({ ok: false, error: 'gone' })) });
+    await userEvent.click(await screen.findByRole('button', { name: M.testSend }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.testErrors.gone);
+    expect(b.sub.unsubscribe).toHaveBeenCalledOnce();
+    expect(await screen.findByRole('button', { name: M.enable })).toBeInTheDocument();
+    expect(screen.queryByText(M.on)).toBeNull();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it('any other test failure leaves the card on and does not refresh', async () => {
+    const b = browser({ subscribed: true });
+    card({ test: vi.fn(async () => ({ ok: false, error: 'failed' })) });
+    await userEvent.click(await screen.findByRole('button', { name: M.testSend }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.testErrors.failed);
+    expect(b.sub.unsubscribe).not.toHaveBeenCalled();
+    expect(screen.getByText(M.on)).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it('no test prop: no test button (push off shows none either)', async () => {
@@ -239,6 +266,46 @@ describe('AlertSettingsForm', () => {
     await userEvent.click(screen.getByRole('button', { name: en.common.save }));
     expect(await screen.findByRole('alert')).toHaveTextContent(M.saveError);
     expect(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title })).toBeChecked();
+  });
+
+  it('a save that throws (network drop) keeps the typed values and shows the error, ready to save again', async () => {
+    const save = vi.fn().mockRejectedValueOnce(new Error('network')).mockImplementation(async (raw: unknown) => ({ ok: true as const, settings: parseAlertSettings(raw) }));
+    form({ save });
+    const pct = screen.getByLabelText(M.reachDropPct);
+    await userEvent.clear(pct);
+    await userEvent.type(pct, '35');
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.saveError);
+    expect(pct).toHaveValue(35);
+    await waitFor(() => expect(screen.getByRole('button', { name: en.common.save })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(await screen.findByRole('status')).toHaveTextContent(M.saved);
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it('a redirect (expired session) is rethrown for Next to follow, not turned into an error message', async () => {
+    class Boundary extends Component<{ children: ReactNode }, { error: unknown }> {
+      state = { error: null as unknown };
+      static getDerivedStateFromError(error: unknown) {
+        return { error };
+      }
+      render() {
+        return this.state.error ? <p data-testid="caught">{String((this.state.error as Error).message)}</p> : this.props.children;
+      }
+    }
+    const redirect = Object.assign(new Error('NEXT_REDIRECT'), { digest: 'NEXT_REDIRECT;replace;/login;307;' });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <Boundary>
+          <AlertSettingsForm initial={DEFAULT_ALERT_SETTINGS} save={vi.fn().mockRejectedValue(redirect)} />
+        </Boundary>
+      </NextIntlClientProvider>,
+    );
+    await userEvent.click(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(await screen.findByTestId('caught')).toHaveTextContent('NEXT_REDIRECT');
+    spy.mockRestore();
   });
 
   it('Save is disabled until something changes; changing it back makes it clean again', async () => {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { LoadingButton } from '@/components/shared/LoadingButton';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +26,7 @@ const TEST_ERRORS = ['not_configured', 'gone', 'failed', 'invalid', 'unexpected'
 
 export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove, test }: NotificationsCardProps) {
   const t = useTranslations('settings.notifications');
+  const router = useRouter();
   const [status, setStatus] = useState<Status>('checking');
   const [error, setError] = useState(false);
   const [pending, start] = useTransition();
@@ -75,6 +77,12 @@ export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove, tes
         const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
         if (!sub || !test) return setTested({ ok: false, key: 'invalid' });
         const r = await test(sub.endpoint);
+        if (r.error === 'gone') {
+          // the push service dropped this subscription and the server pruned its row: make the browser agree, re-read the devices
+          await sub.unsubscribe().catch(() => false);
+          setStatus('off');
+          router.refresh();
+        }
         const key = (TEST_ERRORS as readonly string[]).includes(r.error ?? '') ? (r.error as (typeof TEST_ERRORS)[number]) : 'unexpected';
         setTested(r.ok ? { ok: true } : { ok: false, key });
       } catch {

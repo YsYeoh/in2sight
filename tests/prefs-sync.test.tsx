@@ -67,6 +67,17 @@ describe('preferences follow across the app’s documents (tabs)', () => {
     await waitFor(() => expect(shown('b')).toContain('zh-CN'));
   });
 
+  it.each([
+    ['answers ok: false (the cookie WAS written)', () => Promise.resolve({ ok: false }), true],
+    ['rejects (nothing known to be saved)', () => Promise.reject(new Error('network')), false],
+  ])('a language change whose save %s: shared %s', async (_n, outcome, shared) => {
+    persistA.mockImplementation(outcome as never);
+    setup();
+    act(() => screen.getByText('a zh').click());
+    await new Promise((r) => setTimeout(r, 100));
+    expect(shown('b').includes('zh-CN')).toBe(shared);
+  });
+
   it('ignores junk on the channel (validated like any input)', async () => {
     setup();
     const ch = new BroadcastChannel(PREFS_CHANNEL);

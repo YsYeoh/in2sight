@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { PrefsProvider, usePrefs } from '@/components/providers/PrefsProvider';
@@ -98,5 +98,45 @@ describe('PrefsProvider', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(<Probe />)).toThrow('usePrefs must be used inside <PrefsProvider>');
     spy.mockRestore();
+  });
+
+  describe('two saves of the same key in flight', () => {
+    const deferred = () => {
+      let done!: (r: { ok: boolean }) => void;
+      return { promise: new Promise<{ ok: boolean }>((r) => (done = r)), done: (ok: boolean) => done({ ok }) };
+    };
+    function setup() {
+      const calls = [deferred(), deferred()];
+      const persist = vi.fn().mockImplementationOnce(() => calls[0].promise).mockImplementationOnce(() => calls[1].promise).mockResolvedValue({ ok: true });
+      render(<PrefsProvider initial={DEFAULT_PREFS} persist={persist}><Probe /></PrefsProvider>);
+      return { calls, persist };
+    }
+    const status = () => screen.getByTestId('status');
+
+    it('first fails, second succeeds: saved at the end, nothing left to retry', async () => {
+      const { calls, persist } = setup();
+      await userEvent.click(screen.getByRole('button', { name: 'dark' }));
+      await userEvent.click(screen.getByRole('button', { name: 'dark' })); // same key twice
+      await act(async () => calls[0].done(false));
+      await waitFor(() => expect(status()).toHaveTextContent('error')); // known so far; the other save is still running
+      await act(async () => calls[1].done(true));
+      await waitFor(() => expect(status()).toHaveTextContent('saved'));
+      await userEvent.click(screen.getByText('retry'));
+      expect(persist).toHaveBeenCalledTimes(2); // retry had nothing to send
+      expect(screen.getByTestId('mode')).toHaveTextContent('dark');
+    });
+
+    it('first succeeds, second fails: error at the end, retry re-sends the current value', async () => {
+      const { calls, persist } = setup();
+      await userEvent.click(screen.getByRole('button', { name: 'dark' }));
+      await userEvent.click(screen.getByRole('button', { name: 'dark' }));
+      await act(async () => calls[0].done(true));
+      await waitFor(() => expect(status()).toHaveTextContent('saving'));
+      await act(async () => calls[1].done(false));
+      await waitFor(() => expect(status()).toHaveTextContent('error'));
+      await userEvent.click(screen.getByText('retry'));
+      expect(persist).toHaveBeenLastCalledWith({ mode: 'dark' });
+      await waitFor(() => expect(status()).toHaveTextContent('saved'));
+    });
   });
 });
