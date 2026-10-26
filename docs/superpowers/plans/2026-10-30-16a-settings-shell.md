@@ -894,3 +894,1025 @@ Expected: all PASS, no type or lint errors.
 git add app/actions.ts lib/prefs.sync.server.ts components/providers/PrefsProvider.tsx components/providers/PrefsSaveNotice.tsx app/layout.tsx tests/set-prefs.test.ts tests/prefs-sync-server.test.ts tests/prefs-provider.test.tsx tests/prefs-save-notice.test.tsx
 git commit -m "feat(prefs): no silent save failures: setPrefs answers ok, the provider reports status and retries, a toast shows it (Plan 16a)"
 ```
+
+---
+
+### Task 3: Registry, unsaved guard, `SaveBar`, `Segmented`
+
+**Files:** Create `lib/settings/sections.ts`, `components/settings/unsaved.ts`, `components/settings/SaveBar.tsx`, `components/shared/Segmented.tsx`, `tests/settings-sections.test.ts`, `tests/settings-save-bar.test.tsx`, `tests/segmented.test.tsx`.
+
+**Interfaces produced:** `SECTION_IDS`, `type SectionId`, `interface SettingsSection { id; icon }`, `SECTIONS`, `DEFAULT_SECTION`, `isSectionId(v)`, `sectionHref(id)`, `routeSettings(segments, tab): { section } | { redirect } | null`; `useUnsavedGuard(dirty)`, `hasUnsavedChanges()`, `confirmLeave(message): boolean`; `SaveBar(props: SaveBarProps)`; `Segmented<T>({ label, value, options, onChange, className? })`, `SegmentedOption<T>`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/settings-sections.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import en from '@/messages/en.json';
+import zh from '@/messages/zh-CN.json';
+import { DEFAULT_SECTION, SECTION_IDS, SECTIONS, isSectionId, routeSettings, sectionHref } from '@/lib/settings/sections';
+import { isTabPath } from '@/lib/tabs/model';
+
+describe('settings sections registry', () => {
+  it('six sections in this order, each with an icon and a title + description in both languages', () => {
+    expect(SECTIONS.map((s) => s.id)).toEqual(['appearance', 'language', 'notifications', 'accounts', 'security', 'data']);
+    expect(SECTIONS.map((s) => s.id)).toEqual([...SECTION_IDS]);
+    for (const s of SECTIONS) {
+      expect(s.icon).toBeTruthy();
+      for (const m of [en, zh]) {
+        expect(m.settings.sections[s.id].title, s.id).toBeTruthy();
+        expect(m.settings.sections[s.id].description, s.id).toBeTruthy();
+      }
+    }
+    expect(DEFAULT_SECTION).toBe('appearance');
+  });
+
+  it('isSectionId accepts the ids only', () => {
+    expect(isSectionId('security')).toBe(true);
+    for (const v of ['', 'Security', 'general', 'constructor', null, 1]) expect(isSectionId(v)).toBe(false);
+  });
+
+  it('every section URL stays inside its shell tab (never breaks out of the frame)', () => {
+    for (const id of SECTION_IDS) {
+      expect(sectionHref(id)).toBe(`/settings/${id}`);
+      expect(isTabPath(sectionHref(id))).toBe(true);
+    }
+  });
+});
+
+describe('routeSettings', () => {
+  it('/settings redirects to the first section', () => {
+    expect(routeSettings(undefined, undefined)).toEqual({ redirect: '/settings/appearance' });
+    expect(routeSettings([], undefined)).toEqual({ redirect: '/settings/appearance' });
+  });
+
+  it('the old tab names redirect to their new sections; anything else to the first', () => {
+    expect(routeSettings(undefined, 'general')).toEqual({ redirect: '/settings/appearance' });
+    expect(routeSettings(undefined, 'notifications')).toEqual({ redirect: '/settings/notifications' });
+    expect(routeSettings(undefined, 'account')).toEqual({ redirect: '/settings/security' });
+    expect(routeSettings(undefined, 'toString')).toEqual({ redirect: '/settings/appearance' });
+    expect(routeSettings(undefined, 'bogus')).toEqual({ redirect: '/settings/appearance' });
+  });
+
+  it('a known section renders it (a ?tab= there is ignored)', () => {
+    expect(routeSettings(['language'], undefined)).toEqual({ section: 'language' });
+    expect(routeSettings(['security'], 'general')).toEqual({ section: 'security' });
+  });
+
+  it('an unknown or deeper path is not found', () => {
+    expect(routeSettings(['bogus'], undefined)).toBeNull();
+    expect(routeSettings(['appearance', 'x'], undefined)).toBeNull();
+    expect(routeSettings(['Appearance'], undefined)).toBeNull();
+  });
+});
+```
+
+`tests/settings-save-bar.test.tsx`:
+
+```tsx
+import { useState } from 'react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { SaveBar, type SaveBarProps } from '@/components/settings/SaveBar';
+import { confirmLeave, hasUnsavedChanges } from '@/components/settings/unsaved';
+
+const U = en.settings.unsaved;
+
+function bar(o: Partial<SaveBarProps> = {}) {
+  const props: SaveBarProps = { dirty: false, pending: false, result: null, error: 'Could not save', saved: 'All saved', onDiscard: vi.fn(), ...o };
+  const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
+  const view = render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <form onSubmit={onSubmit}>
+        <SaveBar {...props} />
+      </form>
+    </NextIntlClientProvider>,
+  );
+  return { props, onSubmit, view };
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('SaveBar', () => {
+  it('clean: Save is disabled, no Discard, no text', () => {
+    bar();
+    expect(screen.getByRole('button', { name: en.common.save })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: U.discard })).toBeNull();
+    expect(screen.queryByText(U.bar)).toBeNull();
+  });
+
+  it('dirty: says so, Save submits the form, Discard calls back', async () => {
+    const { props, onSubmit } = bar({ dirty: true });
+    expect(screen.getByText(U.bar)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: en.common.save }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole('button', { name: U.discard }));
+    expect(props.onDiscard).toHaveBeenCalledOnce();
+  });
+
+  it('a success is announced as status, an error as alert', () => {
+    const { view } = bar({ result: 'saved' });
+    expect(screen.getByRole('status')).toHaveTextContent('All saved');
+    view.unmount();
+    bar({ dirty: true, result: 'error' });
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not save');
+  });
+
+  it('sticky at the bottom of the frame, above the safe area', () => {
+    const { view } = bar({ dirty: true });
+    const el = view.container.querySelector('form > div')!;
+    for (const c of ['sticky', 'bottom-0', 'bg-card', 'border-t']) expect(el.classList.contains(c), c).toBe(true);
+  });
+
+  it('while dirty, reload asks (beforeunload) and confirmLeave asks; once clean, neither does', () => {
+    function Harness() {
+      const [dirty, setDirty] = useState(true);
+      return (
+        <NextIntlClientProvider locale="en" messages={en}>
+          <form>
+            <SaveBar dirty={dirty} pending={false} result={null} error="" saved="" onDiscard={() => setDirty(false)} />
+          </form>
+        </NextIntlClientProvider>
+      );
+    }
+    render(<Harness />);
+    expect(hasUnsavedChanges()).toBe(true);
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    expect(confirmLeave('leave?')).toBe(false);
+    expect(confirm).toHaveBeenCalledWith('leave?');
+  });
+
+  it('nothing dirty: confirmLeave goes ahead without asking', async () => {
+    const { view } = bar({ dirty: true });
+    view.unmount();
+    expect(hasUnsavedChanges()).toBe(false);
+    const confirm = vi.spyOn(window, 'confirm');
+    expect(confirmLeave('leave?')).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+});
+```
+
+`tests/segmented.test.tsx`:
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { Segmented } from '@/components/shared/Segmented';
+
+const OPTIONS = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+] as const;
+
+describe('Segmented', () => {
+  it('a labelled group with the chosen option pressed', () => {
+    render(<Segmented label="Mode" value="dark" options={OPTIONS} onChange={vi.fn()} />);
+    expect(screen.getByRole('group', { name: 'Mode' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dark' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('picking another option calls onChange once; picking the current one does nothing', async () => {
+    const onChange = vi.fn();
+    render(<Segmented label="Mode" value="dark" options={OPTIONS} onChange={onChange} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    expect(onChange).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Light' }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('light');
+  });
+
+  it('one control height and wraps at 360 px (no overflow)', () => {
+    render(<Segmented label="Mode" value="dark" options={OPTIONS} onChange={vi.fn()} />);
+    const g = screen.getByRole('group');
+    for (const c of ['min-h-[var(--ctl)]', 'flex-wrap', 'max-w-full', 'border-input']) expect(g.classList.contains(c), c).toBe(true);
+  });
+});
+```
+
+Run: `npx vitest run tests/settings-sections.test.ts tests/settings-save-bar.test.tsx tests/segmented.test.tsx`
+Expected: FAIL (modules not found).
+
+- [ ] **Step 2: `lib/settings/sections.ts`**
+
+```ts
+// Settings sections (Plan 16a): ids, order and icons in ONE place. Titles and descriptions are the i18n keys
+// `settings.sections.<id>.title` / `.description`. Each id has one component `components/settings/sections/<Id>Section.tsx`
+// (mapped in app/(app)/settings/[[...section]]/page.tsx). Plans 16b/16c replace SecuritySection / DataSection; they never add ids.
+import { Bell, Database, Languages, Palette, RefreshCw, ShieldCheck, type LucideIcon } from 'lucide-react';
+
+export const SECTION_IDS = ['appearance', 'language', 'notifications', 'accounts', 'security', 'data'] as const;
+export type SectionId = (typeof SECTION_IDS)[number];
+
+export interface SettingsSection {
+  id: SectionId;
+  icon: LucideIcon;
+}
+
+export const SECTIONS: readonly SettingsSection[] = [
+  { id: 'appearance', icon: Palette },
+  { id: 'language', icon: Languages },
+  { id: 'notifications', icon: Bell },
+  { id: 'accounts', icon: RefreshCw },
+  { id: 'security', icon: ShieldCheck },
+  { id: 'data', icon: Database },
+];
+
+export const DEFAULT_SECTION: SectionId = 'appearance';
+
+export const isSectionId = (v: unknown): v is SectionId => typeof v === 'string' && (SECTION_IDS as readonly string[]).includes(v);
+
+export const sectionHref = (id: SectionId): string => `/settings/${id}`;
+
+/** The tabs of the old one-page Settings (client state only, but honoured if they ever arrive as ?tab=). */
+const LEGACY_TABS: Readonly<Record<string, SectionId>> = { general: 'appearance', notifications: 'notifications', account: 'security' };
+
+/**
+ * What a settings URL shows. `segments` = the optional catch-all param (undefined for /settings), `tab` = a `?tab=` value.
+ * /settings (any tab) -> a redirect; /settings/<known id> -> that section; anything else -> null (404).
+ */
+export function routeSettings(segments: readonly string[] | undefined, tab: string | undefined): { section: SectionId } | { redirect: string } | null {
+  if (!segments || segments.length === 0) return { redirect: sectionHref(tab !== undefined && Object.hasOwn(LEGACY_TABS, tab) ? LEGACY_TABS[tab] : DEFAULT_SECTION) };
+  if (segments.length === 1 && isSectionId(segments[0])) return { section: segments[0] };
+  return null;
+}
+```
+
+- [ ] **Step 3: `components/settings/unsaved.ts`**
+
+```ts
+'use client';
+
+// The unsaved-changes guard (Plan 16a, kept small on purpose): a dirty form registers itself; reload / closing the window
+// asks through `beforeunload`, the settings section nav asks through confirmLeave(). The shell's own navigation (sidebar,
+// tab strip, Back) is NOT guarded: it moves the frame by message (docs/RUNBOOK_SETTINGS.md).
+import { useEffect } from 'react';
+
+let dirtyForms = 0; // ponytail: one counter per document; a per-form registry if a page ever needs to name the dirty form
+
+export function useUnsavedGuard(dirty: boolean): void {
+  useEffect(() => {
+    if (!dirty) return;
+    dirtyForms++;
+    const ask = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // older browsers need it set
+    };
+    window.addEventListener('beforeunload', ask);
+    return () => {
+      dirtyForms--;
+      window.removeEventListener('beforeunload', ask);
+    };
+  }, [dirty]);
+}
+
+export const hasUnsavedChanges = (): boolean => dirtyForms > 0;
+
+/** true = go ahead (nothing dirty, or the owner confirmed). */
+export function confirmLeave(message: string): boolean {
+  return !hasUnsavedChanges() || window.confirm(message);
+}
+```
+
+- [ ] **Step 4: `components/settings/SaveBar.tsx`**
+
+```tsx
+'use client';
+
+import { useTranslations } from 'next-intl';
+import { LoadingButton } from '@/components/shared/LoadingButton';
+import { Button } from '@/components/ui/button';
+import { useUnsavedGuard } from '@/components/settings/unsaved';
+
+export interface SaveBarProps {
+  dirty: boolean;
+  pending: boolean;
+  /** what the last save did; 'saved' shows until the next edit, 'error' until the next save */
+  result: 'saved' | 'error' | null;
+  /** translated text for result 'error' */
+  error: string;
+  /** translated text for result 'saved' */
+  saved: string;
+  onDiscard: () => void;
+}
+
+/**
+ * The explicit-save model (Plan 16a, UI standard 18): the last child of a <form>, sticky at the bottom of the tab frame
+ * (the phone bottom bar sits outside the frame), Save = the form's submit button (disabled while clean). Registers the
+ * unsaved-changes guard while dirty.
+ */
+export function SaveBar({ dirty, pending, result, error, saved, onDiscard }: SaveBarProps) {
+  const t = useTranslations('settings.unsaved');
+  const tc = useTranslations('common');
+  useUnsavedGuard(dirty);
+  return (
+    <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-card pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="mr-auto min-w-0 text-sm">
+        {result === 'error' ? (
+          <p role="alert" className="text-destructive">
+            {error}
+          </p>
+        ) : result === 'saved' && !dirty ? (
+          <p role="status" className="text-muted-foreground">
+            {saved}
+          </p>
+        ) : dirty ? (
+          <p className="text-muted-foreground">{t('bar')}</p>
+        ) : null}
+      </div>
+      {dirty ? (
+        <Button type="button" variant="outline" onClick={onDiscard} disabled={pending}>
+          {t('discard')}
+        </Button>
+      ) : null}
+      <LoadingButton type="submit" pending={pending} disabled={!dirty}>
+        {tc('save')}
+      </LoadingButton>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5: `components/shared/Segmented.tsx`**
+
+```tsx
+'use client';
+
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
+export interface SegmentedOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+/**
+ * A small set of exclusive options as ONE control (UI standard 18): a --ctl-high bordered group of small buttons with
+ * aria-pressed on the chosen one; it wraps instead of overflowing at 360 px. More than four options or long labels: use a
+ * native select instead.
+ */
+export function Segmented<T extends string>({ label, value, options, onChange, className }: { label: string; value: T; options: readonly SegmentedOption<T>[]; onChange: (v: T) => void; className?: string }) {
+  return (
+    <div role="group" aria-label={label} className={cn('inline-flex min-h-[var(--ctl)] max-w-full flex-wrap items-center gap-0.5 rounded-md border border-input bg-background p-0.5', className)}>
+      {options.map((o) => (
+        <Button key={o.value} type="button" size="sm" variant={o.value === value ? 'secondary' : 'ghost'} aria-pressed={o.value === value} onClick={() => o.value !== value && onChange(o.value)}>
+          {o.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Verify** — `npx vitest run tests/settings-sections.test.ts tests/settings-save-bar.test.tsx tests/segmented.test.tsx`, `npx tsc --noEmit`, `npx eslint lib/settings components/settings/unsaved.ts components/settings/SaveBar.tsx components/shared/Segmented.tsx tests/settings-sections.test.ts tests/settings-save-bar.test.tsx tests/segmented.test.tsx`. Expected: PASS, clean.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/settings/sections.ts components/settings/unsaved.ts components/settings/SaveBar.tsx components/shared/Segmented.tsx tests/settings-sections.test.ts tests/settings-save-bar.test.tsx tests/segmented.test.tsx
+git commit -m "feat(settings): section registry, unsaved-changes guard, SaveBar and Segmented (Plan 16a)"
+```
+
+---
+
+### Task 4: Devices reader, test push, delete device, layout revalidation
+
+**Files:**
+- Create: `lib/push/devices.ts`, `tests/push-devices.test.ts`
+- Modify: `app/(app)/settings/actions.ts`, `tests/push-actions.test.ts`
+
+**Interfaces produced:** `interface PushDevice { id: number; label: string | null; createdAt: string }`, `DEVICES_MAX = 20`, `deviceLabel(ua)`, `listPushDevices(db): Promise<PushDevice[] | null>`; `deleteDeviceAction(id: unknown): Promise<PushResult>`; `type TestPushResult`, `sendTestPushAction(endpoint: unknown): Promise<TestPushResult>`. Existing actions keep their signatures; their `revalidatePath('/settings')` becomes `revalidatePath('/settings', 'layout')` (the old single page is still covered, and so is every `/settings/<section>` after Task 9).
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/push-devices.test.ts`:
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { DEVICES_MAX, deviceLabel, listPushDevices } from '@/lib/push/devices';
+
+const UA = {
+  chromeWin: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+  edgeWin: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+  safariIphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  safariMac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+  firefoxLinux: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0',
+  chromeAndroid: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+};
+
+describe('deviceLabel', () => {
+  it.each([
+    [UA.chromeWin, 'Chrome · Windows'],
+    [UA.edgeWin, 'Edge · Windows'],
+    [UA.safariIphone, 'Safari · iPhone'],
+    [UA.safariMac, 'Safari · macOS'],
+    [UA.firefoxLinux, 'Firefox · Linux'],
+    [UA.chromeAndroid, 'Chrome · Android'],
+  ])('%s -> %s', (ua, label) => expect(deviceLabel(ua)).toBe(label));
+
+  it('unknown or missing -> null', () => {
+    for (const v of [null, undefined, '', '   ', 'curl/8.0']) expect(deviceLabel(v)).toBeNull();
+  });
+});
+
+/** Owner-session fake for one chained read. */
+function db(result: { data?: unknown; error?: unknown } | 'throw') {
+  const calls: unknown[][] = [];
+  const chain: Record<string, unknown> = {};
+  for (const op of ['select', 'order', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+  chain.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => (result === 'throw' ? Promise.reject(new Error('x')) : Promise.resolve(result)).then(res, rej);
+  return { client: { from: vi.fn((t: string) => (calls.push(['from', t]), chain)) } as never, calls };
+}
+
+describe('listPushDevices', () => {
+  it('reads ids, user agents and dates only, newest first, capped; maps to labels', async () => {
+    const f = db({ data: [{ id: 7, user_agent: UA.chromeWin, created_at: '2026-10-12T08:00:00Z' }, { id: '3', user_agent: null, created_at: '2026-10-01T08:00:00Z' }], error: null });
+    expect(await listPushDevices(f.client)).toEqual([
+      { id: 7, label: 'Chrome · Windows', createdAt: '2026-10-12T08:00:00Z' },
+      { id: 3, label: null, createdAt: '2026-10-01T08:00:00Z' },
+    ]);
+    expect(f.calls).toEqual([['from', 'push_subscriptions'], ['select', 'id,user_agent,created_at'], ['order', 'created_at', { ascending: false }], ['limit', DEVICES_MAX]]);
+    expect(JSON.stringify(f.calls)).not.toMatch(/endpoint|keys/);
+  });
+
+  it('a failed read is null, never an empty list; it never throws', async () => {
+    expect(await listPushDevices(db({ data: null, error: { message: 'boom' } }).client)).toBeNull();
+    expect(await listPushDevices(db('throw').client)).toBeNull();
+  });
+});
+```
+
+`tests/push-actions.test.ts` — replace the whole file with (the existing cases are unchanged except the revalidation assertion; new: the mocks for `next-intl/server` and `@/lib/push/send`, `maybeSingle` in the fake chain, and the device / test-push cases at the end):
+
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { calls, requireOwner, queue, push } = vi.hoisted(() => ({
+  calls: [] as unknown[][],
+  requireOwner: vi.fn(),
+  queue: [] as { data?: unknown; error?: unknown }[],
+  push: { vapid: null as null | { publicKey: string; privateKey: string; subject: string }, status: 201 },
+}));
+
+/** Owner-session fake: records every call; each awaited query resolves to the next queued result. */
+function fakeDb() {
+  return {
+    from(table: string) {
+      calls.push(['from', table]);
+      const chain: Record<string, unknown> = {};
+      for (const op of ['upsert', 'delete', 'eq', 'select', 'limit', 'maybeSingle']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(queue.shift() ?? { error: null }).then(res, rej);
+      return chain;
+    },
+  };
+}
+
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: () => requireOwner() }));
+vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push(['session']), fakeDb()) }));
+vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push(['ADMIN']) }));
+vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => calls.push(['revalidate', ...a]) }));
+vi.mock('next-intl/server', () => ({ getTranslations: async (ns: string) => (key: string) => `${ns}.${key}` }));
+// the real fan-out (sendToAll) with a fake transport: no web-push, no network
+vi.mock('@/lib/push/send', async (orig) => ({
+  ...(await orig<typeof import('@/lib/push/send')>()),
+  vapidFromEnv: () => push.vapid,
+  webPushTransport: () => async (sub: { endpoint: string }, payload: string) => (calls.push(['push', sub.endpoint, JSON.parse(payload)]), push.status),
+}));
+
+import { deleteDeviceAction, deleteSubscriptionAction, saveAlertSettingsAction, saveSubscriptionAction, sendTestPushAction } from '@/app/(app)/settings/actions';
+import { DEFAULT_ALERT_SETTINGS } from '@/lib/alerts/settings';
+import { parseSubscription, vapidKeyBytes } from '@/lib/push/subscription';
+
+const SUB = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', expirationTime: null, keys: { p256dh: 'B' + 'x'.repeat(86), auth: 'y'.repeat(22) } };
+
+beforeEach(() => {
+  calls.length = 0;
+  queue.length = 0;
+  push.vapid = null;
+  push.status = 201;
+  requireOwner.mockReset().mockImplementation(async () => (calls.push(['requireOwner']), { userId: 'u1', email: null }));
+});
+
+describe('parseSubscription', () => {
+  it('accepts a real-shaped subscription and keeps only endpoint + keys', () => {
+    expect(parseSubscription(SUB)).toEqual({ endpoint: SUB.endpoint, keys: SUB.keys });
+  });
+
+  it.each([
+    ['http endpoint', { ...SUB, endpoint: 'http://push.example/x' }],
+    ['javascript: endpoint', { ...SUB, endpoint: 'javascript:alert(1)' }],
+    ['credentials in the URL', { ...SUB, endpoint: 'https://user:pw@fcm.googleapis.com/x' }],
+    ['endpoint over 1024 chars', { ...SUB, endpoint: 'https://fcm.googleapis.com/' + 'a'.repeat(1010) }],
+    ['an unknown push host', { ...SUB, endpoint: 'https://push.example/x' }],
+    ['a look-alike prefix host', { ...SUB, endpoint: 'https://evilfcm.googleapis.com.attacker.test/x' }],
+    ['a look-alike suffix host', { ...SUB, endpoint: 'https://fcm.googleapis.com.evil.test/x' }],
+    ['an allowed host as a subdomain of another domain', { ...SUB, endpoint: 'https://x.notify.windows.com.evil.test/x' }],
+    ['a prefix without a dot', { ...SUB, endpoint: 'https://evilpush.apple.com.test/x' }],
+    ['an IPv4 literal', { ...SUB, endpoint: 'https://127.0.0.1/x' }],
+    ['an IPv6 literal', { ...SUB, endpoint: 'https://[::1]/x' }],
+    ['a metadata address', { ...SUB, endpoint: 'https://169.254.169.254/latest' }],
+    ['a non-default port', { ...SUB, endpoint: 'https://fcm.googleapis.com:8443/x' }],
+    ['a bare push.apple.com suffix with no label', { ...SUB, endpoint: 'https://apple.com/x' }],
+    ['missing keys', { endpoint: SUB.endpoint }],
+    ['short p256dh', { ...SUB, keys: { ...SUB.keys, p256dh: 'abc' } }],
+    ['non-base64url auth', { ...SUB, keys: { ...SUB.keys, auth: '<script>alert(1)</script>' } }],
+    ['oversized auth', { ...SUB, keys: { ...SUB.keys, auth: 'y'.repeat(200) } }],
+    ['a string', 'https://push.example/x'],
+    ['null', null],
+  ])('refuses %s', (_n, raw) => {
+    expect(parseSubscription(raw)).toBeNull();
+  });
+
+  it.each([
+    'https://fcm.googleapis.com/fcm/send/abc',
+    'https://updates.push.services.mozilla.com/wpush/v2/abc',
+    'https://web.push.apple.com/QAbc',
+    'https://wns2-par02p.notify.windows.com/w/?token=abc',
+    'https://fcm.googleapis.com:443/fcm/send/abc',
+  ])('accepts the real push service endpoint %s', (endpoint) => {
+    expect(parseSubscription({ ...SUB, endpoint })?.endpoint).toBe(endpoint);
+  });
+
+  it('vapidKeyBytes decodes base64url without padding (a VAPID public key is 65 bytes starting 0x04)', () => {
+    const bytes = new Uint8Array(65).map((_, i) => (i === 0 ? 4 : i * 3));
+    const b64url = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    expect(Array.from(vapidKeyBytes(b64url))).toEqual(Array.from(bytes));
+  });
+});
+
+describe('push and alert-settings actions', () => {
+  it.each([
+    ['saveSubscription', () => saveSubscriptionAction(SUB, 'UA')],
+    ['deleteSubscription', () => deleteSubscriptionAction(SUB.endpoint)],
+    ['saveAlertSettings', () => saveAlertSettingsAction({})],
+    ['deleteDevice', () => deleteDeviceAction(7)],
+    ['sendTestPush', () => sendTestPushAction(SUB.endpoint)],
+  ])('%s: requireOwner runs first; a redirect propagates and nothing is touched', async (_n, run) => {
+    await run();
+    expect(calls[0]).toEqual(['requireOwner']);
+    calls.length = 0;
+    requireOwner.mockRejectedValue(new Error('NEXT_REDIRECT'));
+    await expect(run()).rejects.toThrow('NEXT_REDIRECT');
+    expect(calls).toEqual([]);
+  });
+
+  it('saveSubscription upserts on endpoint with the owner session; the user agent is clipped', async () => {
+    expect(await saveSubscriptionAction(SUB, 'U'.repeat(900))).toEqual({ ok: true });
+    const up = calls.find((c) => c[0] === 'upsert')!;
+    expect(up[1]).toEqual({ endpoint: SUB.endpoint, keys: SUB.keys, user_agent: 'U'.repeat(512) });
+    expect(up[2]).toEqual({ onConflict: 'endpoint' });
+    expect(calls.some((c) => c[0] === 'ADMIN')).toBe(false);
+  });
+
+  it('hostile bodies return invalid without opening a client', async () => {
+    expect(await saveSubscriptionAction({ ...SUB, endpoint: 'http://x' }, 'UA')).toEqual({ ok: false, error: 'invalid' });
+    expect(await deleteSubscriptionAction("https://x' or 1=1 --".repeat(100))).toEqual({ ok: false, error: 'invalid' });
+    expect(await deleteSubscriptionAction(42)).toEqual({ ok: false, error: 'invalid' });
+    expect(calls.filter((c) => c[0] === 'session')).toEqual([]);
+  });
+
+  it('deleteSubscription deletes by endpoint', async () => {
+    expect(await deleteSubscriptionAction(SUB.endpoint)).toEqual({ ok: true });
+    expect(calls).toContainEqual(['delete']);
+    expect(calls).toContainEqual(['eq', 'endpoint', SUB.endpoint]);
+  });
+
+  const rows = (n: number, first = 'https://fcm.googleapis.com/fcm/send/other0') => ({ data: Array.from({ length: n }, (_, i) => ({ endpoint: i === 0 ? first : `https://fcm.googleapis.com/fcm/send/other${i}` })) });
+
+  it('a new endpoint is refused once 20 subscriptions exist, before any upsert', async () => {
+    queue.push(rows(20));
+    expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: false, error: 'invalid' });
+    expect(calls.some((c) => c[0] === 'upsert')).toBe(false);
+  });
+
+  it('with 19 subscriptions a new endpoint is saved', async () => {
+    queue.push(rows(19));
+    expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: true });
+    expect(calls.some((c) => c[0] === 'upsert')).toBe(true);
+  });
+
+  it('re-subscribing an endpoint that already exists still works at 20', async () => {
+    queue.push(rows(20, SUB.endpoint));
+    expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: true });
+    expect(calls.some((c) => c[0] === 'upsert')).toBe(true);
+  });
+
+  it('a database error returns unexpected (never the Supabase message)', async () => {
+    queue.push({ data: [] }, { error: { message: 'duplicate key value violates…' } });
+    expect(await saveSubscriptionAction(SUB, 'UA')).toEqual({ ok: false, error: 'unexpected' });
+  });
+
+  it('saveAlertSettings stores the normalised settings on the owner profile and returns them', async () => {
+    const r = await saveAlertSettingsAction({ push: { taking_off: true, hack: true }, reachDropPct: 500, takingOffRatio: '3', syncFailures: 'x' });
+    const settings = { ...DEFAULT_ALERT_SETTINGS, push: { ...DEFAULT_ALERT_SETTINGS.push, taking_off: true }, reachDropPct: 90, takingOffRatio: 3 };
+    expect(r).toEqual({ ok: true, settings });
+    const up = calls.find((c) => c[0] === 'upsert')![1] as Record<string, unknown>;
+    expect(up).toMatchObject({ user_id: 'u1', alert_settings: settings });
+    expect(calls).toContainEqual(['from', 'profiles']);
+    expect(calls).toContainEqual(['revalidate', '/settings', 'layout']);
+  });
+
+  it('deleteDevice deletes one row by id with the owner session and revalidates every section', async () => {
+    expect(await deleteDeviceAction(7)).toEqual({ ok: true });
+    expect(calls).toContainEqual(['from', 'push_subscriptions']);
+    expect(calls).toContainEqual(['delete']);
+    expect(calls).toContainEqual(['eq', 'id', 7]);
+    expect(calls).toContainEqual(['revalidate', '/settings', 'layout']);
+    expect(calls.some((c) => c[0] === 'ADMIN')).toBe(false);
+  });
+
+  it.each([[0], [-1], [1.5], ['7'], [null], [Number.MAX_SAFE_INTEGER + 1]])('deleteDevice refuses id %j without opening a client', async (id) => {
+    expect(await deleteDeviceAction(id)).toEqual({ ok: false, error: 'invalid' });
+    expect(calls.filter((c) => c[0] === 'session')).toEqual([]);
+  });
+
+  it('deleteDevice: a database error is unexpected', async () => {
+    queue.push({ error: { message: 'boom' } });
+    expect(await deleteDeviceAction(7)).toEqual({ ok: false, error: 'unexpected' });
+  });
+
+  it('sendTestPush: refuses a bad endpoint, then says not_configured without VAPID keys', async () => {
+    expect(await sendTestPushAction('http://x')).toEqual({ ok: false, error: 'invalid' });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'not_configured' });
+    expect(calls.some((c) => c[0] === 'push')).toBe(false);
+  });
+
+  it('sendTestPush: an endpoint the owner has not stored is refused, nothing is sent', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    queue.push({ data: null });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'invalid' });
+    expect(calls).toContainEqual(['eq', 'endpoint', SUB.endpoint]);
+    expect(calls.some((c) => c[0] === 'push')).toBe(false);
+  });
+
+  it('sendTestPush: sends ONE translated test message to the stored endpoint only', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    queue.push({ data: { endpoint: SUB.endpoint, keys: SUB.keys } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: true });
+    const sent = calls.filter((c) => c[0] === 'push');
+    expect(sent).toEqual([['push', SUB.endpoint, { title: 'settings.notifications.testTitle', body: 'settings.notifications.testBody', url: '/settings/notifications', tag: 'test' }]]);
+  });
+
+  it('sendTestPush: 410 from the push service prunes the row and says gone; 500 says failed', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    push.status = 410;
+    queue.push({ data: { endpoint: SUB.endpoint, keys: SUB.keys } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'gone' });
+    expect(calls.filter((c) => c[0] === 'delete')).toHaveLength(1);
+    push.status = 500;
+    queue.push({ data: { endpoint: SUB.endpoint, keys: SUB.keys } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'failed' });
+  });
+
+  it('sendTestPush: a read error is unexpected (never the Supabase message)', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    queue.push({ error: { message: 'secret detail' } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'unexpected' });
+  });
+});
+```
+
+Run: `npx vitest run tests/push-devices.test.ts tests/push-actions.test.ts`
+Expected: FAIL (`lib/push/devices` not found; `deleteDeviceAction` / `sendTestPushAction` not exported; revalidation assertion).
+
+- [ ] **Step 2: `lib/push/devices.ts`**
+
+```ts
+// The devices list of Settings -> Notifications (Plan 16a). Owner-session reads only (RLS push_subscriptions_owner_all).
+// The endpoint (a capability URL) and the keys never leave the server: the list carries ids, a label and a date.
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+export interface PushDevice {
+  id: number;
+  /** "Chrome · Windows"; null = not recognised (the UI says "Unknown device") */
+  label: string | null;
+  createdAt: string;
+}
+
+export const DEVICES_MAX = 20; // = MAX_SUBSCRIPTIONS in app/(app)/settings/actions.ts
+
+// Order matters: Edge and Opera also say "Chrome", Chrome also says "Safari", iPad/iPhone also say "Mac OS X".
+const BROWSERS: [RegExp, string][] = [
+  [/Edg(e|A|iOS)?\//, 'Edge'],
+  [/OPR\/|Opera/, 'Opera'],
+  [/SamsungBrowser\//, 'Samsung Internet'],
+  [/Firefox\/|FxiOS\//, 'Firefox'],
+  [/Chrome\/|CriOS\//, 'Chrome'],
+  [/Safari\//, 'Safari'],
+];
+const SYSTEMS: [RegExp, string][] = [
+  [/iPad/, 'iPad'],
+  [/iPhone|iPod/, 'iPhone'],
+  [/Android/, 'Android'],
+  [/Windows/, 'Windows'],
+  [/Mac OS X|Macintosh/, 'macOS'],
+  [/CrOS/, 'ChromeOS'],
+  [/Linux/, 'Linux'],
+];
+
+/** A short product label from a stored user agent; literal names (not translated). */
+export function deviceLabel(userAgent: string | null | undefined): string | null {
+  if (typeof userAgent !== 'string' || userAgent.trim() === '') return null;
+  const browser = BROWSERS.find(([re]) => re.test(userAgent))?.[1];
+  const system = SYSTEMS.find(([re]) => re.test(userAgent))?.[1];
+  return [browser, system].filter(Boolean).join(' · ') || null;
+}
+
+/** Newest first, at most DEVICES_MAX. null = the read failed (the UI says so; never a fake empty list). Never throws. */
+export async function listPushDevices(db: SupabaseClient): Promise<PushDevice[] | null> {
+  try {
+    const { data, error } = await db.from('push_subscriptions').select('id,user_agent,created_at').order('created_at', { ascending: false }).limit(DEVICES_MAX);
+    if (error || !data) return null;
+    return (data as { id: number; user_agent: string | null; created_at: string }[]).map((r) => ({ id: Number(r.id), label: deviceLabel(r.user_agent), createdAt: r.created_at }));
+  } catch {
+    return null;
+  }
+}
+```
+
+- [ ] **Step 3: `app/(app)/settings/actions.ts`** — replace the whole file with:
+
+```ts
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import { getTranslations } from 'next-intl/server';
+import { parseAlertSettings, type AlertSettings } from '@/lib/alerts/settings';
+import { confirmEnroll, disableFactor, startEnroll } from '@/lib/auth/mfa';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { sendToAll, vapidFromEnv, webPushTransport, type PushSub } from '@/lib/push/send';
+import { clipUserAgent, parseEndpoint, parseSubscription } from '@/lib/push/subscription';
+import { createServerSupabase } from '@/lib/supabase/server';
+
+export async function startEnrollAction() {
+  await requireOwner(); // server actions are public endpoints: authorize here, not only in the page
+  const r = await startEnroll(await createServerSupabase());
+  return r.ok ? r : ({ ok: false, error: r.error } as const);
+}
+
+export async function confirmEnrollAction(factorId: string, code: string) {
+  await requireOwner(); // server actions are public endpoints: authorize here, not only in the page
+  const r = await confirmEnroll(await createServerSupabase(), { factorId: String(factorId), code: String(code) });
+  if (r.ok) revalidatePath('/settings', 'layout'); // every section page
+  return r.ok ? ({ ok: true } as const) : ({ ok: false, error: r.error } as const);
+}
+
+export async function disableAction(factorId: string) {
+  await requireOwner(); // server actions are public endpoints: authorize here, not only in the page
+  const r = await disableFactor(await createServerSupabase(), String(factorId));
+  if (r.ok) revalidatePath('/settings', 'layout'); // every section page
+  return r.ok ? ({ ok: true } as const) : ({ ok: false, error: r.error } as const);
+}
+
+// Push subscriptions and alert settings. OWNER-SESSION client: RLS (push_subscriptions_owner_all, profiles_owner_all)
+// applies to every write. Never the admin client here. Errors are keys, never Supabase text.
+const MAX_SUBSCRIPTIONS = 20; // a single owner has a handful of devices; the cap bounds what a hostile session could store
+export type PushResult = { ok: true } | { ok: false; error: 'invalid' | 'unexpected' };
+
+export async function saveSubscriptionAction(subscription: unknown, userAgent: unknown): Promise<PushResult> {
+  await requireOwner();
+  const s = parseSubscription(subscription);
+  if (!s) return { ok: false, error: 'invalid' };
+  try {
+    const db = await createServerSupabase();
+    const existing = await db.from('push_subscriptions').select('endpoint').limit(MAX_SUBSCRIPTIONS + 1);
+    if (existing.error) return { ok: false, error: 'unexpected' };
+    const have = (existing.data ?? []) as { endpoint: string }[];
+    if (have.length >= MAX_SUBSCRIPTIONS && !have.some((r) => r.endpoint === s.endpoint)) return { ok: false, error: 'invalid' };
+    const { error } = await db.from('push_subscriptions').upsert({ endpoint: s.endpoint, keys: s.keys, user_agent: clipUserAgent(userAgent) }, { onConflict: 'endpoint' });
+    return error ? { ok: false, error: 'unexpected' } : { ok: true };
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
+}
+
+export async function deleteSubscriptionAction(endpoint: unknown): Promise<PushResult> {
+  await requireOwner();
+  const e = parseEndpoint(endpoint);
+  if (!e) return { ok: false, error: 'invalid' };
+  try {
+    const db = await createServerSupabase();
+    const { error } = await db.from('push_subscriptions').delete().eq('endpoint', e);
+    return error ? { ok: false, error: 'unexpected' } : { ok: true };
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
+}
+
+/** Saves the normalised settings (unknown keys dropped, thresholds clamped) and returns what was stored. */
+export async function saveAlertSettingsAction(raw: unknown): Promise<{ ok: true; settings: AlertSettings } | { ok: false; error: 'unexpected' }> {
+  const { userId } = await requireOwner();
+  const settings = parseAlertSettings(raw);
+  try {
+    const db = await createServerSupabase();
+    const { error } = await db.from('profiles').upsert({ user_id: userId, alert_settings: settings, updated_at: new Date().toISOString() });
+    if (error) return { ok: false, error: 'unexpected' };
+    revalidatePath('/settings', 'layout'); // every section page
+    return { ok: true, settings };
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
+}
+
+/** Settings -> Notifications -> Devices: removes one stored subscription by its id (the list never carries endpoints). */
+export async function deleteDeviceAction(id: unknown): Promise<PushResult> {
+  await requireOwner();
+  if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return { ok: false, error: 'invalid' };
+  try {
+    const db = await createServerSupabase();
+    const { error } = await db.from('push_subscriptions').delete().eq('id', id);
+    if (error) return { ok: false, error: 'unexpected' };
+    revalidatePath('/settings', 'layout');
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
+}
+
+export type TestPushResult = { ok: true } | { ok: false; error: 'invalid' | 'not_configured' | 'gone' | 'failed' | 'unexpected' };
+
+/**
+ * "Send a test notification": ONE push to THIS device only. The browser passes its own endpoint; the server sends only
+ * if that endpoint is stored for the owner (RLS), so it cannot be used to push to an arbitrary URL. A 404/410 from the
+ * push service prunes the row (as the alert sender does). The text is in the owner's language (request locale).
+ */
+export async function sendTestPushAction(endpoint: unknown): Promise<TestPushResult> {
+  await requireOwner();
+  const e = parseEndpoint(endpoint);
+  if (!e) return { ok: false, error: 'invalid' };
+  const vapid = vapidFromEnv();
+  if (!vapid) return { ok: false, error: 'not_configured' };
+  try {
+    const db = await createServerSupabase();
+    const { data, error } = await db.from('push_subscriptions').select('endpoint,keys').eq('endpoint', e).maybeSingle();
+    if (error) return { ok: false, error: 'unexpected' };
+    if (!data) return { ok: false, error: 'invalid' };
+    const t = await getTranslations('settings.notifications');
+    const msg = { title: t('testTitle'), body: t('testBody'), url: '/settings/notifications', tag: 'test' };
+    const r = await sendToAll([data as PushSub], msg, webPushTransport(vapid), async (gone) => {
+      await db.from('push_subscriptions').delete().eq('endpoint', gone);
+    });
+    if (r.sent === 1) return { ok: true };
+    return { ok: false, error: r.pruned === 1 ? 'gone' : 'failed' };
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
+}
+```
+
+(`sendTestPushAction` reuses `sendToAll` for its prune rule; the translator follows the request locale = the owner's language. `'not_configured'` is checked before any database read.)
+
+- [ ] **Step 4: Verify** — `npx vitest run tests/push-devices.test.ts tests/push-actions.test.ts tests/settings-actions.test.ts`, `npx tsc --noEmit`, `npx eslint lib/push/devices.ts "app/(app)/settings/actions.ts" tests/push-devices.test.ts tests/push-actions.test.ts`. Expected: PASS, clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/push/devices.ts tests/push-devices.test.ts "app/(app)/settings/actions.ts" tests/push-actions.test.ts
+git commit -m "feat(push): devices list reader, remove a device, send a test notification to this device (Plan 16a)"
+```
+
+---
+
+### Task 5: Extract `Identity`, `SyncInfo`, `CommentsHint` (second use: Settings → Accounts & sync)
+
+**Files:**
+- Create: `components/accounts/AccountParts.tsx`, `tests/account-parts.test.tsx`
+- Modify: `components/accounts/AccountsView.tsx`
+
+Pure move: no behaviour change on `/accounts` (its tests `tests/accounts-view.test.tsx`, `tests/accounts-comments-hint.test.tsx` stay green unchanged).
+
+- [ ] **Step 1: Write the test** `tests/account-parts.test.tsx`:
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+import { CommentsHint, Identity, SyncInfo } from '@/components/accounts/AccountParts';
+import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import { COMMENTS_SCOPE } from '@/lib/accounts/scopes';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { DEFAULT_PREFS } from '@/lib/prefs';
+
+const A: StoredAccount = { id: 'a1', igUserId: '1', username: 'yseny_', displayName: 'Yen', accountType: null, profilePictureUrl: null, groupName: 'Clients', status: 'active', archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-10-01T00:00:00Z', grantedScopes: [] };
+
+const wrap = (ui: React.ReactNode) =>
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        {ui}
+      </PrefsProvider>
+    </NextIntlClientProvider>,
+  );
+
+describe('AccountParts (shared by /accounts and Settings)', () => {
+  it('Identity: initial, @username and display name', () => {
+    wrap(<Identity a={A} />);
+    expect(screen.getByText('@yseny_')).toBeInTheDocument();
+    expect(screen.getByText('Yen')).toBeInTheDocument();
+    expect(screen.getByText('Y')).toBeInTheDocument();
+  });
+
+  it('SyncInfo: never synced, and a translated error only while failures continue', () => {
+    const { unmount } = wrap(<SyncInfo />);
+    expect(screen.getByText(en.accounts.sync.never)).toBeInTheDocument();
+    unmount();
+    wrap(<SyncInfo s={{ lastSuccessAt: null, lastErrorKey: 'not-a-key', consecutiveFailures: 2 }} />);
+    expect(screen.getByText(en.accounts.errors.unexpected)).toBeInTheDocument();
+  });
+
+  it('CommentsHint: a top-level reconnect link for an active account without the scope; nothing once granted', () => {
+    const { unmount } = wrap(<CommentsHint a={A} />);
+    const link = screen.getByRole('link', { name: en.accounts.commentsHint });
+    expect(link).toHaveAttribute('target', '_top');
+    unmount();
+    const { container } = wrap(<CommentsHint a={{ ...A, grantedScopes: [COMMENTS_SCOPE] }} />);
+    expect(container.querySelector('a')).toBeNull();
+  });
+});
+```
+
+Run: `npx vitest run tests/account-parts.test.tsx` — Expected: FAIL (module not found).
+
+- [ ] **Step 2: Create `components/accounts/AccountParts.tsx`** (the three functions moved verbatim, now exported):
+
+```tsx
+'use client';
+
+// Pieces of an account row shared by the Accounts page and Settings -> Accounts & sync (Plan 16a: extracted on the second use).
+import { useTranslations } from 'next-intl';
+import { connectHref } from '@/components/accounts/ConnectDialog';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
+import type { StoredAccount } from '@/lib/accounts/types';
+import { formatDateTime } from '@/lib/format';
+import type { SyncStatus } from '@/lib/sync/store';
+
+/** "last synced" plus the latest error, translated from the key the sync stored */
+export function SyncInfo({ s }: { s?: SyncStatus }) {
+  const t = useTranslations('accounts');
+  const tErr = useTranslations('accounts.errors');
+  const { prefs } = usePrefs();
+  const err = s?.lastErrorKey && s.consecutiveFailures > 0 ? s.lastErrorKey : null;
+  return (
+    <div className="grid min-w-0 gap-0.5">
+      <span>{s?.lastSuccessAt ? formatDateTime(s.lastSuccessAt, prefs) : t('sync.never')}</span>
+      {err ? <span className="text-xs text-destructive">{tErr.has(err) ? tErr(err) : tErr('unexpected')}</span> : null}
+    </div>
+  );
+}
+
+export function Identity({ a }: { a: StoredAccount }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Avatar>
+        <AvatarFallback>{[...a.username][0]?.toUpperCase()}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0">
+        <p className="truncate font-medium">@{a.username}</p>
+        {a.displayName ? <p className="truncate text-xs text-muted-foreground">{a.displayName}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * An active account whose token lacks the comments scope (connected before it was requested, or declined): one
+ * Reconnect grants it. Needs-reconnect accounts already say "Reconnect"; archived ones are not synced.
+ */
+export function CommentsHint({ a }: { a: StoredAccount }) {
+  const t = useTranslations('accounts');
+  if (a.status !== 'active' || hasScope(a, COMMENTS_SCOPE)) return null;
+  return (
+    <a href={connectHref(a.groupName)} target="_top" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+      {t('commentsHint')}
+    </a>
+  );
+}
+```
+
+- [ ] **Step 3: `components/accounts/AccountsView.tsx`**
+  - Delete the three local functions: everything from the line `// "last synced" plus the latest error, translated from the key the sync stored` down to (not including) `function GroupBadge(`.
+  - Add `import { CommentsHint, Identity, SyncInfo } from '@/components/accounts/AccountParts';` right before the `ConnectDialog` import.
+  - Remove the now-unused imports `import { Avatar, AvatarFallback } from '@/components/ui/avatar';` and `import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';`, and change `import { formatDate, formatDateTime, formatNumber } from '@/lib/format';` to `import { formatDate, formatNumber } from '@/lib/format';` (`usePrefs` and `SyncStatus` stay: still used).
+
+- [ ] **Step 4: Verify** — `npx vitest run tests/account-parts.test.tsx tests/accounts-view.test.tsx tests/accounts-comments-hint.test.tsx`, `npx tsc --noEmit`, `npx eslint components/accounts/AccountParts.tsx components/accounts/AccountsView.tsx tests/account-parts.test.tsx`. Expected: PASS, clean (eslint flags any import left unused).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add components/accounts/AccountParts.tsx components/accounts/AccountsView.tsx tests/account-parts.test.tsx
+git commit -m "refactor(accounts): share Identity, SyncInfo and CommentsHint (Plan 16a)"
+```
