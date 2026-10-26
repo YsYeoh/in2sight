@@ -79,7 +79,8 @@
     "weekStart": "每周起始日",
     "timezone": "时区",
     "mon": "周一",
-    "sun": "周日"
+    "sun": "周日",
+    "auto": "自动"
   },
   "styleguide": {
     "title": "样式指南",
@@ -106,7 +107,9 @@
       "sampleSearch": "搜索文案",
       "sampleSort": "排序",
       "sampleNewest": "最新优先",
-      "sampleReach": "覆盖最多"
+      "sampleReach": "覆盖最多",
+      "segmented": "分段选择器",
+      "saveBar": "保存栏"
     },
     "gallery": {
       "stats": "统计卡片",
@@ -223,7 +226,86 @@
       "errorNeedsAal2": "请先使用验证器验证码重新登录，再更改两步验证设置。"
     },
     "title": "设置",
-    "subtitle": "外观、格式与安全",
+    "subtitle": "外观、通知、账号与安全",
+    "sections": {
+      "nav": "设置分区",
+      "pick": "分区",
+      "appearance": {
+        "title": "外观",
+        "description": "主题、浅色或深色、密度和圆角。更改立即生效，并保存到所有设备。"
+      },
+      "language": {
+        "title": "语言与格式",
+        "description": "语言、日期、时间和数字格式、每周起始日和时区。"
+      },
+      "notifications": {
+        "title": "通知",
+        "description": "此设备的推送、你要接收哪些提醒，以及接收提醒的设备。"
+      },
+      "accounts": {
+        "title": "账号与同步",
+        "description": "每个已连接账号的状态。分组、归档和删除在“账号”页面。"
+      },
+      "security": {
+        "title": "安全",
+        "description": "你如何登录，以及账号如何受到保护。"
+      },
+      "data": {
+        "title": "数据与隐私",
+        "description": "in2sight 存储了哪些数据，以及如何删除。"
+      }
+    },
+    "unsaved": {
+      "bar": "你有未保存的更改",
+      "discard": "放弃更改",
+      "confirm": "不保存就离开？此分区的更改将会丢失。"
+    },
+    "prefsSave": {
+      "saved": "已保存",
+      "error": "无法保存此设置。在你重新加载之前，它仅在此设备上生效。",
+      "retry": "重试"
+    },
+    "appearance": {
+      "themeHint": "整个应用（包括图表）的配色。",
+      "modeHint": "“自动”会跟随设备的浅色或深色设置。",
+      "densityHint": "“紧凑”可在屏幕上显示更多内容；“宽松”留出更多空间。",
+      "radiusHint": "按钮和卡片的圆角程度。",
+      "previewTitle": "预览",
+      "previewDescription": "按这些选择显示的页面效果。",
+      "previewHeading": "每周覆盖人数",
+      "previewBody": "本周你的 Reels 覆盖的人数比平时多。",
+      "previewKpi": "覆盖人数",
+      "previewPrimary": "保存",
+      "previewSecondary": "取消",
+      "previewBadge": "新",
+      "previewInput": "搜索帖子",
+      "previewChart": "图表颜色"
+    },
+    "language": {
+      "languageHint": "应用会以新语言重新加载。",
+      "formatsTitle": "格式",
+      "formatsDescription": "日期、时间和数字在各处（包括导出）的写法。",
+      "timezoneHint": "你的每一天从此时区的午夜开始。它决定所有图表、列表和提醒中每天的起止时间。",
+      "sample": "示例：{date} · {number}"
+    },
+    "accountsSync": {
+      "list": "已连接的账号",
+      "manage": "管理账号",
+      "syncNow": "立即同步",
+      "reconnect": "重新连接",
+      "synced": "已同步 @{username}",
+      "lastSync": "最近同步",
+      "empty": "还没有连接任何账号。",
+      "emptyAction": "连接账号"
+    },
+    "data": {
+      "title": "in2sight 存储的数据",
+      "insights": "已连接账号的洞察数据、帖子、快拍和受众数字，从你连接账号当天开始保存。",
+      "covers": "帖子和快拍的封面图片，存放在私有存储中。",
+      "comments": "你帖子下的评论以及你上传的粉丝导出文件。这些是他人的数据：只有你能看到。",
+      "delete": "在“账号”页面删除账号会删除它的全部数据。数据不会与任何人共享。",
+      "soon": "导出和全部删除工具即将推出。"
+    },
     "tabs": {
       "general": "常规",
       "account": "账户",
@@ -256,7 +338,29 @@
       "syncFailures": "连续同步失败次数",
       "syncFailuresHint": "连续这么多次同步失败后提醒（1–10）。",
       "saved": "已保存",
-      "saveError": "保存失败，请重试。"
+      "saveError": "保存失败，请重试。",
+      "testSend": "发送测试通知",
+      "testSent": "已发送，几秒钟内应会出现在此设备上。",
+      "testTitle": "in2sight 测试",
+      "testBody": "此设备可以接收推送通知。",
+      "testErrors": {
+        "not_configured": "服务器尚未设置推送。",
+        "gone": "此设备的订阅已失效。请关闭通知后再重新开启。",
+        "failed": "推送服务未接受这条测试通知。请稍后重试。",
+        "invalid": "此设备尚未订阅。",
+        "unexpected": "出了点问题，请重试。"
+      },
+      "devicesTitle": "设备",
+      "devicesDescription": "所有接收推送通知的浏览器或手机。移除不再使用的设备。",
+      "devicesHint": "要停止此设备的推送，请使用上方的“在此设备上关闭”。",
+      "devicesEmpty": "还没有设备接收推送通知。",
+      "devicesUnknown": "未知设备",
+      "devicesAdded": "添加于 {date}",
+      "devicesRemove": "移除",
+      "devicesRemoveTitle": "移除 {device}？",
+      "devicesRemoveBody": "它将不再收到推送通知。你可以在该设备上重新开启。",
+      "devicesError": "无法移除该设备，请重试。",
+      "devicesLoadError": "无法加载设备列表。"
     }
   },
   "accounts": {

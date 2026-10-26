@@ -79,7 +79,8 @@
     "weekStart": "Week starts on",
     "timezone": "Timezone",
     "mon": "Monday",
-    "sun": "Sunday"
+    "sun": "Sunday",
+    "auto": "Auto"
   },
   "styleguide": {
     "title": "Style guide",
@@ -106,7 +107,9 @@
       "sampleSearch": "Search captions",
       "sampleSort": "Sort",
       "sampleNewest": "Newest first",
-      "sampleReach": "Most reach"
+      "sampleReach": "Most reach",
+      "segmented": "Segmented control",
+      "saveBar": "Save bar"
     },
     "gallery": {
       "stats": "Stat cards",
@@ -223,7 +226,86 @@
       "errorNeedsAal2": "Sign in again with your authenticator code to change two-factor settings."
     },
     "title": "Settings",
-    "subtitle": "Appearance, formats and security",
+    "subtitle": "Appearance, notifications, accounts and security",
+    "sections": {
+      "nav": "Settings sections",
+      "pick": "Section",
+      "appearance": {
+        "title": "Appearance",
+        "description": "Theme, light or dark, density and corners. Changes apply at once and are saved for every device."
+      },
+      "language": {
+        "title": "Language & formats",
+        "description": "Language, date, time and number formats, week start and timezone."
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Push on this device, which alerts you get, and the devices that receive them."
+      },
+      "accounts": {
+        "title": "Accounts & sync",
+        "description": "The state of each connected account. Groups, archive and delete are on the Accounts page."
+      },
+      "security": {
+        "title": "Security",
+        "description": "How you sign in and how your account is protected."
+      },
+      "data": {
+        "title": "Data & privacy",
+        "description": "What in2sight stores and how to remove it."
+      }
+    },
+    "unsaved": {
+      "bar": "You have unsaved changes",
+      "discard": "Discard",
+      "confirm": "Leave without saving? Your changes to this section will be lost."
+    },
+    "prefsSave": {
+      "saved": "Saved",
+      "error": "Couldn't save this setting. It works on this device until you reload.",
+      "retry": "Retry"
+    },
+    "appearance": {
+      "themeHint": "Colours for the whole app, charts included.",
+      "modeHint": "Auto follows your device's light or dark setting.",
+      "densityHint": "Dense fits more on the screen; Comfortable gives more space.",
+      "radiusHint": "How round the corners of buttons and cards are.",
+      "previewTitle": "Preview",
+      "previewDescription": "How pages look with these choices.",
+      "previewHeading": "Weekly reach",
+      "previewBody": "Your Reels reached more people than usual this week.",
+      "previewKpi": "Reach",
+      "previewPrimary": "Save",
+      "previewSecondary": "Cancel",
+      "previewBadge": "New",
+      "previewInput": "Search posts",
+      "previewChart": "Chart colours"
+    },
+    "language": {
+      "languageHint": "The app reloads in the new language.",
+      "formatsTitle": "Formats",
+      "formatsDescription": "How dates, times and numbers are written everywhere, exports included.",
+      "timezoneHint": "Your days start at midnight in this timezone. It changes where each day begins and ends in every chart, list and alert.",
+      "sample": "Example: {date} · {number}"
+    },
+    "accountsSync": {
+      "list": "Connected accounts",
+      "manage": "Manage accounts",
+      "syncNow": "Sync now",
+      "reconnect": "Reconnect",
+      "synced": "Synced @{username}",
+      "lastSync": "Last sync",
+      "empty": "No accounts connected yet.",
+      "emptyAction": "Connect an account"
+    },
+    "data": {
+      "title": "What in2sight stores",
+      "insights": "Insights, posts, Stories and audience numbers of your connected accounts, kept from the day you connected them.",
+      "covers": "Cover images of your posts and Stories, in private storage.",
+      "comments": "Comments on your posts and the follower exports you upload. These are other people's data: only you can see them.",
+      "delete": "Deleting an account on the Accounts page removes all of its data. Nothing is shared with anyone.",
+      "soon": "Export and delete-everything tools are coming."
+    },
     "tabs": {
       "general": "General",
       "account": "Account",
@@ -256,7 +338,29 @@
       "syncFailures": "Failed syncs in a row",
       "syncFailuresHint": "Alert after this many consecutive failed sync runs (1–10).",
       "saved": "Saved",
-      "saveError": "Couldn't save. Try again."
+      "saveError": "Couldn't save. Try again.",
+      "testSend": "Send a test notification",
+      "testSent": "Sent. It should appear on this device in a few seconds.",
+      "testTitle": "in2sight test",
+      "testBody": "Push notifications work on this device.",
+      "testErrors": {
+        "not_configured": "Push isn't set up on the server yet.",
+        "gone": "This device's subscription has expired. Turn notifications off and on again.",
+        "failed": "The push service didn't accept the test. Try again later.",
+        "invalid": "This device isn't subscribed.",
+        "unexpected": "Something went wrong. Try again."
+      },
+      "devicesTitle": "Devices",
+      "devicesDescription": "Every browser or phone that gets push notifications. Remove one you no longer use.",
+      "devicesHint": "To stop push on this device, use Turn off above.",
+      "devicesEmpty": "No device gets push notifications yet.",
+      "devicesUnknown": "Unknown device",
+      "devicesAdded": "Added {date}",
+      "devicesRemove": "Remove",
+      "devicesRemoveTitle": "Remove {device}?",
+      "devicesRemoveBody": "It stops getting push notifications. You can turn them on again on that device.",
+      "devicesError": "Couldn't remove the device. Try again.",
+      "devicesLoadError": "Couldn't load the devices."
     }
   },
   "accounts": {
