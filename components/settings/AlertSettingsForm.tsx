@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
 import { useTranslations } from 'next-intl';
 import { SaveBar } from '@/components/settings/SaveBar';
 import { FormField } from '@/components/shared/FormField';
@@ -39,11 +40,16 @@ export function AlertSettingsForm({ initial, save }: AlertSettingsFormProps) {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     start(async () => {
-      const r = await save({ push, ...nums });
-      if (!r.ok) return setResult('error');
-      setStored(r.settings);
-      reset(r.settings); // the server's normalised values win
-      setResult('saved');
+      try {
+        const r = await save({ push, ...nums });
+        if (!r.ok) return setResult('error');
+        setStored(r.settings);
+        reset(r.settings); // the server's normalised values win
+        setResult('saved');
+      } catch (e) {
+        if (isRedirectError(e)) throw e; // an expired session: Next follows it
+        setResult('error'); // a network drop: the typed values stay, Save again
+      }
     });
   };
 

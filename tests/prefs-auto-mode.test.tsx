@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PrefsProvider, usePrefs } from '@/components/providers/PrefsProvider';
+import { ForceLight } from '@/components/report/ForceLight';
 import { AUTO_MODE_SCRIPT, DEFAULT_PREFS, MODES, htmlAttrs, parsePrefs, resolveMode } from '@/lib/prefs';
 import { THEME_COLORS, themeColor } from '@/lib/pwa';
 
@@ -20,6 +21,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   html().removeAttribute('data-mode');
   html().removeAttribute('data-mode-auto');
+  html().removeAttribute('data-force-light');
 });
 
 describe('auto mode: the pure parts', () => {
@@ -106,5 +108,70 @@ describe('auto mode in PrefsProvider', () => {
       </PrefsProvider>,
     );
     expect(html().getAttribute('data-mode')).toBe('dark');
+  });
+
+  // A server refresh (revalidatePath) re-renders <html> from the server's data-mode (auto = light) and hands the provider a NEW
+  // `initial` object; the refreshed attribute must not leave a dark device on a light page.
+  const withInitial = (initial: typeof DEFAULT_PREFS) => (
+    <PrefsProvider initial={initial} persist={vi.fn()}>
+      <Probe />
+    </PrefsProvider>
+  );
+
+  it('a server refresh that resets <html> to light does not leave auto on a dark device light', () => {
+    scheme(true);
+    const { rerender } = render(withInitial({ ...DEFAULT_PREFS, mode: 'auto' }));
+    expect(html().getAttribute('data-mode')).toBe('dark');
+    html().setAttribute('data-mode', 'light'); // what React writes when the layout re-renders
+    rerender(withInitial({ ...DEFAULT_PREFS, mode: 'auto' })); // a new object, as after every RSC refresh
+    expect(html().getAttribute('data-mode')).toBe('dark');
+  });
+
+  it('a server refresh leaves an explicit light or dark mode alone, even against the device', () => {
+    scheme(true);
+    const { rerender, unmount } = render(withInitial({ ...DEFAULT_PREFS, mode: 'light' }));
+    rerender(withInitial({ ...DEFAULT_PREFS, mode: 'light' }));
+    expect(html().getAttribute('data-mode')).toBe('light');
+    unmount();
+    scheme(false);
+    const again = render(withInitial({ ...DEFAULT_PREFS, mode: 'dark' }));
+    again.rerender(withInitial({ ...DEFAULT_PREFS, mode: 'dark' }));
+    expect(html().getAttribute('data-mode')).toBe('dark');
+  });
+
+  it('the refresh applies what the user chose here, not the older server value', async () => {
+    scheme(true);
+    const { rerender } = render(withInitial({ ...DEFAULT_PREFS, mode: 'light' }));
+    await userEvent.click(screen.getByText('auto'));
+    html().setAttribute('data-mode', 'light');
+    rerender(withInitial({ ...DEFAULT_PREFS, mode: 'light' }));
+    expect(html().getAttribute('data-mode')).toBe('dark');
+  });
+});
+
+describe('auto mode and the always-light report', () => {
+  it('a device scheme change (or the provider mounting) does not turn a report dark while ForceLight is mounted', () => {
+    const s = scheme(false);
+    const page = (
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, mode: 'auto' }} persist={vi.fn()}>
+        <ForceLight />
+      </PrefsProvider>
+    );
+    const { unmount } = render(page);
+    expect(html().getAttribute('data-mode')).toBe('light');
+    act(() => s.set(true));
+    expect(html().getAttribute('data-mode')).toBe('light');
+    unmount();
+    expect(html().hasAttribute('data-force-light')).toBe(false);
+  });
+
+  it('on a dark device the report is light from the first render of the provider', () => {
+    scheme(true);
+    render(
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, mode: 'auto' }} persist={vi.fn()}>
+        <ForceLight />
+      </PrefsProvider>,
+    );
+    expect(html().getAttribute('data-mode')).toBe('light');
   });
 });

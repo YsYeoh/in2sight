@@ -28,6 +28,9 @@ const PrefsContext = createContext<PrefsContextValue | null>(null);
  */
 export const PREFS_CHANNEL = 'in2sight:prefs';
 
+/** Set on <html> by ForceLight while a report is open: applyPrefsToDocument then leaves data-mode alone. */
+export const FORCE_LIGHT_ATTR = 'data-force-light';
+
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** The device's colour scheme (for Auto mode only; never for layout). false where matchMedia is missing. */
@@ -35,7 +38,8 @@ export const systemDark = (): boolean => typeof window !== 'undefined' && typeof
 
 export function applyPrefsToDocument(p: Prefs, el: HTMLElement = document.documentElement): void {
   const dark = systemDark();
-  for (const [name, value] of Object.entries(htmlAttrs(p, dark))) el.setAttribute(name, value);
+  const forced = el.hasAttribute(FORCE_LIGHT_ATTR); // a report page is always light (components/report/ForceLight.tsx)
+  for (const [name, value] of Object.entries(htmlAttrs(p, dark))) if (!(forced && name === 'data-mode')) el.setAttribute(name, value);
   el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p, dark));
 }
 
@@ -71,6 +75,10 @@ export function PrefsProvider({ initial, persist, children }: { initial: Prefs; 
     };
   }, []);
 
+  // A server refresh (revalidatePath after a save) hands us a NEW `initial` and re-renders <html> from the server's values (which
+  // render Auto as light); effects run after that commit, so re-apply what is chosen here and the page cannot stay on the wrong mode.
+  useEffect(() => applyPrefsToDocument(latest.current), [initial]);
+
   // Auto mode follows the device while it is chosen (the listener goes when the mode changes or the provider unmounts)
   useEffect(() => {
     if (prefs.mode !== 'auto' || typeof window.matchMedia !== 'function') return;
@@ -89,15 +97,16 @@ export function PrefsProvider({ initial, persist, children }: { initial: Prefs; 
       void Promise.resolve()
         .then(() => persist(partial))
         .then(
-          (r) => !(r !== null && typeof r === 'object' && r.ok === false),
-          () => false,
+          (r) => ({ ok: !(r !== null && typeof r === 'object' && r.ok === false), answered: true }),
+          () => ({ ok: false, answered: false }),
         )
-        .then((ok) => {
+        .then(({ ok, answered }) => {
           inflight.current--;
           const keys = Object.keys(partial);
           if (ok) for (const k of keys) delete unsaved.current[k as keyof Prefs];
           else unsaved.current = { ...unsaved.current, ...pickKeys(latest.current, keys) };
-          if (ok && 'locale' in partial) channel.current?.postMessage(partial); // the others reload: the cookie is saved now
+          // the others reload once the action ANSWERED: { ok: false } still wrote the cookie (this frame re-renders in the new language)
+          if (answered && 'locale' in partial) channel.current?.postMessage(partial);
           setStatus(Object.keys(unsaved.current).length > 0 ? 'error' : inflight.current > 0 ? 'saving' : 'saved');
         });
     },
