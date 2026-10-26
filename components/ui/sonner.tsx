@@ -15,7 +15,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
 
   return (
     <Sonner
-      theme={prefs.mode}
+      theme={prefs.mode === 'auto' ? 'system' : prefs.mode}
       className="toaster group"
       mobileOffset={{ bottom: 72 }}
       icons={{

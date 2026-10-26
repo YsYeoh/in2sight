@@ -51,8 +51,13 @@ describe('profile row vs the migration', () => {
     expect(Object.keys(prefsToProfileRow('u1', DEFAULT_PREFS)).sort()).toEqual(prefCols);
   });
 
+  // Plan 16a widened profiles.mode in a later migration (applied ones are never edited)
+  const autoSql = readFileSync('supabase/migrations/20261030000001_prefs_auto_mode.sql', 'utf8');
+  const modeNow = [...autoSql.match(/check \(mode in \(([^)]*)\)\)/)![1].matchAll(/'([^']*)'/g)].map((x) => x[1]);
+
   it('every allowed value in the app matches the CHECK list, in both directions', () => {
-    expect(checks).toEqual({
+    expect(checks.mode).toEqual(['light', 'dark']); // the first migration, unchanged
+    expect({ ...checks, mode: modeNow }).toEqual({
       language: [...LOCALES], date_format: [...DATE_FORMATS], time_format: [...TIME_FORMATS], number_format: [...NUMBER_FORMATS],
       week_start: [...WEEK_STARTS], theme: [...THEMES], mode: [...MODES], density: [...DENSITIES], radius: [...RADII],
     });

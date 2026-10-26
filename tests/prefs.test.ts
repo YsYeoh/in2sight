@@ -107,7 +107,7 @@ describe('cookie round trip', () => {
 describe('htmlAttrs', () => {
   it('maps prefs to the attributes the token CSS and next-intl rely on', () => {
     expect(htmlAttrs({ ...DEFAULT_PREFS, theme: 'forest', mode: 'dark', density: 'comfortable', radius: 'round', locale: 'zh-CN' })).toEqual({
-      lang: 'zh-CN', 'data-theme': 'forest', 'data-mode': 'dark', 'data-density': 'comfortable', 'data-radius': 'round',
+      lang: 'zh-CN', 'data-theme': 'forest', 'data-mode': 'dark', 'data-mode-auto': 'false', 'data-density': 'comfortable', 'data-radius': 'round',
     });
   });
 });

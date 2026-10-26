@@ -1,5 +1,5 @@
 export const THEMES = ['ink', 'sunset', 'forest', 'mono'] as const;
-export const MODES = ['light', 'dark'] as const;
+export const MODES = ['light', 'dark', 'auto'] as const; // auto = follow the device (Plan 16a)
 export const DENSITIES = ['dense', 'comfortable'] as const;
 export const RADII = ['sharp', 'soft', 'round'] as const;
 export const LOCALES = ['en', 'zh-CN'] as const;
@@ -10,6 +10,8 @@ export const WEEK_STARTS = ['mon', 'sun'] as const;
 
 export type Theme = (typeof THEMES)[number];
 export type Mode = (typeof MODES)[number];
+/** What the page actually shows: the token CSS only knows light and dark. */
+export type ResolvedMode = 'light' | 'dark';
 export type Density = (typeof DENSITIES)[number];
 export type Radius = (typeof RADII)[number];
 export type Locale = (typeof LOCALES)[number];
@@ -92,13 +94,23 @@ export function parsePrefsCookie(value: string | undefined | null): Prefs {
   }
 }
 
-/** The single source for the attributes on <html>; used by the server layout and the client provider. */
-export function htmlAttrs(p: Prefs) {
+export const resolveMode = (mode: Mode, systemDark: boolean): ResolvedMode => (mode === 'auto' ? (systemDark ? 'dark' : 'light') : mode);
+
+/**
+ * The single source for the attributes on <html>; used by the server layout and the client provider. The server cannot
+ * know the device's scheme, so it renders auto as light and AUTO_MODE_SCRIPT switches it before the first paint.
+ */
+export function htmlAttrs(p: Prefs, systemDark = false) {
   return {
     lang: p.locale,
     'data-theme': p.theme,
-    'data-mode': p.mode,
+    'data-mode': resolveMode(p.mode, systemDark),
+    'data-mode-auto': p.mode === 'auto' ? 'true' : 'false',
     'data-density': p.density,
     'data-radius': p.radius,
   } as const;
 }
+
+/** Inline in <head> (app/layout.tsx), runs before the first paint: auto + a dark device -> dark. Static text, no input. */
+export const AUTO_MODE_SCRIPT =
+  "try{var d=document.documentElement;if(d.getAttribute('data-mode-auto')==='true'&&window.matchMedia('(prefers-color-scheme: dark)').matches)d.setAttribute('data-mode','dark')}catch(e){}";

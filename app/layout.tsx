@@ -10,7 +10,7 @@ import { FrameBreakout } from '@/components/shared/FrameBreakout';
 import { NavigationProgress } from '@/components/shared/NavigationProgress';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { htmlAttrs } from '@/lib/prefs';
+import { AUTO_MODE_SCRIPT, htmlAttrs } from '@/lib/prefs';
 import { getPrefs } from '@/lib/prefs.server';
 import { themeColor } from '@/lib/pwa';
 import { setPrefs } from '@/app/actions';
@@ -34,7 +34,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const prefs = await getPrefs();
   const messages = await getMessages();
   return (
-    <html {...htmlAttrs(prefs)} className={inter.variable}>
+    // suppressHydrationWarning: AUTO_MODE_SCRIPT may set data-mode before React hydrates (Auto mode on a dark device)
+    <html {...htmlAttrs(prefs)} className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: AUTO_MODE_SCRIPT }} />
+      </head>
       <body>
         <NextIntlClientProvider locale={prefs.locale} messages={messages}>
           <PrefsProvider initial={prefs} persist={setPrefs}>
