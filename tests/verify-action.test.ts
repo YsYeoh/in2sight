@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const supabase = { tag: 'client' };
 const verifyLogin = vi.fn();
 const syncPrefsFromProfile = vi.fn();
+const hasRecoveryProof = vi.fn();
 vi.mock('next/navigation', () => ({
   redirect: (to: string) => {
     throw new Error(`REDIRECT:${to}`);
@@ -11,6 +12,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/auth/mfa', () => ({ verifyLogin: (...a: unknown[]) => verifyLogin(...a) }));
 vi.mock('@/lib/prefs.sync.server', () => ({ syncPrefsFromProfile: (...a: unknown[]) => syncPrefsFromProfile(...a) }));
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => supabase }));
+vi.mock('@/lib/auth/recovery', () => ({ hasRecoveryProof: (...a: unknown[]) => hasRecoveryProof(...a) }));
 
 import { verifyMfaAction } from '@/app/login/verify/actions';
 
@@ -23,12 +25,19 @@ const form = (code: string) => {
 beforeEach(() => {
   verifyLogin.mockReset().mockResolvedValue({ ok: true });
   syncPrefsFromProfile.mockReset().mockResolvedValue(undefined);
+  hasRecoveryProof.mockReset().mockResolvedValue(false);
 });
 
 describe('verifyMfaAction', () => {
   it('syncs prefs from the profile (now readable at aal2) before redirecting to /overview', async () => {
     await expect(verifyMfaAction({}, form('123456'))).rejects.toThrow('REDIRECT:/overview');
     expect(syncPrefsFromProfile).toHaveBeenCalledWith(supabase);
+  });
+
+  it('a session that came from a recovery link continues to /login/reset (fixed path)', async () => {
+    hasRecoveryProof.mockResolvedValue(true);
+    await expect(verifyMfaAction({}, form('123456'))).rejects.toThrow('REDIRECT:/login/reset');
+    expect(hasRecoveryProof).toHaveBeenCalledWith(supabase);
   });
 
   it('does not sync, and returns the error, after a failed verify', async () => {
