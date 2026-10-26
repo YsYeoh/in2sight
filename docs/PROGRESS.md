@@ -17,11 +17,11 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 ## 2. State at a glance (2026-10-26)
 | Item | State |
 |---|---|
-| Code on `origin/main` | everything through Plan 15b, including all review fixes, plus the security upgrade pushed 2026-10-25 (next and eslint-config-next 16.4.0 -> 16.4.3, puppeteer-core 25.11.0 -> 25.16.0) |
-| `npm run check` | last recorded green on pushed `main`: 248 test files, 2272 tests, lint, tsc, build. Plan 15c adds 8 test files (the plan's scratch run expected 256 files, 2,367 tests) and Plan 15d 12 more (its scratch run, before the Comments-tab wiring, expected 260 files, 2,430 tests); the full `npm run check` on the current `main` is the orchestrator's to confirm |
-| Live database | 12 migrations applied (`migration list`: 12 local / 12 remote before 15c). Last applied: 14b `20261027000001` (2026-10-21) and 15b `20261028000002` (2026-10-22). **15c `20261029000001` and 15d `20261029000002` are written but NOT applied** (owner go-ahead, BEFORE deploying code that needs them; 15c's first or in the same push; see section 5) |
+| Code on `origin/main` | everything through Plan 15d, including all review fixes and the security upgrade of 2026-10-25 (next and eslint-config-next 16.4.0 -> 16.4.3, puppeteer-core 25.11.0 -> 25.16.0) |
+| `npm run check` | green on the final merged `main` before the push (2026-10-26): 269 test files, 2618 tests, lint, tsc, build |
+| Live database | all 14 migrations applied (`migration list`: 14 local / 14 remote / 0 mismatched). Last applied: 15c `20261029000001` and 15d `20261029000002` (2026-10-26, applied in that order, then pushed). The anon probe answers 401 `42501` for the 3 `comment_*` functions and the 3 `moderation_*` tables (they exist, anon is denied) |
 | Verified in a browser by the owner | **nothing from Plans 11b to 15d has been verified live yet** (see section 6). The owner glanced at the app and said it "looks good", no runbook was walked through. **Nothing has ever been sent to Instagram by Plan 15d** |
-| Unpushed work | **Plans 15c (read-only Comments tab) and 15d (comment moderation) are code-complete on local `main`, NOT pushed**, their migrations NOT applied, nothing verified live. Do not push before the owner decides: pushing deploys them, the Comments tab then says "needs a database update" except Topics, and the Moderation tab says "needs a database update" (no row menu on the Comments tab) until the migrations are applied. **Auto-hide is OFF by default and must not be switched on until RUNBOOK_MODERATION §1 probes P1-P8 have passed** (see section 6) |
+| Unpushed work | none (Plans 15c and 15d were pushed on 2026-10-26 after the migrations). **Auto-hide is OFF and must stay off until RUNBOOK_MODERATION §1 (probes P1-P8) has passed on a throwaway comment; each account must Reconnect once for the comments scope** |
 | Open agents / worktrees | none expected after the 15c merge; check `git worktree list` and remove leftovers (section 10) |
 
 ## 3. What is built (all merged and pushed, except Plans 15c and 15d: local `main` only)
@@ -47,11 +47,11 @@ Each line: plan, what it gives, where to read more.
 - **15b: Followers tab.** Upload of the owner's Instagram export (parsed on the device), snapshots, five diff lists by name, Excel export of a list.
   `RUNBOOK_FOLLOWERS`.
 - **15c: Comments tab (read-only; local `main`, NOT pushed, nothing verified live).** All comments (search, comment date, post, pages), unanswered questions (rule-based),
-  fans (top / new / gone quiet), topics (en + zh, no AI), commenters who don't follow you (newest follower export). Migration `20261029000001` NOT applied yet
+  fans (top / new / gone quiet), topics (en + zh, no AI), commenters who don't follow you (newest follower export). Migration `20261029000001` APPLIED to the live database on 2026-10-26 (older wording: NOT applied)
   (it also rewrites the `comments_owner_select` RLS policy into InitPlan form). `RUNBOOK_COMMENTS`.
 - **15d: comment moderation (local `main`, NOT pushed, nothing verified live, NOTHING has ever been sent to Instagram by it).** Reply / hide / unhide / delete from a menu on each comment (a confirm for each;
   delete needs a typed word), banned-word and spam rules with a live preview, an auto-hide pass in the sync tick (OFF by default), a moderation log with Undo, a `moderation_paused` alert,
-  and the **Moderation** tab. Migration `20261029000002` NOT applied (needs 15c's first or together). `RUNBOOK_MODERATION` (probes P1-P8 first). Plan:
+  and the **Moderation** tab. Migration `20261029000002` APPLIED to the live database on 2026-10-26 (older wording: NOT applied) (needs 15c's first or together). `RUNBOOK_MODERATION` (probes P1-P8 first). Plan:
   `docs/superpowers/plans/2026-10-29-15d-comment-moderation.md`. It does NOT read thread replies or Instagram's hidden flag (follow-up after probe P5).
   Watch: the auto-hide pass runs up to 50 s into a tick limited to 60 s (35 s sync + 10 s alerts + 5 s auto-hide): after enabling it, look at Server-Timing and the `sync_runs` durations.
 
@@ -90,8 +90,8 @@ Account page tabs now: **Overview, Growth, Posts, Stories, Comments, Moderation,
 | 20261026000001_post_lab | `post_lab_latest`, `post_lab_points` |
 | 20261027000001_post_story_lists | `post_list`, `story_list` (filter, sort, page, count; Story finals) |
 | 20261028000002_follower_exports | `follower_exports` (owner-uploaded follower/following snapshots, RLS, cascade) |
-| 20261029000001_comment_insights | `comment_list`, `comment_fans`, `comment_outsiders` and the `comments_owner_select` policy rewritten into InitPlan form (written and tested as of Plan 15c; **NOT applied yet**: owner go-ahead, apply BEFORE deploying, and BEFORE (or together with) the next row; `docs/RUNBOOK_COMMENTS.md` §0) |
-| 20261029000002_comment_moderation | `moderation_settings`, `moderation_rules`, `moderation_log` (RLS, cascade from `accounts`) , owner update (`hidden` only)/delete on `comments`, and `moderation_paused` added to the `notifications` kind check (written and tested as of Plan 15d; **NOT applied yet**: owner go-ahead, apply BEFORE deploying the 15d code and AFTER (or together with) `20261029000001`; `docs/RUNBOOK_MODERATION.md` §0) |
+| 20261029000001_comment_insights | `comment_list`, `comment_fans`, `comment_outsiders` and the `comments_owner_select` policy rewritten into InitPlan form (written and tested as of Plan 15c; **APPLIED to the live database on 2026-10-26 (older wording: NOT applied)**: owner go-ahead, apply BEFORE deploying, and BEFORE (or together with) the next row; `docs/RUNBOOK_COMMENTS.md` §0) |
+| 20261029000002_comment_moderation | `moderation_settings`, `moderation_rules`, `moderation_log` (RLS, cascade from `accounts`) , owner update (`hidden` only)/delete on `comments`, and `moderation_paused` added to the `notifications` kind check (written and tested as of Plan 15d; **APPLIED to the live database on 2026-10-26 (older wording: NOT applied)**: owner go-ahead, apply BEFORE deploying the 15d code and AFTER (or together with) `20261029000001`; `docs/RUNBOOK_MODERATION.md` §0) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -121,7 +121,7 @@ Record outcomes in the runbooks and TODO ("code done; live verification pending"
 Every item has an approved design in `docs/superpowers/specs/2026-10-15-creator-toolkit-design.md` (section numbers below). Per CLAUDE.md a design
 change goes through `superpowers:brainstorming` and SPEC first; an item already in the approved spec goes straight to `superpowers:writing-plans`.
 1. **Plans 15c and 15d are BUILT, not live (the next step is the owner's go-ahead, not code).** 15c (read-only Comments tab) and 15d (comment moderation: reply / hide / delete with confirms,
-   banned-word and spam rules, auto-hide OFF by default, undo log) are on local `main`, NOT pushed, their migrations (`20261029000001`, then `20261029000002`) NOT applied, nothing verified live and
+   banned-word and spam rules, auto-hide OFF by default, undo log) are on local `main`, NOT pushed, their migrations (`20261029000001`, then `20261029000002`) APPLIED to the live database on 2026-10-26 (older wording: NOT applied), nothing verified live and
    nothing ever sent to Instagram. Order: owner's go-ahead -> apply both migrations -> push/deploy -> Reconnect each account once -> RUNBOOK_COMMENTS -> RUNBOOK_MODERATION §1 probes P1-P8 on a
    throwaway comment -> only then consider switching auto-hide on, and watch the tick durations (section 3, 15d). Third-party personal data: owner-only, never logged, deleted with the account.
    **Follow-up (small, NOT started, needs its own plan): reading thread replies and Instagram's hidden flag** (adds fields to `COMMENT_FIELDS`; one unsupported field would fail the whole comments read, so it is

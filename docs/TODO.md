@@ -200,13 +200,13 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Status (2026-10-23): Plan 15b is pushed to `main` (2026-10-22, `77a5db0`) and its migration `20261028000002_follower_exports.sql` is APPLIED to the live database (2026-10-22); nothing verified live yet (RUNBOOK_FOLLOWERS §2 with a real export is the gate).
 
 ## 6m. Comment insights (Plan 15c, read-only)
-- [x] Migration `20261029000001_comment_insights.sql` (`comment_list`, `comment_fans`, `comment_outsiders`, comments policy InitPlan) _(written and tested; NOT applied to the live database — owner go-ahead, BEFORE deploying, docs/RUNBOOK_COMMENTS.md §0; it also rewrites the existing `comments_owner_select` policy into InitPlan form)_
+- [x] Migration `20261029000001_comment_insights.sql` (`comment_list`, `comment_fans`, `comment_outsiders`, comments policy InitPlan) _(written and tested; APPLIED to the live database on 2026-10-26 (older wording: NOT applied) — owner go-ahead, BEFORE deploying, docs/RUNBOOK_COMMENTS.md §0; it also rewrites the existing `comments_owner_select` policy into InitPlan form)_
 - [x] Comments tab (Overview, Growth, Posts, Stories, Comments, Followers; Plan 15d later put Moderation between Comments and Followers): All comments with search / comment date / post / show only and server pages, Unanswered questions, Fans (top, new, gone quiet), Topics (en + zh, no AI), Not following you (newest follower export); "Reconnect to enable comments" without the scope _(code done on local `main`, NOT pushed; NOT verified live)_
 - [ ] Owner: apply the migration (runbook §0); Reconnect each account once (§1); a real comment from another account (§2, gate); views, layout, privacy, speed (§3–§6); confirm the plan's open questions (fifth tab before Followers, fan rules, derived "reply seen", no export, question words, topics from the newest 1,000)
 - [x] Plan 15d (moderation) is built: see 6n. Still open: read thread replies and the hidden flag (makes "Unanswered questions" exact; a small follow-up plan after probe P5, NOT in 15d)
 
 ## 6n. Comment moderation (Plan 15d)
-- [x] Migration `20261029000002_comment_moderation.sql` (code done; NOT applied: owner go-ahead, after or together with `20261029000001`, BEFORE deploying; RUNBOOK_MODERATION §0)
+- [x] Migration `20261029000002_comment_moderation.sql` (code done; APPLIED to the live database on 2026-10-26 (older wording: NOT applied): owner go-ahead, after or together with `20261029000001`, BEFORE deploying; RUNBOOK_MODERATION §0)
 - [x] Meta write client + error keys; service (log first, double-submit guard, wrong-account guard); server actions _(code done on local `main`, NOT pushed; nothing has ever been sent to Instagram)_
 - [x] Rules (words + 4 spam patterns), preview, auto-hide pass in the tick (capped, idempotent, pauses; OFF by default), `moderation_paused` alert
 - [x] Comment row menu (reply / hide / unhide / delete), Moderation tab (auto-hide, rules, log with Undo and pages); tab order Overview, Growth, Posts, Stories, Comments, Moderation, Followers
