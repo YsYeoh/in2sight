@@ -2,12 +2,15 @@
 
 import { Download } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { SaveBar } from '@/components/settings/SaveBar';
 import { FilterSearch, FilterSelect, FilterToolbar } from '@/components/shared/FilterToolbar';
 import { RangeBar } from '@/components/shared/RangeBar';
+import { Segmented } from '@/components/shared/Segmented';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DENSITIES, type Density } from '@/lib/prefs';
 import { DEFAULT_SCOPE, resolveScope } from '@/lib/time-scope/scope';
 import { addDays } from '@/lib/sync/time';
 
@@ -25,6 +28,29 @@ function Piece({ title, children }: { title: string; children: ReactNode }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">{children}</CardContent>
     </Card>
+  );
+}
+
+// Segmented + SaveBar (rule 18): a local demo form; nothing is saved anywhere
+function SaveBarDemo() {
+  const s = useTranslations('styleguide.standards');
+  const tp = useTranslations('prefs');
+  const tn = useTranslations('settings.notifications');
+  const [value, setValue] = useState<Density>('dense');
+  const [stored, setStored] = useState<Density>('dense');
+  const [result, setResult] = useState<'saved' | 'error' | null>(null);
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setStored(value);
+        setResult('saved');
+      }}
+    >
+      <Segmented label={s('segmented')} value={value} options={DENSITIES.map((d) => ({ value: d, label: tp(d) }))} onChange={setValue} />
+      <SaveBar dirty={value !== stored} pending={false} result={result} error={tn('saveError')} saved={tn('saved')} onDiscard={() => setValue(stored)} />
+    </form>
   );
 }
 
@@ -105,6 +131,10 @@ export function StandardsGallery({ today }: { today: string }) {
             {ta('instagram')}
           </Button>
         </div>
+      </Piece>
+
+      <Piece title={s('saveBar')}>
+        <SaveBarDemo />
       </Piece>
 
       <Piece title={s('scrollbar')}>

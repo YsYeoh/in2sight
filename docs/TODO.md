@@ -216,6 +216,16 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] Watch the tick duration after auto-hide is on (35 s sync + 10 s alerts + up to 5 s auto-hide of a 60 s route limit; Server-Timing / `sync_runs` durations, RUNBOOK_MODERATION §4)
 - Known: hides done in the Instagram app are not seen (P5); no Simplified/Traditional folding; auto-hide only sees stored comments (last 30 days of posts).
 
+## 6o. Settings redesign (Plan 16a)
+- [x] Sections with their own URLs (`/settings/<section>`), section list / phone select, old tab names redirect (code done on local `main`, NOT pushed; live verification pending — docs/RUNBOOK_SETTINGS.md §1)
+- [x] One save model: preferences instant with a toast and Retry on failure (PrefsProvider no longer swallows errors); forms with dirty tracking, sticky save bar, unsaved-changes guard (code done; live verification pending — §2, §3)
+- [x] Appearance with live preview and Auto mode; Language & formats with samples and the timezone explanation (code done; live verification pending — §2)
+- [x] Notifications: test notification to this device, devices list with remove (code done; live verification pending — §3)
+- [x] Accounts & sync overview with Sync now / Reconnect (code done; live verification pending — §4)
+- [ ] Apply migration `20261030000001_prefs_auto_mode` (owner go-ahead, before deploying; RUNBOOK_SETTINGS §0; NOT applied: until then choosing Auto shows a save-failed toast with Retry)
+- [ ] Security section is a placeholder (email + 2FA) until Plan 16b; Data & privacy is a placeholder until Plan 16c
+- Known: the unsaved-changes guard does not cover the shell's own navigation; the devices list does not mark this device.
+
 ## 6b. Next (Plan 14/15 Settings)
 - [ ] **Forgot / reset password** (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [ ] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (owner currently changes it via the Auth admin API on request)

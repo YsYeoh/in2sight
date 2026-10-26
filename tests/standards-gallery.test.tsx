@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
@@ -30,5 +31,24 @@ describe.each([
     expect(screen.getByRole('tablist')).toHaveAttribute('data-variant', 'line');
     const row = screen.getByRole('group', { name: s.buttons });
     expect(within(row).getAllByRole('button').map((b) => b.getAttribute('data-size'))).toEqual(['default', 'default', 'default']);
+  });
+
+  it('rule 18: a segmented control in a form with the save bar (Save only when changed; saving announces it)', async () => {
+    render(
+      <NextIntlClientProvider locale={locale} messages={messages}>
+        <PrefsProvider initial={{ ...DEFAULT_PREFS, locale }} persist={() => {}}>
+          <StandardsGallery today="2026-10-17" />
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    const s = messages.styleguide.standards;
+    expect(screen.getByText(s.saveBar)).toBeInTheDocument();
+    const seg = screen.getByRole('group', { name: s.segmented });
+    const save = screen.getByRole('button', { name: messages.common.save });
+    expect(save).toBeDisabled();
+    await userEvent.click(within(seg).getByRole('button', { name: messages.prefs.comfortable }));
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    expect(screen.getAllByRole('status').some((el) => el.textContent === messages.settings.notifications.saved)).toBe(true); // the range bar has its own status line
   });
 });
