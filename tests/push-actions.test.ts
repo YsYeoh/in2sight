@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { calls, requireOwner, queue } = vi.hoisted(() => ({
+const { calls, requireOwner, queue, push } = vi.hoisted(() => ({
   calls: [] as unknown[][],
   requireOwner: vi.fn(),
   queue: [] as { data?: unknown; error?: unknown }[],
+  push: { vapid: null as null | { publicKey: string; privateKey: string; subject: string }, status: 201 },
 }));
 
 /** Owner-session fake: records every call; each awaited query resolves to the next queued result. */
@@ -12,7 +13,7 @@ function fakeDb() {
     from(table: string) {
       calls.push(['from', table]);
       const chain: Record<string, unknown> = {};
-      for (const op of ['upsert', 'delete', 'eq', 'select', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      for (const op of ['upsert', 'delete', 'eq', 'select', 'limit', 'maybeSingle']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
       chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(queue.shift() ?? { error: null }).then(res, rej);
       return chain;
     },
@@ -23,8 +24,15 @@ vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: () => requireOwner() 
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: async () => (calls.push(['session']), fakeDb()) }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminSupabase: () => calls.push(['ADMIN']) }));
 vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => calls.push(['revalidate', ...a]) }));
+vi.mock('next-intl/server', () => ({ getTranslations: async (ns: string) => (key: string) => `${ns}.${key}` }));
+// the real fan-out (sendToAll) with a fake transport: no web-push, no network
+vi.mock('@/lib/push/send', async (orig) => ({
+  ...(await orig<typeof import('@/lib/push/send')>()),
+  vapidFromEnv: () => push.vapid,
+  webPushTransport: () => async (sub: { endpoint: string }, payload: string) => (calls.push(['push', sub.endpoint, JSON.parse(payload)]), push.status),
+}));
 
-import { deleteSubscriptionAction, saveAlertSettingsAction, saveSubscriptionAction } from '@/app/(app)/settings/actions';
+import { deleteDeviceAction, deleteSubscriptionAction, saveAlertSettingsAction, saveSubscriptionAction, sendTestPushAction } from '@/app/(app)/settings/actions';
 import { DEFAULT_ALERT_SETTINGS } from '@/lib/alerts/settings';
 import { parseSubscription, vapidKeyBytes } from '@/lib/push/subscription';
 
@@ -33,6 +41,8 @@ const SUB = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', expiration
 beforeEach(() => {
   calls.length = 0;
   queue.length = 0;
+  push.vapid = null;
+  push.status = 201;
   requireOwner.mockReset().mockImplementation(async () => (calls.push(['requireOwner']), { userId: 'u1', email: null }));
 });
 
@@ -88,6 +98,8 @@ describe('push and alert-settings actions', () => {
     ['saveSubscription', () => saveSubscriptionAction(SUB, 'UA')],
     ['deleteSubscription', () => deleteSubscriptionAction(SUB.endpoint)],
     ['saveAlertSettings', () => saveAlertSettingsAction({})],
+    ['deleteDevice', () => deleteDeviceAction(7)],
+    ['sendTestPush', () => sendTestPushAction(SUB.endpoint)],
   ])('%s: requireOwner runs first; a redirect propagates and nothing is touched', async (_n, run) => {
     await run();
     expect(calls[0]).toEqual(['requireOwner']);
@@ -150,6 +162,64 @@ describe('push and alert-settings actions', () => {
     const up = calls.find((c) => c[0] === 'upsert')![1] as Record<string, unknown>;
     expect(up).toMatchObject({ user_id: 'u1', alert_settings: settings });
     expect(calls).toContainEqual(['from', 'profiles']);
-    expect(calls).toContainEqual(['revalidate', '/settings']);
+    expect(calls).toContainEqual(['revalidate', '/settings', 'layout']);
+  });
+
+  it('deleteDevice deletes one row by id with the owner session and revalidates every section', async () => {
+    expect(await deleteDeviceAction(7)).toEqual({ ok: true });
+    expect(calls).toContainEqual(['from', 'push_subscriptions']);
+    expect(calls).toContainEqual(['delete']);
+    expect(calls).toContainEqual(['eq', 'id', 7]);
+    expect(calls).toContainEqual(['revalidate', '/settings', 'layout']);
+    expect(calls.some((c) => c[0] === 'ADMIN')).toBe(false);
+  });
+
+  it.each([[0], [-1], [1.5], ['7'], [null], [Number.MAX_SAFE_INTEGER + 1]])('deleteDevice refuses id %j without opening a client', async (id) => {
+    expect(await deleteDeviceAction(id)).toEqual({ ok: false, error: 'invalid' });
+    expect(calls.filter((c) => c[0] === 'session')).toEqual([]);
+  });
+
+  it('deleteDevice: a database error is unexpected', async () => {
+    queue.push({ error: { message: 'boom' } });
+    expect(await deleteDeviceAction(7)).toEqual({ ok: false, error: 'unexpected' });
+  });
+
+  it('sendTestPush: refuses a bad endpoint, then says not_configured without VAPID keys', async () => {
+    expect(await sendTestPushAction('http://x')).toEqual({ ok: false, error: 'invalid' });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'not_configured' });
+    expect(calls.some((c) => c[0] === 'push')).toBe(false);
+  });
+
+  it('sendTestPush: an endpoint the owner has not stored is refused, nothing is sent', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    queue.push({ data: null });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'invalid' });
+    expect(calls).toContainEqual(['eq', 'endpoint', SUB.endpoint]);
+    expect(calls.some((c) => c[0] === 'push')).toBe(false);
+  });
+
+  it('sendTestPush: sends ONE translated test message to the stored endpoint only', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    queue.push({ data: { endpoint: SUB.endpoint, keys: SUB.keys } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: true });
+    const sent = calls.filter((c) => c[0] === 'push');
+    expect(sent).toEqual([['push', SUB.endpoint, { title: 'settings.notifications.testTitle', body: 'settings.notifications.testBody', url: '/settings/notifications', tag: 'test' }]]);
+  });
+
+  it('sendTestPush: 410 from the push service prunes the row and says gone; 500 says failed', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    push.status = 410;
+    queue.push({ data: { endpoint: SUB.endpoint, keys: SUB.keys } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'gone' });
+    expect(calls.filter((c) => c[0] === 'delete')).toHaveLength(1);
+    push.status = 500;
+    queue.push({ data: { endpoint: SUB.endpoint, keys: SUB.keys } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'failed' });
+  });
+
+  it('sendTestPush: a read error is unexpected (never the Supabase message)', async () => {
+    push.vapid = { publicKey: 'p', privateKey: 'k', subject: 'mailto:x@y.z' };
+    queue.push({ error: { message: 'secret detail' } });
+    expect(await sendTestPushAction(SUB.endpoint)).toEqual({ ok: false, error: 'unexpected' });
   });
 });
