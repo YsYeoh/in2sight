@@ -60,7 +60,8 @@ describe('PWA', () => {
   });
 
   it('theme colours equal each palette background in tokens.css', () => {
-    for (const theme of THEMES) for (const mode of MODES) expect(THEME_COLORS[theme][mode], `${theme}/${mode}`).toBe(tokenOf(theme, mode, 'background'));
+    for (const theme of THEMES) for (const mode of ['light', 'dark'] as const) expect(THEME_COLORS[theme][mode], `${theme}/${mode}`).toBe(tokenOf(theme, mode, 'background'));
+    expect(MODES).toContain('auto'); // auto resolves to one of the two (tests/prefs-auto-mode.test.tsx)
     expect(themeColor({ theme: 'forest', mode: 'dark' })).toBe('#0C1510');
   });
 

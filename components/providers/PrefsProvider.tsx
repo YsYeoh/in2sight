@@ -28,9 +28,15 @@ const PrefsContext = createContext<PrefsContextValue | null>(null);
  */
 export const PREFS_CHANNEL = 'in2sight:prefs';
 
+const DARK_QUERY = '(prefers-color-scheme: dark)';
+
+/** The device's colour scheme (for Auto mode only; never for layout). false where matchMedia is missing. */
+export const systemDark = (): boolean => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(DARK_QUERY).matches;
+
 export function applyPrefsToDocument(p: Prefs, el: HTMLElement = document.documentElement): void {
-  for (const [name, value] of Object.entries(htmlAttrs(p))) el.setAttribute(name, value);
-  el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p));
+  const dark = systemDark();
+  for (const [name, value] of Object.entries(htmlAttrs(p, dark))) el.setAttribute(name, value);
+  el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p, dark));
 }
 
 const pickKeys = (p: Prefs, keys: string[]): Partial<Prefs> => Object.fromEntries(keys.filter((k) => Object.hasOwn(p, k)).map((k) => [k, p[k as keyof Prefs]]));
@@ -64,6 +70,16 @@ export function PrefsProvider({ initial, persist, children }: { initial: Prefs; 
       channel.current = null;
     };
   }, []);
+
+  // Auto mode follows the device while it is chosen (the listener goes when the mode changes or the provider unmounts)
+  useEffect(() => {
+    if (prefs.mode !== 'auto' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(DARK_QUERY);
+    const follow = () => applyPrefsToDocument(latest.current);
+    follow(); // the server rendered light; the inline script may have fixed it already, this makes the meta tag agree
+    mq.addEventListener('change', follow);
+    return () => mq.removeEventListener('change', follow);
+  }, [prefs.mode]);
 
   // Never swallowed: a failure keeps the keys in `unsaved` and sets status 'error' until a later save of them succeeds.
   const save = useCallback(
