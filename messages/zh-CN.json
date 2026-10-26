@@ -189,7 +189,9 @@
       "email": "邮箱",
       "password": "密码",
       "submit": "登录",
-      "submitting": "登录中…"
+      "submitting": "登录中…",
+      "forgotLink": "忘记密码？",
+      "resetDone": "密码已修改，请用新密码登录。"
     },
     "errors": {
       "missing_fields": "请输入邮箱和密码。",
@@ -205,6 +207,75 @@
       "code": "验证码",
       "submit": "验证",
       "signOut": "使用其他账号登录"
+    },
+    "forgot": {
+      "title": "重置密码",
+      "hint": "请输入你登录用的邮箱。如果它属于所有者账号，我们会发送一个用于设置新密码的链接。",
+      "email": "邮箱",
+      "submit": "发送重置链接",
+      "sent": "如果该邮箱属于所有者账号，重置链接正在发送中。链接只能使用一次，1 小时后失效。也请检查垃圾邮件文件夹。",
+      "cooldown": "刚刚已请求过链接，请等待一分钟后再试。",
+      "invalid_email": "请输入有效的邮箱地址。",
+      "back": "返回登录"
+    },
+    "confirm": {
+      "title": "重置密码",
+      "hint": "点击继续以使用此重置链接。如果已开启两步验证，接下来需要输入验证器中的验证码。",
+      "submit": "继续",
+      "link_invalid": "此链接已失效或已被使用，请重新申请。",
+      "requestNew": "重新申请链接"
+    },
+    "reset": {
+      "title": "设置新密码",
+      "hint": "保存后，所有设备都会退出登录，你需要用新密码重新登录。",
+      "submit": "保存新密码",
+      "expiredTitle": "此次重置已过期",
+      "expiredBody": "打开链接后须在 15 分钟内完成重置。请在登录页重新申请链接，或在设置中修改密码。",
+      "toSettings": "前往设置"
+    },
+    "password": {
+      "current": "当前密码",
+      "new": "新密码",
+      "confirm": "确认新密码",
+      "show": "显示密码",
+      "rules": "至少 12 个字符。较长的短语比夹杂符号的短密码更安全。",
+      "strength": "强度：{level}",
+      "levels": {
+        "weak": "太弱",
+        "fair": "一般",
+        "good": "良好",
+        "strong": "强",
+        "veryStrong": "非常强"
+      },
+      "issues": {
+        "too_short": "请至少使用 12 个字符。",
+        "too_long": "最多 72 个字符（使用汉字或表情符号时更少）。",
+        "too_simple": "请使用更多不同的字符。",
+        "has_email": "密码中不要包含你的邮箱用户名。"
+      },
+      "errors": {
+        "missing_fields": "请填写所有密码栏。",
+        "mismatch": "两次输入的新密码不一致。",
+        "weak": "请选择更强的密码（见上方规则）。",
+        "wrong_password": "当前密码错误。",
+        "same_password": "新密码不能与当前密码相同。",
+        "rate_limited": "尝试次数过多，请等几分钟后重试。",
+        "link_expired": "此次重置已过期，请重新申请链接。",
+        "unexpected": "出了点问题，请重试。"
+      }
+    },
+    "security": {
+      "passwordTitle": "密码",
+      "passwordHint": "修改登录密码。修改后，你的其他设备会退出登录。",
+      "passwordSubmit": "修改密码",
+      "passwordChanged": "密码已修改，你的其他设备已退出登录。",
+      "passwordChangedOthersFailed": "密码已修改，但其他设备未能退出登录。请使用下方的“退出其他设备”。",
+      "sessionsTitle": "已登录的设备",
+      "sessionsHint": "in2sight 无法列出你的设备。你可以让除本设备外的所有设备退出登录。",
+      "sessionsNote": "当前打开的设备在其登录凭证过期前（最长 1 小时）仍可继续使用。",
+      "signOutOthers": "退出其他设备",
+      "signedOutOthers": "你的其他设备已退出登录。",
+      "signOutOthersFailed": "其他设备退出登录失败，请重试。"
     }
   },
   "settings": {
