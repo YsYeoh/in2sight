@@ -8,7 +8,7 @@ export function normalizeCode(raw: string): string | null {
 }
 
 // Supabase throttles repeated attempts with a 429 / *rate_limit code; show that, not "wrong code"
-function isRateLimited(e: { status?: number; code?: string }): boolean {
+export function isRateLimited(e: { status?: number; code?: string }): boolean {
   return e.status === 429 || (e.code ?? '').includes('rate_limit');
 }
 
