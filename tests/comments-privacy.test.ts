@@ -40,8 +40,8 @@ function commentAccess(s: string, aliases: ReadonlySet<string>): { table: boolea
 const aliases = tableAliases(src.map(([, s]) => s));
 
 describe('comments privacy', () => {
-  it("only lib/comments/read.ts (reads) and lib/sync/store.ts (the sync's writes) query the comments table", () => {
-    expect(src.filter(([, s]) => commentAccess(s, aliases).table).map(([f]) => f)).toEqual(['lib/comments/read.ts', 'lib/sync/store.ts']);
+  it("only lib/comments/read.ts (reads), lib/moderation/store.ts (moderation) and lib/sync/store.ts (the sync's writes) query the comments table", () => {
+    expect(src.filter(([, s]) => commentAccess(s, aliases).table).map(([f]) => f)).toEqual(['lib/comments/read.ts', 'lib/moderation/store.ts', 'lib/sync/store.ts']);
   });
 
   it('only lib/comments/read.ts calls the comment_* functions', () => {
