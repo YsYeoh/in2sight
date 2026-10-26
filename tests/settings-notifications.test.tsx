@@ -149,6 +149,33 @@ describe('NotificationsCard', () => {
     expect(await screen.findByText(M.iosInstall)).toBeInTheDocument();
   });
 
+  it('push on: "Send a test notification" sends to THIS endpoint and says it was sent', async () => {
+    browser({ subscribed: true });
+    const test = vi.fn(async () => ({ ok: true }));
+    card({ test });
+    await userEvent.click(await screen.findByRole('button', { name: M.testSend }));
+    expect(test).toHaveBeenCalledWith(JSON_SUB.endpoint);
+    expect(await screen.findByRole('status')).toHaveTextContent(M.testSent);
+  });
+
+  it('a refused test shows the translated reason; an unknown key falls back to unexpected', async () => {
+    browser({ subscribed: true });
+    const test = vi.fn().mockResolvedValueOnce({ ok: false, error: 'gone' }).mockResolvedValueOnce({ ok: false, error: 'weird' });
+    card({ test });
+    const button = await screen.findByRole('button', { name: M.testSend });
+    await userEvent.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent(M.testErrors.gone);
+    await userEvent.click(button);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(M.testErrors.unexpected));
+  });
+
+  it('no test prop: no test button (push off shows none either)', async () => {
+    browser({ subscribed: true });
+    card();
+    await screen.findByRole('button', { name: M.disable });
+    expect(screen.queryByRole('button', { name: M.testSend })).toBeNull();
+  });
+
   it('no VAPID key on the server: not-configured note', async () => {
     browser();
     card({ vapidPublicKey: null });
@@ -206,9 +233,42 @@ describe('AlertSettingsForm', () => {
     expect(p.save).not.toHaveBeenCalled();
   });
 
-  it('a failed save shows an error', async () => {
+  it('a failed save shows an error and keeps the changes', async () => {
     form({ save: vi.fn(async () => ({ ok: false as const, error: 'unexpected' })) });
+    await userEvent.click(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title }));
     await userEvent.click(screen.getByRole('button', { name: en.common.save }));
     expect(await screen.findByRole('alert')).toHaveTextContent(M.saveError);
+    expect(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title })).toBeChecked();
+  });
+
+  it('Save is disabled until something changes; changing it back makes it clean again', async () => {
+    form();
+    const save = screen.getByRole('button', { name: en.common.save });
+    expect(save).toBeDisabled();
+    const sw = screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title });
+    await userEvent.click(sw);
+    expect(save).toBeEnabled();
+    expect(screen.getByText(en.settings.unsaved.bar)).toBeInTheDocument();
+    await userEvent.click(sw);
+    expect(save).toBeDisabled();
+  });
+
+  it('Discard restores the stored values without saving', async () => {
+    const p = form();
+    const pct = screen.getByLabelText(M.reachDropPct);
+    await userEvent.clear(pct);
+    await userEvent.type(pct, '40');
+    await userEvent.click(screen.getByRole('button', { name: en.settings.unsaved.discard }));
+    expect(pct).toHaveValue(20);
+    expect(p.save).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: en.common.save })).toBeDisabled();
+  });
+
+  it('while there are unsaved changes, leaving the page asks first', async () => {
+    form();
+    await userEvent.click(screen.getByRole('switch', { name: en.notifications.kinds.taking_off.title }));
+    const ev = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
   });
 });

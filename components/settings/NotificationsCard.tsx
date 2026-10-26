@@ -17,13 +17,19 @@ export interface NotificationsCardProps {
   swEnabled: boolean;
   save: (subscription: unknown, userAgent: string) => Promise<Result>;
   remove: (endpoint: string) => Promise<Result>;
+  /** "Send a test notification" to this device (Plan 16a); omitted = no button */
+  test?: (endpoint: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
-export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove }: NotificationsCardProps) {
+const TEST_ERRORS = ['not_configured', 'gone', 'failed', 'invalid', 'unexpected'] as const;
+
+export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove, test }: NotificationsCardProps) {
   const t = useTranslations('settings.notifications');
   const [status, setStatus] = useState<Status>('checking');
   const [error, setError] = useState(false);
   const [pending, start] = useTransition();
+  const [testing, startTest] = useTransition();
+  const [tested, setTested] = useState<{ ok: true } | { ok: false; key: (typeof TEST_ERRORS)[number] } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -62,9 +68,24 @@ export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove }: N
       }
     });
 
+  const sendTest = () =>
+    startTest(async () => {
+      setTested(null);
+      try {
+        const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+        if (!sub || !test) return setTested({ ok: false, key: 'invalid' });
+        const r = await test(sub.endpoint);
+        const key = (TEST_ERRORS as readonly string[]).includes(r.error ?? '') ? (r.error as (typeof TEST_ERRORS)[number]) : 'unexpected';
+        setTested(r.ok ? { ok: true } : { ok: false, key });
+      } catch {
+        setTested({ ok: false, key: 'unexpected' });
+      }
+    });
+
   const disable = () =>
     start(async () => {
       setError(false);
+      setTested(null);
       try {
         const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
         if (sub) {
@@ -104,9 +125,26 @@ export function NotificationsCard({ vapidPublicKey, swEnabled, save, remove }: N
           </div>
         ) : null}
         {status === 'on' ? (
-          <LoadingButton variant="outline" className="self-start" onClick={disable} pending={pending}>
-            {t('disable')}
-          </LoadingButton>
+          <div className="flex flex-wrap items-center gap-2">
+            <LoadingButton variant="outline" onClick={disable} pending={pending} disabled={testing}>
+              {t('disable')}
+            </LoadingButton>
+            {test ? (
+              <LoadingButton variant="outline" onClick={sendTest} pending={testing} disabled={pending}>
+                {t('testSend')}
+              </LoadingButton>
+            ) : null}
+          </div>
+        ) : null}
+        {tested?.ok ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t('testSent')}
+          </p>
+        ) : null}
+        {tested && !tested.ok ? (
+          <p role="alert" className="text-sm text-destructive">
+            {t(`testErrors.${tested.key}`)}
+          </p>
         ) : null}
         {error ? (
           <p role="alert" className="text-sm text-destructive">
