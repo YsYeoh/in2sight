@@ -98,7 +98,7 @@ Change password, forgot / reset password, sessions (Plan 16b). Storage used, exp
 | `components/settings/sections/AppearanceSection.tsx` (new), `components/settings/sections/LanguageSection.tsx` (new) | the two preference sections (Task 7) |
 | `components/settings/AccountsOverview.tsx` (new), `components/settings/sections/AccountsSection.tsx` (new) | Accounts & sync (Task 8) |
 | `app/(app)/settings/layout.tsx` (new), `app/(app)/settings/[[...section]]/page.tsx` (new), `app/(app)/settings/[[...section]]/loading.tsx` (new), `components/settings/SettingsNav.tsx` (new), `components/settings/sections/NotificationsSection.tsx`, `SecuritySection.tsx`, `DataSection.tsx` (new); `app/(app)/settings/page.tsx`, `app/(app)/settings/loading.tsx` (deleted) | the shell and the route (Task 9) |
-| `lib/prefs.ts`, `lib/pwa.ts`, `components/providers/PrefsProvider.tsx`, `app/layout.tsx`, `components/shared/ModeToggle.tsx`, `supabase/migrations/20261030000001_prefs_auto_mode.sql` (new) | Auto mode (Task 10) |
+| `lib/prefs.ts`, `lib/pwa.ts`, `components/providers/PrefsProvider.tsx`, `app/layout.tsx`, `components/shared/ModeToggle.tsx`, `components/ui/sonner.tsx`, `supabase/migrations/20261030000001_prefs_auto_mode.sql` (new) | Auto mode (Task 10) |
 | `app/styleguide/StandardsGallery.tsx`, `tests/standards-gallery.test.tsx`, `docs/UI_STANDARDS.md`, `tests/ui-standards.test.ts`, `docs/RUNBOOK_SETTINGS.md` (new), `docs/SPEC.md`, `docs/TODO.md`, `docs/PROGRESS.md`, `docs/HANDOVER.md` | styleguide demo, rule 18 + guard, runbook, docs (Task 11) |
 
 **Adding i18n keys:** by TEXT INSERTION only (Edit tool: replace the exact anchor line(s) shown with the lines shown), never by loading and re-serialising the JSON (both files are hand-formatted and carry one stray `\r` on line 22). Keep every other line byte-identical; both locales get the same keys; Simplified Chinese with full-width punctuation.
@@ -116,7 +116,7 @@ Change password, forgot / reset password, sessions (Plan 16b). Storage used, exp
 | 7 | Appearance and Language & formats sections | 1, 2, 3 | `components/settings/sections/AppearanceSection.tsx`, `components/settings/sections/LanguageSection.tsx`, `tests/settings-appearance.test.tsx`, `tests/settings-language.test.tsx` | 6, 10 |
 | 8 | Accounts & sync section | 1, 5 | `components/settings/AccountsOverview.tsx`, `components/settings/sections/AccountsSection.tsx`, `tests/settings-accounts.test.tsx` | 2, 3 |
 | 9 | The shell and the route (layout, nav, page, loading, remaining sections, old page removed) | 1–8 | `app/(app)/settings/layout.tsx`, `app/(app)/settings/[[...section]]/page.tsx`, `app/(app)/settings/[[...section]]/loading.tsx`, `app/(app)/settings/page.tsx` (delete), `app/(app)/settings/loading.tsx` (delete), `components/settings/SettingsNav.tsx`, `components/settings/sections/NotificationsSection.tsx`, `components/settings/sections/SecuritySection.tsx`, `components/settings/sections/DataSection.tsx`, `tests/settings-nav.test.tsx`, `tests/settings-page.test.tsx`, `tests/route-loading.test.tsx`, `messages/en.json`, `messages/zh-CN.json` (removal of `settings.tabs` only) | 11 |
-| 10 | Auto mode + migration | 1, 2 | `lib/prefs.ts`, `lib/pwa.ts`, `components/providers/PrefsProvider.tsx`, `app/layout.tsx`, `components/shared/ModeToggle.tsx`, `supabase/migrations/20261030000001_prefs_auto_mode.sql`, `tests/prefs-auto-mode.test.tsx`, `tests/prefs.test.ts`, `tests/prefs-sync.test.ts`, `tests/pwa.test.ts` | 6, 7 |
+| 10 | Auto mode + migration | 1, 2 | `lib/prefs.ts`, `lib/pwa.ts`, `components/providers/PrefsProvider.tsx`, `app/layout.tsx`, `components/shared/ModeToggle.tsx`, `components/ui/sonner.tsx`, `supabase/migrations/20261030000001_prefs_auto_mode.sql`, `tests/prefs-auto-mode.test.tsx`, `tests/prefs.test.ts`, `tests/prefs-sync.test.ts`, `tests/pwa.test.ts` | 6, 7 |
 | 11 | Styleguide, UI standard 18 + guard, runbook, docs | 3, 6 (and the names of 9) | `app/styleguide/StandardsGallery.tsx`, `tests/standards-gallery.test.tsx`, `docs/UI_STANDARDS.md`, `tests/ui-standards.test.ts`, `docs/RUNBOOK_SETTINGS.md`, `docs/SPEC.md`, `docs/TODO.md`, `docs/PROGRESS.md`, `docs/HANDOVER.md` | 9 |
 
 **Waves:** W1 = 1, 4, 5 · W2 = 2, 3, 8 · W3 = 6, 7, 10 · W4 = 9, 11 (cherry-pick Task 9 BEFORE Task 11: Task 11's guard expects the old settings page gone). After each wave the orchestrator cherry-picks, removes the worktrees, `rm -rf .next`, and runs `npm run check` (implementer-rules "Orchestrator checklist"). Every task leaves `main` green on its own: until Task 9 the old `/settings` page keeps working (Tasks 4 and 6 keep the props it passes; Task 2 keeps `update`'s call shape).
@@ -3780,7 +3780,7 @@ git commit -m "feat(settings): the settings shell: /settings/<section> with a se
 
 **Files:**
 - Create: `supabase/migrations/20261030000001_prefs_auto_mode.sql`, `tests/prefs-auto-mode.test.tsx`
-- Modify: `lib/prefs.ts`, `lib/pwa.ts`, `components/providers/PrefsProvider.tsx` (Task 2's version), `app/layout.tsx` (Task 2's version), `components/shared/ModeToggle.tsx`, `tests/prefs.test.ts`, `tests/pwa.test.ts`, `tests/prefs-sync.test.ts`
+- Modify: `lib/prefs.ts`, `lib/pwa.ts`, `components/providers/PrefsProvider.tsx` (Task 2's version), `app/layout.tsx` (Task 2's version), `components/shared/ModeToggle.tsx`, `components/ui/sonner.tsx` (one line), `tests/prefs.test.ts`, `tests/pwa.test.ts`, `tests/prefs-sync.test.ts`
 
 **Interfaces produced:** `MODES = ['light', 'dark', 'auto']`, `type ResolvedMode`, `resolveMode(mode, systemDark)`, `htmlAttrs(p, systemDark = false)` (adds `data-mode-auto`), `AUTO_MODE_SCRIPT`; `THEME_COLORS: Record<Theme, Record<ResolvedMode, string>>`, `themeColor(p, systemDark = false)`; `systemDark()` exported from `PrefsProvider.tsx`. The migration is NEVER applied by the implementer (runbook §0: the owner applies it before deploying).
 
@@ -4102,6 +4102,18 @@ import { AUTO_MODE_SCRIPT, htmlAttrs } from '@/lib/prefs';
     expect({ ...checks, mode: modeNow }).toEqual({
 ```
 
+`components/ui/sonner.tsx` — replace (found by the scratch run: `tsc` fails without it, sonner knows `light | dark | system`):
+
+```tsx
+      theme={prefs.mode}
+```
+→
+```tsx
+      theme={prefs.mode === 'auto' ? 'system' : prefs.mode}
+```
+
+(After this edit run `git diff app/globals.css` → empty and keep the file's double-quote style; `tests/ui-imports.test.ts` must stay green.)
+
 `components/shared/ModeToggle.tsx` — replace the whole file:
 
 ```tsx
@@ -4126,12 +4138,12 @@ export function ModeToggle() {
 
 Notes: `matchMedia('(prefers-color-scheme: dark)')` reads the COLOUR SCHEME, not the layout (the CLAUDE.md rule is about layout breakpoints). The inline script is a static string constant (no user input) and the only `dangerouslySetInnerHTML` in the layout; `suppressHydrationWarning` on `<html>` covers just that element's attributes. The meta `theme-color` is rendered light for Auto and corrected by the provider on mount.
 
-- [ ] **Step 4: Verify** — `npx vitest run tests/prefs-auto-mode.test.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts tests/prefs-sync.test.tsx tests/prefs-provider.test.tsx tests/prefs-save-notice.test.tsx tests/prefs-bar.test.tsx tests/app-shell.test.tsx tests/tokens.test.ts tests/motion.test.tsx` (plus `tests/settings-appearance.test.tsx` if Task 7 is merged), `npx tsc --noEmit`, `npx eslint lib/prefs.ts lib/pwa.ts components/providers/PrefsProvider.tsx app/layout.tsx components/shared/ModeToggle.tsx tests/prefs-auto-mode.test.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts`. Expected: PASS, clean. Do NOT run anything against a database.
+- [ ] **Step 4: Verify** — `npx vitest run tests/prefs-auto-mode.test.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts tests/prefs-sync.test.tsx tests/prefs-provider.test.tsx tests/prefs-save-notice.test.tsx tests/prefs-bar.test.tsx tests/app-shell.test.tsx tests/tokens.test.ts tests/motion.test.tsx` (plus `tests/settings-appearance.test.tsx` if Task 7 is merged), `npx tsc --noEmit`, `npx vitest run tests/ui-imports.test.ts`, `npx eslint lib/prefs.ts lib/pwa.ts components/providers/PrefsProvider.tsx app/layout.tsx components/shared/ModeToggle.tsx components/ui/sonner.tsx tests/prefs-auto-mode.test.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts`. Expected: PASS, clean. Do NOT run anything against a database.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/20261030000001_prefs_auto_mode.sql tests/prefs-auto-mode.test.tsx lib/prefs.ts lib/pwa.ts components/providers/PrefsProvider.tsx app/layout.tsx components/shared/ModeToggle.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts
+git add supabase/migrations/20261030000001_prefs_auto_mode.sql tests/prefs-auto-mode.test.tsx lib/prefs.ts lib/pwa.ts components/providers/PrefsProvider.tsx app/layout.tsx components/shared/ModeToggle.tsx components/ui/sonner.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts
 git commit -m "feat(prefs): Auto mode follows the device's light or dark setting; profiles.mode accepts auto (migration NOT applied) (Plan 16a)"
 ```
 
