@@ -7,6 +7,7 @@ import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import type { AccountsStore, StoredAccount } from '@/lib/accounts/types';
 import { ALERT_BUDGET_MS, runAlerts, type AlertDeps, type AlertRunSummary } from '@/lib/alerts/run';
 import type { IgData } from '@/lib/instagram/data';
+import { MODERATION_BUDGET_MS, runAutoHide, type AutoHideDeps, type AutoHideSummary } from '@/lib/moderation/auto';
 import { progressSink, type ProgressSink } from '@/lib/sync/progress-sink';
 import { runAccount, type AccountOutcome, type SyncErrorKey } from '@/lib/sync/run-account';
 import { byOldestAttempt, dueJobs, isBackfilling, LANE2_ONLY, type JobKind, type Lane, type ScheduleInput, type SyncState } from '@/lib/sync/schedule';
@@ -27,6 +28,7 @@ export interface TickDeps {
   accounts: AccountsStore;
   ig: IgData;
   alerts?: AlertDeps; // omitted: no alert evaluation (tests of the sync itself)
+  moderation?: AutoHideDeps; // omitted: no auto-hide pass (tests of the sync itself)
   clock?: () => number;
   newId?: () => string;
   cdnFetch?: typeof fetch; // cover downloads; default global fetch
@@ -47,6 +49,7 @@ export interface TickSummary {
   more: boolean; // due work remains because of the TIME BUDGET (not a Meta rate limit): worth an immediate follow-up pass
   accounts: TickAccount[];
   alerts?: AlertRunSummary; // counts only
+  moderation?: AutoHideSummary; // counts only
 }
 
 type LaneResult = TickAccount & { appRateLimited?: boolean };
@@ -160,7 +163,16 @@ export async function runTick(deps: TickDeps, opts: { trigger: 'cron' | 'manual'
   const alerts = deps.alerts
     ? await runAlerts(deps.alerts, { accounts: deps.accounts, sync: deps.store, now: new Date(clock()), tz, deadline: deadline + ALERT_BUDGET_MS, clock, accountId: opts.accountId }).catch(() => ({ created: 0, pushed: 0, failed: 1 }))
     : undefined;
-  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly: budgetStop || appLimited, more: budgetStop && !appLimited, accounts: [...out.values()], ...(alerts ? { alerts } : {}) };
+  // Plan 15d: auto-hide runs last, in its own window after the alerts' (35 + 10 + 5 s; its calls time out after 5 s, the
+  // route allows 60 s). Skipped when Meta throttled the whole app. Never throws; the catch is a second net for the tick.
+  const moderation =
+    deps.moderation && !appLimited
+      ? await deps.accounts
+          .list()
+          .then((accounts) => runAutoHide(deps.moderation!, { accounts, now: new Date(clock()), deadline: deadline + ALERT_BUDGET_MS + MODERATION_BUDGET_MS, clock, accountId: opts.accountId }))
+          .catch(() => ({ hidden: 0, failed: 1, paused: 0 }))
+      : undefined;
+  const summary: TickSummary = { trigger: opts.trigger, startedAt, durationMs: clock() - start, stoppedEarly: budgetStop || appLimited, more: budgetStop && !appLimited, accounts: [...out.values()], ...(alerts ? { alerts } : {}), ...(moderation ? { moderation } : {}) };
   await deps.store.recordRun({ startedAt, finishedAt: new Date(clock()).toISOString(), trigger: opts.trigger, summary }).catch(() => {});
   return summary;
 }
