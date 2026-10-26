@@ -11,7 +11,7 @@ export interface Strength {
   issue: PasswordIssue | null;
 }
 
-export type PasswordError = 'missing_fields' | 'mismatch' | 'weak' | 'wrong_password' | 'same_password' | 'rate_limited' | 'link_expired' | 'unexpected';
+export type PasswordError = 'missing_fields' | 'mismatch' | 'weak' | 'wrong_password' | 'same_password' | 'rate_limited' | 'link_expired' | 'signout_failed' | 'unexpected';
 export type PasswordFormState = { ok?: boolean; othersSignedOut?: boolean; error?: PasswordError };
 
 const CLASSES = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/];

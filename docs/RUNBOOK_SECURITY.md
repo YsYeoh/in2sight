@@ -14,6 +14,7 @@ Forgot / reset CANNOT work until section 0 is done: the code cannot do those set
 | 0.4 | Authentication → Emails → Templates → **Reset Password** | the subject and body below | the link must go to `/auth/confirm` with the token hash |
 | 0.5 | Authentication → Providers → Email (password settings) | Minimum password length **12**; "Secure password change" **off**; "Require current password when updating" **off** if shown; Email OTP expiration **3600** | the app checks the current password itself; the UI says the link expires after 1 hour |
 | 0.6 | Authentication → Sign In / Providers | "Allow new users to sign up" **off** (re-check) | you stay the only account that can ever get a reset email |
+| 0.65 | Settings → Security in the app | **Two-factor must be ON (enrolled) BEFORE you switch the Reset Password template to the app link** | without an enrolled factor a recovery link alone is a full owner session: inbox access = takeover. With 2FA on, an inbox-only attacker is stopped at the authenticator step (`is_owner()` needs aal2) |
 | 0.7 (optional) | Project Settings → JWT (access token expiry) | default 3600 s; lower only if you want other devices cut off sooner (then tell the assistant: the "up to 1 hour" text must change) | a signed-out device keeps working until its token expires |
 
 **Reset Password template** (one template for both languages; Supabase has no per-language templates):
@@ -44,6 +45,8 @@ Record here which settings were on before you changed them (0.5): ______
 | L7 | JWT expiry: after "Sign out other devices", a password change or a reset, another open device keeps working up to 1 hour (default) | §2 step 8, §3 step 5, §4 step 1 | lower the expiry (§0.7) and tell the assistant to change the UI text |
 | L8 | Link expiry (1 hour) and single use | §2 steps 10 and 11 | report the real behaviour |
 | L9 | The link works on another device than the one that asked (PKCE cookie not needed for a token hash) | §2 step 1 | report |
+| L10 | **Security boundary, not UI:** the app's "current password" check and "TOTP before a new password" rule live in OUR server actions only. A session token can call Supabase Auth directly (the SSR cookie is readable by JavaScript). With a recovery (aal1) session and a verified factor, does `PUT {SUPABASE_URL}/auth/v1/user {"password":"…"}` fail? And does `PUT /user` with an aal2 token and "Require current password" OFF succeed? | §7 | if the aal1 PUT succeeds: inbox access alone can set the password (data stays behind aal2, so the harm is lockout, not data theft). Turn "Require current password when updating" / "Secure password change" ON and re-run §3; report |
+| L11 | With a recovery (aal1) session and a verified factor, does `POST {SUPABASE_URL}/auth/v1/factors` (enrol a second TOTP) fail with `insufficient_aal`? `startEnroll` checks aal2 in our code only | §7 | **if it succeeds, an inbox-only attacker can enrol their own authenticator and reach aal2: a full 2FA bypass.** Stop, do NOT enable the reset template, report |
 
 ## 1. Forgot password: the generic answer (no account is revealed)
 
@@ -81,13 +84,17 @@ Record here which settings were on before you changed them (0.5): ______
 1. Signed in on A and B; on A press "Sign out other devices" → "Your other devices were signed out." A stays signed in; B is signed out within the JWT expiry. (Supabase has no call that lists sessions, so there is one button and no device list.)
 2. The sidebar "Sign out" signs out EVERY device including this one (it always did: Supabase's default scope is global).
 
+## 7. Direct Auth calls with a recovery session (L10, L11): do this BEFORE enabling the template
+
+Own account only, a throw-away reset, never paste a token anywhere. In the browser DevTools console on the app after step 2.3 (recovery session, authenticator code NOT yet entered), read the access token from the `sb-…-auth-token` cookie, then call Supabase Auth directly with the anon key: (a) `PUT /auth/v1/user` with `{"password":"<a throw-away password you will reset again>"}`, (b) `POST /auth/v1/factors` with `{"factor_type":"totp"}`. Both must be refused (insufficient AAL). Report only "refused" / "allowed" for each. If (a) is allowed, switch on "Require current password when updating" and re-check §3; if (b) is allowed, stop (L11).
+
 ## 5. Inside a tab frame
 
 Settings → Security opened as a shell tab: the form works inside the frame. `/login/forgot`, `/login/reset` and `/auth/confirm` always take over the whole window (they are not tab pages).
 
 ## 6. Privacy and logs
 
-- Vercel → Logs: no password anywhere; the `/auth/confirm?token_hash=…` GET line contains the one-time token hash (single use, expires after 1 hour; worthless after step 2.5). Nothing else of the flow appears in the logs.
+- Vercel → Logs: no password anywhere; the `/auth/confirm?token_hash=…` GET line AND the POST line of the Continue button (a server action posts to the same URL) contain the one-time token hash (single use, expires after 1 hour; worthless after step 2.5). Nothing else of the flow appears in the logs.
 - No error message ever names a Supabase internal ("Invalid login credentials", "User not found", …).
 - The code side is guarded by `tests/auth-security-guard.test.ts` (no logging, no redirect parameter, no service-role client, literal redirect paths, `requireOwner()` first in the owner actions).
 

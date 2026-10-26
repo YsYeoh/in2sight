@@ -122,4 +122,8 @@ describe('resetPasswordAction', () => {
     setNewPassword.mockResolvedValueOnce({ ok: false, error: 'link_expired' });
     expect(await resetPasswordAction({}, form(fields))).toEqual({ error: 'link_expired' });
   });
+  it('a failed sign-out of the other sessions is reported, not hidden behind the success redirect', async () => {
+    setNewPassword.mockResolvedValueOnce({ ok: true, othersSignedOut: false });
+    expect(await resetPasswordAction({}, form(fields))).toEqual({ error: 'signout_failed' });
+  });
 });
