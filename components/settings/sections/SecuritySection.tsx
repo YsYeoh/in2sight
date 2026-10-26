@@ -1,17 +1,17 @@
 import { getTranslations } from 'next-intl/server';
-import { confirmEnrollAction, disableAction, startEnrollAction } from '@/app/(app)/settings/actions';
+import { PasswordForm } from '@/components/auth/PasswordForm';
+import { SignOutOthersButton } from '@/components/auth/SignOutOthersButton';
 import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getMfaStatus } from '@/lib/auth/mfa';
 import { requireOwner } from '@/lib/auth/require-owner';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { confirmEnrollAction, disableAction, startEnrollAction } from '@/app/(app)/settings/actions';
+import { changePasswordAction, signOutOthersAction } from '@/app/(app)/settings/security-actions';
 
-/**
- * Settings -> Security. Plan 16a moved today's Account tab here unchanged so two-factor never disappears.
- * Plan 16b REPLACES this file (same file name, same export, zero props) and adds change password and sessions.
- */
+/** Settings -> Security (Plan 16b): signed-in email, two-factor (unchanged), password, other devices. */
 export async function SecuritySection() {
-  const t = await getTranslations('settings');
+  const [t, ts] = await Promise.all([getTranslations('settings'), getTranslations('auth.security')]);
   const { email } = await requireOwner();
   const status = await getMfaStatus(await createServerSupabase());
   return (
@@ -28,6 +28,25 @@ export async function SecuritySection() {
         confirmEnrollAction={confirmEnrollAction}
         disableAction={disableAction}
       />
+      <Card>
+        <CardHeader>
+          <CardTitle>{ts('passwordTitle')}</CardTitle>
+          <CardDescription>{ts('passwordHint')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PasswordForm action={changePasswordAction} email={email} withCurrent submitLabel={ts('passwordSubmit')} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{ts('sessionsTitle')}</CardTitle>
+          <CardDescription>{ts('sessionsHint')}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-[var(--gp)]">
+          <p className="text-sm text-muted-foreground">{ts('sessionsNote')}</p>
+          <SignOutOthersButton action={signOutOthersAction} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
