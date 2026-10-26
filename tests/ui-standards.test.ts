@@ -41,6 +41,13 @@ describe('UI standards (docs/UI_STANDARDS.md)', () => {
     for (const f of ['components/account/AccountView.tsx', 'components/export/ExportDialog.tsx', 'components/explorer/ExplorerView.tsx', 'components/explorer/ExplorerToolbar.tsx']) expect(read(f), f).not.toMatch(/size="sm"/); // Calendar's period arrows and Overview's account chips are small controls in rows of their own, so they are fine
   });
 
+  it('rule 18: settings save model: SaveBar only inside a form, the old pill bar only in the styleguide, no swallowed prefs saves', () => {
+    for (const [f, s] of src) if (/<SaveBar\b/.test(s)) expect(s, f).toMatch(/<form\b/);
+    expect(src.filter(([, s]) => /<PrefsBar\b/.test(s)).map(([f]) => f)).toEqual(['app/styleguide/page.tsx']);
+    expect(read('components/providers/PrefsProvider.tsx')).not.toMatch(/\.catch\(\(\) => \{\}\)/);
+    expect(read('app/actions.ts')).not.toMatch(/catch \{\s*\/\//); // the old "// the cookie is already saved" swallow
+  });
+
   it('rule 8: one scrollbar, styled only in styles/scrollbar.css', () => {
     for (const [f, s] of src) expect(s, f).not.toMatch(/scrollbar-(width|color|gutter)|::-webkit-scrollbar/);
   });

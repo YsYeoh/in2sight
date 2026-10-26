@@ -139,6 +139,8 @@ Each phase: write a plan (`superpowers:writing-plans`, model it on `docs/superpo
 
 > **Known bug to fix first in Plan 11:** connecting/reconnecting an account does not trigger a sync (first data waits for the next 30-min tick; backfill takes several ticks) and there is no progress UI. Requirements: docs/TODO.md §6a. Workaround: Accounts → Sync now.
 
+- Plan 16a (Settings shell, sections, save model) is BUILT on local `main`, NOT pushed, NOT verified live: docs/RUNBOOK_SETTINGS.md (migration 20261030000001 first, only on the owner's go-ahead). Plan 16b (Security) replaces components/settings/sections/SecuritySection.tsx; Plan 16c replaces DataSection.tsx.
+
 ## 3. Hard facts about what Instagram allows (don't re-litigate)
 No follower/following lists, no unfollower names, no Story viewers, no post likers, no profile visitors — via any official API. Scraping/unofficial apps violate Meta terms (risk: restriction). Legitimate substitutes (in the spec): daily follows/unfollows totals, reach split follower vs non-follower, commenter leaderboard (extra scope + reconnect), and an owner-uploaded "Download your information" export diff. History before connect day cannot be recovered. Posts older than the Creator conversion have no insights (error code 100 / subcode 2108006 → skipped). Stories with <5 viewers return error 10 (no data).
 
