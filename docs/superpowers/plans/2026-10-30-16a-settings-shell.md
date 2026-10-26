@@ -4395,3 +4395,19 @@ git commit -m "docs(settings): UI standard 18, styleguide demo, RUNBOOK_SETTINGS
 - **16c:** REPLACES `components/settings/sections/DataSection.tsx` (16a's version: `export async function DataSection()`, keys `settings.data.*`, which 16c may keep or remove).
 - **Save model pieces for later forms:** `SaveBar` (`dirty`, `pending`, `result`, `error`, `saved`, `onDiscard`; the last child of a `<form>`), `useUnsavedGuard(dirty)`, `confirmLeave(message)`, `Segmented`.
 - **Revalidation:** settings actions call `revalidatePath('/settings', 'layout')`.
+
+## Scratch-run result (2026-10-26, a throwaway clone OUTSIDE the repo at `9df9b2b`, its own `npm ci`)
+
+Every task was applied in order (1 → 11) in the clone exactly as written here (the code blocks of this plan were generated FROM the clone's files), each task's own tests run after it, then the whole thing:
+- `npx vitest run`: **282 files, 2724 tests passed** (the baseline was 269 / 2618 before 15c/15d; the new files: settings-sections, settings-save-bar, segmented, push-devices, account-parts, device-list, settings-appearance, settings-language, settings-accounts, settings-nav, settings-page, prefs-save-notice, prefs-auto-mode).
+- `npx tsc --noEmit`: exit 0 — after one fix the run found: `components/ui/sonner.tsx` passes `prefs.mode` to sonner's `theme` (`light | dark | system`), so Task 10 maps `auto` → `system` (now part of Task 10).
+- `npx eslint .`: exit 0. `npx next build`: exit 0, route `ƒ /settings/[[...section]]`.
+- Intermediate states checked by reasoning, not by separate runs: until Task 9 the old `/settings` page compiles against the changed components (Task 4 keeps every action signature; Task 6 adds only an optional prop); Task 11's `<PrefsBar` guard needs Task 9 merged first (W4 order note).
+Not executed: a browser, a real push service, Instagram, the migration on any database (no database was touched), the phone layout by eye — `docs/RUNBOOK_SETTINGS.md`.
+
+## Self-review (done before handing over)
+
+- **Spec coverage (§7):** URL-addressable sections ✓ (Task 9), left list / phone select ✓, Appearance with live preview incl. auto ✓ (7, 10), Language & formats with the plain timezone sentence and live sample ✓ (7), Notifications: permission + test, rules with thresholds, devices with remove ✓ (4, 6), Accounts & sync: status, token, last sync, Sync now, Reconnect, scope hint ✓ (5, 8), Security (2FA, email) as 16b's slot ✓, Data as 16c's slot ✓, one save model (instant + toast + Retry; explicit with dirty tracking, sticky bar, inline result, guard) ✓ (2, 3, 6), no pill walls ✓ (`Segmented`, selects), 360/768/1280 by CSS ✓ (runbook §6 checks by eye).
+- **Names checked against the real code (grep and the clone's `tsc`):** `connectHref`, `syncNowAction`, `loadAccounts`, `loadSyncStatus`, `getMfaStatus`, `withCurrentZone`, `RouteLoading`, `EmptyState`, `InsightOrb`, `StatusBadge`, `TokenMeter`, `tokenStatus`, `isActive`, `isTabPath`, `parseEndpoint`, `vapidFromEnv`, `webPushTransport`, `sendToAll`, `PushSub`, `NavLink`, `ConfirmDialog`, `LoadingButton`, `FormField`; message keys `loading.syncing`, `accounts.columns.token`, `accounts.status.*`, `accounts.sync.never`, `accounts.errors.busy`, `common.save|cancel`, `notifications.kinds.*`, `prefs.*`.
+- **Plan 16b compatibility:** 16b (read while writing) expects `export async function SecuritySection()` with zero props in `components/settings/sections/SecuritySection.tsx`, `/settings/security`, legacy `?tab=account` → security, its actions in a separate `security-actions.ts`, no SaveBar for the password form — all as built here. Its i18n edits are in the `auth` block, ours in `prefs`, `styleguide.standards` and `settings`: no anchor overlap.
+- **No placeholders:** every code step has complete code; every test has assertions; the only migration is justified (Auto) and optional (Open question 1).
