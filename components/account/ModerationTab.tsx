@@ -7,7 +7,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ShieldAlert, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useModerationRun } from '@/components/account/CommentActions';
+import { isDefiniteFailure, useModerationRun } from '@/components/account/CommentActions';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { EmptyState } from '@/components/shared/EmptyState';
@@ -24,11 +24,12 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { MAX_WORD_RULES, SPAM_KINDS, type ModerationRule, type SpamKind } from '@/lib/moderation/rules';
-import type { ModerationResult, RuleResult } from '@/lib/moderation/service';
+import type { ModerationResult, PreviewResult, RuleResult } from '@/lib/moderation/service';
 import type { LogEntry, ModerationData } from '@/lib/moderation/store';
 
 export interface ModerationActions {
   saveWord: (accountId: string, pattern: string, wholeWord: boolean) => Promise<RuleResult>;
+  previewWord: (accountId: string, pattern: string, wholeWord: boolean) => Promise<PreviewResult>;
   setSpam: (accountId: string, kind: SpamKind, on: boolean) => Promise<RuleResult>;
   deleteRule: (accountId: string, ruleId: string) => Promise<RuleResult>;
   setAutoHide: (accountId: string, enabled: boolean) => Promise<RuleResult>;
@@ -127,13 +128,32 @@ function AutoHideCard({ accountId, data, setAutoHide }: { accountId: string; dat
   );
 }
 
-function RulesCard({ accountId, rules, actions }: { accountId: string; rules: ModerationRule[]; actions: ModerationActions }) {
+function RulesCard({ accountId, rules, autoOn, actions }: { accountId: string; rules: ModerationRule[]; autoOn: boolean; actions: ModerationActions }) {
   const t = useTranslations('pages.account.moderation');
   const { prefs } = usePrefs();
   const { busy, error, run } = useModerationRun();
   const [word, setWord] = useState('');
-  const [whole, setWhole] = useState(false);
+  const [whole, setWhole] = useState(true); // whole word is the default: "ass" must not hide "class"
+  const [confirmCount, setConfirmCount] = useState<number | null>(null); // auto-hide on: how many existing comments the new word would hide
   const words = rules.filter((r) => r.kind === 'word');
+  const save = () =>
+    run(() => actions.saveWord(accountId, word, whole), () => {
+      setConfirmCount(null);
+      setWord('');
+      setWhole(true);
+    });
+  const submit = async () => {
+    if (!autoOn) return save();
+    let count = 0;
+    await run(
+      async () => {
+        const r: PreviewResult = await actions.previewWord(accountId, word, whole);
+        if (r.ok) count = r.count;
+        return r;
+      },
+      () => setConfirmCount(count),
+    );
+  };
   return (
     <Card>
       <CardHeader>
@@ -159,10 +179,7 @@ function RulesCard({ accountId, rules, actions }: { accountId: string; rules: Mo
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            void run(() => actions.saveWord(accountId, word, whole), () => {
-              setWord('');
-              setWhole(false);
-            });
+            void submit();
           }}
         >
           <h3 className="text-sm font-medium">{t('rules.wordsTitle')}</h3>
@@ -179,7 +196,7 @@ function RulesCard({ accountId, rules, actions }: { accountId: string; rules: Mo
             </LoadingButton>
           </div>
         </form>
-        {error ? (
+        {error && confirmCount === null ? (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
@@ -201,6 +218,17 @@ function RulesCard({ accountId, rules, actions }: { accountId: string; rules: Mo
           </ul>
         )}
       </CardContent>
+      <ConfirmDialog
+        open={confirmCount !== null}
+        title={t('rules.confirmTitle')}
+        body={t('rules.confirmBody', { count: confirmCount ?? 0, n: formatNumber(confirmCount ?? 0, prefs) })}
+        confirmLabel={t('rules.confirmAdd')}
+        cancelLabel={t('cancel')}
+        busy={busy}
+        error={confirmCount !== null ? error : null}
+        onConfirm={() => void save()}
+        onClose={() => setConfirmCount(null)}
+      />
     </Card>
   );
 }
@@ -278,7 +306,7 @@ function LogCard({ accountId, data, scope, undo }: { accountId: string; data: Mo
         cancelLabel={t('cancel')}
         busy={busy}
         error={error}
-        onConfirm={() => target && void run(() => undo(accountId, target.id, requestId), () => setTarget(null))}
+        onConfirm={() => target && void run(() => undo(accountId, target.id, requestId), () => setTarget(null), (e) => isDefiniteFailure(e) && setRequestId(crypto.randomUUID()))}
         onClose={() => setTarget(null)}
       />
     </Card>
@@ -306,7 +334,7 @@ export function ModerationTab({ accountId, allowed, data, scope, actions }: Mode
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
       <div className="grid gap-[var(--gp)] lg:grid-cols-2">
         <AutoHideCard accountId={accountId} data={data} setAutoHide={actions.setAutoHide} />
-        <RulesCard accountId={accountId} rules={data.rules} actions={actions} />
+        <RulesCard accountId={accountId} rules={data.rules} autoOn={data.settings.autoHide && data.settings.pausedAt === null} actions={actions} />
         <LogCard accountId={accountId} data={data} scope={scope} undo={actions.undo} />
       </div>
     </div>

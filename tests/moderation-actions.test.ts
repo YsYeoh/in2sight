@@ -8,6 +8,7 @@ const { calls, requireOwner, svc } = vi.hoisted(() => ({
     moderate: vi.fn(),
     undoAction: vi.fn(),
     saveWordRule: vi.fn(),
+    previewWordRule: vi.fn(),
     setSpamRule: vi.fn(),
     deleteRule: vi.fn(),
     setAutoHide: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock('@/lib/moderation/service', () => svc);
 vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => calls.push(`revalidate:${a.join(',')}`) }));
 
 import {
-  deleteCommentAction, deleteRuleAction, hideCommentAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction,
+  deleteCommentAction, deleteRuleAction, hideCommentAction, previewWordRuleAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction,
 } from '@/app/(app)/accounts/moderation-actions';
 
 const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
@@ -35,6 +36,7 @@ const ACTIONS = [
   ['delete', () => deleteCommentAction(A, 'c1', R)],
   ['undo', () => undoModerationAction(A, 3, R)],
   ['saveWord', () => saveWordRuleAction(A, 'spam', false)],
+  ['previewWord', () => previewWordRuleAction(A, 'spam', true)],
   ['setSpam', () => setSpamRuleAction(A, 'link', true)],
   ['deleteRule', () => deleteRuleAction(A, R)],
   ['setAutoHide', () => setAutoHideAction(A, true)],
@@ -109,15 +111,23 @@ describe('moderation actions', () => {
 
   it('rule actions use only the owner session (no admin client, no Instagram env)', async () => {
     await saveWordRuleAction(A, 'spam', true);
+    await previewWordRuleAction(A, 'spam', false);
     await setSpamRuleAction(A, 'emoji', false);
     await deleteRuleAction(A, R);
     await setAutoHideAction(A, false);
     expect(calls).not.toContain('ADMIN');
     expect(calls).not.toContain('env');
     expect(svc.saveWordRule.mock.calls[0]).toEqual([{ session: true }, A, 'spam', true]);
+    expect(svc.previewWordRule.mock.calls[0]).toEqual([{ session: true }, A, 'spam', false]);
     expect(svc.setSpamRule.mock.calls[0]).toEqual([{ session: true }, A, 'emoji', false]);
     expect(svc.deleteRule.mock.calls[0]).toEqual([{ session: true }, A, R]);
     expect(svc.setAutoHide.mock.calls[0]).toEqual([{ session: true }, A, false]);
+  });
+
+  it('the preview is a read: it never revalidates the page', async () => {
+    svc.previewWordRule.mockResolvedValueOnce({ ok: true, count: 3 });
+    expect(await previewWordRuleAction(A, 'spam', true)).toEqual({ ok: true, count: 3 });
+    expect(calls.some((c) => c.startsWith('revalidate'))).toBe(false);
   });
 
   it('revalidates the account page only after a success', async () => {

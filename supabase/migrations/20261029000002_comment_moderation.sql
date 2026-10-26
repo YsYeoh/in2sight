@@ -46,6 +46,11 @@ revoke all on public.moderation_rules from anon;
 -- reply text (third-party / personal data). target_id = the reply's id (Undo deletes it). comment_id has no foreign key:
 -- the comment may be gone (deleted on Instagram) while its log row stays. Append-only for the app: no delete grant;
 -- rows go with the account (cascade). Owner inserts must be actor 'owner'; rule rows come from the tick (admin client).
+-- The owner session may INSERT only the columns lib/moderation/store.ts insertLog sends (never result, created_at or
+-- undone_at), and may UPDATE only result + target_id (finishLog: a 'pending' row gets its outcome, a reply its id) and
+-- undone_at (markUndone: once), and only on rows that are still pending or not yet undone: an undone row is frozen.
+-- Residual (a column grant cannot look at the old value): a finished row that is not undone yet could still have its
+-- result rewritten by the owner session; the tick's admin client is not bound by any of this.
 create table public.moderation_log (
   id         bigint generated always as identity primary key,
   account_id uuid not null references public.accounts (id) on delete cascade,
@@ -71,14 +76,15 @@ create policy moderation_log_owner_insert on public.moderation_log
   with check ((select public.is_owner()) and actor = 'owner');
 create policy moderation_log_owner_update on public.moderation_log
   for update to authenticated
-  using ((select public.is_owner()))
+  using ((select public.is_owner()) and (result = 'pending' or undone_at is null))
   with check ((select public.is_owner()));
 revoke all on public.moderation_log from anon, authenticated;
-grant select, insert on public.moderation_log to authenticated;
+grant select on public.moderation_log to authenticated;
+grant insert (account_id, comment_id, action, actor, request_id, undo_of, target_id) on public.moderation_log to authenticated;
 grant update (result, target_id, undone_at) on public.moderation_log to authenticated;
 
 -- comments (Plan 11b: owner select only): after a hide/unhide the owner session sets hidden; after a delete on
--- Instagram (or a "comment gone" answer) it removes the row. Nothing else becomes writable.
+-- Instagram (a confirmed DELETE, never an error answer) it removes the row. Nothing else becomes writable.
 create policy comments_owner_update on public.comments
   for update to authenticated
   using ((select public.is_owner()))

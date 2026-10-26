@@ -84,12 +84,20 @@ export function matchRule(text: string | null, rules: readonly ModerationRule[])
   return null;
 }
 
-/** A new banned word: trimmed, 1–PATTERN_MAX characters folded, not already listed (folded), under the cap. */
-export function validateWord(raw: unknown, existing: readonly ModerationRule[]): { ok: true; pattern: string } | { ok: false; error: 'invalid_word' | 'duplicate_rule' | 'too_many_rules' } {
+export const WORD_MIN = 3; // Latin-script patterns: shorter ones ("as", ".") match inside too many ordinary words
+const HAS_LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+
+/**
+ * A new banned word: trimmed, PATTERN_MAX characters at most, at least one letter or digit (never punctuation or
+ * whitespace only), WORD_MIN characters folded unless it contains Chinese, Japanese or Korean (one character is a word
+ * there), not already listed (folded), under the cap.
+ */
+export function validateWord(raw: unknown, existing: readonly ModerationRule[]): { ok: true; pattern: string } | { ok: false; error: 'invalid_word' | 'rule_too_short' | 'duplicate_rule' | 'too_many_rules' } {
   if (typeof raw !== 'string') return { ok: false, error: 'invalid_word' };
   const pattern = raw.trim();
   const folded = fold(pattern);
-  if (folded === '' || [...pattern].length > PATTERN_MAX) return { ok: false, error: 'invalid_word' };
+  if (folded === '' || [...pattern].length > PATTERN_MAX || !HAS_LETTER_OR_DIGIT.test(folded)) return { ok: false, error: 'invalid_word' };
+  if (!CJK.test(folded) && [...folded].length < WORD_MIN) return { ok: false, error: 'rule_too_short' };
   const words = existing.filter((r) => r.kind === 'word');
   if (words.some((r) => r.pattern !== null && fold(r.pattern) === folded)) return { ok: false, error: 'duplicate_rule' };
   if (words.length >= MAX_WORD_RULES) return { ok: false, error: 'too_many_rules' };

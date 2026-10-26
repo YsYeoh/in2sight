@@ -72,7 +72,7 @@ describe('moderation privacy and choke points', () => {
     const exported = [...s.matchAll(/export\s+(?!async function)(\w+)/g)].map((m) => m[1]);
     expect(exported).toEqual([]); // a "use server" file may export async functions only: anything else is a public endpoint or a build error
     const bodies = s.split(/export async function /).slice(1);
-    expect(bodies).toHaveLength(8);
+    expect(bodies).toHaveLength(9);
     for (const b of bodies) {
       const name = b.slice(0, b.indexOf('('));
       const body = b.slice(b.indexOf('{') + 1);

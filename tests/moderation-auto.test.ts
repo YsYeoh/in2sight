@@ -119,12 +119,22 @@ describe('runAutoHide', () => {
     expect(app.hide).toHaveBeenCalledTimes(1);
   });
 
-  it('a comment already gone on Instagram is logged, removed here, and is not a failure', async () => {
+  it('Meta 100/33 (does not exist OR refused) is a refusal: logged not_allowed, counted as a failure, the local comment is KEPT', async () => {
     const ig = { hide: vi.fn(async (_t: string, id: string) => { if (id === 'c1') throw new InstagramApiError('data', 400, 100, 33); }) };
     const { deps, ctx } = setup({ ig, ctx: { accounts: [scoped('a1')] } });
-    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 0, paused: 0 });
-    expect(m.finishLog).toHaveBeenCalledWith(db, 1, 'comment_gone');
-    expect(m.removeComment).toHaveBeenCalledWith(db, 'a1', 'c1');
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 1, failed: 1, paused: 0 });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 1, 'not_allowed');
+    expect(m.removeComment).not.toHaveBeenCalled();
+  });
+
+  it(`${FAIL_LIMIT} refusals (100/33) in a row pause the account like any other failure; no local comment is deleted`, async () => {
+    comments.a1 = ['c1', 'c2', 'c3', 'c4'].map((id) => spam(id));
+    const ig = { hide: vi.fn(async () => { throw new InstagramApiError('data', 400, 100, 33); }) };
+    const { deps, ctx } = setup({ ig, ctx: { accounts: [scoped('a1')] } });
+    expect(await runAutoHide(deps, ctx)).toEqual({ hidden: 0, failed: FAIL_LIMIT, paused: 1 });
+    expect(ig.hide).toHaveBeenCalledTimes(FAIL_LIMIT);
+    expect(m.pauseAutoHide).toHaveBeenCalledWith(db, 'a1', 'failing', NOW.toISOString());
+    expect(m.removeComment).not.toHaveBeenCalled();
   });
 
   it('no log row → no hide: the account stops, the next one runs', async () => {

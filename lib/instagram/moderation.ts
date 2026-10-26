@@ -17,7 +17,7 @@ export const MODERATION_TIMEOUT_MS = 5_000;
 const PERMISSION_DENIED = 10;
 const ID = /^\w{1,64}$/;
 
-export type ModerationErrorKey = 'reconnect' | 'rate_limited' | 'comment_gone' | 'not_allowed' | 'instagram_unavailable' | 'unknown_outcome' | 'unexpected';
+export type ModerationErrorKey = 'reconnect' | 'rate_limited' | 'not_allowed' | 'instagram_unavailable' | 'unknown_outcome' | 'unexpected';
 
 /**
  * What a failed write means for the owner. `write = 'reply'`: a timeout or 5xx may still have posted the reply, so it is
@@ -28,7 +28,9 @@ export function classifyModerationError(e: unknown, write: 'reply' | 'other' = '
   const k = classifyIgError(e);
   if (k === 'rate_limit' || k === 'app_rate_limit') return 'rate_limited';
   if (k === 'auth' || (e.kind !== 'network' && (e.code === PERMISSION_DENIED || e.status === 403))) return 'reconnect';
-  if (k === 'gone') return 'comment_gone';
+  // 100/33 ('gone' for the sync's reads) is NOT "comment gone" on a write: Meta sends it for "does not exist" AND for "cannot be
+  // loaded due to missing permissions, or does not support this operation". It falls through to not_allowed; nothing is
+  // deleted locally on it. The local copy goes only after an HTTP-confirmed DELETE.
   if (k === 'transient') return write === 'reply' ? 'unknown_outcome' : 'instagram_unavailable';
   return 'not_allowed';
 }

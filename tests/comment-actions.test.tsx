@@ -134,6 +134,34 @@ describe('CommentActions', () => {
     expect(hide.mock.calls[1][3]).not.toBe(hide.mock.calls[0][3]);
   });
 
+  it('after a DEFINITE failure the next confirm is a new request (a burned id would only answer "already sent")', async () => {
+    const user = userEvent.setup();
+    const hide = vi.fn<CommentActionsProps['hide']>().mockResolvedValueOnce({ ok: false, error: 'rate_limited' }).mockResolvedValue(OK);
+    renderIt({ hide });
+    await pick(user, T.hide);
+    const confirm = await screen.findByRole('button', { name: T.hideDialog.confirm });
+    await user.click(confirm);
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.errors.rate_limited);
+    await user.click(screen.getByRole('button', { name: T.hideDialog.confirm }));
+    await waitFor(() => expect(hide).toHaveBeenCalledTimes(2));
+    expect(hide.mock.calls[1][3]).toMatch(UUID);
+    expect(hide.mock.calls[1][3]).not.toBe(hide.mock.calls[0][3]);
+  });
+
+  it.each(['unknown_outcome', 'unexpected', 'duplicate'] as const)('after %s the SAME request id is kept (the first try may have gone through)', async (error) => {
+    const user = userEvent.setup();
+    const reply = vi.fn<CommentActionsProps['reply']>().mockResolvedValueOnce({ ok: false, error }).mockResolvedValue(OK);
+    renderIt({ reply });
+    await pick(user, T.reply);
+    await user.type(await screen.findByLabelText(T.replyDialog.label), 'Thanks!');
+    await user.click(screen.getByRole('button', { name: T.replyDialog.send }));
+    await waitFor(() => expect(reply).toHaveBeenCalledTimes(1));
+    await screen.findByText(T.errors[error]);
+    await user.click(screen.getByRole('button', { name: T.replyDialog.send }));
+    await waitFor(() => expect(reply).toHaveBeenCalledTimes(2));
+    expect(reply.mock.calls[1][3]).toBe(reply.mock.calls[0][3]);
+  });
+
   it('Cancel closes without a request and returns focus to the menu button', async () => {
     const user = userEvent.setup();
     const p = renderIt();
