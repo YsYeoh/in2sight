@@ -3304,3 +3304,472 @@ export async function AccountsSection() {
 git add components/settings/AccountsOverview.tsx components/settings/sections/AccountsSection.tsx tests/settings-accounts.test.tsx
 git commit -m "feat(settings): Accounts & sync overview with Sync now and Reconnect (Plan 16a)"
 ```
+
+---
+
+### Task 9: The shell and the route (layout, nav, page, loading, the remaining sections; the old page removed)
+
+**Files:**
+- Create: `app/(app)/settings/layout.tsx`, `app/(app)/settings/[[...section]]/page.tsx`, `app/(app)/settings/[[...section]]/loading.tsx`, `components/settings/SettingsNav.tsx`, `components/settings/sections/NotificationsSection.tsx`, `components/settings/sections/SecuritySection.tsx`, `components/settings/sections/DataSection.tsx`, `tests/settings-nav.test.tsx`, `tests/settings-page.test.tsx`
+- Delete: `app/(app)/settings/page.tsx`, `app/(app)/settings/loading.tsx` (`git rm`)
+- Modify: `tests/route-loading.test.tsx` (one line), `messages/en.json`, `messages/zh-CN.json` (remove `settings.tabs`, now unused)
+
+This is the switch-over: after it, `/settings` redirects to `/settings/appearance` and every section is live. It needs every earlier task merged.
+
+- [ ] **Step 1: Tests**
+
+`tests/settings-nav.test.tsx`:
+
+```tsx
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+
+const nav = vi.hoisted(() => ({ pathname: '/settings/language', push: vi.fn() }));
+vi.mock('next/navigation', () => ({ usePathname: () => nav.pathname, useRouter: () => ({ push: nav.push, refresh: vi.fn() }) }));
+
+import { SettingsNav } from '@/components/settings/SettingsNav';
+import { useUnsavedGuard } from '@/components/settings/unsaved';
+
+const S = en.settings.sections;
+
+function Dirty() {
+  useUnsavedGuard(true);
+  return null;
+}
+
+function setup(dirty = false) {
+  render(
+    <NextIntlClientProvider locale="en" messages={en}>
+      <SettingsNav />
+      {dirty ? <Dirty /> : null}
+    </NextIntlClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  nav.pathname = '/settings/language';
+  nav.push.mockReset();
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe('SettingsNav', () => {
+  it('one labelled nav: a link per section in registry order, the open one marked aria-current', () => {
+    setup();
+    const n = screen.getByRole('navigation', { name: S.nav });
+    const links = within(n).getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/settings/appearance', '/settings/language', '/settings/notifications', '/settings/accounts', '/settings/security', '/settings/data']);
+    expect(within(n).getByRole('link', { name: S.language.title })).toHaveAttribute('aria-current', 'page');
+    expect(within(n).getByRole('link', { name: S.appearance.title })).not.toHaveAttribute('aria-current');
+  });
+
+  it('list from md up, the select below md (CSS only)', () => {
+    setup();
+    const select = screen.getByLabelText(S.pick);
+    expect(select.parentElement!.classList.contains('md:hidden')).toBe(true);
+    expect(screen.getAllByRole('list')[0].classList.contains('hidden')).toBe(true);
+    expect(screen.getAllByRole('list')[0].classList.contains('md:flex')).toBe(true);
+  });
+
+  it('phone: the select shows the open section and navigates on change', async () => {
+    setup();
+    const select = screen.getByLabelText(S.pick);
+    expect(select).toHaveValue('language');
+    expect(select.classList.contains('h-[var(--ctl)]')).toBe(true);
+    await userEvent.selectOptions(select, 'notifications');
+    expect(nav.push).toHaveBeenCalledWith('/settings/notifications');
+  });
+
+  it('with unsaved changes, both ask first; cancelling stays put', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    setup(true);
+    await userEvent.selectOptions(screen.getByLabelText(S.pick), 'data');
+    expect(confirm).toHaveBeenCalledWith(en.settings.unsaved.confirm);
+    expect(nav.push).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(S.pick)).toHaveValue('language');
+    const link = screen.getByRole('link', { name: S.data.title });
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it('confirming leaves: the select navigates', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    setup(true);
+    await userEvent.selectOptions(screen.getByLabelText(S.pick), 'data');
+    expect(nav.push).toHaveBeenCalledWith('/settings/data');
+  });
+});
+```
+
+`tests/settings-page.test.tsx` (the sections are stubbed here: each has its own test; the last case pins the section CONTRACT that Plans 16b/16c rely on):
+
+```tsx
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import en from '@/messages/en.json';
+
+const calls = vi.hoisted(() => [] as string[]);
+vi.mock('@/lib/auth/require-owner', () => ({ requireOwner: async () => (calls.push('owner'), { userId: 'u1', email: 'o@x.y' }) }));
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => {
+    throw new Error(`REDIRECT:${url}`);
+  },
+  notFound: () => {
+    throw new Error('NOT_FOUND');
+  },
+}));
+vi.mock('next-intl/server', async () => {
+  const { createTranslator } = await import('next-intl');
+  const messages = (await import('@/messages/en.json')).default;
+  return { getTranslations: async (namespace: string) => createTranslator({ locale: 'en', messages, namespace: namespace as never }) };
+});
+// each section is its own unit (its own test file); here they are stand-ins that name themselves
+vi.mock('@/components/settings/sections/AppearanceSection', () => ({ AppearanceSection: () => <p>view:appearance</p> }));
+vi.mock('@/components/settings/sections/LanguageSection', () => ({ LanguageSection: () => <p>view:language</p> }));
+vi.mock('@/components/settings/sections/NotificationsSection', () => ({ NotificationsSection: () => <p>view:notifications</p> }));
+vi.mock('@/components/settings/sections/AccountsSection', () => ({ AccountsSection: () => <p>view:accounts</p> }));
+vi.mock('@/components/settings/sections/SecuritySection', () => ({ SecuritySection: () => <p>view:security</p> }));
+vi.mock('@/components/settings/sections/DataSection', () => ({ DataSection: () => <p>view:data</p> }));
+
+import SettingsSectionPage, { maxDuration } from '@/app/(app)/settings/[[...section]]/page';
+import { SECTION_IDS } from '@/lib/settings/sections';
+
+const page = (section: string[] | undefined, sp: Record<string, string> = {}) => SettingsSectionPage({ params: Promise.resolve({ section }), searchParams: Promise.resolve(sp) });
+
+beforeEach(() => {
+  calls.length = 0;
+});
+
+describe('/settings/[[...section]]', () => {
+  it('checks the owner before anything else', async () => {
+    await expect(page(undefined)).rejects.toThrow('REDIRECT:/settings/appearance');
+    expect(calls).toEqual(['owner']);
+  });
+
+  it('/settings and the old tab names redirect; unknown and deeper paths are not found', async () => {
+    await expect(page(undefined, { tab: 'account' })).rejects.toThrow('REDIRECT:/settings/security');
+    await expect(page(undefined, { tab: 'notifications' })).rejects.toThrow('REDIRECT:/settings/notifications');
+    await expect(page(['bogus'])).rejects.toThrow('NOT_FOUND');
+    await expect(page(['security', 'x'])).rejects.toThrow('NOT_FOUND');
+  });
+
+  it.each(SECTION_IDS)('/settings/%s renders its heading, description and its own component', async (id) => {
+    render(await page([id]));
+    expect(screen.getByRole('heading', { level: 2, name: en.settings.sections[id].title })).toBeInTheDocument();
+    expect(screen.getByText(en.settings.sections[id].description)).toBeInTheDocument();
+    expect(screen.getByText(`view:${id}`)).toBeInTheDocument();
+  });
+
+  it('allows a 60 s server action (Sync now runs a tick)', () => {
+    expect(maxDuration).toBe(60);
+  });
+
+  it('the section contract: components/settings/sections/<Id>Section.tsx exports <Id>Section with no props', () => {
+    for (const id of SECTION_IDS) {
+      const name = `${id[0].toUpperCase()}${id.slice(1)}Section`;
+      const src = readFileSync(join(process.cwd(), 'components/settings/sections', `${name}.tsx`), 'utf8');
+      expect(src, name).toMatch(new RegExp(`export (async )?function ${name}\\(\\)`));
+    }
+  });
+});
+```
+
+`tests/route-loading.test.tsx`: in the sanity case replace `'(app)/tags', '(app)/settings', 'report'` with `'(app)/tags', '(app)/settings/[[...section]]', 'report'`.
+
+Run: `npx vitest run tests/settings-nav.test.tsx tests/settings-page.test.tsx tests/route-loading.test.tsx` — Expected: FAIL (modules not found; the route-loading sanity list).
+
+- [ ] **Step 2: Remove the old page:** `git rm "app/(app)/settings/page.tsx" "app/(app)/settings/loading.tsx"` (a `page.tsx` beside the optional catch-all conflicts in Next.js; a `loading.tsx` there would wrap the section pages).
+
+- [ ] **Step 3: `components/settings/SettingsNav.tsx`**
+
+```tsx
+'use client';
+
+// The settings section list (Plan 16a): a vertical list of links from md up, one native select on phones (CSS
+// breakpoints only). Both ask before leaving a section with unsaved changes (components/settings/unsaved.ts).
+import { usePathname, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { confirmLeave } from '@/components/settings/unsaved';
+import { NavLink } from '@/components/shared/NavLink';
+import { isActive } from '@/lib/nav';
+import { DEFAULT_SECTION, SECTIONS, isSectionId, sectionHref } from '@/lib/settings/sections';
+
+export function SettingsNav() {
+  const t = useTranslations('settings.sections');
+  const tu = useTranslations('settings.unsaved');
+  const pathname = usePathname();
+  const router = useRouter();
+  const active = SECTIONS.find((s) => isActive(pathname, sectionHref(s.id)))?.id ?? DEFAULT_SECTION;
+  return (
+    <nav aria-label={t('nav')} className="min-w-0 md:sticky md:top-[var(--pg)]">
+      <div className="flex flex-col gap-1.5 md:hidden">
+        <label htmlFor="settings-section" className="text-sm font-medium">
+          {t('pick')}
+        </label>
+        {/* controlled: a cancelled confirm leaves it on the current section */}
+        <select
+          id="settings-section"
+          value={active}
+          onChange={(e) => {
+            const id = e.target.value;
+            if (isSectionId(id) && confirmLeave(tu('confirm'))) router.push(sectionHref(id));
+          }}
+          className="h-[var(--ctl)] w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+        >
+          {SECTIONS.map((s) => (
+            <option key={s.id} value={s.id}>
+              {t(`${s.id}.title`)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <ul className="hidden flex-col gap-1 md:flex">
+        {SECTIONS.map(({ id, icon }) => (
+          <li key={id}>
+            <NavLink
+              href={sectionHref(id)}
+              icon={icon}
+              iconClassName="size-4"
+              aria-current={id === active ? 'page' : undefined}
+              onClick={(e) => {
+                if (id !== active && !confirmLeave(tu('confirm'))) e.preventDefault();
+              }}
+              className="flex h-[var(--ctl)] min-w-0 items-center gap-2.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:text-accent-foreground"
+            >
+              <span className="truncate">{t(`${id}.title`)}</span>
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+```
+
+- [ ] **Step 4: `app/(app)/settings/layout.tsx`**
+
+```tsx
+import { getTranslations } from 'next-intl/server';
+import { SettingsNav } from '@/components/settings/SettingsNav';
+import { PageHeader } from '@/components/shared/PageHeader';
+
+// The Settings shell (Plan 16a): header + section nav stay while a section streams in ([[...section]]/loading.tsx).
+// The (app) layout above already checked the owner; every section page checks again (layouts don't re-run on navigation).
+export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
+  const t = await getTranslations('settings');
+  return (
+    <>
+      <PageHeader title={t('title')} subtitle={t('subtitle')} />
+      <div className="grid gap-[var(--gp)] md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start">
+        <SettingsNav />
+        <div className="min-w-0">{children}</div>
+      </div>
+    </>
+  );
+}
+```
+
+- [ ] **Step 5: `app/(app)/settings/[[...section]]/page.tsx`**
+
+```tsx
+import { notFound, redirect } from 'next/navigation';
+import { getTranslations } from 'next-intl/server';
+import { AccountsSection } from '@/components/settings/sections/AccountsSection';
+import { AppearanceSection } from '@/components/settings/sections/AppearanceSection';
+import { DataSection } from '@/components/settings/sections/DataSection';
+import { LanguageSection } from '@/components/settings/sections/LanguageSection';
+import { NotificationsSection } from '@/components/settings/sections/NotificationsSection';
+import { SecuritySection } from '@/components/settings/sections/SecuritySection';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { routeSettings, type SectionId } from '@/lib/settings/sections';
+
+// Server actions inherit the page's limit: Accounts & sync's "Sync now" runs a tick (35 s budget) inside the action.
+export const maxDuration = 60;
+
+// One zero-prop component per section (lib/settings/sections.ts). Plans 16b/16c replace a file, never this map.
+const VIEWS = {
+  appearance: AppearanceSection,
+  language: LanguageSection,
+  notifications: NotificationsSection,
+  accounts: AccountsSection,
+  security: SecuritySection,
+  data: DataSection,
+} satisfies Record<SectionId, unknown>;
+
+export default async function SettingsSectionPage({ params, searchParams }: { params: Promise<{ section?: string[] }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await requireOwner(); // layouts don't re-run on client navigation, so the page checks too
+  const [{ section }, sp] = await Promise.all([params, searchParams]);
+  const route = routeSettings(section, typeof sp.tab === 'string' ? sp.tab : undefined);
+  if (!route) notFound();
+  if ('redirect' in route) redirect(route.redirect);
+  const t = await getTranslations('settings.sections');
+  const View = VIEWS[route.section];
+  return (
+    <section aria-labelledby="settings-section-title" className="grid min-w-0 gap-[var(--gp)]">
+      <header>
+        <h2 id="settings-section-title" className="text-[length:var(--fh)] font-semibold">
+          {t(`${route.section}.title`)}
+        </h2>
+        <p className="text-sm text-muted-foreground">{t(`${route.section}.description`)}</p>
+      </header>
+      <View />
+    </section>
+  );
+}
+```
+
+- [ ] **Step 6: `app/(app)/settings/[[...section]]/loading.tsx`**
+
+```tsx
+import { RouteLoading } from '@/components/shared/Skeletons';
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Only the section streams: the settings layout (header + section nav) stays on screen.
+export default function SettingsSectionLoading() {
+  return (
+    <RouteLoading>
+      <Skeleton className="h-10 w-full max-w-sm" />
+      <Skeleton className="h-48 rounded-[var(--rm)]" />
+      <Skeleton className="h-48 rounded-[var(--rm)]" />
+    </RouteLoading>
+  );
+}
+```
+
+- [ ] **Step 7: The three remaining sections**
+
+`components/settings/sections/NotificationsSection.tsx`:
+
+```tsx
+import { deleteDeviceAction, deleteSubscriptionAction, saveAlertSettingsAction, saveSubscriptionAction, sendTestPushAction } from '@/app/(app)/settings/actions';
+import { AlertSettingsForm } from '@/components/settings/AlertSettingsForm';
+import { DeviceList } from '@/components/settings/DeviceList';
+import { NotificationsCard } from '@/components/settings/NotificationsCard';
+import { parseAlertSettings } from '@/lib/alerts/settings';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { listPushDevices } from '@/lib/push/devices';
+import { createServerSupabase } from '@/lib/supabase/server';
+
+/** Settings -> Notifications (Plan 16a): this device, the alert rules, the devices. Owner session only (RLS). */
+export async function NotificationsSection() {
+  const { userId } = await requireOwner();
+  const db = await createServerSupabase();
+  const [profile, devices] = await Promise.all([db.from('profiles').select('alert_settings').eq('user_id', userId).maybeSingle(), listPushDevices(db)]);
+  const alertSettings = parseAlertSettings(profile.error ? null : profile.data?.alert_settings);
+  // only the PUBLIC VAPID key reaches the browser, as a prop (the private key stays in lib/push/send.ts)
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() || null;
+  return (
+    <div className="grid gap-[var(--gp)]">
+      <NotificationsCard vapidPublicKey={vapidPublicKey} swEnabled={process.env.NODE_ENV === 'production'} save={saveSubscriptionAction} remove={deleteSubscriptionAction} test={sendTestPushAction} />
+      <AlertSettingsForm initial={alertSettings} save={saveAlertSettingsAction} />
+      <DeviceList devices={devices} remove={deleteDeviceAction} />
+    </div>
+  );
+}
+```
+
+`components/settings/sections/SecuritySection.tsx` (today's Account tab, moved unchanged; **Plan 16b replaces this file**):
+
+```tsx
+import { getTranslations } from 'next-intl/server';
+import { confirmEnrollAction, disableAction, startEnrollAction } from '@/app/(app)/settings/actions';
+import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
+import { Card, CardContent } from '@/components/ui/card';
+import { getMfaStatus } from '@/lib/auth/mfa';
+import { requireOwner } from '@/lib/auth/require-owner';
+import { createServerSupabase } from '@/lib/supabase/server';
+
+/**
+ * Settings -> Security. Plan 16a moved today's Account tab here unchanged so two-factor never disappears.
+ * Plan 16b REPLACES this file (same file name, same export, zero props) and adds change password and sessions.
+ */
+export async function SecuritySection() {
+  const t = await getTranslations('settings');
+  const { email } = await requireOwner();
+  const status = await getMfaStatus(await createServerSupabase());
+  return (
+    <div className="grid gap-[var(--gp)]">
+      <Card>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">{t('account.email')}</p>
+          <p className="font-medium break-all">{email}</p>
+        </CardContent>
+      </Card>
+      <TwoFactorCard
+        enrolled={status.enrolled && status.factorId ? { factorId: status.factorId } : null}
+        startEnrollAction={startEnrollAction}
+        confirmEnrollAction={confirmEnrollAction}
+        disableAction={disableAction}
+      />
+    </div>
+  );
+}
+```
+
+`components/settings/sections/DataSection.tsx` (**Plan 16c replaces this file**):
+
+```tsx
+import { getTranslations } from 'next-intl/server';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+const ITEMS = ['insights', 'covers', 'comments', 'delete'] as const;
+
+/**
+ * Settings -> Data & privacy: a short "what we store" placeholder (Plan 16a).
+ * Plan 16c REPLACES this file (same file name, same export, zero props) with storage used, export all and delete all.
+ */
+export async function DataSection() {
+  const t = await getTranslations('settings.data');
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('title')}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        <ul className="list-disc space-y-1 pl-5">
+          {ITEMS.map((k) => (
+            <li key={k}>{t(k)}</li>
+          ))}
+        </ul>
+        <p className="text-muted-foreground">{t('soon')}</p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+- [ ] **Step 8: Remove `settings.tabs`** (Edit tool, exact text). In `messages/en.json` delete these five lines (inside `settings`, right after `"subtitle"`):
+
+```json
+    "tabs": {
+      "general": "General",
+      "account": "Account",
+      "notifications": "Notifications"
+    },
+```
+
+and in `messages/zh-CN.json`:
+
+```json
+    "tabs": {
+      "general": "常规",
+      "account": "账户",
+      "notifications": "通知"
+    },
+```
+
+(Only the `settings.tabs` block: the top-level `"tabs"` block at line 49 is the shell's and stays.) Check: `grep -rn "settings.tabs\|tabs.general" app components lib` → nothing.
+
+- [ ] **Step 9: Verify** — `rm -rf .next` (routes moved: a stale `.next/types` fails `tsc`), then `npx vitest run tests/settings-nav.test.tsx tests/settings-page.test.tsx tests/route-loading.test.tsx tests/messages.test.ts tests/settings-sections.test.ts tests/settings-notifications.test.tsx tests/settings-accounts.test.tsx tests/settings-appearance.test.tsx tests/settings-language.test.tsx tests/frame-breakout.test.tsx tests/nav.test.ts`, `npx tsc --noEmit`, `npx eslint "app/(app)/settings" components/settings tests/settings-nav.test.tsx tests/settings-page.test.tsx tests/route-loading.test.tsx`. Expected: PASS, clean. Then by eye (`npm run dev`, signed in): `/settings` lands on Appearance inside its shell tab; every section at 360 / 768 / 1280 px; the phone select; the tab title stays "Settings".
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add "app/(app)/settings" components/settings/SettingsNav.tsx components/settings/sections/NotificationsSection.tsx components/settings/sections/SecuritySection.tsx components/settings/sections/DataSection.tsx tests/settings-nav.test.tsx tests/settings-page.test.tsx tests/route-loading.test.tsx messages/en.json messages/zh-CN.json
+git commit -m "feat(settings): the settings shell: /settings/<section> with a section nav, one component per section (Plan 16a)"
+```
