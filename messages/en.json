@@ -261,6 +261,7 @@
         "same_password": "The new password must be different from the current one.",
         "rate_limited": "Too many attempts. Wait a few minutes and try again.",
         "link_expired": "This reset has expired. Request a new link.",
+        "signout_failed": "Password changed, but your other devices could not be signed out. Go to Settings → Security and use “Sign out other devices”.",
         "unexpected": "Something went wrong. Please try again."
       }
     },

@@ -44,7 +44,7 @@ const FILES = [...new Set([...NAMED, ...['lib/auth', 'app/login', 'app/auth', 'c
 /** The text between `redirect(` and its closing parenthesis, for every bare `redirect(` call (not `NextResponse.redirect`). */
 function redirectArgs(s: string): string[] {
   const out: string[] = [];
-  for (const m of s.matchAll(/(?<![.\w])redirect\(/g)) {
+  for (const m of s.matchAll(/(?<![.\w])(?:permanentRedirect|redirect)\(/g)) {
     let depth = 1;
     let i = (m.index ?? 0) + m[0].length;
     const start = i;
@@ -64,7 +64,7 @@ describe('auth security guard (Plan 16b)', () => {
   });
 
   it.each(FILES)('%s: no logging', (f) => {
-    expect(src(f)).not.toMatch(/console\s*[.[]|logger\./);
+    expect(src(f)).not.toMatch(/\bconsole\b|\blogger\b|process\.std(out|err)/); // any mention, so an alias (`const c = console`) cannot hide a call
   });
 
   it.each(FILES)('%s: no redirect parameter is read and no redirectTo is passed', (f) => {
@@ -76,6 +76,13 @@ describe('auth security guard (Plan 16b)', () => {
 
   it.each(FILES)('%s: no service-role client', (f) => {
     expect(src(f)).not.toMatch(/createAdminSupabase|supabase\/admin|SECRET_KEY|service_role|serviceRole/);
+  });
+
+  it.each(FILES)('%s: imports no module that uses the service role (no admin client through a helper)', (f) => {
+    for (const m of src(f).matchAll(/from '@\/([^']+)'/g)) {
+      const target = ['.ts', '.tsx', '/index.ts'].map((e) => `${m[1]}${e}`).find((p) => existsSync(join(root, p)));
+      if (target) expect(src(target), `${f} -> ${target}`).not.toMatch(/createAdminSupabase|supabase\/admin|service_role/); // lib/env.ts only NAMES the key
+    }
   });
 
   it.each(FILES)('%s: every redirect() target is a literal path', (f) => {
@@ -104,6 +111,7 @@ describe('auth security guard (Plan 16b)', () => {
     const lines = src(f).split(/\r?\n/);
     const heads = lines.flatMap((l, i) => (/^export async function \w+\(/.test(l) ? [i] : []));
     expect(heads.length).toBeGreaterThan(0);
+    expect(src(f), 'an exported arrow function would escape the check above').not.toMatch(/^export (async )?const /m);
     for (const i of heads) {
       expect(lines[i], lines[i]).toMatch(/\{$/);
       const first = lines.slice(i + 1).find((l) => l.trim() && !l.trim().startsWith('//'));

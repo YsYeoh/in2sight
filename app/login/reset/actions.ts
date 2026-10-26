@@ -15,5 +15,6 @@ export async function resetPasswordAction(_prev: PasswordFormState, formData: Fo
     confirm: String(formData.get('confirm') ?? ''),
   });
   if (!r.ok) return { error: r.error };
+  if (!r.othersSignedOut) return { error: 'signout_failed' }; // the password IS changed, but old sessions may live on: say so, never pretend
   redirect('/login?reset=done');
 }
