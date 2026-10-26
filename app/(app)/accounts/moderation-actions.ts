@@ -9,7 +9,7 @@ import { requireOwner } from '@/lib/auth/require-owner';
 import { getInstagramEnv } from '@/lib/env';
 import { igModeration } from '@/lib/instagram/moderation';
 import type { SpamKind } from '@/lib/moderation/rules';
-import { deleteRule, moderate, saveWordRule, setAutoHide, setSpamRule, undoAction, type ModerationResult, type RuleResult, type ServiceDeps } from '@/lib/moderation/service';
+import { deleteRule, moderate, previewWordRule, saveWordRule, setAutoHide, setSpamRule, undoAction, type ModerationResult, type PreviewResult, type RuleResult, type ServiceDeps } from '@/lib/moderation/service';
 import { createAdminSupabase } from '@/lib/supabase/admin';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { supabaseSyncStore } from '@/lib/sync/store';
@@ -70,6 +70,16 @@ export async function saveWordRuleAction(accountId: string, pattern: string, who
   await requireOwner();
   try {
     return done(await saveWordRule(await createServerSupabase(), accountId, pattern, wholeWord));
+  } catch {
+    return UNEXPECTED;
+  }
+}
+
+/** Read only (no revalidate): how many existing comments a new word would hide, for the confirm shown when auto-hide is on. */
+export async function previewWordRuleAction(accountId: string, pattern: string, wholeWord: boolean): Promise<PreviewResult> {
+  await requireOwner();
+  try {
+    return await previewWordRule(await createServerSupabase(), accountId, pattern, wholeWord);
   } catch {
     return UNEXPECTED;
   }

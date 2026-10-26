@@ -8,9 +8,8 @@ import type { AccountStatus } from '@/lib/accounts/types';
 import { MAX_WORD_RULES, pickAutoHide, RULE_KINDS, SPAM_KINDS, touchedIds, type Candidate, type LogMark, type ModerationRule, type RuleKind, type SpamKind } from '@/lib/moderation/rules';
 
 export const LOG_PAGE = 50;
-export const PREVIEW_SCAN = 1000; // newest stored comments the preview checks
-export const CANDIDATE_SCAN = 200; // newest stored comments one tick checks per account
-export const MARK_SCAN = 10_000; // ponytail: newest log rows read for "touched"; an account with more needs a SQL anti-join
+export const CANDIDATE_SCAN = 200; // newest visible stored comments one tick checks per account; the preview checks the same window
+export const MARK_CHUNK = 100; // comment ids per marks query: keeps the URL short and each answer far below PostgREST's 1,000-row cap
 export const PENDING_STALE_MS = 120_000;
 export const CONTEXT_CHARS = 80;
 export const PREVIEW_SAMPLE = 5;
@@ -120,12 +119,12 @@ export async function loadModeration(db: SupabaseClient, accountId: string, ownU
   const rows = ((log.data ?? []) as Row[]).map(toLog).filter((x): x is LogRow => x !== null);
   const ids = [...new Set(rows.map((x) => x.commentId))];
   // started in this order (each async helper reaches its query at once), so a test's queued results come back in order:
-  // the log page's context, then the preview's comments, then the marks
-  const [ctx, visible, marks] = await Promise.all([
+  // the log page's context, then the preview's comments (the tick's window), then the marks of exactly those comments
+  const [ctx, visible] = await Promise.all([
     (async () => (ids.length ? await db.from('comments').select('id,author_username,text').eq('account_id', accountId).in('id', ids) : { data: [], error: null }))(),
-    visibleComments(db, accountId, PREVIEW_SCAN),
-    logMarks(db, accountId),
+    visibleComments(db, accountId, CANDIDATE_SCAN),
   ]);
+  const marks = await logMarks(db, accountId, visible.map((c) => c.id));
   check('loadModeration', ctx.error);
   const byId = new Map(((ctx.data ?? []) as Row[]).map((c) => [String(c.id), c]));
   const picks = pickAutoHide(visible, rules, { ownUsername, touched: touchedIds(marks), limit: Infinity });
@@ -205,7 +204,7 @@ export async function setCommentHidden(db: SupabaseClient, accountId: string, co
   check('setCommentHidden', error);
 }
 
-/** After a delete on Instagram (or "comment gone"): our copy goes too (third-party data we no longer need). */
+/** After a CONFIRMED delete on Instagram (HTTP success): our copy goes too (third-party data we no longer need). Never on an error answer. */
 export async function removeComment(db: SupabaseClient, accountId: string, commentId: string): Promise<void> {
   const { error } = await db.from('comments').delete().eq('id', commentId).eq('account_id', accountId);
   check('removeComment', error);
@@ -217,6 +216,12 @@ export async function loadRules(db: SupabaseClient, accountId: string): Promise<
   const { data, error } = await db.from('moderation_rules').select('id,kind,pattern,whole_word').eq('account_id', accountId).order('created_at').limit(MAX_WORD_RULES + SPAM_KINDS.length);
   check('loadRules', error);
   return rulesOf((data ?? []) as Row[]);
+}
+
+export async function countWordRules(db: SupabaseClient, accountId: string): Promise<number> {
+  const { count, error } = await db.from('moderation_rules').select('id', { count: 'exact', head: true }).eq('account_id', accountId).eq('kind', 'word');
+  check('countWordRules', error);
+  return count ?? 0;
 }
 
 export async function insertWordRule(db: SupabaseClient, accountId: string, pattern: string, wholeWord: boolean): Promise<void> {
@@ -268,10 +273,19 @@ export async function visibleComments(db: SupabaseClient, accountId: string, lim
   return ((data ?? []) as Row[]).map(toCandidate);
 }
 
-export async function logMarks(db: SupabaseClient, accountId: string): Promise<LogMark[]> {
-  const { data, error } = await db.from('moderation_log').select('comment_id,actor,result').eq('account_id', accountId).order('created_at', { ascending: false }).limit(MARK_SCAN);
-  check('logMarks', error);
-  return ((data ?? []) as Row[]).map((r) => ({ commentId: String(r.comment_id), actor: String(r.actor), result: String(r.result) }));
+/**
+ * The log rows of THESE comments only (never "the newest N rows": PostgREST caps every answer at 1,000, so an old unhide
+ * would fall out and auto-hide would hide the comment again). Chunks of MARK_CHUNK ids, merged.
+ * ponytail: a chunk whose comments hold over 1,000 log rows between them would be cut; a comment gets at most a handful.
+ */
+export async function logMarks(db: SupabaseClient, accountId: string, commentIds: readonly string[]): Promise<LogMark[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < commentIds.length; i += MARK_CHUNK) chunks.push(commentIds.slice(i, i + MARK_CHUNK));
+  const answers = await Promise.all(chunks.map((ids) => db.from('moderation_log').select('comment_id,actor,result').eq('account_id', accountId).in('comment_id', ids)));
+  return answers.flatMap(({ data, error }) => {
+    check('logMarks', error);
+    return ((data ?? []) as Row[]).map((r) => ({ commentId: String(r.comment_id), actor: String(r.actor), result: String(r.result) }));
+  });
 }
 
 /** Only the first pause counts (its paused_at is the notification's dedupe key). */

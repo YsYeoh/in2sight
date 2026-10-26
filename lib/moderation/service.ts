@@ -6,7 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import { classifyModerationError, type IgModeration, type ModerationErrorKey } from '@/lib/instagram/moderation';
-import { REPLY_MAX, SPAM_KINDS, validateWord, type SpamKind } from '@/lib/moderation/rules';
+import { MAX_WORD_RULES, pickAutoHide, REPLY_MAX, SPAM_KINDS, touchedIds, validateWord, type SpamKind } from '@/lib/moderation/rules';
 import * as S from '@/lib/moderation/store';
 import { isMediaId, isUuid } from '@/lib/tags';
 
@@ -15,8 +15,9 @@ const MINUTE_MS = 60_000;
 
 export type ModerationError = ModerationErrorKey | 'invalid' | 'not_found' | 'not_active' | 'duplicate' | 'too_many' | 'already_done' | 'cannot_undo' | 'not_ready';
 export type ModerationResult = { ok: true; logged: boolean } | { ok: false; error: ModerationError };
-export type RuleError = 'invalid' | 'not_found' | 'not_active' | 'reconnect' | 'not_ready' | 'invalid_word' | 'duplicate_rule' | 'too_many_rules' | 'no_rules' | 'unexpected';
+export type RuleError = 'invalid' | 'not_found' | 'not_active' | 'reconnect' | 'not_ready' | 'invalid_word' | 'rule_too_short' | 'duplicate_rule' | 'too_many_rules' | 'no_rules' | 'unexpected';
 export type RuleResult = { ok: true } | { ok: false; error: RuleError };
+export type PreviewResult = { ok: true; count: number } | { ok: false; error: RuleError };
 
 export interface ServiceDeps {
   db: SupabaseClient; // owner session
@@ -90,7 +91,6 @@ async function execute(deps: ServiceDeps, a: Step): Promise<ModerationResult> {
   } catch (e) {
     const key = classifyModerationError(e, a.action === 'reply' ? 'reply' : 'other');
     await S.finishLog(db, logId, key).catch(() => {});
-    if (key === 'comment_gone' && a.action !== 'delete_reply') await S.removeComment(db, a.accountId, a.commentId).catch(() => {});
     return fail(key);
   }
   let logged = true;
@@ -139,8 +139,7 @@ export async function undoAction(deps: ServiceDeps, input: { accountId: string; 
     const kind = S.undoKind(row);
     if (!kind) return fail('cannot_undo');
     const r = await execute(deps, { accountId, commentId: row.commentId, action: kind, requestId, undoOf: row.id, target: row.targetId ?? undefined });
-    // a reply already deleted on Instagram is undone too
-    if (r.ok || r.error === 'comment_gone') await S.markUndone(deps.db, accountId, row.id, (deps.now?.() ?? new Date()).toISOString()).catch(() => {});
+    if (r.ok) await S.markUndone(deps.db, accountId, row.id, (deps.now?.() ?? new Date()).toISOString()).catch(() => {});
     return r;
   } catch (e) {
     return fail(storeKey(e));
@@ -152,11 +151,16 @@ const ruleKey = (e: unknown): RuleError => {
   return k === 'duplicate' ? 'duplicate_rule' : k;
 };
 
-export async function saveWordRule(db: SupabaseClient, accountId: string, pattern: unknown, wholeWord: unknown): Promise<RuleResult> {
+/** Whole word is the default (only an explicit false means "also inside longer words"). */
+export async function saveWordRule(db: SupabaseClient, accountId: string, pattern: unknown, wholeWord: unknown = true): Promise<RuleResult> {
   if (!isUuid(accountId) || typeof wholeWord !== 'boolean') return fail('invalid');
   try {
+    const account = await gate(db, accountId);
+    if (typeof account === 'string') return fail(account);
     const v = validateWord(pattern, await S.loadRules(db, accountId));
     if (!v.ok) return fail(v.error);
+    // ponytail: re-counted right before the insert, not atomic: two simultaneous adds at 199 can reach 201; a DB trigger would close it
+    if ((await S.countWordRules(db, accountId)) >= MAX_WORD_RULES) return fail('too_many_rules');
     await S.insertWordRule(db, accountId, v.pattern, wholeWord);
     return { ok: true };
   } catch (e) {
@@ -164,9 +168,34 @@ export async function saveWordRule(db: SupabaseClient, accountId: string, patter
   }
 }
 
+/**
+ * How many of the stored visible comments (auto-hide's own window) this NEW word alone would hide: the same validation,
+ * the same matcher and the same exclusions (own comments, anything touched) as the tick. A count only, never text.
+ */
+export async function previewWordRule(db: SupabaseClient, accountId: string, pattern: unknown, wholeWord: unknown = true): Promise<PreviewResult> {
+  if (!isUuid(accountId) || typeof wholeWord !== 'boolean') return fail('invalid');
+  try {
+    const account = await gate(db, accountId);
+    if (typeof account === 'string') return fail(account);
+    const v = validateWord(pattern, await S.loadRules(db, accountId));
+    if (!v.ok) return fail(v.error);
+    const cands = await S.visibleComments(db, accountId, S.CANDIDATE_SCAN);
+    const marks = await S.logMarks(db, accountId, cands.map((c) => c.id));
+    const picks = pickAutoHide(cands, [{ id: 'preview', kind: 'word', pattern: v.pattern, wholeWord }], { ownUsername: account.username, touched: touchedIds(marks), limit: Infinity });
+    return { ok: true, count: picks.length };
+  } catch (e) {
+    return fail(ruleKey(e));
+  }
+}
+
+/** Switching a pattern on needs an active account with the scope; switching it off is always allowed. */
 export async function setSpamRule(db: SupabaseClient, accountId: string, kind: unknown, on: unknown): Promise<RuleResult> {
   if (!isUuid(accountId) || !(SPAM_KINDS as readonly unknown[]).includes(kind) || typeof on !== 'boolean') return fail('invalid');
   try {
+    if (on) {
+      const account = await gate(db, accountId);
+      if (typeof account === 'string') return fail(account);
+    }
     await S.setSpamRow(db, accountId, kind as SpamKind, on);
     return { ok: true };
   } catch (e) {

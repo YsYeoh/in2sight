@@ -469,14 +469,14 @@ describe('account page: the Moderation tab (Plan 15d)', () => {
     moderation.loads = [];
   });
 
-  it('with the scope: one owner-session read (account, own name, page, now) and the five actions passed straight through', async () => {
+  it('with the scope: one owner-session read (account, own name, page, now) and the six actions passed straight through', async () => {
     accounts.push(acct(ID, 'active', SCOPED));
     const p = await modTab({ page: '2' });
     expect(p.allowed).toBe(true);
     expect(p.data).toBe(moderation.data);
     expect(moderation.loads[0].slice(0, 3)).toEqual([ID, `u${ID.slice(0, 4)}`, 2]);
     expect(moderation.loads[0][3]).toBeInstanceOf(Date);
-    expect(Object.keys(p.actions).sort()).toEqual(['deleteRule', 'saveWord', 'setAutoHide', 'setSpam', 'undo']);
+    expect(Object.keys(p.actions).sort()).toEqual(['deleteRule', 'previewWord', 'saveWord', 'setAutoHide', 'setSpam', 'undo']);
     expect(calls).not.toContain('ADMIN');
   });
 

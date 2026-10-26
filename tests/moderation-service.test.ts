@@ -19,6 +19,9 @@ vi.mock('@/lib/moderation/store', async (orig) => {
     setCommentHidden: f('setHidden'),
     removeComment: f('removeComment'),
     loadRules: f('loadRules', () => []),
+    countWordRules: f('countWords', () => 0),
+    visibleComments: f('visible', () => []),
+    logMarks: f('marks', () => []),
     insertWordRule: f('insertWord'),
     setSpamRow: f('setSpam'),
     deleteRuleRow: f('deleteRule', () => true),
@@ -27,7 +30,7 @@ vi.mock('@/lib/moderation/store', async (orig) => {
 });
 
 import * as S from '@/lib/moderation/store';
-import { MANUAL_PER_MINUTE, moderate, saveWordRule, setAutoHide, setSpamRule, undoAction, type ServiceDeps } from '@/lib/moderation/service';
+import { MANUAL_PER_MINUTE, moderate, previewWordRule, saveWordRule, setAutoHide, setSpamRule, undoAction, type ServiceDeps } from '@/lib/moderation/service';
 
 const A = '7b0c7c2e-4f7a-4b8e-9a37-0e5d1b2c3d4e';
 const REQ = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
@@ -163,13 +166,20 @@ describe('moderate: refusals send nothing to Instagram', () => {
 });
 
 describe('moderate: partial failures', () => {
-  it('Meta says the comment is gone → logged, our copy removed', async () => {
+  it('Meta 100/33 (does not exist OR refused) → logged not_allowed, our copy is KEPT, nothing mirrored', async () => {
     const d = deps();
     vi.mocked(d.ig.hide).mockRejectedValueOnce(new InstagramApiError('data', 400, 100, 33));
-    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'comment_gone' });
-    expect(m.finishLog).toHaveBeenCalledWith(db, 7, 'comment_gone');
-    expect(m.removeComment).toHaveBeenCalledWith(db, A, 'c1');
+    expect(await moderate(d, hide())).toEqual({ ok: false, error: 'not_allowed' });
+    expect(m.finishLog).toHaveBeenCalledWith(db, 7, 'not_allowed');
+    expect(m.removeComment).not.toHaveBeenCalled();
     expect(m.setCommentHidden).not.toHaveBeenCalled();
+  });
+
+  it('a delete refused with 100/33 keeps our copy; only a confirmed delete removes it', async () => {
+    const d = deps();
+    vi.mocked(d.ig.remove).mockRejectedValueOnce(new InstagramApiError('data', 400, 100, 33));
+    expect(await moderate(d, hide({ kind: 'delete' }))).toEqual({ ok: false, error: 'not_allowed' });
+    expect(m.removeComment).not.toHaveBeenCalled();
   });
 
   it('Meta rate limit → logged, nothing mirrored', async () => {
@@ -277,12 +287,13 @@ describe('undoAction', () => {
     expect(m.removeComment).not.toHaveBeenCalled(); // the parent comment stays
   });
 
-  it('a reply already gone on Instagram counts as undone (answers comment_gone)', async () => {
+  it('an undo of a reply refused with 100/33 is NOT marked undone (the reply may still be live)', async () => {
     state.log = row({ action: 'reply', actor: 'owner', targetId: '1790' });
     const d = deps();
     vi.mocked(d.ig.remove).mockRejectedValueOnce(new InstagramApiError('data', 400, 100, 33));
-    expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: false, error: 'comment_gone' });
-    expect(m.markUndone).toHaveBeenCalled();
+    expect(await undoAction(d, { accountId: A, logId: 3, requestId: REQ })).toEqual({ ok: false, error: 'not_allowed' });
+    expect(m.markUndone).not.toHaveBeenCalled();
+    expect(m.removeComment).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -346,6 +357,69 @@ describe('rules and the auto-hide switch', () => {
     expect(await saveWordRule(db, A, 'x', 'yes')).toEqual({ ok: false, error: 'invalid' });
     m.loadRules.mockRejectedValueOnce(new S.ModerationStoreError('loadRules', 'missing'));
     expect(await saveWordRule(db, A, 'x', false)).toEqual({ ok: false, error: 'not_ready' });
+  });
+
+  it('a word is whole-word unless the caller says otherwise (the default is on)', async () => {
+    expect(await saveWordRule(db, A, 'spam', undefined)).toEqual({ ok: true });
+    expect(m.insertWordRule).toHaveBeenLastCalledWith(db, A, 'spam', true);
+    expect(await saveWordRule(db, A, 'spam', false)).toEqual({ ok: true });
+    expect(m.insertWordRule).toHaveBeenLastCalledWith(db, A, 'spam', false);
+  });
+
+  it('too short and punctuation-only words are refused server-side, nothing is inserted', async () => {
+    expect(await saveWordRule(db, A, 'as', true)).toEqual({ ok: false, error: 'rule_too_short' });
+    expect(await saveWordRule(db, A, '.', false)).toEqual({ ok: false, error: 'invalid_word' });
+    expect(await saveWordRule(db, A, '代', false)).toEqual({ ok: true });
+    expect(m.insertWordRule).toHaveBeenCalledTimes(1);
+  });
+
+  it('the 200-word cap is re-counted right before the insert', async () => {
+    m.countWordRules.mockResolvedValueOnce(200);
+    expect(await saveWordRule(db, A, 'spam', true)).toEqual({ ok: false, error: 'too_many_rules' });
+    expect(m.insertWordRule).not.toHaveBeenCalled();
+    order.length = 0;
+    expect(await saveWordRule(db, A, 'spam', true)).toEqual({ ok: true });
+    expect(order.slice(-2)).toEqual(['countWords', 'insertWord']);
+  });
+
+  it('rule edits need an active account with the comments scope (archived: refused)', async () => {
+    state.account = { ...ACCOUNT, status: 'archived' as const };
+    expect(await saveWordRule(db, A, 'spam', true)).toEqual({ ok: false, error: 'not_active' });
+    expect(await setSpamRule(db, A, 'link', true)).toEqual({ ok: false, error: 'not_active' });
+    expect(await previewWordRule(db, A, 'spam', true)).toEqual({ ok: false, error: 'not_active' });
+    state.account = { ...ACCOUNT, status: 'needs_reconnect' as const };
+    expect(await saveWordRule(db, A, 'spam', true)).toEqual({ ok: false, error: 'reconnect' });
+    state.account = null;
+    expect(await saveWordRule(db, A, 'spam', true)).toEqual({ ok: false, error: 'not_found' });
+    expect(m.insertWordRule).not.toHaveBeenCalled();
+    expect(m.setSpamRow).not.toHaveBeenCalled();
+  });
+
+  it('switching a spam pattern OFF is allowed whatever the account state (nothing to protect)', async () => {
+    state.account = { ...ACCOUNT, status: 'archived' as const };
+    expect(await setSpamRule(db, A, 'link', false)).toEqual({ ok: true });
+    expect(m.setSpamRow).toHaveBeenCalledWith(db, A, 'link', false);
+  });
+
+  it('previewWordRule: how many existing visible comments the NEW rule alone would hide (same matcher; touched and own comments excluded)', async () => {
+    const cand = (id: string, text: string, authorUsername = 'fan') => ({ id, authorUsername, text, hidden: false });
+    m.visibleComments.mockResolvedValueOnce([cand('1', 'Cheap spam'), cand('2', 'nice'), cand('3', 'cheap!', 'MyShop'), cand('4', 'so cheap'), cand('5', 'cheapest')]);
+    m.logMarks.mockResolvedValueOnce([{ commentId: '4', actor: 'owner', result: 'ok' }]);
+    expect(await previewWordRule(db, A, ' cheap ', true)).toEqual({ ok: true, count: 1 }); // 1 only: 3 own, 4 touched, 5 not a whole word
+    expect(m.visibleComments).toHaveBeenCalledWith(db, A, S.CANDIDATE_SCAN);
+    expect(m.logMarks).toHaveBeenCalledWith(db, A, ['1', '2', '3', '4', '5']);
+    m.visibleComments.mockResolvedValueOnce([cand('5', 'cheapest')]);
+    expect(await previewWordRule(db, A, 'cheap', false)).toEqual({ ok: true, count: 1 }); // substring when asked
+  });
+
+  it('previewWordRule validates like the save, reads nothing for an invalid word, and never throws', async () => {
+    expect(await previewWordRule(db, A, 'x', true)).toEqual({ ok: false, error: 'rule_too_short' });
+    expect(await previewWordRule(db, A, 'spam', 'yes')).toEqual({ ok: false, error: 'invalid' });
+    expect(m.visibleComments).not.toHaveBeenCalled();
+    m.loadRules.mockResolvedValueOnce([{ id: RULE, kind: 'word', pattern: 'spam', wholeWord: false }]);
+    expect(await previewWordRule(db, A, 'SPAM', true)).toEqual({ ok: false, error: 'duplicate_rule' });
+    m.visibleComments.mockRejectedValueOnce(new Error('db down'));
+    expect(await previewWordRule(db, A, 'spam', true)).toEqual({ ok: false, error: 'unexpected' });
   });
 
   it('spam kinds are whitelisted', async () => {

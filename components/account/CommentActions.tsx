@@ -23,6 +23,14 @@ import { formatNumber } from '@/lib/format';
 import { REPLY_MAX } from '@/lib/moderation/rules';
 import type { ModerationResult } from '@/lib/moderation/service';
 
+/**
+ * After these answers the first try may have gone through (or was already sent), so the dialog keeps its request id: the
+ * database then refuses a second send. After any other failure the id is burned (its log row exists) and the next
+ * confirm needs a new one.
+ */
+const KEEP_REQUEST_ID: readonly string[] = ['unknown_outcome', 'unexpected', 'duplicate'];
+export const isDefiniteFailure = (error: string | undefined): boolean => error !== undefined && !KEEP_REQUEST_ID.includes(error);
+
 /** Runs one moderation call at a time; translates the error key; refreshes the page when the state changed. */
 export function useModerationRun() {
   const t = useTranslations('pages.account.moderation');
@@ -30,7 +38,7 @@ export function useModerationRun() {
   const inFlight = useRef(false); // a ref, not state: a double click lands before the re-render
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function run(call: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void): Promise<void> {
+  async function run(call: () => Promise<{ ok: boolean; error?: string }>, onOk?: () => void, onFail?: (error: string | undefined) => void): Promise<void> {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -43,9 +51,11 @@ export function useModerationRun() {
         return;
       }
       setError(r.error && t.has(`errors.${r.error}`) ? t(`errors.${r.error}`) : t('errors.unexpected'));
-      if (r.error === 'already_done' || r.error === 'comment_gone') router.refresh(); // show the current state
+      if (r.error === 'already_done') router.refresh(); // show the current state
+      onFail?.(r.error);
     } catch {
       setError(t('errors.unexpected'));
+      onFail?.('unexpected'); // the call may have reached the server
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -91,6 +101,9 @@ export function CommentActions({ accountId, commentId, authorUsername, hidden, o
     clearError();
     requestAnimationFrame(() => trigger.current?.focus()); // after Radix's own focus restore
   };
+  const retry = (error: string | undefined) => {
+    if (isDefiniteFailure(error)) setRequestId(crypto.randomUUID()); // the old id is burned; an uncertain outcome keeps it
+  };
   const finish = (done: 'hide' | 'unhide' | 'delete' | 'reply') => () => {
     setStatus(t(`done.${done}`));
     close();
@@ -127,7 +140,7 @@ export function CommentActions({ accountId, commentId, authorUsername, hidden, o
         cancelLabel={t('cancel')}
         busy={busy}
         error={error}
-        onConfirm={() => run(() => hide(accountId, commentId, !isHidden, requestId), finish(isHidden ? 'unhide' : 'hide'))}
+        onConfirm={() => run(() => hide(accountId, commentId, !isHidden, requestId), finish(isHidden ? 'unhide' : 'hide'), retry)}
         onClose={close}
       />
       <ConfirmDialog
@@ -139,7 +152,7 @@ export function CommentActions({ accountId, commentId, authorUsername, hidden, o
         cancelLabel={t('cancel')}
         busy={busy}
         error={error}
-        onConfirm={() => run(() => remove(accountId, commentId, requestId), finish('delete'))}
+        onConfirm={() => run(() => remove(accountId, commentId, requestId), finish('delete'), retry)}
         onClose={close}
       />
       <ResponsiveDialog open={open === 'reply'} onOpenChange={(o) => !o && close()}>
@@ -152,7 +165,7 @@ export function CommentActions({ accountId, commentId, authorUsername, hidden, o
             className="flex flex-col gap-[var(--gp)]"
             onSubmit={(e) => {
               e.preventDefault();
-              void run(() => reply(accountId, commentId, message, requestId), finish('reply'));
+              void run(() => reply(accountId, commentId, message, requestId), finish('reply'), retry);
             }}
           >
             <FormField id={`reply-${commentId}`} label={t('replyDialog.label')} hint={t('replyDialog.count', { count: formatNumber(length, prefs), max: formatNumber(REPLY_MAX, prefs) })} error={error ?? undefined}>

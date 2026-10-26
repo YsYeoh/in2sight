@@ -56,15 +56,29 @@ describe('comment moderation migration', () => {
     }
   });
 
-  it('log is append-only for the owner: select + insert (as owner only) + update of three columns, no delete', () => {
+  it('log is append-only for the owner: select + insert of the app\'s columns (as owner only) + update of three columns on open rows, no delete', () => {
     expect(sql).toMatch(exact('alter table public.moderation_log enable row level security'));
     expect(sql).toMatch(exact('create policy moderation_log_owner_select on public.moderation_log for select to authenticated using ((select public.is_owner()))'));
     expect(sql).toMatch(exact("create policy moderation_log_owner_insert on public.moderation_log for insert to authenticated with check ((select public.is_owner()) and actor = 'owner')"));
-    expect(sql).toMatch(exact('create policy moderation_log_owner_update on public.moderation_log for update to authenticated using ((select public.is_owner())) with check ((select public.is_owner()))'));
     expect(sql).toMatch(exact('revoke all on public.moderation_log from anon, authenticated'));
-    expect(sql).toMatch(exact('grant select, insert on public.moderation_log to authenticated'));
+    expect(sql).toMatch(exact('grant select on public.moderation_log to authenticated'));
     expect(sql).toMatch(exact('grant update (result, target_id, undone_at) on public.moderation_log to authenticated'));
     expect(sql).not.toMatch(/grant[^;]*delete[^;]*moderation_log/i);
+  });
+
+  it('log insert: column grant only (no result, created_at, undone_at or id from the browser session): exactly the columns insertLog sends', () => {
+    expect(sql).toMatch(exact('grant insert (account_id, comment_id, action, actor, request_id, undo_of, target_id) on public.moderation_log to authenticated'));
+    expect(sql).not.toMatch(/grant\s+(select\s*,\s*)?insert\s+on\s+public\.moderation_log/i); // never the whole table
+  });
+
+  it('log update: only a row still pending or not yet undone (an undone row is frozen); the three updatable columns match finishLog and markUndone', () => {
+    expect(sql).toMatch(
+      exact("create policy moderation_log_owner_update on public.moderation_log for update to authenticated using ((select public.is_owner()) and (result = 'pending' or undone_at is null)) with check ((select public.is_owner()))"),
+    );
+    // finishLog writes result (+ target_id once, the reply id); markUndone writes undone_at: nothing else is ever updated
+    const store = readFileSync(join(process.cwd(), 'lib/moderation/store.ts'), 'utf8');
+    expect([...store.matchAll(/from\('moderation_log'\)\s*\.update\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim())).toEqual(['patch', '{ undone_at: atIso }']);
+    expect(store).toMatch(/const patch: Row = \{ result \};\s*if \(targetId !== undefined\) patch\.target_id = targetId;/);
   });
 
   it('comments: the owner may flip hidden and remove a deleted comment, nothing else', () => {

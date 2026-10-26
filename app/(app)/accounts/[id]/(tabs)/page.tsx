@@ -13,7 +13,7 @@ import { StoriesTab } from '@/components/account/StoriesTab';
 import { TabSkeleton } from '@/components/account/TabSkeleton';
 import { setPostTagsAction } from '@/app/(app)/tags/actions';
 import { deleteFollowerSnapshotAction } from '@/app/(app)/accounts/followers-actions';
-import { deleteCommentAction, deleteRuleAction, hideCommentAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction } from '@/app/(app)/accounts/moderation-actions';
+import { deleteCommentAction, deleteRuleAction, hideCommentAction, previewWordRuleAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction } from '@/app/(app)/accounts/moderation-actions';
 import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
@@ -138,7 +138,7 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       // Plan 15d: auto-hide, rules, preview and the log (owner session; nothing is read without the scope; null = migration not applied).
       // The imported server actions are passed straight to the client component (never wrapped in a closure here).
       const data = canModerate ? await loadModeration(db, account.id, account.username, parsePage(sp.page), now) : null;
-      const actions = { saveWord: saveWordRuleAction, setSpam: setSpamRuleAction, deleteRule: deleteRuleAction, setAutoHide: setAutoHideAction, undo: undoModerationAction };
+      const actions = { saveWord: saveWordRuleAction, previewWord: previewWordRuleAction, setSpam: setSpamRuleAction, deleteRule: deleteRuleAction, setAutoHide: setAutoHideAction, undo: undoModerationAction };
       return <ModerationTab accountId={account.id} allowed={canModerate} data={data} scope={scope.params} actions={actions} />;
     }
     case 'followers': {

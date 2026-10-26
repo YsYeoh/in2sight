@@ -54,7 +54,7 @@ const DATA = (o: Partial<ModerationData> = {}): ModerationData => ({
 
 function renderTab(o: Partial<ModerationTabProps> = {}) {
   const ok = async () => ({ ok: true as const });
-  const actions: ModerationActions = { saveWord: vi.fn(ok), setSpam: vi.fn(ok), deleteRule: vi.fn(ok), setAutoHide: vi.fn(ok), undo: vi.fn(async () => ({ ok: true as const, logged: true })) };
+  const actions: ModerationActions = { saveWord: vi.fn(ok), previewWord: vi.fn(async () => ({ ok: true as const, count: 3 })), setSpam: vi.fn(ok), deleteRule: vi.fn(ok), setAutoHide: vi.fn(ok), undo: vi.fn(async () => ({ ok: true as const, logged: true })) };
   const props: ModerationTabProps = { accountId: A, allowed: true, data: DATA(), scope: { from: '2026-10-01' }, actions, ...o };
   const view = render(
     <NextIntlClientProvider locale="en" messages={en}>
@@ -119,13 +119,69 @@ describe('ModerationTab', () => {
     expect(screen.getAllByText('Matches: “spam”').length).toBe(1);
   });
 
-  it('rules: add a whole-word word, remove one, switch a spam pattern; error keys are translated', async () => {
+  it('rules: a new word is whole-word by default (the box starts checked); unchecking it saves a substring rule', async () => {
     const user = userEvent.setup();
     const { actions } = renderTab();
+    const box = screen.getByRole('checkbox', { name: T.rules.wholeWord });
+    expect(box).toBeChecked();
     await user.type(screen.getByLabelText(T.rules.wordLabel), 'cheap');
-    await user.click(screen.getByRole('checkbox', { name: T.rules.wholeWord }));
+    await user.click(box);
+    await user.click(screen.getByRole('button', { name: T.rules.add }));
+    await waitFor(() => expect(actions.saveWord).toHaveBeenCalledWith(A, 'cheap', false));
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: T.rules.wholeWord })).toBeChecked()); // back to the default
+    expect(actions.previewWord).not.toHaveBeenCalled(); // auto-hide is off: nothing to preview
+  });
+
+  it('auto-hide ON: adding a word first shows how many existing comments it would hide; it is saved only after the confirm', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab({ data: DATA({ settings: { autoHide: true, pausedAt: null, pauseReason: null } }) });
+    await user.type(screen.getByLabelText(T.rules.wordLabel), 'cheap');
+    await user.click(screen.getByRole('button', { name: T.rules.add }));
+    const dialog = await screen.findByRole('alertdialog', { name: T.rules.confirmTitle });
+    expect(actions.previewWord).toHaveBeenCalledWith(A, 'cheap', true);
+    expect(dialog).toHaveTextContent('This rule would hide 3 of your existing comments.');
+    expect(actions.saveWord).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: T.rules.confirmAdd }));
+    await waitFor(() => expect(actions.saveWord).toHaveBeenCalledWith(A, 'cheap', true));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+
+  it('auto-hide ON: cancelling the confirm saves nothing and keeps the typed word', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab({ data: DATA({ settings: { autoHide: true, pausedAt: null, pauseReason: null } }) });
+    vi.mocked(actions.previewWord).mockResolvedValueOnce({ ok: true, count: 0 });
+    await user.type(screen.getByLabelText(T.rules.wordLabel), 'cheap');
+    await user.click(screen.getByRole('button', { name: T.rules.add }));
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('This rule matches none of your existing comments.');
+    await user.click(screen.getByRole('button', { name: T.cancel }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(actions.saveWord).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(T.rules.wordLabel)).toHaveValue('cheap');
+  });
+
+  it('auto-hide ON: a refused preview (too short) shows its error and opens no confirm', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab({ data: DATA({ settings: { autoHide: true, pausedAt: null, pauseReason: null } }) });
+    vi.mocked(actions.previewWord).mockResolvedValueOnce({ ok: false, error: 'rule_too_short' });
+    await user.type(screen.getByLabelText(T.rules.wordLabel), 'as');
+    await user.click(screen.getByRole('button', { name: T.rules.add }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.errors.rule_too_short);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(actions.saveWord).not.toHaveBeenCalled();
+  });
+
+  it('a paused auto-hide is off: a new word is saved at once', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab({ data: DATA({ settings: { autoHide: true, pausedAt: '2026-10-29T06:00:00Z', pauseReason: 'failing' } }) });
+    await user.type(screen.getByLabelText(T.rules.wordLabel), 'cheap');
     await user.click(screen.getByRole('button', { name: T.rules.add }));
     await waitFor(() => expect(actions.saveWord).toHaveBeenCalledWith(A, 'cheap', true));
+    expect(actions.previewWord).not.toHaveBeenCalled();
+  });
+
+  it('rules: remove a word, switch a spam pattern; error keys are translated', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab();
     await user.click(screen.getByRole('button', { name: 'Remove spam' }));
     await waitFor(() => expect(actions.deleteRule).toHaveBeenCalledWith(A, RULE));
     await user.click(screen.getByRole('switch', { name: T.rules.link.label }));
@@ -145,6 +201,21 @@ describe('ModerationTab', () => {
     expect(screen.getByText('@bot: buy spam')).toBeInTheDocument();
     expect(screen.getAllByText(T.log.gone)).toHaveLength(2);
     expect(screen.getByText('1–50 of 120')).toBeInTheDocument();
+  });
+
+  it('undo: after a definite failure the retry is a new request id', async () => {
+    const user = userEvent.setup();
+    const { actions } = renderTab();
+    vi.mocked(actions.undo).mockResolvedValueOnce({ ok: false, error: 'rate_limited' });
+    await user.click(screen.getByRole('button', { name: T.log.undo.unhide }));
+    await screen.findByRole('alertdialog', { name: T.log.undoTitle.unhide });
+    await user.click(screen.getAllByRole('button', { name: T.log.undo.unhide }).at(-1)!);
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.errors.rate_limited);
+    await user.click(screen.getAllByRole('button', { name: T.log.undo.unhide }).at(-1)!);
+    await waitFor(() => expect(actions.undo).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(actions.undo).mock.calls.map((c) => c[2]);
+    expect(second).toMatch(UUID);
+    expect(second).not.toBe(first);
   });
 
   it('undo: confirm, then one call with the row id and a fresh request id', async () => {

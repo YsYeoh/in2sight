@@ -2,7 +2,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  CONTEXT_CHARS, LOG_PAGE, ModerationStoreError, autoHideAccounts, displayResult, finishLog, getActionComment, insertLog, loadModeration,
+  CONTEXT_CHARS, LOG_PAGE, ModerationStoreError, autoHideAccounts, countWordRules, displayResult, finishLog, getActionComment, insertLog, loadModeration,
   markUndone, removeComment, setCommentHidden, setSpamRow, snippet, undoKind,
 } from '@/lib/moderation/store';
 
@@ -116,6 +116,12 @@ describe('comments: every read and write is filtered by the comment id AND the a
 });
 
 describe('rules and settings', () => {
+  it('countWordRules counts the word rows of this account only (head count)', async () => {
+    results.moderation_rules = [{ data: null, count: 199, error: null }];
+    expect(await countWordRules(fakeDb(), A)).toBe(199);
+    expect(has('eq', 'account_id', A) && has('eq', 'kind', 'word')).toBe(true);
+  });
+
   it('a spam pattern switched on twice stays one row (the unique index answers 23505)', async () => {
     results.moderation_rules = [{ data: null, error: { code: '23505' } }];
     await expect(setSpamRow(fakeDb(), A, 'link', true)).resolves.toBeUndefined();

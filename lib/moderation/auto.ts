@@ -12,6 +12,9 @@ import { classifyModerationError, type IgModeration } from '@/lib/instagram/mode
 import { pickAutoHide, touchedIds, type ModerationRule } from '@/lib/moderation/rules';
 import * as S from '@/lib/moderation/store';
 
+// ponytail: no lock on the auto-hide pass: a cron tick and "Sync now" can both hide the same comment and write two log
+// rows, which can exceed the 20 cap once; hides are idempotent. Upgrade path: a per-account advisory lock or a unique
+// (comment_id, action, request bucket) constraint.
 export const AUTO_HIDE_PER_TICK = 20;
 /** After the alerts' window: 35 s sync + 10 s alerts + 5 s here; each write times out after 5 s (route maxDuration 60 s). */
 export const MODERATION_BUDGET_MS = 5_000;
@@ -45,7 +48,8 @@ interface AccountRun {
 
 async function hideForAccount(deps: AutoHideDeps, account: StoredAccount, rules: ModerationRule[], c: AutoHideContext): Promise<AccountRun> {
   const out: AccountRun = { hidden: 0, failed: 0, paused: false, stopAll: false };
-  const [cands, marks] = await Promise.all([S.visibleComments(deps.db, account.id, S.CANDIDATE_SCAN), S.logMarks(deps.db, account.id)]);
+  const cands = await S.visibleComments(deps.db, account.id, S.CANDIDATE_SCAN);
+  const marks = await S.logMarks(deps.db, account.id, cands.map((c) => c.id)); // the marks of exactly these comments
   const picks = pickAutoHide(cands, rules, { ownUsername: account.username, touched: touchedIds(marks), limit: AUTO_HIDE_PER_TICK });
   if (picks.length === 0) return out;
   const token = await deps.token(account.id);
@@ -62,10 +66,6 @@ async function hideForAccount(deps: AutoHideDeps, account: StoredAccount, rules:
     } catch (e) {
       const key = classifyModerationError(e);
       await S.finishLog(deps.db, logId, key).catch(() => {});
-      if (key === 'comment_gone') {
-        await S.removeComment(deps.db, account.id, comment.id).catch(() => {});
-        continue;
-      }
       out.failed++;
       if (key === 'reconnect') {
         await S.pauseAutoHide(deps.db, account.id, 'reconnect', nowIso);

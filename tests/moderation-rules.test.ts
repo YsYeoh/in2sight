@@ -45,7 +45,9 @@ describe('matchRule', () => {
   });
 
   it('regex characters in a pattern are literal', () => {
-    expect(matchRule('a.b', [word('.')])).not.toBeNull();
+    expect(matchRule('see a.b now', [word('a.b')])).not.toBeNull();
+    expect(matchRule('see x', [word('.')])).toBeNull(); // a lone dot is not a wildcard
+    expect(matchRule('ab', [word('.')])).toBeNull();
     expect(matchRule('ab', [word('a.b')])).toBeNull();
     expect(matchRule('price $$$ now', [word('$$$', true)])).not.toBeNull();
   });
@@ -98,6 +100,20 @@ describe('validateWord', () => {
     expect(validateWord('x'.repeat(51), [])).toEqual({ ok: false, error: 'invalid_word' });
     expect(validateWord(42, [])).toEqual({ ok: false, error: 'invalid_word' });
     expect(validateWord('​', [])).toEqual({ ok: false, error: 'invalid_word' });
+  });
+
+  it('Latin patterns need 3 or more characters; Chinese, Japanese and Korean may be 1', () => {
+    expect(validateWord('ass', [])).toEqual({ ok: true, pattern: 'ass' });
+    expect(validateWord('as', [])).toEqual({ ok: false, error: 'rule_too_short' });
+    expect(validateWord(' a ', [])).toEqual({ ok: false, error: 'rule_too_short' });
+    expect(validateWord('ｂｕ', [])).toEqual({ ok: false, error: 'rule_too_short' }); // folded length counts
+    expect(validateWord('代', [])).toEqual({ ok: true, pattern: '代' });
+    expect(validateWord('の', [])).toEqual({ ok: true, pattern: 'の' });
+    expect(validateWord('a代', [])).toEqual({ ok: true, pattern: 'a代' });
+  });
+
+  it('punctuation-only, symbol-only and whitespace-only patterns are always refused', () => {
+    for (const p of ['.', '...', '!!!', '$$$', ' . ', '-_-', '🔥🔥🔥', '   ']) expect(validateWord(p, []), p).toEqual({ ok: false, error: 'invalid_word' });
   });
 
   it('duplicates are compared folded; the cap counts word rules only', () => {

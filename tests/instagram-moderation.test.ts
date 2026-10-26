@@ -84,7 +84,7 @@ describe('classifyModerationError', () => {
     ['user rate limit (17)', err(400, 17), 'rate_limited'],
     ['BUC throttle (80002)', err(400, 80002), 'rate_limited'],
     ['HTTP 429', err(429), 'rate_limited'],
-    ['object missing (100/33)', err(400, 100, 33), 'comment_gone'],
+    ['100/33 on a write is ambiguous (does not exist OR refused/missing permission): never "gone"', err(400, 100, 33), 'not_allowed'],
     ['other invalid parameter (100)', err(400, 100), 'not_allowed'],
     ['HTTP 500', err(500), 'instagram_unavailable'],
     ['network / timeout', new InstagramApiError('network'), 'instagram_unavailable'],
@@ -97,5 +97,6 @@ describe('classifyModerationError', () => {
     expect(classifyModerationError(new InstagramApiError('network'), 'reply')).toBe('unknown_outcome');
     expect(classifyModerationError(err(502), 'reply')).toBe('unknown_outcome');
     expect(classifyModerationError(err(400, 100), 'reply')).toBe('not_allowed');
+    expect(classifyModerationError(err(400, 100, 33), 'reply')).toBe('not_allowed');
   });
 });
