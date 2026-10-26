@@ -6,12 +6,12 @@ import type { DailyRow, Post } from '@/lib/analysis/types';
 describe('parseAlertSettings', () => {
   it('empty, null, arrays and strings give the SPEC defaults (push on for all except taking off)', () => {
     for (const raw of [undefined, null, {}, [], 'x', 42]) expect(parseAlertSettings(raw)).toEqual(DEFAULT_ALERT_SETTINGS);
-    expect(DEFAULT_ALERT_SETTINGS.push).toEqual({ token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: true, taking_off: false });
+    expect(DEFAULT_ALERT_SETTINGS.push).toEqual({ token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: true, taking_off: false, moderation_paused: true });
   });
 
   it('keeps valid values, drops unknown keys, non-boolean toggles fall back per key', () => {
     const s = parseAlertSettings({ push: { taking_off: true, reach_drop: false, sync_failing: 'yes', evil: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4, __proto__x: 1 });
-    expect(s).toEqual({ push: { token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: false, taking_off: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4 });
+    expect(s).toEqual({ push: { token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: false, taking_off: true, moderation_paused: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4 });
     expect(Object.keys(s).sort()).toEqual(['push', 'reachDropPct', 'syncFailures', 'takingOffRatio']);
   });
 

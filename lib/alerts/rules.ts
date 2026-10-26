@@ -36,6 +36,8 @@ export interface RuleInput {
   daily: DailyRow[];
   posts: Post[];
   lastReachDropAt: string | null; // created_at of the newest reach_drop notification for this account
+  /** moderation_settings.paused_at of an account whose auto-hide is on but paused (Plan 15d); null/absent = not paused. */
+  moderationPausedAt?: string | null;
   settings: AlertSettings;
   now: Date;
   tz: string;
@@ -81,7 +83,13 @@ const reachDropRule: Rule = ({ account: a, daily, lastReachDropAt, settings, now
 const takingOffRule: Rule = ({ account: a, posts, settings, now }) =>
   takingOff(posts, now, TAKING_OFF_WITHIN_DAYS, settings.takingOffRatio).map((f) => ({ kind: 'taking_off' as const, accountId: a.id, severity: 'info' as const, dedupeKey: `taking_off:${f.postId}`, payload: { username: a.username, ratio: round1(f.ratio), postId: f.postId } }));
 
-const RULES: Rule[] = [needsReconnect, tokenExpiring, syncFailing, reachDropRule, takingOffRule];
+/** Key: moderation_paused:<account>:<paused_at>. One alert per pause; switching auto-hide on again clears paused_at. */
+const moderationPaused: Rule = ({ account: a, moderationPausedAt }) =>
+  a.status === 'active' && moderationPausedAt
+    ? [{ kind: 'moderation_paused', accountId: a.id, severity: 'warning', dedupeKey: `moderation_paused:${a.id}:${moderationPausedAt}`, payload: { username: a.username } }]
+    : [];
+
+const RULES: Rule[] = [needsReconnect, tokenExpiring, syncFailing, reachDropRule, takingOffRule, moderationPaused];
 
 /** Every alert that currently applies to one account. A rule that throws (bad data) is skipped; the others still run. */
 export function evaluateRules(input: RuleInput): Alert[] {

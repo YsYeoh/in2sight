@@ -26,6 +26,7 @@ export function alertText(kind: AlertKind, p: AlertPayload, t: KindTranslator, p
 export function alertHref(kind: AlertKind, accountId: string | null): string {
   if (!accountId) return '/overview';
   if (kind === 'taking_off') return `/accounts/${accountId}?tab=posts`;
+  if (kind === 'moderation_paused') return `/accounts/${accountId}?tab=moderation`;
   if (kind === 'reach_drop') return `/accounts/${accountId}`;
   return '/accounts';
 }
