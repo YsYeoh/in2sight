@@ -40,7 +40,7 @@ Sync now), then in in2sight → the account → Comments:
 | P5 | hidden flag on reads | after hiding "probe one" again, Sync now; Supabase SQL: `select hidden from comments where id = '<id>'` | true (our value survives the re-read); note whether the comment still came back in the read (count only) | |
 | P4 | replies in comments_count | `select comments_count, comments_synced_count from media where id = '<post id>'` before and after the reply | write down whether comments_count changed | |
 | P2 | write rate limits | Not testable by hand (the calls run on the server). Do the rows above, then run the §4 query after a busy day | no `rate_limited` result; if any appears, lower the caps (§4) | |
-| — | stale id | delete a comment in the Instagram app, then Hide it in in2sight (before the next sync) | "This comment no longer exists on Instagram."; the row disappears | |
+| — | stale id | delete a comment in the Instagram app, then Hide it in in2sight (before the next sync) | "Instagram refused this action for this comment." (error key `not_allowed`: Meta answers 100/33 both for a missing comment and for a comment it will not let us change, so it is NEVER treated as "gone"); the local row is KEPT and nothing is marked undone. Note which code/message Meta really returns and record it here | |
 | — | permission loss | (only if the owner agrees) remove the comments permission in Instagram → Settings → Website permissions → in2sight, then Hide | "Instagram did not allow this. Reconnect …"; the account's sync status is unchanged; Reconnect restores it | |
 Record any answer that differs in `docs/META_PROBE_RESULTS.md` ("Moderation writes", counts and codes only). If P1 fails
 (permission error), stop: nothing else matters, the feature stays off.
@@ -57,7 +57,7 @@ Record any answer that differs in `docs/META_PROBE_RESULTS.md` ("Moderation writ
 The account tab order is now Overview, Growth, Posts, Stories, Comments, Moderation, Followers.
 
 ## 3. Rules, preview and auto-hide (after §1 passed; auto-hide stays OFF until here)
-1. Moderation tab → Rules: add "probe" (not whole word). The preview counts the visible probe comments (count only).
+1. Moderation tab → Rules: add "probe" (whole word is the default for Latin words; words under 3 characters and punctuation-only patterns are refused unless they contain CJK). The preview counts the visible probe comments (count only). With auto-hide ALREADY on, adding a word first shows a confirm with the new count.
 2. Switch on "Links": the preview count rises if "probe two www.example.com" is visible.
 3. Switch auto-hide ON: the confirm shows the same count. Confirm. Within one tick (≤ 30 min): those comments are hidden
    on Instagram; the log shows "Hidden · By rule: …".
