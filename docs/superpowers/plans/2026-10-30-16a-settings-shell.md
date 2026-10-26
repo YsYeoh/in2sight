@@ -3773,3 +3773,364 @@ and in `messages/zh-CN.json`:
 git add "app/(app)/settings" components/settings/SettingsNav.tsx components/settings/sections/NotificationsSection.tsx components/settings/sections/SecuritySection.tsx components/settings/sections/DataSection.tsx tests/settings-nav.test.tsx tests/settings-page.test.tsx tests/route-loading.test.tsx messages/en.json messages/zh-CN.json
 git commit -m "feat(settings): the settings shell: /settings/<section> with a section nav, one component per section (Plan 16a)"
 ```
+
+---
+
+### Task 10: Auto mode (follow the device) + the one migration
+
+**Files:**
+- Create: `supabase/migrations/20261030000001_prefs_auto_mode.sql`, `tests/prefs-auto-mode.test.tsx`
+- Modify: `lib/prefs.ts`, `lib/pwa.ts`, `components/providers/PrefsProvider.tsx` (Task 2's version), `app/layout.tsx` (Task 2's version), `components/shared/ModeToggle.tsx`, `tests/prefs.test.ts`, `tests/pwa.test.ts`, `tests/prefs-sync.test.ts`
+
+**Interfaces produced:** `MODES = ['light', 'dark', 'auto']`, `type ResolvedMode`, `resolveMode(mode, systemDark)`, `htmlAttrs(p, systemDark = false)` (adds `data-mode-auto`), `AUTO_MODE_SCRIPT`; `THEME_COLORS: Record<Theme, Record<ResolvedMode, string>>`, `themeColor(p, systemDark = false)`; `systemDark()` exported from `PrefsProvider.tsx`. The migration is NEVER applied by the implementer (runbook §0: the owner applies it before deploying).
+
+Self-contained: dropping this task (Open question 1) leaves everything else working; Appearance then shows Light / Dark only.
+
+- [ ] **Step 1: Tests.** Create `tests/prefs-auto-mode.test.tsx`:
+
+```tsx
+import { readFileSync } from 'node:fs';
+import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PrefsProvider, usePrefs } from '@/components/providers/PrefsProvider';
+import { AUTO_MODE_SCRIPT, DEFAULT_PREFS, MODES, htmlAttrs, parsePrefs, resolveMode } from '@/lib/prefs';
+import { THEME_COLORS, themeColor } from '@/lib/pwa';
+
+/** A fake device colour scheme whose change listeners we can fire. */
+function scheme(dark: boolean) {
+  const listeners = new Set<() => void>();
+  const mq = { get matches() { return dark; }, addEventListener: vi.fn((_: string, f: () => void) => listeners.add(f)), removeEventListener: vi.fn((_: string, f: () => void) => listeners.delete(f)) };
+  vi.stubGlobal('matchMedia', vi.fn(() => mq));
+  return { mq, listeners, set: (d: boolean) => ((dark = d), listeners.forEach((f) => f())) };
+}
+
+const html = () => document.documentElement;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  html().removeAttribute('data-mode');
+  html().removeAttribute('data-mode-auto');
+});
+
+describe('auto mode: the pure parts', () => {
+  it('auto is a valid mode, and resolves to light or dark by the device', () => {
+    expect(MODES).toEqual(['light', 'dark', 'auto']);
+    expect(parsePrefs({ mode: 'auto' }).mode).toBe('auto');
+    expect(resolveMode('auto', true)).toBe('dark');
+    expect(resolveMode('auto', false)).toBe('light');
+    expect(resolveMode('dark', false)).toBe('dark');
+    expect(resolveMode('light', true)).toBe('light');
+  });
+
+  it('htmlAttrs never emits data-mode="auto" (the token CSS knows light and dark only)', () => {
+    expect(htmlAttrs({ ...DEFAULT_PREFS, mode: 'auto' })).toMatchObject({ 'data-mode': 'light', 'data-mode-auto': 'true' });
+    expect(htmlAttrs({ ...DEFAULT_PREFS, mode: 'auto' }, true)).toMatchObject({ 'data-mode': 'dark', 'data-mode-auto': 'true' });
+    expect(htmlAttrs({ ...DEFAULT_PREFS, mode: 'dark' }, false)).toMatchObject({ 'data-mode': 'dark', 'data-mode-auto': 'false' });
+  });
+
+  it('theme colour of auto = the resolved palette', () => {
+    expect(themeColor({ theme: 'forest', mode: 'auto' }, true)).toBe(THEME_COLORS.forest.dark);
+    expect(themeColor({ theme: 'forest', mode: 'auto' })).toBe(THEME_COLORS.forest.light);
+  });
+
+  it('the inline script switches to dark before paint only for auto on a dark device', () => {
+    const run = () => new Function(AUTO_MODE_SCRIPT)();
+    scheme(true);
+    html().setAttribute('data-mode', 'light');
+    html().setAttribute('data-mode-auto', 'true');
+    run();
+    expect(html().getAttribute('data-mode')).toBe('dark');
+    html().setAttribute('data-mode', 'light');
+    html().setAttribute('data-mode-auto', 'false');
+    run();
+    expect(html().getAttribute('data-mode')).toBe('light');
+    vi.stubGlobal('matchMedia', undefined);
+    html().setAttribute('data-mode-auto', 'true');
+    expect(run).not.toThrow(); // old browsers: stays light
+  });
+
+  it('the migration only widens the profiles.mode CHECK list', () => {
+    const sql = readFileSync('supabase/migrations/20261030000001_prefs_auto_mode.sql', 'utf8').replace(/--[^\n]*/g, '');
+    expect(sql).toMatch(/alter table public\.profiles drop constraint profiles_mode_check;/);
+    expect(sql).toMatch(/alter table public\.profiles add constraint profiles_mode_check check \(mode in \('light', 'dark', 'auto'\)\);/);
+    expect(sql.match(/;/g)).toHaveLength(2);
+  });
+});
+
+function Probe() {
+  const { update } = usePrefs();
+  return (
+    <>
+      <button onClick={() => update({ mode: 'auto' })}>auto</button>
+      <button onClick={() => update({ mode: 'light' })}>light</button>
+    </>
+  );
+}
+
+describe('auto mode in PrefsProvider', () => {
+  it('follows the device while auto is chosen, and stops when another mode is picked', async () => {
+    const s = scheme(true);
+    render(
+      <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+        <Probe />
+      </PrefsProvider>,
+    );
+    await userEvent.click(screen.getByText('auto'));
+    expect(html().getAttribute('data-mode')).toBe('dark');
+    expect(html().getAttribute('data-mode-auto')).toBe('true');
+    act(() => s.set(false));
+    expect(html().getAttribute('data-mode')).toBe('light');
+    act(() => s.set(true));
+    expect(html().getAttribute('data-mode')).toBe('dark');
+    await userEvent.click(screen.getByText('light'));
+    expect(s.mq.removeEventListener).toHaveBeenCalled();
+    expect(s.listeners.size).toBe(0);
+    expect(html().getAttribute('data-mode')).toBe('light');
+  });
+
+  it('a page rendered in auto on a dark device shows dark after mount', () => {
+    scheme(true);
+    render(
+      <PrefsProvider initial={{ ...DEFAULT_PREFS, mode: 'auto' }} persist={vi.fn()}>
+        <Probe />
+      </PrefsProvider>,
+    );
+    expect(html().getAttribute('data-mode')).toBe('dark');
+  });
+});
+```
+
+Edit the three existing tests as shown in Step 3 (their parts of the list below: `tests/prefs.test.ts`, `tests/pwa.test.ts`, `tests/prefs-sync.test.ts`).
+
+Run: `npx vitest run tests/prefs-auto-mode.test.tsx` — Expected: FAIL (`resolveMode` / `AUTO_MODE_SCRIPT` not exported, migration missing).
+
+- [ ] **Step 2: The migration** `supabase/migrations/20261030000001_prefs_auto_mode.sql`:
+
+```sql
+-- Plan 16a: "Auto" mode (follow the device's light or dark setting). Widens the CHECK list of profiles.mode only;
+-- existing rows and every other column are untouched. The constraint name is Postgres' default for the inline column
+-- check in 20261014000001_owner_and_profiles.sql. No IF EXISTS on purpose: a different name must fail loudly, not leave
+-- the old check in place.
+alter table public.profiles drop constraint profiles_mode_check;
+alter table public.profiles add constraint profiles_mode_check check (mode in ('light', 'dark', 'auto'));
+```
+
+- [ ] **Step 3: The edits** (Edit tool, exact text):
+
+`lib/prefs.ts` — replace (each exactly once):
+
+```ts
+export const MODES = ['light', 'dark'] as const;
+```
+→
+```ts
+export const MODES = ['light', 'dark', 'auto'] as const; // auto = follow the device (Plan 16a)
+```
+
+```ts
+export type Mode = (typeof MODES)[number];
+```
+→
+```ts
+export type Mode = (typeof MODES)[number];
+/** What the page actually shows: the token CSS only knows light and dark. */
+export type ResolvedMode = 'light' | 'dark';
+```
+
+```ts
+/** The single source for the attributes on <html>; used by the server layout and the client provider. */
+export function htmlAttrs(p: Prefs) {
+  return {
+    lang: p.locale,
+    'data-theme': p.theme,
+    'data-mode': p.mode,
+    'data-density': p.density,
+    'data-radius': p.radius,
+  } as const;
+}
+```
+→
+```ts
+export const resolveMode = (mode: Mode, systemDark: boolean): ResolvedMode => (mode === 'auto' ? (systemDark ? 'dark' : 'light') : mode);
+
+/**
+ * The single source for the attributes on <html>; used by the server layout and the client provider. The server cannot
+ * know the device's scheme, so it renders auto as light and AUTO_MODE_SCRIPT switches it before the first paint.
+ */
+export function htmlAttrs(p: Prefs, systemDark = false) {
+  return {
+    lang: p.locale,
+    'data-theme': p.theme,
+    'data-mode': resolveMode(p.mode, systemDark),
+    'data-mode-auto': p.mode === 'auto' ? 'true' : 'false',
+    'data-density': p.density,
+    'data-radius': p.radius,
+  } as const;
+}
+
+/** Inline in <head> (app/layout.tsx), runs before the first paint: auto + a dark device -> dark. Static text, no input. */
+export const AUTO_MODE_SCRIPT =
+  "try{var d=document.documentElement;if(d.getAttribute('data-mode-auto')==='true'&&window.matchMedia('(prefers-color-scheme: dark)').matches)d.setAttribute('data-mode','dark')}catch(e){}";
+```
+
+`lib/pwa.ts` — replace (each exactly once):
+
+```ts
+import type { Prefs, Theme, Mode } from '@/lib/prefs';
+```
+→
+```ts
+import { resolveMode, type Prefs, type ResolvedMode, type Theme } from '@/lib/prefs';
+```
+
+```ts
+export const THEME_COLORS: Record<Theme, Record<Mode, string>> = {
+```
+→
+```ts
+export const THEME_COLORS: Record<Theme, Record<ResolvedMode, string>> = {
+```
+
+```ts
+export const themeColor = (p: Pick<Prefs, 'theme' | 'mode'>): string => THEME_COLORS[p.theme][p.mode];
+```
+→
+```ts
+export const themeColor = (p: Pick<Prefs, 'theme' | 'mode'>, systemDark = false): string => THEME_COLORS[p.theme][resolveMode(p.mode, systemDark)];
+```
+
+`components/providers/PrefsProvider.tsx` — replace (each exactly once):
+
+```tsx
+export function applyPrefsToDocument(p: Prefs, el: HTMLElement = document.documentElement): void {
+  for (const [name, value] of Object.entries(htmlAttrs(p))) el.setAttribute(name, value);
+  el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p));
+}
+```
+→
+```tsx
+const DARK_QUERY = '(prefers-color-scheme: dark)';
+
+/** The device's colour scheme (for Auto mode only; never for layout). false where matchMedia is missing. */
+export const systemDark = (): boolean => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(DARK_QUERY).matches;
+
+export function applyPrefsToDocument(p: Prefs, el: HTMLElement = document.documentElement): void {
+  const dark = systemDark();
+  for (const [name, value] of Object.entries(htmlAttrs(p, dark))) el.setAttribute(name, value);
+  el.ownerDocument.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor(p, dark));
+}
+```
+
+```tsx
+  // Never swallowed:
+```
+→
+```tsx
+  // Auto mode follows the device while it is chosen (the listener goes when the mode changes or the provider unmounts)
+  useEffect(() => {
+    if (prefs.mode !== 'auto' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(DARK_QUERY);
+    const follow = () => applyPrefsToDocument(latest.current);
+    follow(); // the server rendered light; the inline script may have fixed it already, this makes the meta tag agree
+    mq.addEventListener('change', follow);
+    return () => mq.removeEventListener('change', follow);
+  }, [prefs.mode]);
+
+  // Never swallowed:
+```
+
+`app/layout.tsx` — replace (each exactly once):
+
+```tsx
+import { htmlAttrs } from '@/lib/prefs';
+```
+→
+```tsx
+import { AUTO_MODE_SCRIPT, htmlAttrs } from '@/lib/prefs';
+```
+
+```tsx
+    <html {...htmlAttrs(prefs)} className={inter.variable}>
+      <body>
+```
+→
+```tsx
+    // suppressHydrationWarning: AUTO_MODE_SCRIPT may set data-mode before React hydrates (Auto mode on a dark device)
+    <html {...htmlAttrs(prefs)} className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: AUTO_MODE_SCRIPT }} />
+      </head>
+      <body>
+```
+
+`tests/prefs.test.ts` — replace (each exactly once):
+
+```ts
+      lang: 'zh-CN', 'data-theme': 'forest', 'data-mode': 'dark', 'data-density': 'comfortable', 'data-radius': 'round',
+```
+→
+```ts
+      lang: 'zh-CN', 'data-theme': 'forest', 'data-mode': 'dark', 'data-mode-auto': 'false', 'data-density': 'comfortable', 'data-radius': 'round',
+```
+
+`tests/pwa.test.ts` — replace (each exactly once):
+
+```ts
+    for (const theme of THEMES) for (const mode of MODES) expect(THEME_COLORS[theme][mode], `${theme}/${mode}`).toBe(tokenOf(theme, mode, 'background'));
+```
+→
+```ts
+    for (const theme of THEMES) for (const mode of ['light', 'dark'] as const) expect(THEME_COLORS[theme][mode], `${theme}/${mode}`).toBe(tokenOf(theme, mode, 'background'));
+    expect(MODES).toContain('auto'); // auto resolves to one of the two (tests/prefs-auto-mode.test.tsx)
+```
+
+`tests/prefs-sync.test.ts` — replace (each exactly once):
+
+```ts
+  it('every allowed value in the app matches the CHECK list, in both directions', () => {
+    expect(checks).toEqual({
+```
+→
+```ts
+  // Plan 16a widened profiles.mode in a later migration (applied ones are never edited)
+  const autoSql = readFileSync('supabase/migrations/20261030000001_prefs_auto_mode.sql', 'utf8');
+  const modeNow = [...autoSql.match(/check \(mode in \(([^)]*)\)\)/)![1].matchAll(/'([^']*)'/g)].map((x) => x[1]);
+
+  it('every allowed value in the app matches the CHECK list, in both directions', () => {
+    expect(checks.mode).toEqual(['light', 'dark']); // the first migration, unchanged
+    expect({ ...checks, mode: modeNow }).toEqual({
+```
+
+`components/shared/ModeToggle.tsx` — replace the whole file:
+
+```tsx
+'use client';
+
+import { Moon, Sun } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { usePrefs } from '@/components/providers/PrefsProvider';
+import { Button } from '@/components/ui/button';
+
+export function ModeToggle() {
+  const t = useTranslations('shell');
+  const { prefs, update } = usePrefs();
+  // flips what is SHOWN: Auto showing dark becomes Light (the icon follows the saved choice, so it matches the server render)
+  return (
+    <Button variant="ghost" size="icon" aria-label={t('toggleMode')} onClick={() => update({ mode: document.documentElement.getAttribute('data-mode') === 'dark' ? 'light' : 'dark' })}>
+      {prefs.mode === 'dark' ? <Sun aria-hidden /> : <Moon aria-hidden />}
+    </Button>
+  );
+}
+```
+
+Notes: `matchMedia('(prefers-color-scheme: dark)')` reads the COLOUR SCHEME, not the layout (the CLAUDE.md rule is about layout breakpoints). The inline script is a static string constant (no user input) and the only `dangerouslySetInnerHTML` in the layout; `suppressHydrationWarning` on `<html>` covers just that element's attributes. The meta `theme-color` is rendered light for Auto and corrected by the provider on mount.
+
+- [ ] **Step 4: Verify** — `npx vitest run tests/prefs-auto-mode.test.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts tests/prefs-sync.test.tsx tests/prefs-provider.test.tsx tests/prefs-save-notice.test.tsx tests/prefs-bar.test.tsx tests/app-shell.test.tsx tests/tokens.test.ts tests/motion.test.tsx` (plus `tests/settings-appearance.test.tsx` if Task 7 is merged), `npx tsc --noEmit`, `npx eslint lib/prefs.ts lib/pwa.ts components/providers/PrefsProvider.tsx app/layout.tsx components/shared/ModeToggle.tsx tests/prefs-auto-mode.test.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts`. Expected: PASS, clean. Do NOT run anything against a database.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/20261030000001_prefs_auto_mode.sql tests/prefs-auto-mode.test.tsx lib/prefs.ts lib/pwa.ts components/providers/PrefsProvider.tsx app/layout.tsx components/shared/ModeToggle.tsx tests/prefs.test.ts tests/pwa.test.ts tests/prefs-sync.test.ts
+git commit -m "feat(prefs): Auto mode follows the device's light or dark setting; profiles.mode accepts auto (migration NOT applied) (Plan 16a)"
+```
