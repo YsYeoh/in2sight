@@ -1,7 +1,7 @@
 # Runbook — Comment moderation (Plan 15d)
 
 Status: code complete on local `main`, NOT pushed, NOTHING verified live, and NOTHING has ever been sent to Instagram by this code.
-The migration `20261029000002_comment_moderation.sql` is NOT applied to the live database. **Auto-hide is OFF by default and must
+The migration `20261029000002_comment_moderation.sql` is APPLIED to the live database on 2026-10-26 (older wording: NOT applied). **Auto-hide is OFF by default and must
 stay off until §1 (probes P1–P8) has passed on a throwaway comment.**
 
 Reply, hide/unhide and delete from the app, banned-word and spam auto-hide, the moderation log with Undo. **WARNING: this feature
