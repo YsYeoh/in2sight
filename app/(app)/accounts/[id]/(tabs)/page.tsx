@@ -3,14 +3,17 @@ import { notFound, redirect } from 'next/navigation';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
+import { ModeratedCommentsTab } from '@/components/account/CommentActions';
 import { CommentsTab, type CommentsData } from '@/components/account/CommentsTab';
 import { FollowersTab } from '@/components/account/FollowersTab';
 import { GrowthTab } from '@/components/account/GrowthTab';
+import { ModerationTab } from '@/components/account/ModerationTab';
 import { PostsTab } from '@/components/account/PostsTab';
 import { StoriesTab } from '@/components/account/StoriesTab';
 import { TabSkeleton } from '@/components/account/TabSkeleton';
 import { setPostTagsAction } from '@/app/(app)/tags/actions';
 import { deleteFollowerSnapshotAction } from '@/app/(app)/accounts/followers-actions';
+import { deleteCommentAction, deleteRuleAction, hideCommentAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction } from '@/app/(app)/accounts/moderation-actions';
 import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import type { StoredAccount } from '@/lib/accounts/types';
 import { requireOwner } from '@/lib/auth/require-owner';
@@ -24,11 +27,12 @@ import { buildPosts, buildStories, storyView } from '@/lib/dashboard/content';
 import { buildGrowth, growthReadFrom, HOURLY_MAX_DAYS } from '@/lib/dashboard/growth';
 import { loadAudienceEnds, loadCommentDays, loadFollowerCurve, loadReachBreakdown, loadStoryDays } from '@/lib/dashboard/growth-read';
 import { loadAudience, loadOnline, loadPostPage, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
-import { LIST_KEYS, listWindow, pagePosts, pageStories, parsePostList, parseStoryList, postPageSize, postSortOf, storyPageSize } from '@/lib/dashboard/lists';
+import { LIST_KEYS, listWindow, pagePosts, parsePage, pageStories, parsePostList, parseStoryList, postPageSize, postSortOf, storyPageSize } from '@/lib/dashboard/lists';
 import { exportScopes } from '@/lib/export/params';
 import { followersView } from '@/lib/followers/diff';
 import { listFollowerSnapshots, loadFollowerSnapshot } from '@/lib/followers/read';
 import { FOLLOWER_KEYS, parseFollowerState, resolvePair } from '@/lib/followers/state';
+import { loadModeration } from '@/lib/moderation/store';
 import { loadDaily, loadFirstDay, loadPosts, MEDIA_LIMIT } from '@/lib/dashboard/read';
 import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -50,6 +54,7 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
   const now = new Date();
   const today = localDay(now, prefs.timezone);
   const tz = prefs.timezone;
+  const canModerate = account.status === 'active' && hasScope(account, COMMENTS_SCOPE); // Plan 15d: the server actions check again
   switch (tab) {
     case 'posts': {
       // own list params, never the Time Scope (ux-polish design §8 calls 1-3); one page from post_list
@@ -126,7 +131,15 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
         return page ? { kind: 'comments', page, posts } : { kind: 'notReady' };
       };
       const [data, start] = await Promise.all([read(), loadCommentStart(db, account.id)]);
-      return <CommentsTab {...props} start={start} data={data} />;
+      const moderation = canModerate ? { ownUsername: account.username, hide: hideCommentAction, reply: replyCommentAction, remove: deleteCommentAction } : null; // the imported actions go straight to the client wrapper
+      return <ModeratedCommentsTab {...props} start={start} data={data} moderation={moderation} />;
+    }
+    case 'moderation': {
+      // Plan 15d: auto-hide, rules, preview and the log (owner session; nothing is read without the scope; null = migration not applied).
+      // The imported server actions are passed straight to the client component (never wrapped in a closure here).
+      const data = canModerate ? await loadModeration(db, account.id, account.username, parsePage(sp.page), now) : null;
+      const actions = { saveWord: saveWordRuleAction, setSpam: setSpamRuleAction, deleteRule: deleteRuleAction, setAutoHide: setAutoHideAction, undo: undoModerationAction };
+      return <ModerationTab accountId={account.id} allowed={canModerate} data={data} scope={scope.params} actions={actions} />;
     }
     case 'followers': {
       // by-name lists from uploaded exports (Plan 15b): the snapshot list, then the two compared snapshots, diffed here;

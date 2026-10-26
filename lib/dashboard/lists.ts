@@ -53,7 +53,7 @@ export const LIST_KEYS = ['pr', 'pfrom', 'pto', 'q', 'format', 'tag', 'sort', 'p
 
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : null);
 const pick = <T extends string>(all: readonly T[], v: string | null): T | null => (v !== null && (all as readonly string[]).includes(v) ? (v as T) : null);
-const parsePage = (v: string | string[] | undefined) => {
+export const parsePage = (v: string | string[] | undefined) => {
   const s = one(v);
   return s !== null && /^\d{1,6}$/.test(s) && Number(s) >= 1 ? Number(s) : 1;
 };

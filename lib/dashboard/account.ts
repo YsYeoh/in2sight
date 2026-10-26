@@ -13,7 +13,7 @@ import { localDay } from '@/lib/sync/time';
 import type { ResolvedScope } from '@/lib/time-scope/scope';
 
 // Audience is the last section of Overview (ux-polish design §4.2); ?tab=audience redirects there
-export const TABS = ['overview', 'growth', 'posts', 'stories', 'comments', 'followers'] as const; // Growth: Plan 15a. Comments (Plan 15c): read-only comment insights, next to the content tabs. Followers (Plan 15b): by-name lists from uploaded Instagram exports; stays the LAST tab
+export const TABS = ['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers'] as const; // Growth: Plan 15a. Comments (Plan 15c): read-only comment insights, next to the content tabs. Moderation (Plan 15d): rules, auto-hide, log. Followers (Plan 15b): by-name lists from uploaded Instagram exports; stays the LAST tab
 export type Tab = (typeof TABS)[number];
 
 /** ?tab= from the URL. Allow-list only: arrays (?tab=a&tab=b), unknown or hostile values fall back to overview. */

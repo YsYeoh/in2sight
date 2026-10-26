@@ -29,6 +29,10 @@ vi.mock('@/lib/comments/read', () => ({
   loadOutsiders: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('outsiders'), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
   loadTopicSample: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('topicSample'), comments.args.push(a), []),
 }));
+const moderation = vi.hoisted(() => ({ data: null as Record<string, unknown> | null, loads: [] as unknown[][] }));
+vi.mock('@/lib/moderation/store', () => ({
+  loadModeration: async (...a: unknown[]) => (calls.push('moderation'), moderation.loads.push(a.slice(1)), moderation.data),
+}));
 vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (await import('@/lib/prefs')).DEFAULT_PREFS }));
 vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ list: async () => (calls.push('accounts'), accounts) }) }));
 vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => ({}) }));
@@ -434,9 +438,72 @@ describe('account page: the Comments tab (Plan 15c)', () => {
     expect(comments.args.at(-1)).toEqual({ owner: 'shop.one', page: 2 });
   });
 
+  it('the Comments tab gets the moderation menu only with the scope, with the account name for "own" comments', async () => {
+    accounts.length = 0;
+    accounts.push(acct(ID, 'active', { grantedScopes: SCOPES }));
+    const withScope = (await streamTab(await run(ID, { tab: 'comments' }))) as ReactElement<{ moderation: { ownUsername: string; hide: unknown } | null }>;
+    expect(withScope.props.moderation?.ownUsername).toBe(`u${ID.slice(0, 4)}`);
+    expect(typeof withScope.props.moderation?.hide).toBe('function');
+    accounts.length = 0;
+    accounts.push(acct(ID, 'active', { grantedScopes: SCOPES.slice(0, 2) }));
+    const without = (await streamTab(await run(ID, { tab: 'comments' }))) as ReactElement<{ moderation?: unknown }>;
+    expect(without.props.moderation ?? null).toBeNull();
+    accounts.length = 0;
+    accounts.push(acct(ID, 'needs_reconnect', { grantedScopes: SCOPES }));
+    expect(((await streamTab(await run(ID, { tab: 'comments' }))) as ReactElement<{ moderation: unknown }>).props.moderation).toBeNull(); // not active: no menu
+  });
+
   it('the Suspense key ignores the comment params (the toolbar stays mounted); the scope rides along to the tab', async () => {
     const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
     expect(await key({ tab: 'comments', section: 'fans', fans: 'quiet', media: '1', only: 'questions', q: 'x', pr: '7d', page: '2' })).toBe(await key({ tab: 'comments' }));
     expect((await commentsTab({ from: '2026-09-01', to: '2026-09-30' })).scope).toEqual({ from: '2026-09-01', to: '2026-09-30' });
+  });
+});
+
+describe('account page: the Moderation tab (Plan 15d)', () => {
+  const SCOPED = { grantedScopes: ['instagram_business_basic', 'instagram_business_manage_comments'] };
+  type ModProps = { accountId: string; allowed: boolean; data: unknown; actions: Record<string, unknown>; scope?: Record<string, string> };
+  const modTab = async (sp: Record<string, string> = {}) => ((await streamTab(await run(ID, { tab: 'moderation', ...sp }))) as ReactElement<ModProps>).props;
+  beforeEach(() => {
+    moderation.data = { settings: {}, rules: [], log: { rows: [], total: 0, page: 1, pages: 1, size: 50 }, preview: { count: 0, scanned: 0, sample: [] } };
+    moderation.loads = [];
+  });
+
+  it('with the scope: one owner-session read (account, own name, page, now) and the five actions passed straight through', async () => {
+    accounts.push(acct(ID, 'active', SCOPED));
+    const p = await modTab({ page: '2' });
+    expect(p.allowed).toBe(true);
+    expect(p.data).toBe(moderation.data);
+    expect(moderation.loads[0].slice(0, 3)).toEqual([ID, `u${ID.slice(0, 4)}`, 2]);
+    expect(moderation.loads[0][3]).toBeInstanceOf(Date);
+    expect(Object.keys(p.actions).sort()).toEqual(['deleteRule', 'saveWord', 'setAutoHide', 'setSpam', 'undo']);
+    expect(calls).not.toContain('ADMIN');
+  });
+
+  it('before the migration the store answers null: the tab still gets allowed=true (it shows "needs a database update")', async () => {
+    accounts.push(acct(ID, 'active', SCOPED));
+    moderation.data = null;
+    const p = await modTab();
+    expect(p.allowed).toBe(true);
+    expect(p.data).toBeNull();
+  });
+
+  it('without the comments scope, or when the account needs a reconnect: no read, the reconnect state', async () => {
+    accounts.push(acct(ID));
+    const p = await modTab();
+    expect(p.allowed).toBe(false);
+    expect(p.data).toBeNull();
+    accounts.length = 0;
+    accounts.push(acct(ID, 'needs_reconnect', SCOPED));
+    expect((await modTab()).allowed).toBe(false);
+    expect(calls).not.toContain('moderation');
+  });
+
+  it('a bad ?page= reads page 1; the Suspense key ignores page', async () => {
+    accounts.push(acct(ID, 'active', SCOPED));
+    await modTab({ page: 'x' });
+    expect(moderation.loads[0][2]).toBe(1);
+    const key = async (sp: Record<string, string>) => (await run(ID, sp)).props.children.key;
+    expect(await key({ tab: 'moderation', page: '3' })).toBe(await key({ tab: 'moderation' }));
   });
 });

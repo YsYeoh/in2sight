@@ -4,10 +4,11 @@
 // behind its own dialog. Opening a dialog = one intent = one request id (the server refuses a repeated id); a call in
 // flight blocks a second one (double click); afterwards focus returns to this menu button and the result is announced.
 // The server actions arrive as PROPS (the page passes them), so this file imports no server code.
-import { useRef, useState } from 'react';
+import { useRef, useState, type ComponentProps } from 'react';
 import { useRouter } from 'next/navigation';
 import { MoreHorizontal } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { CommentsTab } from '@/components/account/CommentsTab';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { FormField } from '@/components/shared/FormField';
@@ -171,5 +172,21 @@ export function CommentActions({ accountId, commentId, authorUsername, hidden, o
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     </>
+  );
+}
+
+export type ModerationRowActions = { ownUsername: string } & Pick<CommentActionsProps, 'hide' | 'reply' | 'remove'>;
+
+/** The Comments tab with the moderation menu on every row (a client wrapper: functions cannot come from the server page). */
+export function ModeratedCommentsTab({ moderation, ...props }: ComponentProps<typeof CommentsTab> & { moderation: ModerationRowActions | null }) {
+  if (!moderation) return <CommentsTab {...props} />;
+  const own = moderation.ownUsername.toLowerCase();
+  return (
+    <CommentsTab
+      {...props}
+      renderActions={(c) => (
+        <CommentActions accountId={props.accountId} commentId={c.id} authorUsername={c.authorUsername} hidden={c.hidden} own={c.authorUsername?.toLowerCase() === own} hide={moderation.hide} reply={moderation.reply} remove={moderation.remove} />
+      )}
+    />
   );
 }
