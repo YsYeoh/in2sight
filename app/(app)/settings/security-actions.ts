@@ -1,19 +1,12 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { PASSWORD_COOKIE, PASSWORD_LIMIT, attemptCookieOptions, bumpAttempts, isLimited, readAttempts } from '@/lib/auth/attempts';
+import { checkClient } from '@/lib/auth/check-client';
 import { changePassword } from '@/lib/auth/password';
 import type { PasswordFormState } from '@/lib/auth/password-rules';
 import { requireOwner } from '@/lib/auth/require-owner';
-import { getSupabasePublic } from '@/lib/env';
 import { createServerSupabase } from '@/lib/supabase/server';
-
-// A memory-only client for the current-password check: no cookies, no refresh, never the owner's session.
-function checkClient() {
-  const { url, publishableKey } = getSupabasePublic();
-  return createClient(url, publishableKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
-}
 
 export async function changePasswordAction(_prev: PasswordFormState, formData: FormData): Promise<PasswordFormState> {
   const { userId, email } = await requireOwner(); // server actions are public endpoints: authorize here, not only in the page

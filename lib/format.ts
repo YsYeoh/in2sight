@@ -121,6 +121,23 @@ export function formatCompact(n: number | null | undefined, p: FormatPrefs): str
   return formatNumber(v, p, { maximumFractionDigits: digits }) + UNITS[i][1];
 }
 
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
+
+/** A size in bytes: "512 B", "1.5 KB", "230 MB" (1 KB = 1,024 bytes), the number in the owner's number format. */
+export function formatBytes(n: number | null | undefined, p: FormatPrefs): string {
+  if (!isNum(n) || n < 0) return DASH;
+  let i = 0;
+  let v = n;
+  while (i < BYTE_UNITS.length - 1 && v >= 1024) {
+    v /= 1024;
+    i++;
+  }
+  const digits = i === 0 || v >= 100 ? 0 : 1;
+  // 1,023.96 KB rounds to "1,024 KB": roll over to "1 MB"
+  if (i < BYTE_UNITS.length - 1 && Number(v.toFixed(digits)) >= 1024) return `${formatNumber(1, p, { maximumFractionDigits: 0 })} ${BYTE_UNITS[i + 1]}`;
+  return `${formatNumber(v, p, { maximumFractionDigits: digits })} ${BYTE_UNITS[i]}`;
+}
+
 export function formatPercent(ratio: number | null | undefined, p: FormatPrefs, digits = 1): string {
   if (!isNum(ratio)) return DASH;
   return `${formatNumber(ratio * 100, p, { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;

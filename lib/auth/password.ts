@@ -36,24 +36,38 @@ export interface ChangeInput {
   confirm: string;
 }
 
+export type CheckResult = 'ok' | 'wrong_password' | 'rate_limited' | 'unexpected';
+
 /**
- * Proves the CURRENT password on a separate, memory-only client (`checkClient()`: never the cookie session), revokes
- * that check session at once, then updates the owner session's password and signs every OTHER session out.
+ * Proves `password` is the owner's on a separate, memory-only client (`checkClient()`: never the cookie session) and
+ * revokes that check session at once. Never throws. Used by change password and by "Delete all data" (Plan 16c).
+ */
+export async function checkPassword(checkClient: () => SupabaseClient, input: { userId: string; email: string | null; password: string }): Promise<CheckResult> {
+  if (!input.email) return 'unexpected';
+  try {
+    const check = checkClient();
+    const { data, error } = await check.auth.signInWithPassword({ email: input.email, password: input.password });
+    if (error) return isRateLimited(error) ? 'rate_limited' : 'wrong_password';
+    const sameUser = data?.user?.id === input.userId;
+    await quietSignOut(check, 'local'); // the check session must not linger
+    return sameUser ? 'ok' : 'unexpected';
+  } catch {
+    return 'unexpected';
+  }
+}
+
+/**
+ * Proves the CURRENT password (checkPassword), then updates the owner session's password and signs every OTHER
+ * session out (`others` revokes the check session again).
  */
 export async function changePassword(session: SupabaseClient, checkClient: () => SupabaseClient, input: ChangeInput): Promise<PasswordResult> {
   if (!input.current) return { ok: false, error: 'missing_fields' };
   const invalid = validate(input.next, input.confirm, input.email);
   if (invalid) return { ok: false, error: invalid };
   if (input.next === input.current) return { ok: false, error: 'same_password' };
-  if (!input.email) return { ok: false, error: 'unexpected' };
+  const checked = await checkPassword(checkClient, { userId: input.userId, email: input.email, password: input.current });
+  if (checked !== 'ok') return { ok: false, error: checked };
   try {
-    const check = checkClient();
-    const { data, error } = await check.auth.signInWithPassword({ email: input.email, password: input.current });
-    if (error) return { ok: false, error: isRateLimited(error) ? 'rate_limited' : 'wrong_password' };
-    const sameUser = data?.user?.id === input.userId;
-    await quietSignOut(check, 'local'); // the check session must not linger (`others` below revokes it again)
-    if (!sameUser) return { ok: false, error: 'unexpected' };
-
     const { error: updateErr } = await session.auth.updateUser({ password: input.next });
     if (updateErr) return { ok: false, error: updateError(updateErr) };
     return { ok: true, othersSignedOut: await quietSignOut(session, 'others') };
