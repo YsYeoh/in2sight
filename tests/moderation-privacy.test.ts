@@ -36,10 +36,11 @@ describe('moderation privacy and choke points', () => {
     expect(importers.map(([f]) => f)).toEqual(expect.arrayContaining(['lib/sync/tick.ts', 'lib/sync/deps.ts']));
   });
 
-  it('only lib/moderation/store.ts names the log and the rules; settings also in the alert store (paused_at only)', () => {
-    expect(naming(/['"`]moderation_log['"`]/)).toEqual(['lib/moderation/store.ts']);
-    expect(naming(/['"`]moderation_rules['"`]/)).toEqual(['lib/moderation/store.ts']);
-    expect(naming(/['"`]moderation_settings['"`]/)).toEqual(['lib/alerts/store.ts', 'lib/moderation/store.ts']);
+  it('only lib/moderation/store.ts names the log and the rules; settings also in the alert store (paused_at only); the owner export reads all three (Plan 16c)', () => {
+    const DATA = ['lib/data/export.ts']; // owner-session select of every row: the owner's "Export your data" (lib/data/usage.ts only uses the names as unquoted keys)
+    expect(naming(/['"`]moderation_log['"`]/)).toEqual([...DATA, 'lib/moderation/store.ts']);
+    expect(naming(/['"`]moderation_rules['"`]/)).toEqual([...DATA, 'lib/moderation/store.ts']);
+    expect(naming(/['"`]moderation_settings['"`]/)).toEqual(['lib/alerts/store.ts', ...DATA, 'lib/moderation/store.ts']);
     expect(text('lib/alerts/store.ts')).toMatch(/from\('moderation_settings'\)\.select\('paused_at'\)/); // nothing else of the settings
   });
 
