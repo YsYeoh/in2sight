@@ -21,6 +21,10 @@ const BUDGET_MS = 50_000;
 export async function GET(request: NextRequest) {
   const h = exportHeaders();
   try {
+    // A cross-site page can navigate the owner's browser here (Lax cookies ride top-level GETs) and make it save other people's data
+    // to disk. Our own download is a same-origin fetch, a typed URL is "none"; a browser always sends the header, a page cannot forge it.
+    const site = request.headers.get('sec-fetch-site');
+    if (site && site !== 'same-origin' && site !== 'none') return exportError(h, 403, 'unauthorized');
     if (!(await assertOwner(h))) return exportError(h, 401, 'unauthorized');
     const q = request.nextUrl.searchParams;
     const table = findExportTable(q.get('table'));

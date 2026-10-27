@@ -96,6 +96,18 @@ describe('data & privacy guard (Plan 16c)', () => {
     for (const f of walk('app').filter((x) => /\/route\.ts$/.test(x))) expect(src(f), f).not.toMatch(/lib\/data\/delete|data-actions|delete_all_data/);
   });
 
+  it('the generic table reader is reachable from the export route only (a new file cannot read any table through it)', () => {
+    const all = [...walk('lib'), ...walk('app'), ...walk('components')];
+    expect(all.filter((f) => /\b(exportPages|findExportTable)\b/.test(code(f)) && f !== 'lib/data/export.ts')).toEqual(['app/api/export/data/route.ts']);
+    expect(all.filter((f) => /\bEXPORT_TABLES\b/.test(code(f)) && f !== 'lib/data/export.ts').sort()).toEqual(['components/settings/sections/DataSection.tsx']);
+  });
+
+  it('the export route refuses a cross-site navigation (Sec-Fetch-Site) before it reads anything', () => {
+    const s = code('app/api/export/data/route.ts');
+    expect(s).toMatch(/sec-fetch-site/);
+    expect(s.indexOf('sec-fetch-site')).toBeLessThan(s.indexOf('assertOwner('));
+  });
+
   it('the export reads only with select (no write method anywhere in lib/data/export.ts)', () => {
     const s = code('lib/data/export.ts');
     expect(s).toMatch(/\.select\('\*'\)/);
