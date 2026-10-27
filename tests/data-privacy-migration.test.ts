@@ -16,7 +16,10 @@ describe('data & privacy migration', () => {
       .map((s) => s.trim())
       .filter(Boolean)
       .map((s) => s.split(/\s+/).slice(0, 2).join(' ').toLowerCase());
-    expect(heads).toEqual(['create or', 'revoke execute', 'grant execute', 'create or', 'revoke execute', 'grant execute']);
+    // the two indexes keep the delete's cascade linear (moderation_log.undo_of and notifications.account_id are foreign keys without one)
+    expect(heads).toEqual(['create or', 'revoke execute', 'grant execute', 'create index', 'create index', 'create or', 'revoke execute', 'grant execute']);
+    expect(sql).toMatch(/create index if not exists moderation_log_undo_of_idx on public\.moderation_log \(undo_of\)/);
+    expect(sql).toMatch(/create index if not exists notifications_account_idx on public\.notifications \(account_id\)/);
     expect(sql).not.toMatch(/\b(drop|truncate|alter|create\s+table|create\s+policy)\b/i);
   });
 

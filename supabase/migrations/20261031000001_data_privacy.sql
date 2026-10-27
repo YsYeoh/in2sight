@@ -53,6 +53,12 @@ grant execute on function public.data_usage() to authenticated;
 --    and push_subscriptions (this device's notifications). `where true` because PostgREST sessions load pg-safeupdate,
 --    which refuses a DELETE without a WHERE clause. Idempotent: a second call deletes nothing and returns zeros.
 --    Cover images (Storage) cannot be deleted in SQL: lib/data/delete.ts removes them with the Storage API afterwards.
+--    Two foreign keys without an index make the cascade quadratic: deleting each account row would scan all of
+--    moderation_log (undo_of ... on delete set null) and notifications once per row, and a large moderation history
+--    would run past the statement timeout (all or nothing: it would roll back and never finish). Both indexes are tiny.
+create index if not exists moderation_log_undo_of_idx on public.moderation_log (undo_of);
+create index if not exists notifications_account_idx on public.notifications (account_id);
+
 create or replace function public.delete_all_data()
 returns jsonb
 language plpgsql

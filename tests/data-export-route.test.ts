@@ -43,6 +43,17 @@ describe('GET /api/export/data', () => {
     expect(state.tables).toEqual([]);
   });
 
+  it.each(['cross-site', 'same-site'])('403 for a navigation from a %s page, nothing read', async (site) => {
+    const res = await GET(new NextRequest(new URL('/api/export/data?table=comments', 'https://app.test'), { headers: { 'sec-fetch-site': site } }));
+    expect(res.status).toBe(403);
+    expect(state.tables).toEqual([]);
+  });
+
+  it.each(['same-origin', 'none'])('serves a request with Sec-Fetch-Site: %s', async (site) => {
+    const res = await GET(new NextRequest(new URL('/api/export/data?table=media', 'https://app.test'), { headers: { 'sec-fetch-site': site } }));
+    expect(res.status).toBe(200);
+  });
+
   it.each(['', 'table=account_tokens', 'table=push_subscriptions', 'table=sync_runs', 'table=media&table=tags', 'table=media&x=1', 'table=Media', 'table=media%00'])('400 for %s, nothing read', async (qs) => {
     const res = await get(qs);
     expect(res.status).toBe(400);
