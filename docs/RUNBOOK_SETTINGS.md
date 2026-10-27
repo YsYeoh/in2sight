@@ -34,7 +34,7 @@ If `drop constraint profiles_mode_check` fails (a different name), STOP: the fil
 3. An account without the comments scope shows "Reconnect to enable comments".
 
 ## 5. Security and Data & privacy
-Security shows "Signed in as" and two-factor exactly as before (enrol / disable still work); it is a placeholder until Plan 16b adds password and sessions. Data & privacy shows the "What in2sight stores" card; it is a placeholder until Plan 16c.
+Security shows "Signed in as" and two-factor exactly as before (enrol / disable still work); password and sessions: docs/RUNBOOK_SECURITY.md. Data & privacy (Plan 16c): storage used, export your data and delete all data; live checks in docs/RUNBOOK_DATA.md.
 
 ## 6. Layout and a11y
 Every section at 360 / 768 / 1280 px in light and dark of two themes: no horizontal scroll, one control height per row, no pill walls. Keyboard only: Tab through the section list (the open one is announced as current page), every control has a label, saved / error messages are read out.

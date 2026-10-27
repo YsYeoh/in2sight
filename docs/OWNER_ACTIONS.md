@@ -6,6 +6,9 @@ One checklist for the whole project. Claude cannot do these (they need your logi
 here as you go. **No secrets belong in this file** (no passwords, tokens, keys, comment texts, CDN links): write only
 "done" and a date.
 
+## Plan 16c — Data & privacy (docs/RUNBOOK_DATA.md)
+- [ ] Apply migration 20261031000001_data_privacy (Plan 16c) on your go-ahead, then RUNBOOK_DATA. Nothing in 16c is verified live. After a "Delete all data", remove in2sight in Instagram (Settings → Apps and websites) if you are done with it.
+
 ## Plan 11b — capture extras (docs/RUNBOOK_CAPTURE.md)
 - [x] Apply the migration `supabase/migrations/20261022000001_capture_v2b.sql` BEFORE the new code is deployed
       ([RUNBOOK_CAPTURE §0](RUNBOOK_CAPTURE.md), command in [HANDOVER §4](HANDOVER.md)). Done; the new tables and
