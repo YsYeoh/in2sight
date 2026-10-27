@@ -14,6 +14,7 @@ const NAMED = [
   'lib/auth/attempts.ts',
   'lib/auth/recovery.ts',
   'lib/auth/password.ts',
+  'lib/auth/check-client.ts',
   'app/login/forgot/actions.ts',
   'app/login/forgot/page.tsx',
   'app/login/reset/actions.ts',
@@ -101,8 +102,8 @@ describe('auth security guard (Plan 16b)', () => {
     expect(all.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('createClient (the memory-only check client) appears in the security actions only', () => {
-    for (const f of FILES.filter((x) => x !== 'app/(app)/settings/security-actions.ts')) {
+  it('createClient (the memory-only check client) appears in lib/auth/check-client.ts only', () => {
+    for (const f of FILES.filter((x) => x !== 'lib/auth/check-client.ts')) {
       expect(src(f), f).not.toMatch(/\bcreateClient\b/);
     }
   });
@@ -142,6 +143,6 @@ describe('auth security guard (Plan 16b)', () => {
   });
 
   it('the check client keeps nothing (memory only, no refresh, no URL session)', () => {
-    expect(src('app/(app)/settings/security-actions.ts')).toMatch(/persistSession: false, autoRefreshToken: false, detectSessionInUrl: false/);
+    expect(src('lib/auth/check-client.ts')).toMatch(/persistSession: false, autoRefreshToken: false, detectSessionInUrl: false/);
   });
 });
