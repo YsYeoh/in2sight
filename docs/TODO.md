@@ -235,7 +235,7 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6q. Data & privacy (Plan 16c)
 - [x] Storage used, export your data (JSON per table), delete all data (password + typed word) (code done on local `main`, NOT pushed; live verification pending: docs/RUNBOOK_DATA.md)
-- [ ] Apply migration `20261031000001_data_privacy` (owner go-ahead; RUNBOOK_DATA §0)
+- [x] Apply migration `20261031000001_data_privacy` (applied and pushed 2026-10-27)
 - [ ] RUNBOOK_DATA §1–§5 walked through by the owner (§3.3, the real delete, only when the owner wants everything gone)
 - [ ] Live checks L1 (keyset on the real PostgREST), L2 (data_usage reads storage.objects), L3 (pg-safeupdate with `where true`), L5 (Instagram app removal) (plan 2026-10-31-16c)
 - Known: no zip and no cover images in the export; one table per request within 50 s; no per-account database bytes; the Instagram grant is removed by the owner in Instagram; a sync mid-run can leave one cover image (shown as "Not linked to an account", removed by the next run).

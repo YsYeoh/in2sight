@@ -1,9 +1,9 @@
 # Runbook: Data & privacy (Plan 16c) — live checks
 
-Plan 16c is code complete on local `main`, NOT pushed. Nothing here has been verified live. Do it with the owner, signed in with 2FA, on the deployed app, in this order. Report yes/no and counts only (file contents hold other people's names: never paste them into a chat or an issue).
+Plan 16c is pushed and its migration is applied (2026-10-27). Nothing here has been verified live. Do it with the owner, signed in with 2FA, on the deployed app, in this order. Report yes/no and counts only (file contents hold other people's names: never paste them into a chat or an issue).
 
 ## 0. The migration — on the owner's go-ahead, before relying on Storage used or Delete all
-`supabase/migrations/20261031000001_data_privacy.sql` adds two functions and nothing else: `data_usage()` (owner-only sizes, SECURITY DEFINER) and `delete_all_data()` (executable by the service role only). It is NOT applied.
+`supabase/migrations/20261031000001_data_privacy.sql` adds two functions and nothing else: `data_usage()` (owner-only sizes, SECURITY DEFINER) and `delete_all_data()` (executable by the service role only), plus two small indexes that keep the delete linear. APPLIED 2026-10-27 (skip the apply step below).
 ```
 node --env-file=.env.local scripts/sb.mjs migration list        # expect 20261031000001 pending (and 20261030000001 if 16a's is still pending), nothing remote-only
 node --env-file=.env.local scripts/db-probe.mjs rpc:data_usage:'{}'          # before: 404 PGRST202 (does not exist)
