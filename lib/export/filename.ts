@@ -15,7 +15,7 @@ export function exportBasename(label: string, range: { from: string; to: string 
   return `in2sight-${label}-${range.from}_${range.to}`;
 }
 
-export function contentDisposition(base: string, ext: 'xlsx' | 'pdf'): string {
+export function contentDisposition(base: string, ext: 'xlsx' | 'pdf' | 'json'): string {
   const name = clean(base);
   const ascii =
     name
@@ -44,5 +44,5 @@ export function filenameFromDisposition(header: string | null, fallback: string)
   if (!name) return fallback;
   const dot = name.lastIndexOf('.');
   const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
-  return ext === 'xlsx' || ext === 'pdf' ? `${clean(name.slice(0, dot))}.${ext}` : fallback;
+  return ext === 'xlsx' || ext === 'pdf' || ext === 'json' ?`${clean(name.slice(0, dot))}.${ext}` : fallback;
 }

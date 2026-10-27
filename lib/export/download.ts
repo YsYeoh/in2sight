@@ -3,6 +3,8 @@ import { filenameFromDisposition } from '@/lib/export/filename';
 import type { Section } from '@/lib/export/params';
 
 export type ExportFormat = 'xlsx' | 'pdf';
+/** What downloadExport can save: the dialog's formats plus the JSON files of Settings → Data & privacy (Plan 16c). */
+export type DownloadFormat = ExportFormat | 'json';
 export interface ExportRequest {
   format: ExportFormat;
   scope: string; // a ScopeOption value
@@ -13,7 +15,7 @@ export interface ExportRequest {
 }
 
 const KNOWN = ['bad_params', 'unauthorized', 'not_found', 'pdf_failed', 'not_configured', 'unexpected'];
-const TYPES: Record<ExportFormat, string> = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pdf: 'application/pdf' };
+const TYPES: Record<DownloadFormat, string> = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pdf: 'application/pdf', json: 'application/json' };
 
 /** '/api/export/<format>?…' (a download) or '/report?…' (the browser preview of the PDF report). */
 export function exportUrl(r: ExportRequest, target: 'file' | 'preview' = 'file'): string {
@@ -29,9 +31,9 @@ export function exportUrl(r: ExportRequest, target: 'file' | 'preview' = 'file')
 
 /**
  * GETs the export and saves it under the server's (re-cleaned) file name. Error answers come back as an
- * `export.errors.*` key. A session that ended mid-way shows up as a redirect to an HTML page: never saved as a file.
+ * `export.errors.*` key, and so does a streamed answer that breaks off midway (never saved half). A session that ended mid-way shows up as a redirect to an HTML page: never saved as a file.
  */
-export async function downloadExport(url: string, format: ExportFormat, fetcher: typeof fetch = fetch): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function downloadExport(url: string, format: DownloadFormat, fetcher: typeof fetch = fetch): Promise<{ ok: true } | { ok: false; error: string }> {
   let res: Response;
   try {
     res = await fetcher(url, { credentials: 'same-origin' });
@@ -43,7 +45,13 @@ export async function downloadExport(url: string, format: ExportFormat, fetcher:
     return { ok: false, error: typeof key === 'string' && KNOWN.includes(key) ? key : 'unexpected' };
   }
   if (res.redirected || !res.headers.get('content-type')?.startsWith(TYPES[format])) return { ok: false, error: 'unauthorized' };
-  const href = URL.createObjectURL(await res.blob());
+  let blob: Blob;
+  try {
+    blob = await res.blob(); // a streamed file that broke off midway rejects here: nothing is saved
+  } catch {
+    return { ok: false, error: 'unexpected' };
+  }
+  const href = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = href;
   a.download = filenameFromDisposition(res.headers.get('content-disposition'), `in2sight.${format}`);

@@ -16,9 +16,11 @@ const src = ['app', 'components', 'lib'].flatMap(files).map((f) => [f, readFileS
 const followerFiles = src.filter(([f, s]) => f.startsWith('lib/followers/') || /from '@\/lib\/followers\//.test(s));
 
 describe('follower lists privacy', () => {
-  it('only lib/followers/read.ts names the follower_exports table in code (comments may mention it)', () => {
+  // Plan 16c: lib/data/export.ts (the owner's "Export your data", owner session only, follower lists only when the owner picks them)
+  // and lib/data/usage.ts (the table's size in "Storage used", a name only, no rows)
+  it('only lib/followers/read.ts, lib/data/export.ts (the owner export) and lib/data/usage.ts (its size) name the follower_exports table in code (comments may mention it)', () => {
     const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(src.filter(([, s]) => /follower_exports/.test(code(s))).map(([f]) => f)).toEqual(['lib/followers/read.ts']);
+    expect(src.filter(([, s]) => /follower_exports/.test(code(s))).map(([f]) => f)).toEqual(['lib/data/export.ts', 'lib/data/usage.ts', 'lib/followers/read.ts']);
   });
 
   it('no file that handles follower lists logs anything but one fixed string', () => {
