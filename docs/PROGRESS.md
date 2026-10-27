@@ -24,10 +24,10 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 | Unpushed work | none (Plans 15c and 15d were pushed on 2026-10-26 after the migrations). **Auto-hide is OFF and must stay off until RUNBOOK_MODERATION §1 (probes P1-P8) has passed on a throwaway comment; each account must Reconnect once for the comments scope** |
 | Plan 16a (Settings redesign) | **code complete on local `main`, NOT pushed, nothing verified live.** Its migration `20261030000001_prefs_auto_mode` (Auto theme mode) is **NOT applied**: apply only on the owner's go-ahead, BEFORE deploying; until then choosing Auto applies on the device and the profile save fails with a visible toast + Retry (`docs/RUNBOOK_SETTINGS.md` §0) |
 | Plan 16b (Security) | **code complete on local `main`, NOT pushed, nothing verified live. NO migration.** Change password, forgot / reset password, sign out other devices. **Owner prerequisites first (code cannot do them; forgot / reset does not work without them):** custom SMTP in Supabase, Auth Site URL and Redirect URLs set to `https://in2sight.yongsen.space`, the Reset Password email template linking to `/auth/confirm?token_hash=...&type=recovery` (one bilingual template), email rate limit 10 per hour, minimum password length 12, sign-ups kept off (`docs/RUNBOOK_SECURITY.md` §0) |
-| Plan 16c (Data & privacy) | **code complete on local main, NOT pushed, nothing verified live.** Migration 20261031000001_data_privacy (two functions) NOT applied: apply on the owner's go-ahead (RUNBOOK_DATA §0); without it Storage used says "needs a database update" and Delete all refuses with nothing deleted; the export works without it |
+| Plan 16c (Data & privacy) | **pushed; nothing verified live.** Migration 20261031000001_data_privacy (two functions, two cascade indexes) APPLIED 2026-10-27 (anon probes 401/42501); next: RUNBOOK_DATA live checks |
 | Open agents / worktrees | none expected after the 15c merge; check `git worktree list` and remove leftovers (section 10) |
 
-## 3. What is built (all merged and pushed, except Plans 16a, 16b and 16c: local `main` only)
+## 3. What is built (all merged and pushed)
 Each line: plan, what it gives, where to read more.
 - **1 to 10 (2026-10-13 to 10-20): the product core.** Foundation (tokens, themes, prefs, i18n en + zh-CN, `lib/format.ts`), UI kit, auth + TOTP 2FA,
   Instagram connect (OAuth, tokens service-role only), sync engine (30-minute tick, leases, backfill, Stories, media metrics, audience), analysis +
@@ -67,7 +67,7 @@ Each line: plan, what it gives, where to read more.
   separate memory-only client, then every OTHER session is signed out), forgot / reset password (login page link → `/login/forgot` → Supabase recovery email → `/auth/confirm` "Continue" (POST) → the existing 2FA step → `/login/reset`
   within 15 minutes → every session signed out → `/login`), and one "Sign out other devices" button (Supabase has no API to list sessions, so there is no session list). Needs the owner's Supabase settings first
   (`RUNBOOK_SECURITY` §0). Plan: `docs/superpowers/plans/2026-10-30-16b-security.md`. Guard: `tests/auth-security-guard.test.ts`.
-- **16c: Data & privacy (code done on local main, NOT pushed, NOT verified live).** Storage used (data_usage(), SECURITY DEFINER, owner-only), export your data (one streamed JSON file per table through the owner session; third-party data only when chosen), delete all data (password + DELETE → service-role-only delete_all_data() in one transaction, then covers; idempotent). Plan: docs/superpowers/plans/2026-10-31-16c-data-privacy.md. Guard: tests/data-privacy-guard.test.ts.
+- **16c: Data & privacy (pushed, NOT verified live).** Storage used (data_usage(), SECURITY DEFINER, owner-only), export your data (one streamed JSON file per table through the owner session; third-party data only when chosen), delete all data (password + DELETE → service-role-only delete_all_data() in one transaction, then covers; idempotent). Plan: docs/superpowers/plans/2026-10-31-16c-data-privacy.md. Guard: tests/data-privacy-guard.test.ts.
   Opus security review (no Critical): the "current password" check and "code before a new password" are enforced by OUR server actions only; a session token can call Supabase Auth directly (SSR cookie is JS-readable),
   so they are UI-level protection, not a Supabase boundary. Data stays behind `is_owner()` (aal2) either way. **Before enabling the reset template: enrol 2FA, and run `RUNBOOK_SECURITY` §7 (L10 `PUT /user` and L11 `POST /factors` at aal1 must be refused; if L11 is allowed, do NOT enable it).**
 
@@ -110,7 +110,7 @@ Account page tabs now: **Overview, Growth, Posts, Stories, Comments, Moderation,
 | 20261029000002_comment_moderation | `moderation_settings`, `moderation_rules`, `moderation_log` (RLS, cascade from `accounts`) , owner update (`hidden` only)/delete on `comments`, and `moderation_paused` added to the `notifications` kind check (written and tested as of Plan 15d; **APPLIED to the live database on 2026-10-26 (older wording: NOT applied)**: owner go-ahead, apply BEFORE deploying the 15d code and AFTER (or together with) `20261029000001`; `docs/RUNBOOK_MODERATION.md` §0) |
 | 20261030000001_prefs_auto_mode | `profiles.mode` CHECK list gains `'auto'` (Plan 16a; **NOT applied**: owner go-ahead, apply BEFORE deploying; `docs/RUNBOOK_SETTINGS.md` §0) |
 
-| 20261031000001_data_privacy | data_usage() (owner-only sizes) and delete_all_data() (service_role only) (Plan 16c; **NOT applied**: owner go-ahead; RUNBOOK_DATA §0) |
+| 20261031000001_data_privacy | data_usage() (owner-only sizes) and delete_all_data() (service_role only) (Plan 16c; applied 2026-10-27; also adds indexes on moderation_log.undo_of and notifications.account_id so the delete cascade stays linear) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -153,7 +153,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
    probe-gated on P5). It makes "Unanswered questions" exact and shows hides done inside the Instagram app.
 2. **Settings redesign + password** (spec §7, TODO "6b. Next"): sections with their own URLs and one consistent save model (**built in Plan 16a**, NOT pushed); **change password, forgot / reset password and "Sign out other devices" are built
    (Plan 16b)**, NOT pushed, NOT verified live, needing the owner's Supabase settings first (custom SMTP, template, Site URL: `RUNBOOK_SECURITY` §0). A real session list (device, last seen) is NOT possible without a service-role read of `auth.sessions`
-   (Supabase has no API for it): not built. Storage / export all / delete all are built (Plan 16c), NOT pushed.
+   (Supabase has no API for it): not built. Storage / export all / delete all are built and pushed (Plan 16c), not verified live.
 3. **Weekly planning tools** (spec §6 "Content intelligence"): insights feed, leaderboards, format and time lab, cadence, hashtag lab, compare accounts,
    goals, planner board (no publishing to Instagram), weekly/monthly digest.
 4. **Later:** weekly AI summary per account (use the `claude-api` skill), shareable report links (frozen snapshot, expiring token, spec §0b), "Today

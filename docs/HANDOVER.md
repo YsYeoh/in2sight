@@ -12,7 +12,7 @@ In one paragraph: Plans 1 to 15b are built, reviewed, merged and PUSHED to `orig
 
 2026-10-30: Plan 16b (security: change password, forgot / reset password, sign out other devices) is code-complete on local `main`, NOT pushed, NOT verified live, NO migration; the owner's Supabase settings (custom SMTP, Reset Password template, Site URL, minimum length 12, sign-ups off) must be done first: docs/RUNBOOK_SECURITY.md §0.
 
-2026-10-31: Plan 16c (Data & privacy) built, not live; migration 20261031000001 NOT applied (RUNBOOK_DATA §0).
+2026-10-31: Plan 16c (Data & privacy) built, pushed; migration 20261031000001 APPLIED 2026-10-27 (both functions exist, anon denied 401/42501); nothing verified live (RUNBOOK_DATA).
 
 ## 0z. History: the START HERE blocks of 2026-10-19 to 2026-10-22 (superseded by the block above and by docs/PROGRESS.md)
 **NEWEST STATUS (2026-10-22): Plans 15a (Growth tab) and 15b (Followers tab) are PUSHED to `origin/main` (`77a5db0`, Vercel deploys it) and the 15b migration `20261028000002_follower_exports.sql` is APPLIED to the live database on 2026-10-22 at the owner's request (`migration list`: 12 local, 12 remote, 0 mismatched; anon probe: `follower_exports` went from 404 `PGRST205` to 401 `42501`: the table exists and anon is denied). 15a has no migration. Nothing from 15a/15b is verified live yet (docs/RUNBOOK_GROWTH.md §2 first: the follows/unfollows mapping; docs/RUNBOOK_FOLLOWERS.md §2: a real export file). The Plan 15a/15b paragraphs further down that say "NOT pushed" are history.**
