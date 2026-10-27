@@ -223,7 +223,7 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Notifications: test notification to this device, devices list with remove (code done; live verification pending — §3)
 - [x] Accounts & sync overview with Sync now / Reconnect (code done; live verification pending — §4)
 - [ ] Apply migration `20261030000001_prefs_auto_mode` (owner go-ahead, before deploying; RUNBOOK_SETTINGS §0; NOT applied: until then choosing Auto shows a save-failed toast with Retry)
-- [x] Security section: password and sessions added by Plan 16b (see 6p); [ ] Data & privacy is a placeholder until Plan 16c
+- [x] Security section: password and sessions added by Plan 16b (see 6p); [x] Data & privacy (Plan 16c, see 6q)
 - Known: the unsaved-changes guard does not cover the shell's own navigation; the devices list does not mark this device.
 
 ## 6p. Security (Plan 16b)
@@ -232,6 +232,13 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] RUNBOOK_SECURITY §1–§6 walked through by the owner
 - [ ] Open questions L1, L2, L4, L8, L9 answered live (plan 2026-10-30-16b)
 - Known: no session list (Supabase has no API for it), no durable lockout and no CAPTCHA (cookie friction + Supabase limits only), no breached-password check; another device keeps working up to 1 hour after "Sign out other devices", a change or a reset.
+
+## 6q. Data & privacy (Plan 16c)
+- [x] Storage used, export your data (JSON per table), delete all data (password + typed word) (code done on local `main`, NOT pushed; live verification pending: docs/RUNBOOK_DATA.md)
+- [ ] Apply migration `20261031000001_data_privacy` (owner go-ahead; RUNBOOK_DATA §0)
+- [ ] RUNBOOK_DATA §1–§5 walked through by the owner (§3.3, the real delete, only when the owner wants everything gone)
+- [ ] Live checks L1 (keyset on the real PostgREST), L2 (data_usage reads storage.objects), L3 (pg-safeupdate with `where true`), L5 (Instagram app removal) (plan 2026-10-31-16c)
+- Known: no zip and no cover images in the export; one table per request within 50 s; no per-account database bytes; the Instagram grant is removed by the owner in Instagram; a sync mid-run can leave one cover image (shown as "Not linked to an account", removed by the next run).
 
 ## 6b. Next (Plan 14/15 Settings)
 - [x] **Forgot / reset password** (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md) (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
