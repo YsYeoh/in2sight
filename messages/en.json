@@ -376,7 +376,6 @@
       "covers": "Cover images of your posts and Stories, in private storage.",
       "comments": "Comments on your posts and the follower exports you upload. These are other people's data: only you can see them.",
       "delete": "Deleting an account on the Accounts page removes all of its data. Nothing is shared with anyone.",
-      "soon": "Export and delete-everything tools are coming.",
       "privacy": "Access tokens, passwords and device keys are never shown, exported or logged.",
       "usage": {
         "title": "Storage used",
