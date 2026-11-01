@@ -56,7 +56,7 @@ export function weekdayAnomaly(series: Record<string, number | null>, day: strin
 }
 
 /** Nearest-rank percentile of a sorted list. */
-const rank = (sorted: number[], p: number) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+export const rank = (sorted: number[], p: number) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
 
 // ponytail: the pair-slope loop is O(n²) on at most 28 points (378 slopes); never run it on longer series.
 export function projectFollowers(points: { day: string; value: number }[]): ProjectionResult {
