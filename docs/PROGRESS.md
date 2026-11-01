@@ -70,8 +70,9 @@ Each line: plan, what it gives, where to read more.
 - **16c: Data & privacy (pushed, NOT verified live).** Storage used (data_usage(), SECURITY DEFINER, owner-only), export your data (one streamed JSON file per table through the owner session; third-party data only when chosen), delete all data (password + DELETE → service-role-only delete_all_data() in one transaction, then covers; idempotent). Plan: docs/superpowers/plans/2026-10-31-16c-data-privacy.md. Guard: tests/data-privacy-guard.test.ts.
   Opus security review (no Critical): the "current password" check and "code before a new password" are enforced by OUR server actions only; a session token can call Supabase Auth directly (SSR cookie is JS-readable),
   so they are UI-level protection, not a Supabase boundary. Data stays behind `is_owner()` (aal2) either way. **Before enabling the reset template: enrol 2FA, and run `RUNBOOK_SECURITY` §7 (L10 `PUT /user` and L11 `POST /factors` at aal1 must be refused; if L11 is allowed, do NOT enable it).**
+- **17a: Content lab (in progress, NOT verified live; no migration).** Account tab Content (after Stories): leaderboards with repeat / retire, formats and times, hashtags, cadence; numbers from post_lab_latest. Landed: i18n, pure analysis, read and model, the tab in the frame; the tab UI and page wiring (Task 6) is in progress. Plan: docs/superpowers/plans/2026-11-01-17a-content-lab.md. Runbook: docs/RUNBOOK_CONTENT.md.
 
-Account page tabs now: **Overview, Growth, Posts, Stories, Comments, Moderation, Followers** (the range bar shows on Overview and Growth only; list pages have their own filters).
+Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
 
 ## 4. Architecture notes a new session needs
 - **Pages = wiring, logic in `lib/`.** Analysis is pure functions in `lib/analysis/` with Vitest tests. Reads use the OWNER session (RLS); the
@@ -140,6 +141,7 @@ the owner. Each runbook lists exact steps.
    behaviours (Open questions): the `amr` method name of a recovery session (L2), the current-password check through a separate memory-only client (L1), and the JWT expiry (L7: other devices keep working up to 1 hour after
    "Sign out other devices", a change or a reset). Until these pass, do not rely on forgot / reset; the old way (assistant + Auth admin API) still works.
 9. **docs/RUNBOOK_DATA.md** (Plan 16c): §0 migration, §1 storage, §2 export (L1 keyset), §4 refusal paths; §3.3 the real delete only when the owner wants everything gone.
+10. **docs/RUNBOOK_CONTENT.md** (Plan 17a): §1 numbers match Post Lab (L1), §2 guards and empty states, §3 speed at "All time" (L2), §4 phone and themes.
 Record outcomes in the runbooks and TODO ("code done; live verification pending" becomes ticked only after the owner has looked).
 
 ## 7. What is left to build (priority order; the owner's order is data and analysis first, planning last)
@@ -185,6 +187,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 - 16b: password minimum 12 characters (at most 72 bytes, 5 distinct, not the email name), cookie friction plus Supabase's own limits (no lockout table, no CAPTCHA, no breached-password check), a 15-minute window to set the password after the link, a reset signs out every device (sign in again with the new password), no session list (one "Sign out other devices" button), one bilingual reset email template, `/login/forgot` and `/auth/confirm` as the only new public paths.
 
 - 16c: delete all keeps login, 2FA, preferences, alert rules and push devices; password + typed DELETE (no extra TOTP); JSON per table, no zip, no covers in the export; third-party data only when ticked; the app does not revoke the Instagram grant; table groups + covers per account, no per-account database bytes.
+- 17a: Content tab after Stories (the roadmap said after Growth), medians from 5 posts, hashtag rows from 20, frequency from 8 complete weeks, caption bands 125 / 500, repeat = top quarter in 2 kinds of number, retire = median below the 25th percentile with 5+ posts, picks via replaceState (a range change resets them).
 
 ## 9. How to work here
 **Commands:** `npm run dev`, `npm test`, `npm run check` (lint + tsc + tests + build; must pass before anything is called done), `npm run check:env`.

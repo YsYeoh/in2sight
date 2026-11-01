@@ -240,6 +240,12 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] Live checks L1 (keyset on the real PostgREST), L2 (data_usage reads storage.objects), L3 (pg-safeupdate with `where true`), L5 (Instagram app removal) (plan 2026-10-31-16c)
 - Known: no zip and no cover images in the export; one table per request within 50 s; no per-account database bytes; the Instagram grant is removed by the owner in Instagram; a sync mid-run can leave one cover image (shown as "Not linked to an account", removed by the next run).
 
+## 6r. Content lab (Plan 17a)
+- [x] i18n keys, pure analysis (leaderboard / repeat / retire, hashtags, cadence, splits), read and model, Content tab in the account frame with the range bar (landed; not verified live)
+- [ ] Content tab UI and page wiring: leaderboards, formats and times, hashtags, cadence (Task 6, in progress)
+- [ ] RUNBOOK_CONTENT §1–§4 walked through by the owner (L1 numbers match Post Lab, L2 speed at "All time")
+- Known: feed posts only (Stories as Story days); medians from 5 posts, hashtag rows from 20 posts with reach, posts-per-week vs reach from 8 complete weeks; a range change resets the tab's picks.
+
 ## 6b. Next (Plan 14/15 Settings)
 - [x] **Forgot / reset password** (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md) (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [x] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md; no session list is possible, one "Sign out other devices" button) (owner currently changes it via the Auth admin API on request)
