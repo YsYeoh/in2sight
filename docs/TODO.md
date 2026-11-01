@@ -242,7 +242,7 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6r. Content lab (Plan 17a)
 - [x] i18n keys, pure analysis (leaderboard / repeat / retire, hashtags, cadence, splits), read and model, Content tab in the account frame with the range bar (landed; not verified live)
-- [ ] Content tab UI and page wiring: leaderboards, formats and times, hashtags, cadence (Task 6, in progress)
+- [x] Content tab UI and page wiring: leaderboards, formats and times, hashtags, cadence
 - [ ] RUNBOOK_CONTENT §1–§4 walked through by the owner (L1 numbers match Post Lab, L2 speed at "All time")
 - Known: feed posts only (Stories as Story days); medians from 5 posts, hashtag rows from 20 posts with reach, posts-per-week vs reach from 8 complete weeks; a range change resets the tab's picks.
 

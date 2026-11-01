@@ -1,6 +1,6 @@
 # Runbook: Content tab (Plan 17a) — live checks
 
-Status: NOT verified live (use once the Content tab UI has landed). No migration (the tab reads `post_lab_latest`, applied 2026-10-19). Do these with the owner, signed in with 2FA, on the deployed app. Report numbers and yes/no only.
+Status: code complete, NOT verified live. No migration (the tab reads `post_lab_latest`, applied 2026-10-19). Do these with the owner, signed in with 2FA, on the deployed app. Report numbers and yes/no only.
 
 ## 0. Before you start
 - The account has at least 20 feed posts in the last 12 months (else Hashtags shows "Needs 20 posts…": correct, but nothing to check).
