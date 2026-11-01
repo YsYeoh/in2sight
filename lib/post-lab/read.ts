@@ -53,7 +53,7 @@ function linkTaps(activity: unknown): number | null {
   return hit ? num(hit[1]) : null;
 }
 
-function toValues(r: Row): LabValues {
+export function toValues(r: Row): LabValues {
   const skip = num(r.skip_rate);
   return {
     reach: num(r.reach),
