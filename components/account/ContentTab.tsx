@@ -86,7 +86,12 @@ export function ContentTab({ model, accountId, scopeQuery }: { model: ContentLab
           <FilterSelect id="content-group" label={t('group.label')} value={group} options={BOARD_GROUPS.map((g) => ({ value: g, label: t(`group.${g}`) }))} hrefFor={(v) => hrefOf({ group: v as ContentPicks['group'] })} onPick={(v) => choose({ group: v as ContentPicks['group'] })} />
         </FilterToolbar>
         {source}
-        <ChartCard title={t('boardTitle', { metric: name })} subtitle={`${t('boardSource', { n: whole(board.n), posts: whole(board.posts) })}${NOT_FOR_REELS.includes(metric) ? ` ${t('notForReels')}` : ''} ${t('repeatHint')}`}>
+        <ChartCard title={t('boardTitle', { metric: name })}>
+          <div className="mb-2 grid gap-1 text-xs text-muted-foreground">
+            <p>{t('boardSource', { n: whole(board.n), posts: whole(board.posts) })}</p>
+            {NOT_FOR_REELS.includes(metric) ? <p>{t('notForReels')}</p> : null}
+            <p>{t('repeatHint')}</p>
+          </div>
           {board.groups === null ? (
             <DataTable<Ranked<ContentPost>>
               rows={board.top}
@@ -108,20 +113,20 @@ export function ContentTab({ model, accountId, scopeQuery }: { model: ContentLab
               columns={[
                 { key: 'group', header: t(`group.${group}`), cell: groupName },
                 { key: 'posts', header: t('posts'), cell: (g) => whole(g.posts), align: 'right' },
-                { key: 'median', header: t('median'), cell: (g) => (g.median === null ? t('fewer') : value(metric, g.median)), align: 'right' },
+                { key: 'median', header: t('median'), cell: (g) => (g.median === null ? t('fewerWithNumber') : value(metric, g.median)), align: 'right' },
                 { key: 'best', header: t('best'), cell: (g) => (g.best ? postCell(g.best.post) : '—') },
               ]}
             />
           )}
         </ChartCard>
-        <ChartCard title={t('retireTitle')} subtitle={t('retireSource', { value: value(metric, board.q25) })}>
+        <ChartCard title={t('retireTitle')} subtitle={board.q25 === null ? t('retireSourceFew') : t('retireSource', { value: value(metric, board.q25) })}>
           {board.retire.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('retireNone')}</p>
           ) : (
             <ul className="grid gap-1 text-sm">
               {board.retire.map((r) => (
                 <li key={`${r.kind}:${r.key}`} className="break-words">
-                  {t('retireRow', { name: r.kind === 'format' ? ta(`format.${r.key}`) : tagName(r.key), median: value(metric, r.median), n: r.n })}
+                  {t('retireRow', { name: r.kind === 'format' ? ta(`format.${r.key}`) : tagName(r.key), median: value(metric, r.median), n: whole(r.n) })}
                 </li>
               ))}
             </ul>
@@ -140,7 +145,7 @@ export function ContentTab({ model, accountId, scopeQuery }: { model: ContentLab
           {splitTable(t('formatsTitle'), model!.formats, (k) => ta(`format.${k}`))}
           {splitTable(t('daypartsTitle'), model!.dayparts, (k) => t(`daypart.${k}`))}
           {splitTable(t('captionsTitle'), model!.captions, (k) => t(`band.${k}`))}
-          <ChartCard title={t('frequencyTitle')} subtitle={f ? t('frequencySource', { weeks: f.weeks }) : t('frequencyNone')}>
+          <ChartCard title={t('frequencyTitle')} subtitle={f ? t('frequencySource', { weeks: whole(f.weeks) }) : t('frequencyNone')}>
             {f ? (
               <DataTable
                 rows={f.rows}
@@ -183,7 +188,7 @@ export function ContentTab({ model, accountId, scopeQuery }: { model: ContentLab
                   { key: 'tag', header: t('hashtag'), cell: (r) => <span className="break-words">#{r.tag}</span> },
                   { key: 'posts', header: t('posts'), cell: (r) => whole(r.posts), align: 'right' },
                   { key: 'reach', header: t('medianReach'), cell: (r) => (r.medianReach === null ? t('fewer') : whole(r.medianReach)), align: 'right' },
-                  { key: 'saves', header: t('medianSaves'), cell: (r) => (r.medianSaves === null ? t('fewer') : whole(r.medianSaves)), align: 'right' },
+                  { key: 'saves', header: t('medianSaves'), cell: (r) => (r.medianSaves === null ? t('fewerWithNumber') : whole(r.medianSaves)), align: 'right' },
                   { key: 'last', header: t('lastUsed'), cell: (r) => formatDate(r.lastUsed, prefs) },
                 ]}
               />
@@ -197,7 +202,8 @@ export function ContentTab({ model, accountId, scopeQuery }: { model: ContentLab
 
   function cadencePanel() {
     const c = model!.cadence;
-    const days = (n: number | null) => (n === null ? '—' : t('days', { count: n }));
+    const dayCount = (n: number) => t(n === 1 ? 'day' : 'days', { n: formatNumber(n, prefs, { maximumFractionDigits: 1 }) });
+    const days = (n: number | null) => (n === null ? '—' : dayCount(n));
     const weeks = (n: number) => t('weeksCount', { count: n });
     const item = (label: string, v: string, note?: string) => (
       <div className="min-w-0">
@@ -211,14 +217,14 @@ export function ContentTab({ model, accountId, scopeQuery }: { model: ContentLab
         {c.warn && c.sinceLast !== null && c.usualGap !== null ? (
           <p role="status" className="flex items-center gap-2 text-sm font-medium">
             <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-destructive" />
-            {t('warn', { days: c.sinceLast, usual: formatNumber(c.usualGap, prefs, { maximumFractionDigits: 1 }) })}
+            {t('warn', { days: whole(c.sinceLast), usual: formatNumber(c.usualGap, prefs, { maximumFractionDigits: 1 }) })}
           </p>
         ) : null}
         <ChartCard title={t('cadenceTitle')} subtitle={t('cadenceSource', { from: formatDay(c.range.from, prefs), to: formatDay(c.range.to, prefs), count: c.posts })}>
           <dl className="grid grid-cols-2 gap-[var(--gp)] md:grid-cols-3">
             {item(t('postsPerWeek'), formatNumber(c.perWeek, prefs, { maximumFractionDigits: 1 }))}
             {item(t('longestGap'), days(c.longestGap?.days ?? null), c.longestGap ? t('gapDates', { from: formatDay(c.longestGap.from, prefs), to: formatDay(c.longestGap.to, prefs) }) : undefined)}
-            {item(t('usualGap'), c.usualGap === null ? '—' : t('days', { count: c.usualGap }), c.usualGap === null ? t('usualGapFew') : undefined)}
+            {item(t('usualGap'), c.usualGap === null ? '—' : dayCount(c.usualGap), c.usualGap === null ? t('usualGapFew') : undefined)}
             {item(t('sinceLast'), c.sinceLast === null ? t('never') : days(c.sinceLast))}
             {item(t('streak'), c.streak.current === null ? '—' : weeks(c.streak.current), c.streak.current === null ? t('noCurrent') : t('streakHint'))}
             {item(t('bestStreak'), weeks(c.streak.best))}
@@ -226,7 +232,7 @@ export function ContentTab({ model, accountId, scopeQuery }: { model: ContentLab
         </ChartCard>
         <ChartCard title={t('storyDays')}>
           <p className="text-sm">
-            {c.stories ? t('storyLine', { days: c.stories.days, total: daysIn(c.stories.range), perWeek: formatNumber(c.stories.perWeek, prefs, { maximumFractionDigits: 1 }), from: formatDay(c.stories.range.from, prefs) }) : t('storyNone')}
+            {c.stories ? t('storyLine', { days: whole(c.stories.days), total: whole(daysIn(c.stories.range)), perWeek: formatNumber(c.stories.perWeek, prefs, { maximumFractionDigits: 1 }), from: formatDay(c.stories.range.from, prefs) }) : t('storyNone')}
           </p>
         </ChartCard>
       </div>

@@ -92,6 +92,16 @@ describe('ContentTab', () => {
     expect(screen.getByText(c.hashtagsFew.replace('{measured}', '8'))).toBeInTheDocument();
   });
 
+  it('a group median under 5 posts says "with this number"; the retire source without a 25th percentile says what it needs; the board notes are separate paragraphs', async () => {
+    const user = userEvent.setup();
+    wrap(<ContentTab model={modelOf(rows.slice(0, 4))} accountId={ID} scopeQuery="" />);
+    expect(screen.getByText(c.retireSourceFew)).toBeInTheDocument();
+    expect(screen.getByText(c.repeatHint).tagName).toBe('P');
+    expect(screen.getByText(/^4 of 4 posts have this number/).tagName).toBe('P');
+    await user.selectOptions(screen.getByLabelText(c.group.label), 'week');
+    expect(screen.getAllByText(c.fewerWithNumber).length).toBeGreaterThan(0);
+  });
+
   it('opens on the section of the URL; Cadence warns after twice the usual gap', () => {
     search.value = 'section=cadence';
     const old = [10, 12, 14, 16, 18].map((d) => row(d, { reach: 100 })); // posting days every 2 days, newest 2026-10-10: 18 days ago

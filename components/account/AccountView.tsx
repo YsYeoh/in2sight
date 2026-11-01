@@ -5,7 +5,7 @@
 // Tabs gives tablist/tab/tabpanel roles + arrow keys; activationMode="manual" so arrowing between tabs does not fire a
 // navigation per key press. The range bar lives in the Overview and Growth panels only, outside the tab's Suspense boundary, so it
 // stays usable while the tab streams.
-import { useTransition, type ReactNode } from 'react';
+import { Fragment, useTransition, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CalendarDays, ExternalLink } from 'lucide-react';
@@ -77,7 +77,8 @@ export function AccountView({ account, tab, scope, today, exportButton, children
             {v === tab ? (
               <>
                 {v === 'overview' || v === 'growth' || v === 'content' ? <RangeBar scope={scope} today={today} keep={v === 'overview' ? undefined : { tab: v }} /> : null}
-                {children}
+                {/* a range change drops the Content tab's own picks (section, metric, format, group): remount it so its state agrees with the URL */}
+                <Fragment key={v === 'content' ? scope.query : undefined}>{children}</Fragment>
               </>
             ) : null}
           </TabsContent>

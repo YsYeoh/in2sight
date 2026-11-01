@@ -1,7 +1,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NextIntlClientProvider } from 'next-intl';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
 import zh from '@/messages/zh-CN.json';
@@ -131,6 +131,25 @@ describe('AccountView', () => {
     expect(within(panel).getByRole('navigation', { name: en.timeScope.presets })).toBeInTheDocument();
     expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?tab=content&from=7d');
     expect(screen.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Content: a range change remounts the tab so its picks agree with the URL (the range links drop them)', async () => {
+    const user = userEvent.setup();
+    const Picker = () => {
+      const [n, setN] = useState(0);
+      return <button onClick={() => setN(n + 1)}>picks {n}</button>;
+    };
+    const { rerender } = wrap(frame('content', 'from=90d', <Picker />));
+    await user.click(screen.getByRole('button', { name: 'picks 0' }));
+    expect(screen.getByRole('button', { name: 'picks 1' })).toBeInTheDocument();
+    rerender(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
+          {frame('content', 'from=7d', <Picker />)}
+        </PrefsProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'picks 0' })).toBeInTheDocument();
   });
 });
 
