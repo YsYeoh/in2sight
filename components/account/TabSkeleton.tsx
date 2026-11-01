@@ -17,6 +17,7 @@ export function TabSkeleton({ tab }: { tab: Tab }) {
           <SkeletonGrid count={6} className="sm:grid-cols-2 xl:grid-cols-3" itemClassName="h-40" />
         </div>
       );
+    case 'content':
     case 'comments':
     case 'moderation':
     case 'followers':

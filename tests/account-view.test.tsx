@@ -58,7 +58,7 @@ function wrap(ui: ReactNode, locale: 'en' | 'zh-CN' = 'en') {
 
 describe('AccountView', () => {
   const head = { id: ID, username: 'brand.one', displayName: 'Brand One', groupName: 'Brand X' };
-  const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories' | 'comments' | 'moderation' | 'followers', q = '', children = <p>panel</p>) => (
+  const frame = (tab: 'overview' | 'growth' | 'posts' | 'stories' | 'content' | 'comments' | 'moderation' | 'followers', q = '', children = <p>panel</p>) => (
     <AccountView account={head} tab={tab} scope={scopeOf(q)} today={TODAY}>
       {children}
     </AccountView>
@@ -81,7 +81,7 @@ describe('AccountView', () => {
     wrap(frame('posts', '', <p>posts panel</p>));
     const list = screen.getByRole('tablist', { name: en.pages.account.tabs });
     const tabs = within(list).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories', 'Comments', 'Moderation', 'Followers']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Growth', 'Posts', 'Stories', 'Content', 'Comments', 'Moderation', 'Followers']);
     expect(list).toHaveAttribute('data-variant', 'line');
     expect(within(list).getByRole('tab', { name: 'Posts' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel')).toHaveTextContent('posts panel');
@@ -123,6 +123,14 @@ describe('AccountView', () => {
     expect(within(panel).getByRole('navigation', { name: en.timeScope.presets })).toBeInTheDocument();
     expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?tab=growth&from=7d');
     expect(screen.getByRole('tab', { name: 'Growth' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Content (Plan 17a): the range bar shows inside its panel and every range link keeps the tab', () => {
+    wrap(frame('content', 'from=90d'));
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).getByRole('navigation', { name: en.timeScope.presets })).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: en.timeScope.preset['7d'] })).toHaveAttribute('href', '?tab=content&from=7d');
+    expect(screen.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true');
   });
 });
 

@@ -16,9 +16,9 @@ const optsOf = (q: string) => ({ scope: resolveScope(parseTimeScope(new URLSearc
 const opts = optsOf('from=7d');
 
 describe('parseTab', () => {
-  it('accepts the six tabs only; the old Audience tab and injections fall back to overview', () => {
-    expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers']);
-    expect(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers', 'audience', 'GROWTH'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'comments', 'moderation', 'followers', 'overview', 'overview']);
+  it('accepts the eight tabs only; the old Audience tab and injections fall back to overview', () => {
+    expect(TABS).toEqual(['overview', 'growth', 'posts', 'stories', 'content', 'comments', 'moderation', 'followers']);
+    expect(['overview', 'growth', 'posts', 'stories', 'content', 'comments', 'moderation', 'followers', 'audience', 'GROWTH', 'CONTENT'].map(parseTab)).toEqual(['overview', 'growth', 'posts', 'stories', 'content', 'comments', 'moderation', 'followers', 'overview', 'overview', 'overview']);
     for (const bad of [undefined, '', 'POSTS', 'settings', '<script>alert(1)</script>', 'posts ', ['posts', 'audience'], 42, '__proto__', 'constructor']) expect(parseTab(bad)).toBe('overview');
   });
 });

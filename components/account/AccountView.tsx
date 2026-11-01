@@ -76,7 +76,7 @@ export function AccountView({ account, tab, scope, today, exportButton, children
           <TabsContent key={v} value={v} aria-busy={pending || undefined} className={cn('min-w-0 pt-[var(--gp)] transition-opacity', pending && 'opacity-60')}>
             {v === tab ? (
               <>
-                {v === 'overview' || v === 'growth' ? <RangeBar scope={scope} today={today} keep={v === 'growth' ? { tab: v } : undefined} /> : null}
+                {v === 'overview' || v === 'growth' || v === 'content' ? <RangeBar scope={scope} today={today} keep={v === 'overview' ? undefined : { tab: v }} /> : null}
                 {children}
               </>
             ) : null}
