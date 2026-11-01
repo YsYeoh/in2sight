@@ -5,6 +5,7 @@ import { AccountOverview } from '@/components/account/AccountOverview';
 import { AccountView } from '@/components/account/AccountView';
 import { ModeratedCommentsTab } from '@/components/account/CommentActions';
 import { CommentsTab, type CommentsData } from '@/components/account/CommentsTab';
+import { ContentTab } from '@/components/account/ContentTab';
 import { FollowersTab } from '@/components/account/FollowersTab';
 import { GrowthTab } from '@/components/account/GrowthTab';
 import { ModerationTab } from '@/components/account/ModerationTab';
@@ -24,6 +25,8 @@ import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboa
 import { buildAudience } from '@/lib/dashboard/audience';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
 import { buildPosts, buildStories, storyView } from '@/lib/dashboard/content';
+import { buildContentLab } from '@/lib/dashboard/content-lab';
+import { loadContentLab } from '@/lib/dashboard/content-lab-read';
 import { buildGrowth, growthReadFrom, HOURLY_MAX_DAYS } from '@/lib/dashboard/growth';
 import { loadAudienceEnds, loadCommentDays, loadFollowerCurve, loadReachBreakdown, loadStoryDays } from '@/lib/dashboard/growth-read';
 import { loadAudience, loadOnline, loadPostPage, loadPostRows, loadStoryPage, loadStories, loadTags } from '@/lib/dashboard/detail-read';
@@ -83,6 +86,14 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       // before migration 20261027000001 is applied: the capped read of the window, the same state applied in TypeScript
       const { stories, truncated } = await loadStories(db, account.id, fromIso, toIso);
       return <StoriesTab {...pageStories(buildStories(stories, now), state, tz)} truncated={truncated} {...props} />;
+    }
+    case 'content': {
+      // Plan 17a: the feed posts of the Time Scope's days with their latest KNOWN numbers (post_lab_latest); "All time"
+      // reads every stored post (listRange). null = the Post Lab migration is missing: the tab says so.
+      const { fromIso, toIso } = daysToIso(scope.listRange.from, scope.listRange.to, tz);
+      const [read, tags] = await Promise.all([loadContentLab(db, account.id, fromIso, toIso, tz), loadTags(db)]);
+      const model = read ? buildContentLab({ ...read, tags, connectedAt: account.connectedAt }, { scope, today, tz, weekStart: prefs.weekStart }) : null;
+      return <ContentTab model={model} accountId={account.id} scopeQuery={scope.query} />;
     }
     case 'growth': {
       // the range + 90 days before it (same-weekday history, Why baselines) + the last 28 days (projection); Plan 15a

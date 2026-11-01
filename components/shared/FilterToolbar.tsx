@@ -187,12 +187,14 @@ export function FilterSelect({
   value,
   options,
   hrefFor,
+  onPick,
 }: {
   id: string;
   label: string;
   value: string;
   options: FilterOption[];
   hrefFor: (value: string) => string;
+  onPick?: (value: string) => void; // a view-only pick (UI standard 14): the caller writes the URL with history.replaceState, no navigation
 }) {
   const apply = useApply();
   return (
@@ -203,7 +205,7 @@ export function FilterSelect({
       <select
         id={id}
         value={value}
-        onChange={(e) => apply(hrefFor(e.target.value))}
+        onChange={(e) => (onPick ? onPick(e.target.value) : apply(hrefFor(e.target.value)))}
         className="h-[var(--ctl)] max-w-56 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground"
       >
         {options.map((o) => (
