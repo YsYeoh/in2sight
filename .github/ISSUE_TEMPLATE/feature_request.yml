@@ -1,0 +1,23 @@
+name: Feature or idea
+description: Suggest an improvement or a new analysis. Larger ideas are discussed here before any code is written.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What do you imagine?
+      description: Sketches welcome. Say which data it needs (no new Meta API call? a new table?) and how it would state its sample size and confidence.
+  - type: dropdown
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - "Yes, I would like to build it"
+        - "Maybe, with guidance"
+        - "No, I am only suggesting it"

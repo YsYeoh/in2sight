@@ -7,22 +7,23 @@
   </picture>
 </h1>
 
-### From Instagram analytics to an AI growth brain for your IP
+### Open-source Instagram analytics that remember
 
-**Record everything. Understand why it works. Let an AI strategist help you grow, with you holding the controls.**
+**Connect your accounts. Record the trend. Understand what works. Decide what to post next.**<br>
+Your data stays in your own database. Next: an optional AI strategist, with you in control.
 
+[![CI](https://github.com/YsYeoh/in2sight/actions/workflows/ci.yml/badge.svg)](https://github.com/YsYeoh/in2sight/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Next.js 16](https://img.shields.io/badge/Next.js-16-black)
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20Auth-3ecf8e)
-![Tests](https://img.shields.io/badge/tests-3%2C100%2B%20passing-brightgreen)
 ![Status](https://img.shields.io/badge/status-working%20prototype-orange)
 ![Self-hosted](https://img.shields.io/badge/data-self--hosted%20%26%20yours-informational)
 
-[**User manual**](docs/MANUAL.md) · [Vision](#-the-vision) · [How it works](#-how-it-works) · [Roadmap](#-roadmap) · [Project status](#-project-status)
+[**User manual**](docs/MANUAL.md) · [How it works](#-how-it-works) · [Security](#-security-and-compliance) · [Roadmap](#-roadmap) · [Contributing](#-contributing)
 
 <br>
 
-<img src="docs/images/overview-dark.png" alt="in2sight account overview in the dark theme: KPI cards, reach and views chart, followers curve, format comparison, flags and best time to post" width="100%">
+<img src="docs/images/overview-dark.png" alt="in2Sight account overview in the dark theme: KPI cards, reach and views chart, followers curve, format comparison, flags and best time to post" width="100%">
 
 <sub>The account overview (dark theme), running on real data. Tabs: Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers.</sub>
 
@@ -30,39 +31,11 @@
 
 ---
 
-## 🎯 The vision
+## What it is
 
-> **Give every creator and small brand the analyst, the strategist and the media buyer they cannot afford: an always-on AI that watches the traffic of your IP, understands what your content actually contains, and tells you (and, with your approval, does) what grows your audience. You keep the data and the final say.**
+in2Sight is a self-hosted dashboard that pulls your Instagram insights through Meta's official API and **keeps them**. Instagram's own Insights forgets: account-level numbers reach back only about 90 days and Stories vanish after 24 hours. in2Sight records continuously (Stories every 30 minutes, everything else daily) into a database you own, so the history, and what you can learn from it, grows every day.
 
-"Your IP" means your creator brand, channel, character or catalogue: the thing you are building an audience around.
-
-Today's tools show you charts and leave the thinking to you. in2sight is being built in five stages, and **the first two already work**:
-
-```mermaid
-flowchart LR
-  A["1. RECORD<br/>posts, Stories, followers,<br/>audience, every 30 min"] --> B["2. EXPLAIN<br/>trends, what changed<br/>and why, what works"]
-  B --> C["3. UNDERSTAND<br/>AI vision, video, voice<br/>and text of your content"]
-  C --> D["4. DECIDE<br/>LLM + decision model +<br/>growth strategies"]
-  D --> E["5. ACT<br/>planner, drafts,<br/>then the Ads plugin"]
-  classDef done fill:#1f7a4d,stroke:#145a38,color:#ffffff
-  classDef next fill:#b7791f,stroke:#8a5a14,color:#ffffff
-  classDef later fill:#4a5568,stroke:#2d3748,color:#ffffff
-  class A,B done
-  class C next
-  class D,E later
-```
-
-<sub>🟢 built (stage 2 is rule-based today) · 🟠 designed next · ⚫ planned</sub>
-
-**Why a brain and not just a dashboard?** A number like "reach fell 28%" starts a question, it does not answer it. The answer sits in the content itself: the hook in the first second of a Reel, the face or product in the cover, what you said, the caption, the hour you posted, who is watching. A system that can *see, hear and read* your posts, remember what worked, and test new ideas can answer that question every day, which no person with a spreadsheet will.
-
-**Principles that do not change as the AI grows**
-- **You own the data.** It lives in your own database, on your own deployment. Self-hosted first.
-- **Human in the loop.** The AI proposes; you approve. Nothing is posted, replied or spent without a click. Every action is logged and reversible where Instagram allows it.
-- **Show the evidence.** Every claim states its sample size and confidence. "Not enough data" is an answer.
-- **Bring your own brain.** Use a hosted model through your own API key (Claude, Codex and others) or a self-hosted agent runtime you control. No lock-in.
-- **Private by default.** Your own content only. Other people's data (commenter names, follower lists) is never sent to a model unless you opt in.
-- **Open source (MIT).** Auditable by the people whose accounts it touches.
+**Who it is for:** creators and small brands who run one or more Instagram accounts and want to answer "what is working, what changed, and what should I post next" without screenshots and spreadsheets. **Where it stands:** a working prototype used on two real accounts, one owner per deployment, built openly. See [Project status](#-project-status) for the honest list of what is and is not verified.
 
 ---
 
@@ -125,25 +98,13 @@ flowchart LR
   YOU -. "connect an account" .-> API
 ```
 
-What makes it safe to point at real accounts:
-
-| | |
-|---|---|
-| 🔐 **Owner-only** | Row-level security on every table; password plus TOTP two-factor; sign-ups off. Once 2FA is on, the database itself refuses a password-only session. |
-| 🗝️ **Tokens stay server-side** | Instagram tokens sit in a table only the server's service role can read. Never in the browser, never logged. |
-| ✅ **Official API only** | Instagram API with Instagram Login. No scraping, no passwords collected. |
-| 🛑 **Fails closed** | The sync endpoint refuses requests without its secret; delete-all needs your password and a typed word; writes to Instagram are confirmed, logged and reversible where possible. |
-| 🧪 **Tested** | 309 test files, about 3,100 tests, plus guard tests that fail the build if a log line or route could expose a secret or third-party data. |
-
-Full detail, limits and a hardening checklist: **[Security and compliance](#-security-and-compliance)** and [SECURITY.md](SECURITY.md).
-
 **Stack:** Next.js 16 (App Router, TypeScript strict) on Vercel · Supabase (Postgres, Auth, Storage) · Tailwind + shadcn/Radix · Recharts · next-intl · Vitest. Small on purpose: plain `fetch` for the Meta API, analysis as pure unit-tested functions in [`lib/analysis/`](lib/analysis/), every database change a SQL migration in [`supabase/migrations/`](supabase/migrations/).
 
 ---
 
-## 🛡️ Security and compliance
+## 🔒 Security and compliance
 
-in2sight handles Instagram tokens and other people's names and comments, so security is a feature, not an afterthought. The full write-up is **[SECURITY.md](SECURITY.md)**; the summary:
+in2Sight handles Instagram tokens and other people's names and comments, so security is a feature, not an afterthought. The full write-up is **[SECURITY.md](SECURITY.md)**; the summary:
 
 | Layer | What is in place |
 |---|---|
@@ -151,7 +112,7 @@ in2sight handles Instagram tokens and other people's names and comments, so secu
 | **Data** | Row-level security on every table · private cover storage · export and delete-all with password re-check and typed confirmation · third-party data excluded from exports unless you opt in |
 | **Secrets** | Instagram tokens readable only by the server's service role · no secrets in the browser · no secret logging · cron and Meta callbacks authenticated (constant-time secret, HMAC-signed requests, OAuth `state`) |
 | **Writes to Instagram** | Confirmed, logged, reversible where possible · auto-hide off by default |
-| **Verification** | About 3,100 tests including guard tests for the rules above · AI-assisted security review of each sensitive feature (no Critical findings open) · a live-verification runbook per feature |
+| **Verification** | 3,000+ automated tests including guard tests for the rules above (run on every push by CI) · AI-assisted security review of each sensitive feature (no Critical findings open) · a live-verification runbook per feature |
 
 **Compliance posture, honestly:**
 
@@ -161,75 +122,7 @@ in2sight handles Instagram tokens and other people's names and comments, so secu
 | ⚠️ Not yet | Independent security audit · penetration test · complete live verification of every feature |
 | ❌ Not claimed | SOC 2, ISO 27001 or any certification. If you host it, **you** are the data controller and responsible for your own compliance (privacy notice, lawful basis, processor terms) |
 
-**Known limits** (all listed in SECURITY.md): enrol 2FA before enabling password-reset email; some password rules are app-level, not a Supabase boundary; signed-out devices stay valid up to an hour; no recovery codes; only a minimal Content Security Policy.
-
-🔒 **Found a vulnerability?** Use the repository's **Security → Report a vulnerability** (private). Please do not open a public issue.
-
----
-
-## 🧠 The AI brain (planned)
-
-The brain is a layer **on top of** the data in2sight already collects. It never touches Instagram directly: it reads through a narrow, read-only tool interface and writes only *proposals* that wait for your approval.
-
-```mermaid
-flowchart TB
-  DB[("in2sight data<br/>posts, Stories, followers,<br/>audience, comments (counts)")]
-  TOOLS["Read-only tool interface<br/>MCP / REST, per-account scope"]
-  subgraph BRAIN["AI brain (bring your own: hosted API or self-hosted agent)"]
-    MON["Monitor loop<br/>watches traffic, spots<br/>spikes, drops, trends"]
-    VIS["Content understanding<br/>vision for images and video,<br/>speech to text, caption NLP"]
-    LLM["LLM reasoning<br/>explains why, drafts<br/>hypotheses and plans"]
-    DM["Decision model<br/>scores options, designs<br/>experiments, learns<br/>from results"]
-  end
-  PROP["Proposals queue<br/>(planner board)<br/>each with evidence,<br/>sample size, cost"]
-  YOU(("You<br/>approve or reject"))
-  ADS["Ads plugin (later)<br/>boost what already works,<br/>with budget caps"]
-  DB --> TOOLS --> MON
-  MON --> LLM
-  VIS --> LLM
-  LLM --> DM --> PROP
-  PROP --> YOU
-  YOU -- "approved only" --> ADS
-  YOU -. "what worked?" .-> DM
-```
-
-**What it should be able to do, in plain words**
-- **Monitor** your traffic around the clock and tell you only what matters (a breakout post, a slow decline, a format that stopped working), not fifty pings.
-- **Understand content** the way a viewer does: describe what is on screen, what is said, what the hook is, and link those features to the numbers (a made-up example of the kind of finding: "Reels that open on a face keep more viewers").
-- **Recommend and plan**: what to post next, when, in which format and style, why, and how confident it is.
-- **Learn from experiments**: propose a test, measure it against your own history, keep what works.
-- **Boost with ads (later)**: put budget behind posts that already work, with caps you set. Ads use Meta's separate marketing permissions and review, so this comes last.
-
-**How you plug a brain in**
-1. **Hosted model, your key:** Claude, Codex or another LLM API, called from your own deployment with your own key and a spending cap.
-2. **Self-hosted agent:** an agent framework you run yourself, talking to in2sight through the same read-only tool interface, so your data never leaves your machines.
-
-**Guardrails built in from the start:** opt-in per account, human approval for anything outward-facing, a hard budget and rate cap, a full audit log, a kill switch, and no third-party personal data in prompts by default.
-
-> Honest status: **none of the AI brain is built yet.** The data foundation it needs is. See the roadmap for the order.
-
----
-
-## 🗺️ Roadmap
-
-Detailed plans live in [`docs/superpowers/plans/`](docs/superpowers/plans/). A phase is "done" only when its live checks pass.
-
-| Phase | Goal | Status |
-|---|---|---|
-| **0. Foundation** | auth with 2FA, Instagram connect, sync engine, dashboards, alerts, PWA, exports | ✅ built |
-| **1. Analytics suite** | Time Scope, Explorer, Post Lab, Growth, Followers, Comments, Moderation, Settings, security, data and privacy, **Content lab** | ✅ code complete · 🔎 live walkthroughs pending |
-| **2. Verify and harden** | walk every runbook with real data, record real API fixtures, independent security review | 🚧 now |
-| **3. Weekly planning tools** | Insights feed and "Today" · auto-tagging · goals and digest · smart alerts · planner board | 📐 planned in detail |
-| **4. AI-ready platform** | structured findings as a data contract, a read-only tool interface (MCP / REST), a proposals queue, usage and cost controls | 🔭 planned |
-| **5. Content understanding** | vision for images and video, speech-to-text, caption NLP, content features linked to performance | 🔭 planned |
-| **6. AI strategist** | monitor loop, LLM reasoning, decision model, experiments, weekly strategy with evidence; hosted-model and self-hosted-agent options | 🔭 planned |
-| **7. Ads plugin** | boost proven posts with budget caps and approval; Meta marketing-API review | 🔭 later |
-| **8. Open to everyone** | multi-user workspaces, Meta App Review, one-click self-host, hosted option, docs and community | 🔭 proposed, needs design |
-
-### What support would unlock
-- **Phases 4 to 6** (the AI brain) are the heart of the project and the largest body of new work: vision and speech pipelines, an agent interface, an evaluation harness so recommendations are tested rather than trusted, and cost controls.
-- **Phase 8** turns a personal tool into something anyone can use: separate workspaces, **Meta App Review and business verification** so people can connect their own accounts without being added by hand, an **independent security audit**, a public privacy policy, and a hosted option.
-- **Phase 2** (verification and hardening) is the cheapest, most important step before either.
+**Known limits** (all in SECURITY.md): enrol 2FA before enabling password-reset email; some password rules are app-level, not a Supabase boundary; signed-out devices stay valid up to an hour; no recovery codes; only a minimal Content Security Policy. **Found a vulnerability?** Use the repository's **Security → Report a vulnerability** (private), not a public issue.
 
 ---
 
@@ -248,7 +141,7 @@ npm run dev                     # http://localhost:3000
 
 ➡️ **[Read the full user manual](docs/MANUAL.md)**: Supabase and Meta setup, environment variables, deploying to Vercel, the scheduler, first sign-in and 2FA, a tour of every screen, updating, backups, troubleshooting.
 
-A Meta app left in Development mode works for accounts you add yourself, with no App Review. That is why today's version is a personal tool.
+A Meta app left in Development mode works for accounts you add yourself, with no App Review. That is why today's version is a personal tool. You can work on most of the code (analysis, components, tests) without any account: `npm test` needs no secrets or network.
 
 ---
 
@@ -259,22 +152,44 @@ A Meta app left in Development mode works for accounts you add yourself, with no
 | Connect, sync, dashboards, tags, alerts, PWA, exports | ✅ Built and used against two real accounts |
 | Growth, Followers, Comments, Moderation, Settings, Security, Data and privacy, Content lab | 🔎 Code complete and tested; live walkthroughs pending (each has a runbook in [`docs/`](docs/)) |
 | Writing to Instagram (reply, hide, delete, auto-hide) | ⚠️ Implemented, **never yet exercised against live Instagram**; auto-hide is off by default |
-| Automated checks | ✅ `npm run check` (lint, typecheck, tests, build) passes |
+| Automated checks | ✅ `npm run check` (lint, typecheck, tests, build), run by CI on every push |
 | Independent security review | ❌ Not done |
-| AI brain and Ads plugin | ❌ Not built (see roadmap) |
+| AI strategist and Ads plugin | ❌ Not built (see roadmap) |
 | Multiple users / hosted service | ❌ Not built; single-owner by design today |
+
+---
+
+## 🔭 Roadmap
+
+Detailed plans live in [`docs/superpowers/plans/`](docs/superpowers/plans/). A phase is "done" only when its live checks pass.
+
+| Phase | Goal | Status |
+|---|---|---|
+| **0. Foundation** | auth with 2FA, Instagram connect, sync engine, dashboards, alerts, PWA, exports | ✅ built |
+| **1. Analytics suite** | Time Scope, Explorer, Post Lab, Growth, Followers, Comments, Moderation, Settings, security, data and privacy, **Content lab** | ✅ code complete · 🔎 live walkthroughs pending |
+| **2. Verify and harden** | walk every runbook with real data, record real API fixtures, independent security review | 🚧 now |
+| **3. Weekly planning tools** | Insights feed and "Today" · auto-tagging · goals and digest · smart alerts · planner board | 📐 planned in detail |
+| **4. AI-ready platform** | structured findings as a data contract, a read-only tool interface (MCP / REST), a proposals queue, usage and cost controls | 🔭 planned |
+| **5. Content understanding** | vision for images and video, speech-to-text, caption NLP, content features linked to performance | 🔭 planned |
+| **6. AI strategist** | monitor loop, LLM reasoning, decision model, experiments, weekly strategy with evidence; hosted-model or self-hosted-agent | 🔭 planned |
+| **7. Ads plugin** | boost proven posts with budget caps and approval; Meta marketing-API review | 🔭 later |
+| **8. Open to everyone** | multi-user workspaces, Meta App Review, one-click self-host, hosted option, docs and community | 🔭 proposed, needs design |
+
+**The direction:** an always-on AI that watches your traffic, understands what your content contains (vision, voice and text), and proposes what to post next, **with you approving everything**, on your own data and your own model key or self-hosted agent. None of it is built yet. The goal, the architecture, the principles and the guardrails are in **[docs/AI_BRAIN.md](docs/AI_BRAIN.md)**.
+
+**What support would unlock:** phases 4 to 6 (the largest body of new work: vision and speech pipelines, an agent interface, an evaluation harness so recommendations are tested rather than trusted, cost controls); phase 8 (workspaces, Meta App Review, an independent security audit, a public privacy policy); and phase 2, the cheapest and most important step before either.
 
 ---
 
 ## 📚 Documentation
 
-- **Start here:** [User manual](docs/MANUAL.md) · [Security and privacy](SECURITY.md) · [Brand kit](docs/brand/README.md) · [Design spec](docs/SPEC.md) · [Progress](docs/TODO.md) and [handover](docs/PROGRESS.md)
+- **Start here:** [User manual](docs/MANUAL.md) · [Security and privacy](SECURITY.md) · [AI direction](docs/AI_BRAIN.md) · [Brand kit](docs/brand/README.md) · [Design spec](docs/SPEC.md) · [Progress](docs/TODO.md) and [handover](docs/PROGRESS.md)
 - **Step-by-step setup:** [Supabase](docs/SETUP_SUPABASE.md) · [Meta / Instagram](docs/META_SETUP.md) · [Scheduler](docs/RUNBOOK_SYNC.md)
 - **Building on it:** [UI rules](docs/UI_STANDARDS.md) · [visual reference](docs/mockups/README.md) · one runbook per feature in `docs/RUNBOOK_*.md`
 
 ## 🤝 Contributing
 
-Issues and ideas are welcome, especially around the AI brain's design. Before a pull request: read [`CLAUDE.md`](CLAUDE.md) (code and UI rules), run `npm run check`, add a test for any analysis logic, and put every new UI string in both `messages/en.json` and `messages/zh-CN.json`. Please do not post access tokens, `.env` contents or real follower or commenter data in issues. Report security problems privately to the maintainer, not in a public issue.
+Issues, ideas and pull requests are welcome. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**: how to run the tests without any account, the rules that most often fail a review, a list of small good first tasks, and the pull request checklist. Be kind: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Please never post access tokens, `.env` contents or real follower or commenter data in issues. AI-assisted contributions are welcome if you say so and have tested them.
 
 ## 🙌 Credits
 
@@ -284,4 +199,4 @@ Designed and directed by **Yong Sen**, and built together with **[Claude Code](h
 
 [MIT](LICENSE). Use it, change it, host it yourself.
 
-<sub>in2sight is an independent project. It is not affiliated with, endorsed by, or sponsored by Meta or Instagram. Instagram is a trademark of Meta Platforms, Inc.</sub>
+<sub>in2Sight is an independent project. It is not affiliated with, endorsed by, or sponsored by Meta or Instagram. Instagram is a trademark of Meta Platforms, Inc.</sub>
