@@ -1,6 +1,11 @@
 <div align="center">
 
-# in2sight
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/wordmark-on-dark.svg">
+    <img src="docs/brand/wordmark-on-light.svg" alt="in2Sight" height="84">
+  </picture>
+</h1>
 
 ### From Instagram analytics to an AI growth brain for your IP
 
@@ -263,7 +268,7 @@ A Meta app left in Development mode works for accounts you add yourself, with no
 
 ## 📚 Documentation
 
-- **Start here:** [User manual](docs/MANUAL.md) · [Security and privacy](SECURITY.md) · [Design spec](docs/SPEC.md) · [Progress](docs/TODO.md) and [handover](docs/PROGRESS.md)
+- **Start here:** [User manual](docs/MANUAL.md) · [Security and privacy](SECURITY.md) · [Brand kit](docs/brand/README.md) · [Design spec](docs/SPEC.md) · [Progress](docs/TODO.md) and [handover](docs/PROGRESS.md)
 - **Step-by-step setup:** [Supabase](docs/SETUP_SUPABASE.md) · [Meta / Instagram](docs/META_SETUP.md) · [Scheduler](docs/RUNBOOK_SYNC.md)
 - **Building on it:** [UI rules](docs/UI_STANDARDS.md) · [visual reference](docs/mockups/README.md) · one runbook per feature in `docs/RUNBOOK_*.md`
 
