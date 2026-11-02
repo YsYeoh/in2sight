@@ -245,6 +245,10 @@ A Meta app left in Development mode works for accounts you add yourself, with no
 
 Issues and ideas are welcome, especially around the AI brain's design. Before a pull request: read [`CLAUDE.md`](CLAUDE.md) (code and UI rules), run `npm run check`, add a test for any analysis logic, and put every new UI string in both `messages/en.json` and `messages/zh-CN.json`. Please do not post access tokens, `.env` contents or real follower or commenter data in issues. Report security problems privately to the maintainer, not in a public issue.
 
+## 🙌 Credits
+
+Designed and directed by **Yong Sen**, and built together with **[Claude Code](https://claude.com/claude-code)** (Anthropic). The workflow leans on Claude Code skills: **superpowers** (brainstorming, written plans, test-driven development, code review, verification before "done") and **ponytail** (the smallest thing that works, no speculative abstractions). Most code was written by AI agents working from reviewed plans, then checked by automated tests and AI-assisted review; the owner decides what is built and what ships.
+
 ## 📄 License
 
 [MIT](LICENSE). Use it, change it, host it yourself.
