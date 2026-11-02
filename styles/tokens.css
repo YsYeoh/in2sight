@@ -16,8 +16,8 @@
 :root[data-theme="mono"][data-mode="dark"]{--background:#09090B;--surface:#111113;--border:#27272A;--foreground:#FAFAFA;--muted-foreground:#A1A1AA;--primary:#FAFAFA;--primary-foreground:#09090B;--chart-1:#60A5FA;--chart-2:#FB923C;--chart-3:#4ADE80;--chart-4:#F87171;--chart-5:#C084FC;--chart-6:#22D3EE;}
 
 /* ---- Mode-level semantic colours (shared by all themes) ---- */
-:root[data-mode="light"]{--success:#15803D;--warning:#B45309;--danger:#B91C1C;--shadow:0 8px 24px rgb(15 23 42 / 0.12);}
-:root[data-mode="dark"]{--success:#4ADE80;--warning:#FBBF24;--danger:#F87171;--shadow:0 8px 24px rgb(0 0 0 / 0.5);}
+:root[data-mode="light"]{--success:#15803D;--warning:#B45309;--danger:#B91C1C;--shadow:0 8px 24px rgb(15 23 42 / 0.12);--brand-1:#14B8A6;--brand-2:#2F7DE0;--brand-3:#5B4BE0;--brand-tile:#131A31;}
+:root[data-mode="dark"]{--success:#4ADE80;--warning:#FBBF24;--danger:#F87171;--shadow:0 8px 24px rgb(0 0 0 / 0.5);--brand-1:#2FD6C1;--brand-2:#4A8DF0;--brand-3:#6A5CF5;--brand-tile:#131A31;}
 
 /* ---- Derived tokens + defaults (dense, soft) ---- */
 :root{

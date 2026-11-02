@@ -38,7 +38,8 @@
     "explorer": "Explorer",
     "settings": "Settings",
     "sidebar": "Main navigation",
-    "tabs": "Main tabs"
+    "tabs": "Main tabs",
+    "brand": "in2Sight logo"
   },
   "shell": {
     "toggleMode": "Toggle dark mode",

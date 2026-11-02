@@ -3,7 +3,7 @@
 // every cross-origin request (Supabase, Instagram) are never cached and never answered from cache: on a shared device
 // nothing private may outlive the session. Also shows Web Push notifications (SPEC §7c).
 // Bump VERSION to drop the old cache (e.g. when the offline page changes).
-const VERSION = 'v1';
+const VERSION = 'v2'; // v2: new brand icons
 const CACHE = `in2sight-static-${VERSION}`;
 const OFFLINE = '/offline';
 const PRECACHE = [OFFLINE, '/icons/icon-192.png', '/icons/icon-512.png'];

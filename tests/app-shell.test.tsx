@@ -168,13 +168,14 @@ describe('AppShell (top window: the shell and its tabs)', () => {
     expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
   });
 
-  it('collapses the brand to the dot in the tablet icon rail but keeps the word in the phone header', () => {
+  it('shows the S tile in the tablet icon rail, the wordmark in the full sidebar and the wordmark in the phone header', () => {
     setup();
-    const railWord = within(document.querySelector('aside')!).getByText('in2sight');
-    expect(railWord.className).toContain('max-lg:sr-only');
-    expect(railWord.previousElementSibling!.className).toContain('shrink-0');
-    const headerWord = within(screen.getByRole('banner')).getByText('in2sight');
-    expect(headerWord.className).not.toContain('sr-only');
+    const [tile, word] = within(document.querySelector('aside')!).getAllByRole('img', { name: 'in2Sight logo' });
+    expect(tile.getAttribute('class')).toContain('lg:hidden');
+    expect(word.getAttribute('class')).toContain('lg:block');
+    expect(word.getAttribute('class')).toContain('hidden');
+    const header = within(screen.getByRole('banner')).getByRole('img', { name: 'in2Sight logo' });
+    expect(header.getAttribute('class')).toContain('md:hidden');
   });
 
   it('sign out invokes the provided action exactly once', async () => {

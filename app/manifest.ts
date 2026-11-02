@@ -6,8 +6,8 @@ import { THEME_COLORS } from '@/lib/pwa';
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/overview',
-    name: 'in2sight',
-    short_name: 'in2sight',
+    name: 'in2Sight',
+    short_name: 'in2Sight',
     start_url: '/overview',
     scope: '/',
     display: 'standalone',

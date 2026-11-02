@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { Logo } from '@/components/shared/Logo';
 import { ModeToggle } from '@/components/shared/ModeToggle';
 import { NavLink } from '@/components/shared/NavLink';
 import { UserMenu } from '@/components/shared/UserMenu';
@@ -12,16 +13,6 @@ import { TabStrip } from '@/components/shared/tabs/TabStrip';
 import { TabsSheet } from '@/components/shared/tabs/TabsSheet';
 import { NAV_ITEMS, isActive, navHref } from '@/lib/nav';
 import { isFramed } from '@/lib/tabs/protocol';
-import { cn } from '@/lib/utils';
-
-function Brand({ className, wordClassName }: { className?: string; wordClassName?: string }) {
-  return (
-    <span className={cn('flex items-center gap-2 font-semibold', className)}>
-      <span aria-hidden className="size-6 shrink-0 rounded-lg bg-[conic-gradient(from_210deg,var(--chart-1),var(--chart-5),var(--chart-4),var(--chart-1))]" />
-      <span className={wordClassName}>in2sight</span>
-    </span>
-  );
-}
 
 const noop = () => () => {};
 
@@ -52,7 +43,11 @@ export function AppShell({ children, userEmail, signOutAction, bell, install, fr
       <div className="flex h-dvh flex-col bg-background">
         {/* md: icon rail, lg: full sidebar. Its links jump to (or open) the tab of that section. */}
         <aside className="fixed inset-y-0 left-0 z-30 hidden w-14 flex-col gap-1 border-r border-border bg-card p-2 md:flex lg:w-56">
-          <Brand className="mb-3 px-1.5 pt-1" wordClassName="max-lg:sr-only" />
+          {/* the S tile in the icon rail, the wordmark in the full sidebar */}
+          <span className="mb-3 flex items-center px-1.5 pt-1">
+            <Logo variant="icon" label={t('brand')} className="size-7 lg:hidden" />
+            <Logo variant="word" label={t('brand')} className="hidden h-6 w-auto lg:block" />
+          </span>
           <nav aria-label={t('sidebar')} data-tab-open="nav" className="flex flex-col gap-1">
             {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
               <NavLink
@@ -71,7 +66,7 @@ export function AppShell({ children, userEmail, signOutAction, bell, install, fr
 
         <div className="flex min-h-0 flex-1 flex-col md:pl-14 lg:pl-56">
           <header className="z-20 flex h-[50px] shrink-0 items-center gap-2 border-b border-border bg-card/85 px-[var(--pg)] backdrop-blur">
-            <Brand className="md:hidden" />
+            <Logo variant="word" label={t('brand')} className="h-5 w-auto md:hidden" />
             <TabStrip className="hidden flex-1 md:flex" />
             <div className="ml-auto flex items-center gap-1">
               <TabsSheet className="md:hidden" />

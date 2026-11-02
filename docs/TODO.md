@@ -246,6 +246,10 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] RUNBOOK_CONTENT §1–§4 walked through by the owner (L1 numbers match Post Lab, L2 speed at "All time")
 - Known: feed posts only (Stories as Story days); medians from 5 posts, hashtag rows from 20 posts with reach, posts-per-week vs reach from 8 complete weeks; a range change resets the tab's picks.
 
+## Brand identity (logo and icons)
+- [x] Logo system "in2Sight" (Outfit outlines, i / 2 / S as the mark, icon grows into the wordmark), exports in `docs/brand/` (SVG, PNG, ICO, social preview), `Logo` component, `--brand-*` tokens, PWA / apple-touch / favicon icons, manifest and title, README header (code done; look at it in a browser at 360 / 768 / 1280 in all four themes, light and dark: not verified)
+- [ ] Optional: the animated icon-to-wordmark transition in the app (spec in `docs/brand/README.md`); set the GitHub social preview image (Settings, manual); the old "in2sight" spelling in prose strings
+
 ## 6b. Next (Plan 14/15 Settings)
 - [x] **Forgot / reset password** (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md) (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [x] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md; no session list is possible, one "Sign out other devices" button) (owner currently changes it via the Auth admin API on request)

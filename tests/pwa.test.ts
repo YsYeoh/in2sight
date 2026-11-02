@@ -37,7 +37,7 @@ function pngInfo(path: string) {
 describe('PWA', () => {
   it('manifest: installable standalone app starting at /overview with 192/512/maskable icons', () => {
     const m = manifest();
-    expect(m).toMatchObject({ name: 'in2sight', short_name: 'in2sight', start_url: '/overview', scope: '/', display: 'standalone', theme_color: '#F8FAFC', background_color: '#F8FAFC' });
+    expect(m).toMatchObject({ name: 'in2Sight', short_name: 'in2Sight', start_url: '/overview', scope: '/', display: 'standalone', theme_color: '#F8FAFC', background_color: '#F8FAFC' });
     expect(m.icons?.map((i) => [i.src, i.sizes, i.purpose])).toEqual([
       ['/icons/icon-192.png', '192x192', 'any'],
       ['/icons/icon-512.png', '512x512', 'any'],
@@ -54,9 +54,13 @@ describe('PWA', () => {
     expect(pngInfo(path)).toEqual({ width: size, height: size, colorType: 6, topLeftAlpha: alpha });
   });
 
-  it('the icon script uses the Ink brand colours from tokens.css', () => {
-    const script = readFileSync(join(process.cwd(), 'scripts/make-icons.mjs'), 'utf8');
-    for (const n of ['chart-1', 'chart-5', 'chart-4']) expect(script).toContain(tokenOf('ink', 'light', n));
+  it.each([
+    ['dark', 'docs/brand/wordmark-on-dark.svg'],
+    ['light', 'docs/brand/wordmark-on-light.svg'],
+  ])('the --brand-n tokens in %s mode are the colours of the exported logo (%s)', (mode, file) => {
+    const block = tokens.split(`:root[data-mode="${mode}"]{`)[1]?.split('}')[0] ?? '';
+    const svg = readFileSync(join(process.cwd(), file), 'utf8').toLowerCase();
+    for (const n of [1, 2, 3]) expect(svg).toContain(block.match(new RegExp(`--brand-${n}:(#[0-9A-Fa-f]{6})`))![1].toLowerCase());
   });
 
   it('theme colours equal each palette background in tokens.css', () => {

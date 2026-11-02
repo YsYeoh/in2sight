@@ -58,15 +58,15 @@ describe('service worker', () => {
     const sw = load();
     await sw.fire('install').settled();
     expect(cachedUrls(sw.store).sort()).toEqual([`${ORIGIN}/icons/icon-192.png`, `${ORIGIN}/icons/icon-512.png`, `${ORIGIN}/offline`]);
-    expect([...sw.store.keys()]).toEqual(['in2sight-static-v1']);
+    expect([...sw.store.keys()]).toEqual(['in2sight-static-v2']);
     expect(sw.self.skipWaiting).toHaveBeenCalled();
   });
 
   it('activate drops older in2sight caches only, then claims open pages', async () => {
     const sw = load();
-    for (const k of ['in2sight-static-v0', 'in2sight-static-v1', 'someone-else']) sw.store.set(k, new Map());
+    for (const k of ['in2sight-static-v1', 'in2sight-static-v2', 'someone-else']) sw.store.set(k, new Map());
     await sw.fire('activate').settled();
-    expect([...sw.store.keys()].sort()).toEqual(['in2sight-static-v1', 'someone-else']);
+    expect([...sw.store.keys()].sort()).toEqual(['in2sight-static-v2', 'someone-else']);
     expect(sw.self.clients.claim).toHaveBeenCalled();
   });
 
@@ -94,7 +94,7 @@ describe('service worker', () => {
 
   it('offline: a page navigation gets the cached public offline page', async () => {
     const sw = load({ offline: true });
-    sw.store.set('in2sight-static-v1', new Map([[`${ORIGIN}/offline`, basic('offline page')]]));
+    sw.store.set('in2sight-static-v2', new Map([[`${ORIGIN}/offline`, basic('offline page')]]));
     const r = sw.fire('fetch', { request: req('/accounts', { mode: 'navigate' }) });
     expect(await (await r.responded!).text()).toBe('offline page');
   });
@@ -129,7 +129,7 @@ describe('service worker', () => {
   it('activate trims the static cache to 150 entries (oldest first) once it holds more than 200', async () => {
     const sw = load();
     const big = new Map<string, Response>(Array.from({ length: 201 }, (_, i) => [`${ORIGIN}/_next/static/c${i}.js`, basic('x')]));
-    sw.store.set('in2sight-static-v1', big);
+    sw.store.set('in2sight-static-v2', big);
     await sw.fire('activate').settled();
     const left = [...big.keys()];
     expect(left).toHaveLength(150);
@@ -140,7 +140,7 @@ describe('service worker', () => {
   it('activate leaves a cache of 200 or fewer entries alone', async () => {
     const sw = load();
     const m = new Map<string, Response>(Array.from({ length: 200 }, (_, i) => [`${ORIGIN}/_next/static/c${i}.js`, basic('x')]));
-    sw.store.set('in2sight-static-v1', m);
+    sw.store.set('in2sight-static-v2', m);
     await sw.fire('activate').settled();
     expect(m.size).toBe(200);
   });

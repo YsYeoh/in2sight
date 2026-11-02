@@ -38,7 +38,8 @@
     "explorer": "探索",
     "settings": "设置",
     "sidebar": "主导航",
-    "tabs": "主标签栏"
+    "tabs": "主标签栏",
+    "brand": "in2Sight 标志"
   },
   "shell": {
     "toggleMode": "切换深色模式",

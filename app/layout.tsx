@@ -19,10 +19,10 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
 export const metadata: Metadata = {
-  title: 'in2sight',
+  title: 'in2Sight',
   description: 'Instagram insights across all your accounts',
   icons: { apple: '/icons/apple-touch-icon.png' },
-  appleWebApp: { capable: true, title: 'in2sight', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: 'in2Sight', statusBarStyle: 'default' },
 };
 
 // The browser bar follows the chosen theme + mode (PrefsProvider updates the tag on switch).
