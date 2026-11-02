@@ -128,11 +128,37 @@ What makes it safe to point at real accounts:
 | 🗝️ **Tokens stay server-side** | Instagram tokens sit in a table only the server's service role can read. Never in the browser, never logged. |
 | ✅ **Official API only** | Instagram API with Instagram Login. No scraping, no passwords collected. |
 | 🛑 **Fails closed** | The sync endpoint refuses requests without its secret; delete-all needs your password and a typed word; writes to Instagram are confirmed, logged and reversible where possible. |
-| 🧪 **Tested** | 309 test files, about 3,100 tests, plus guard tests that fail the build if a log line, client bundle or route could expose a secret or third-party data. |
+| 🧪 **Tested** | 309 test files, about 3,100 tests, plus guard tests that fail the build if a log line or route could expose a secret or third-party data. |
 
-> Reviews so far were AI-assisted code reviews; the security reviews of the sign-in, password and data-privacy work found no Critical issues. **No independent human security audit has been done yet.**
+Full detail, limits and a hardening checklist: **[Security and compliance](#-security-and-compliance)** and [SECURITY.md](SECURITY.md).
 
 **Stack:** Next.js 16 (App Router, TypeScript strict) on Vercel · Supabase (Postgres, Auth, Storage) · Tailwind + shadcn/Radix · Recharts · next-intl · Vitest. Small on purpose: plain `fetch` for the Meta API, analysis as pure unit-tested functions in [`lib/analysis/`](lib/analysis/), every database change a SQL migration in [`supabase/migrations/`](supabase/migrations/).
+
+---
+
+## 🛡️ Security and compliance
+
+in2sight handles Instagram tokens and other people's names and comments, so security is a feature, not an afterthought. The full write-up is **[SECURITY.md](SECURITY.md)**; the summary:
+
+| Layer | What is in place |
+|---|---|
+| **Access** | One owner per deployment · sign-ups off · TOTP two-factor enforced **by the database** (a password-only session reads nothing) · exact public-route allow-list · every page, route and action re-checks the owner |
+| **Data** | Row-level security on every table · private cover storage · export and delete-all with password re-check and typed confirmation · third-party data excluded from exports unless you opt in |
+| **Secrets** | Instagram tokens readable only by the server's service role · no secrets in the browser · no secret logging · cron and Meta callbacks authenticated (constant-time secret, HMAC-signed requests, OAuth `state`) |
+| **Writes to Instagram** | Confirmed, logged, reversible where possible · auto-hide off by default |
+| **Verification** | About 3,100 tests including guard tests for the rules above · AI-assisted security review of each sensitive feature (no Critical findings open) · a live-verification runbook per feature |
+
+**Compliance posture, honestly:**
+
+| | |
+|---|---|
+| ✅ Designed to align with | Meta Platform Terms (official API only, signed deauthorize and deletion callbacks) · GDPR-style principles (self-hosted, minimisation, access control, export, erasure) |
+| ⚠️ Not yet | Independent security audit · penetration test · complete live verification of every feature |
+| ❌ Not claimed | SOC 2, ISO 27001 or any certification. If you host it, **you** are the data controller and responsible for your own compliance (privacy notice, lawful basis, processor terms) |
+
+**Known limits** (all listed in SECURITY.md): enrol 2FA before enabling password-reset email; some password rules are app-level, not a Supabase boundary; signed-out devices stay valid up to an hour; no recovery codes; only a minimal Content Security Policy.
+
+🔒 **Found a vulnerability?** Use the repository's **Security → Report a vulnerability** (private). Please do not open a public issue.
 
 ---
 
@@ -237,7 +263,7 @@ A Meta app left in Development mode works for accounts you add yourself, with no
 
 ## 📚 Documentation
 
-- **Start here:** [User manual](docs/MANUAL.md) · [Design spec](docs/SPEC.md) · [Progress](docs/TODO.md) and [handover](docs/PROGRESS.md)
+- **Start here:** [User manual](docs/MANUAL.md) · [Security and privacy](SECURITY.md) · [Design spec](docs/SPEC.md) · [Progress](docs/TODO.md) and [handover](docs/PROGRESS.md)
 - **Step-by-step setup:** [Supabase](docs/SETUP_SUPABASE.md) · [Meta / Instagram](docs/META_SETUP.md) · [Scheduler](docs/RUNBOOK_SYNC.md)
 - **Building on it:** [UI rules](docs/UI_STANDARDS.md) · [visual reference](docs/mockups/README.md) · one runbook per feature in `docs/RUNBOOK_*.md`
 
