@@ -13,7 +13,7 @@ function fakeDb() {
     from(table: string) {
       calls.push(['from', table]);
       const chain: Record<string, unknown> = {};
-      for (const op of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'not', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
+      for (const op of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'not', 'in', 'limit']) chain[op] = (...a: unknown[]) => (calls.push([op, ...a]), chain);
       chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(queue.shift() ?? { data: [], error: null }).then(res, rej);
       return chain;
     },
@@ -122,18 +122,46 @@ describe('renameTagAction / deleteTagAction', () => {
 });
 
 describe('setPostTagsAction', () => {
-  it('upserts the deduplicated set, then removes every other tag of that post', async () => {
-    expect(await setPostTagsAction('17895695668004550', [T1, T1.toUpperCase(), T2])).toEqual({ ok: true });
-    expect(has('upsert', [{ media_id: '17895695668004550', tag_id: T1 }, { media_id: '17895695668004550', tag_id: T2 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
-    expect(has('not', 'tag_id', 'in', `(${T1},${T2})`)).toBe(true);
+  const T3 = '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f';
+  const M = '17895695668004550';
+
+  it('upserts the deduplicated set; nothing else on the post: nothing removed, nothing remembered', async () => {
+    queue.push({ error: null }, { data: [{ tag_id: T1 }, { tag_id: T2 }] });
+    expect(await setPostTagsAction(M, [T1, T1.toUpperCase(), T2])).toEqual({ ok: true });
+    expect(has('upsert', [{ media_id: M, tag_id: T1 }, { media_id: M, tag_id: T2 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
+    expect(calls.some((c) => c[0] === 'delete')).toBe(false);
+    expect(calls.some((c) => c[0] === 'from' && c[1] === 'media_tag_rejections')).toBe(false);
     expect(has('revalidate', '/accounts/[id]', 'page')).toBe(true);
   });
 
-  it('an empty list clears the post (no upsert, plain delete)', async () => {
+  it('a removed tag is remembered BEFORE it is deleted, so a rule never adds it back (Plan 17c)', async () => {
+    queue.push({ error: null }, { data: [{ tag_id: T1 }, { tag_id: T3 }] }, { error: null }, { error: null });
+    expect(await setPostTagsAction(M, [T1])).toEqual({ ok: true });
+    const memo = calls.findIndex((c) => c[0] === 'from' && c[1] === 'media_tag_rejections');
+    const del = calls.findIndex((c) => c[0] === 'delete');
+    expect(memo).toBeGreaterThan(-1);
+    expect(memo).toBeLessThan(del);
+    expect(has('upsert', [{ media_id: M, tag_id: T3 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
+    expect(has('in', 'tag_id', [T3])).toBe(true);
+  });
+
+  it('an empty list clears the post (no tag upsert) and remembers every removed tag', async () => {
+    queue.push({ data: [{ tag_id: T2 }] }, { error: null }, { error: null });
     expect(await setPostTagsAction('1', [])).toEqual({ ok: true });
-    expect(calls.some((c) => c[0] === 'upsert' || c[0] === 'not')).toBe(false);
-    expect(has('delete')).toBe(true);
+    expect(has('upsert', [{ media_id: '1', tag_id: T2 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
+    expect(calls.filter((c) => c[0] === 'upsert')).toHaveLength(1);
     expect(has('eq', 'media_id', '1')).toBe(true);
+    expect(has('in', 'tag_id', [T2])).toBe(true);
+  });
+
+  it('without the 17c migration the removal still works; any other memo error stops before deleting', async () => {
+    queue.push({ data: [{ tag_id: T2 }] }, { error: { code: 'PGRST205' } }, { error: null });
+    expect(await setPostTagsAction('1', [])).toEqual({ ok: true });
+    expect(has('delete')).toBe(true);
+    calls.length = 0;
+    queue.push({ data: [{ tag_id: T2 }] }, { error: { code: '500', message: 'secret' } });
+    expect(await setPostTagsAction('1', [])).toEqual({ ok: false, error: 'unexpected' });
+    expect(has('delete')).toBe(false);
   });
 
   it('a missing post or tag (foreign key) returns not_found', async () => {

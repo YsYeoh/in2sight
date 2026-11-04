@@ -7,6 +7,8 @@ import { requireOwner } from '@/lib/auth/require-owner';
 import { TAG_LIMIT } from '@/lib/dashboard/detail-read';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { isMediaId, isUuid, MAX_TAGS_PER_POST, normalizeTagName, pickColor, sameTagName } from '@/lib/tags';
+import { applyTagRules, isMissingTable, loadRuleMedia, loadRules } from '@/lib/tag-rules/apply';
+import { MAX_RULES, normalizeRuleValue, RULE_KINDS, type RuleError, type RuleKind } from '@/lib/tag-rules/rules';
 
 export type TagError = 'invalid_name' | 'duplicate' | 'not_found' | 'too_many' | 'unexpected';
 export type TagResult = { ok: true } | { ok: false; error: TagError };
@@ -74,8 +76,7 @@ export async function deleteTagAction(id: string): Promise<TagResult> {
   }
 }
 
-/** Replaces a post's tags with exactly `tagIds` (deduplicated, at most 10). Adds first, then removes the rest, so a
- *  failure half-way leaves extra tags rather than losing the existing ones. */
+/** Replaces a post's tags with exactly `tagIds` (deduplicated, at most 10). Adds first, then remembers and removes the rest (Plan 17c: a removed tag is never re-added by a rule), so a failure half-way leaves extra tags rather than losing the existing ones. */
 export async function setPostTagsAction(mediaId: string, tagIds: string[]): Promise<TagResult> {
   await requireOwner();
   if (!isMediaId(mediaId) || !Array.isArray(tagIds) || !tagIds.every(isUuid)) return fail('not_found');
@@ -87,11 +88,89 @@ export async function setPostTagsAction(mediaId: string, tagIds: string[]): Prom
       const { error } = await db.from('media_tags').upsert(ids.map((tag_id) => ({ media_id: mediaId, tag_id })), { onConflict: 'media_id,tag_id', ignoreDuplicates: true });
       if (error) return fail(keyOf(error));
     }
-    const del = db.from('media_tags').delete().eq('media_id', mediaId);
-    // ids are validated uuids, so the PostgREST list literal cannot be injected into
-    const { error } = ids.length ? await del.not('tag_id', 'in', `(${ids.join(',')})`) : await del;
+    const current = await db.from('media_tags').select('tag_id').eq('media_id', mediaId);
+    if (current.error) return fail(keyOf(current.error));
+    const removed = ((current.data ?? []) as { tag_id: unknown }[]).map((r) => String(r.tag_id)).filter((t) => !ids.includes(t.toLowerCase()));
+    if (removed.length === 0) return done();
+    // Plan 17c: remember what the owner took off BEFORE removing it, so a tag rule never puts it back. Without the
+    // migration there are no rules (nothing to remember it for): the removal goes ahead.
+    const memo = await db.from('media_tag_rejections').upsert(removed.map((tag_id) => ({ media_id: mediaId, tag_id })), { onConflict: 'media_id,tag_id', ignoreDuplicates: true });
+    if (memo.error && !isMissingTable(memo.error)) return fail(keyOf(memo.error));
+    const { error } = await db.from('media_tags').delete().eq('media_id', mediaId).in('tag_id', removed);
     return error ? fail(keyOf(error)) : done();
   } catch {
     return fail('unexpected');
   }
+}
+
+// ---- Plan 17c: tag rules (owner session, RLS tag_rules_owner_all / media_tags_owner_all) ----
+
+export type RuleActionError = RuleError | 'duplicate_rule' | 'too_many_rules' | 'not_found' | 'needs_update' | 'unexpected';
+export type RuleResult = { ok: true } | { ok: false; error: RuleActionError };
+/** posts = posts that get (preview) or got (apply) the tag. */
+export type ApplyRulesResult = { ok: true; posts: number } | { ok: false; error: RuleActionError };
+
+const failRule = (error: RuleActionError): { ok: false; error: RuleActionError } => ({ ok: false, error });
+const ruleKeyOf = (e: DbError): RuleActionError => (isMissingTable(e) ? 'needs_update' : e?.code === '23505' ? 'duplicate_rule' : e?.code === '23503' ? 'not_found' : 'unexpected');
+
+export async function addTagRuleAction(tagId: string, kind: string, value: string): Promise<RuleResult> {
+  await requireOwner();
+  if (!isUuid(tagId) || !(RULE_KINDS as readonly string[]).includes(kind)) return failRule('not_found');
+  const v = normalizeRuleValue(kind as RuleKind, value);
+  if (!v.ok) return failRule(v.error);
+  try {
+    const db = await createServerSupabase();
+    const rules = await loadRules(db);
+    if (rules === null) return failRule('needs_update');
+    if (rules.length >= MAX_RULES) return failRule('too_many_rules');
+    const { error } = await db.from('tag_rules').insert({ tag_id: tagId, kind, value: v.value });
+    if (error) return failRule(ruleKeyOf(error));
+    revalidatePath('/tags');
+    return { ok: true };
+  } catch {
+    return failRule('unexpected');
+  }
+}
+
+/** Deleting a rule keeps the tags it already added (rules never remove tags). */
+export async function deleteTagRuleAction(ruleId: string): Promise<RuleResult> {
+  await requireOwner();
+  if (!isUuid(ruleId)) return failRule('not_found');
+  try {
+    const db = await createServerSupabase();
+    const { data, error } = await db.from('tag_rules').delete().eq('id', ruleId).select('id');
+    if (error) return failRule(ruleKeyOf(error));
+    if ((data ?? []).length === 0) return failRule('not_found');
+    revalidatePath('/tags');
+    return { ok: true };
+  } catch {
+    return failRule('unexpected');
+  }
+}
+
+/** The tag's rules over every existing post: dryRun = the preview count, else the apply. */
+async function runTagRules(tagId: string, dryRun: boolean): Promise<ApplyRulesResult> {
+  if (!isUuid(tagId)) return failRule('not_found');
+  try {
+    const db = await createServerSupabase();
+    const all = await loadRules(db);
+    if (all === null) return failRule('needs_update');
+    const rules = all.filter((r) => r.tagId === tagId.toLowerCase());
+    if (rules.length === 0) return { ok: true, posts: 0 };
+    const r = await applyTagRules(db, { media: await loadRuleMedia(db), rules, scope: 'all', dryRun });
+    if (!dryRun && r.tags > 0) done();
+    return { ok: true, posts: r.posts };
+  } catch {
+    return failRule('unexpected');
+  }
+}
+
+export async function previewTagRulesAction(tagId: string): Promise<ApplyRulesResult> {
+  await requireOwner();
+  return runTagRules(tagId, true);
+}
+
+export async function applyTagRulesAction(tagId: string): Promise<ApplyRulesResult> {
+  await requireOwner();
+  return runTagRules(tagId, false);
 }

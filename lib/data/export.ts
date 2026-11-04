@@ -29,6 +29,8 @@ export const EXPORT_TABLES = [
   { name: 'media_children', keys: ['media_id', 'position'] },
   { name: 'tags', keys: ['id'] },
   { name: 'media_tags', keys: ['media_id', 'tag_id'] },
+  { name: 'tag_rules', keys: ['id'] },
+  { name: 'media_tag_rejections', keys: ['media_id', 'tag_id'] },
   { name: 'explorer_views', keys: ['id'] },
   { name: 'insight_dismissals', keys: ['finding_key'] },
   { name: 'notifications', keys: ['id'] },
