@@ -76,11 +76,17 @@ export async function deleteTagAction(id: string): Promise<TagResult> {
   }
 }
 
-/** Replaces a post's tags with exactly `tagIds` (deduplicated, at most 10). Adds first, then remembers and removes the rest (Plan 17c: a removed tag is never re-added by a rule), so a failure half-way leaves extra tags rather than losing the existing ones. */
-export async function setPostTagsAction(mediaId: string, tagIds: string[]): Promise<TagResult> {
+/**
+ * Saves a tag picker: adds `tagIds` (deduplicated, at most 10) and removes only what the owner unticked, i.e. the tags the
+ * picker showed ticked when it opened (`initial`) that are no longer in `tagIds`. A tag a rule added after the picker opened
+ * is in neither list, so it is kept and not remembered as removed. Adds first, then remembers and removes (Plan 17c: a removed
+ * tag is never re-added by a rule), so a failure half-way leaves extra tags rather than losing existing ones.
+ */
+export async function setPostTagsAction(mediaId: string, tagIds: string[], initial: string[]): Promise<TagResult> {
   await requireOwner();
-  if (!isMediaId(mediaId) || !Array.isArray(tagIds) || !tagIds.every(isUuid)) return fail('not_found');
+  if (!isMediaId(mediaId) || !Array.isArray(tagIds) || !tagIds.every(isUuid) || !Array.isArray(initial) || !initial.every(isUuid)) return fail('not_found');
   const ids = [...new Set(tagIds.map((t) => t.toLowerCase()))];
+  const shown = new Set(initial.map((t) => t.toLowerCase()));
   if (ids.length > MAX_TAGS_PER_POST) return fail('too_many');
   try {
     const db = await createServerSupabase();
@@ -90,7 +96,7 @@ export async function setPostTagsAction(mediaId: string, tagIds: string[]): Prom
     }
     const current = await db.from('media_tags').select('tag_id').eq('media_id', mediaId);
     if (current.error) return fail(keyOf(current.error));
-    const removed = ((current.data ?? []) as { tag_id: unknown }[]).map((r) => String(r.tag_id)).filter((t) => !ids.includes(t.toLowerCase()));
+    const removed = ((current.data ?? []) as { tag_id: unknown }[]).map((r) => String(r.tag_id)).filter((t) => shown.has(t.toLowerCase()) && !ids.includes(t.toLowerCase()));
     if (removed.length === 0) return done();
     // Plan 17c: remember what the owner took off BEFORE removing it, so a tag rule never puts it back. Without the
     // migration there are no rules (nothing to remember it for): the removal goes ahead.

@@ -43,7 +43,9 @@ export function normalizeRuleValue(kind: RuleKind, raw: unknown): { ok: true; va
   }
   const w = validateWord(raw, []); // letters or digits, at most 50, 3+ characters unless Chinese, Japanese or Korean
   if (!w.ok) return { ok: false, error: w.error === 'rule_too_short' ? 'rule_too_short' : 'invalid_word' };
-  return { ok: true, value: fold(w.pattern) };
+  const value = fold(w.pattern);
+  // validateWord counted what was typed; NFKC can lengthen it ("ﬀ" -> "ff") and the database checks the stored value
+  return [...value].length <= RULE_VALUE_MAX ? { ok: true, value } : { ok: false, error: 'invalid_word' };
 }
 
 /** Hashtags of a caption, folded (NFKC first, so a full-width ＃ counts too). */
@@ -80,7 +82,8 @@ export const pairKey = (mediaId: string, tagId: string) => `${mediaId}:${tagId}`
  * more than MAX_TAGS_PER_POST tags on a post (oldest rule first), each pair once. Running it again on the result adds nothing.
  */
 export function planAutoTags(p: PlanInput): { mediaId: string; tagId: string }[] {
-  const rules = [...p.rules].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  // by instant, not by text: "…:00.5+00:00" sorts before "…:00+00:00" as a string. Ties: by id, so the cap is deterministic.
+  const rules = [...p.rules].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id));
   const out: { mediaId: string; tagId: string }[] = [];
   for (const m of p.media) {
     const has = new Set(p.existing.get(m.id) ?? []);

@@ -28,6 +28,12 @@ describe('normalizeRuleValue', () => {
     for (const bad of ['', '   ', '!!!', 'x'.repeat(51), null]) expect(normalizeRuleValue('word', bad), String(bad)).toEqual({ ok: false, error: 'invalid_word' });
   });
 
+  it('the 50-character limit counts the FOLDED value that is stored (NFKC can lengthen it), word and hashtag', () => {
+    expect(normalizeRuleValue('word', 'ﬀ'.repeat(25))).toEqual({ ok: true, value: 'ff'.repeat(25) }); // folds to exactly 50
+    expect(normalizeRuleValue('word', 'ﬀ'.repeat(45))).toEqual({ ok: false, error: 'invalid_word' }); // 45 typed, 90 stored
+    expect(normalizeRuleValue('hashtag', 'ﬀ'.repeat(45))).toEqual({ ok: false, error: 'invalid_hashtag' });
+  });
+
   it('format: exactly one of the feed formats (never Stories, never lower case)', () => {
     for (const f of ['REELS', 'CAROUSEL_ALBUM', 'IMAGE']) expect(normalizeRuleValue('format', f)).toEqual({ ok: true, value: f });
     for (const bad of ['STORY', 'reels', '', 1]) expect(normalizeRuleValue('format', bad)).toEqual({ ok: false, error: 'invalid_format' });
@@ -108,6 +114,17 @@ describe('planAutoTags', () => {
     expect(out).toHaveLength(9);
     expect(out[0].tagId).toBe('t11'); // created 2026-10-01: the oldest rule
     expect(out.map((a) => a.tagId)).not.toContain('t0'); // the newest rules lose
+  });
+
+  it('orders rules by creation INSTANT, not by text: a fractional second does not jump the queue (ties: by id)', () => {
+    const early = rule({ id: 'a', tagId: 't-early', kind: 'word', value: 'food', createdAt: '2026-10-01T10:00:00+00:00' });
+    const late = rule({ id: 'b', tagId: 't-late', kind: 'word', value: 'food', createdAt: '2026-10-01T10:00:00.5+00:00' });
+    const nine = new Map([['p1', new Set(Array.from({ length: 9 }, (_, i) => `manual${i}`))]]); // one slot left
+    const one = { ...base, media: [post('p1', 'food')], existing: nine };
+    expect(planAutoTags({ ...one, rules: [late, early] })).toEqual([{ mediaId: 'p1', tagId: 't-early' }]);
+    const tie = [rule({ id: 'y', tagId: 't-y', kind: 'word', value: 'food' }), rule({ id: 'x', tagId: 't-x', kind: 'word', value: 'food' })];
+    expect(planAutoTags({ ...one, rules: tie })).toEqual([{ mediaId: 'p1', tagId: 't-x' }]);
+    expect(planAutoTags({ ...one, rules: [...tie].reverse() })).toEqual([{ mediaId: 'p1', tagId: 't-x' }]);
   });
 
   it("scope 'new' (the sync) only tags posts published at or after the rule was created", () => {

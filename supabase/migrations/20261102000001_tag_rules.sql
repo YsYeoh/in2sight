@@ -21,6 +21,7 @@ create policy tag_rules_owner_all on public.tag_rules
   for all to authenticated
   using ((select public.is_owner()))
   with check ((select public.is_owner()));
+revoke all on public.tag_rules from anon;
 
 -- who put the tag on the post: the owner (default, every row that exists today) or a rule
 alter table public.media_tags add column source text not null default 'manual' check (source in ('manual', 'auto'));
@@ -39,6 +40,7 @@ create policy media_tag_rejections_owner_all on public.media_tag_rejections
   for all to authenticated
   using ((select public.is_owner()))
   with check ((select public.is_owner()));
+revoke all on public.media_tag_rejections from anon;
 
 -- Belt and braces for rule 2: even a rule run that read the rejections a moment before the owner removed the tag cannot
 -- add it back. Only rows written by a rule (source 'auto') are skipped; the owner can always tag a post by hand again.

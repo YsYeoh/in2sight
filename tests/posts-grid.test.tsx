@@ -125,7 +125,7 @@ describe('Posts tab: detail drawer', () => {
     await user.click(within(dialog).getByRole('button', { name: `Edit tags of ${LABEL}` }));
     await user.click(screen.getByRole('checkbox'));
     await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
-    expect(setPostTags).toHaveBeenCalledWith('42', [T1]);
+    expect(setPostTags).toHaveBeenCalledWith('42', [T1], []);
   });
 
   it('a post without a stored cover shows the format placeholder, never an image request', () => {

@@ -15,7 +15,7 @@ describe('tag rules migration (Plan 17c)', () => {
       .map((s) => s.trim())
       .filter(Boolean)
       .map((s) => s.split(/\s+/).slice(0, 2).join(' ').toLowerCase());
-    expect(heads).toEqual(['create table', 'create unique', 'alter table', 'create policy', 'alter table', 'create table', 'create index', 'alter table', 'create policy', 'create or', 'create trigger']);
+    expect(heads).toEqual(['create table', 'create unique', 'alter table', 'create policy', 'revoke all', 'alter table', 'create table', 'create index', 'alter table', 'create policy', 'revoke all', 'create or', 'create trigger']);
     expect(sql).not.toMatch(/\b(drop|truncate|grant|security\s+definer)\b/i);
   });
 
@@ -37,8 +37,9 @@ describe('tag rules migration (Plan 17c)', () => {
     expect(sql).toMatch(exact('create index media_tag_rejections_tag_idx on public.media_tag_rejections (tag_id)'));
   });
 
-  it('RLS on both tables, owner-all in InitPlan form, authenticated only', () => {
+  it('RLS on both tables, owner-all in InitPlan form, authenticated only, anon revoked', () => {
     for (const t of ['tag_rules', 'media_tag_rejections']) {
+      expect(sql).toMatch(exact(`revoke all on public.${t} from anon`));
       expect(sql).toMatch(exact(`alter table public.${t} enable row level security`));
       expect(sql).toMatch(exact(`create policy ${t}_owner_all on public.${t} for all to authenticated using ((select public.is_owner())) with check ((select public.is_owner()))`));
     }

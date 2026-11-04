@@ -4,7 +4,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import en from '@/messages/en.json';
 import { PostsTab } from '@/components/account/PostsTab';
-import type { SetPostTags } from '@/components/account/TagPicker';
+import { TagPicker, type SetPostTags } from '@/components/account/TagPicker';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
 import type { Tag } from '@/lib/analysis/types';
 import type { PostView } from '@/lib/dashboard/content';
@@ -144,10 +144,29 @@ describe('PostsTab: tags', () => {
     await user.click(within(table).getByRole('button', { name: /Edit tags of/ }));
     await user.click(screen.getByRole('checkbox'));
     await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
-    expect(setPostTags).toHaveBeenCalledWith('m1', [T1]);
+    expect(setPostTags).toHaveBeenCalledWith('m1', [T1], []); // third argument: what the picker showed ticked when it opened
     expect(await screen.findByRole('alert')).toHaveTextContent(en.pages.tags.errors.not_found);
     await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument()); // the save transition closes it
+  });
+
+  it('tag picker: unticking sends what it showed ticked on opening, even if the post gets a tag meanwhile (a rule in another tab)', async () => {
+    const user = userEvent.setup();
+    const T2 = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
+    const both: Tag[] = [...TAGS, { id: T2, name: 'Food', color: 'chart-3' }];
+    const setPostTags = vi.fn<SetPostTags>(async () => ({ ok: true }));
+    const props = { postId: 'm1', label: 'Post one', tags: both, setPostTags };
+    const ui = (selected: string[]) => (
+      <NextIntlClientProvider locale="en" messages={en}>
+        <TagPicker {...props} selected={selected} />
+      </NextIntlClientProvider>
+    );
+    const { rerender } = render(ui([T1]));
+    await user.click(screen.getByRole('button', { name: /Edit tags of/ }));
+    rerender(ui([T1, T2])); // the page refreshed under the open dialog: Food is now on the post, but the picker never showed it ticked
+    await user.click(screen.getAllByRole('checkbox')[0]); // untick Promo
+    await user.click(screen.getByRole('button', { name: en.pages.account.posts.save }));
+    expect(setPostTags).toHaveBeenCalledWith('m1', [], [T1]);
   });
 
   it('no tags yet: the picker links to the Tags page', async () => {

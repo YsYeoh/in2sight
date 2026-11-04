@@ -20,12 +20,14 @@ import type { Tag } from '@/lib/analysis/types';
 import { MAX_TAGS_PER_POST } from '@/lib/tags';
 import type { TagResult } from '@/app/(app)/tags/actions';
 
-export type SetPostTags = (mediaId: string, tagIds: string[]) => Promise<TagResult>;
+/** (post, the tags to have, the tags the picker showed ticked when it opened): only the third minus the second is removed. */
+export type SetPostTags = (mediaId: string, tagIds: string[], initial: string[]) => Promise<TagResult>;
 
 function PickerForm({ postId, label, tags, initial, setPostTags, onDone }: { postId: string; label: string; tags: Tag[]; initial: string[]; setPostTags: SetPostTags; onDone: () => void }) {
   const t = useTranslations('pages.account.posts');
   const tErr = useTranslations('pages.tags.errors');
-  const [picked, setPicked] = useState<string[]>(initial);
+  const [opened] = useState(initial); // frozen: the page can refresh under the open dialog (a rule added a tag), the owner never saw that tag ticked
+  const [picked, setPicked] = useState<string[]>(opened);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const toggle = (id: string, on: boolean) => setPicked((p) => (on ? [...p, id] : p.filter((x) => x !== id)));
@@ -35,7 +37,7 @@ function PickerForm({ postId, label, tags, initial, setPostTags, onDone }: { pos
       onSubmit={(e) => {
         e.preventDefault();
         start(async () => {
-          const r = await setPostTags(postId, picked);
+          const r = await setPostTags(postId, picked, opened);
           if (r.ok) onDone();
           else setError(tErr(r.error));
         });

@@ -43,7 +43,7 @@ describe('tag actions: authorization and boundary validation', () => {
     ['create', () => createTagAction('Promo')],
     ['rename', () => renameTagAction(T1, 'Promo')],
     ['delete', () => deleteTagAction(T1)],
-    ['setPostTags', () => setPostTagsAction('17895695668004550', [T1])],
+    ['setPostTags', () => setPostTagsAction('17895695668004550', [T1], [])],
   ])('%s: requireOwner runs first; a redirect propagates and nothing is touched', async (_n, run) => {
     await run();
     expect(calls[0]).toEqual(['requireOwner']);
@@ -55,7 +55,7 @@ describe('tag actions: authorization and boundary validation', () => {
 
   it('never uses the admin client', async () => {
     await createTagAction('Promo');
-    await setPostTagsAction('1', []);
+    await setPostTagsAction('1', [], []);
     expect(calls.some((c) => c[0] === 'ADMIN')).toBe(false);
   });
 
@@ -64,11 +64,14 @@ describe('tag actions: authorization and boundary validation', () => {
     expect(await createTagAction('a'.repeat(41))).toEqual({ ok: false, error: 'invalid_name' });
     expect(await renameTagAction('nope', 'X')).toEqual({ ok: false, error: 'not_found' });
     expect(await deleteTagAction("1' or 1=1")).toEqual({ ok: false, error: 'not_found' });
-    expect(await setPostTagsAction('1,2', [T1])).toEqual({ ok: false, error: 'not_found' });
-    expect(await setPostTagsAction('1', ['x'])).toEqual({ ok: false, error: 'not_found' });
-    expect(await setPostTagsAction('1', 'x' as unknown as string[])).toEqual({ ok: false, error: 'not_found' });
+    expect(await setPostTagsAction('1,2', [T1], [])).toEqual({ ok: false, error: 'not_found' });
+    expect(await setPostTagsAction('1', ['x'], [])).toEqual({ ok: false, error: 'not_found' });
+    expect(await setPostTagsAction('1', 'x' as unknown as string[], [])).toEqual({ ok: false, error: 'not_found' });
+    // `initial` is required: a caller that omits it must not silently mean "remove everything else"
+    expect(await setPostTagsAction('1', [T1], undefined as unknown as string[])).toEqual({ ok: false, error: 'not_found' });
+    expect(await setPostTagsAction('1', [T1], ['x'])).toEqual({ ok: false, error: 'not_found' });
     const eleven = Array.from({ length: 11 }, (_, i) => `00000000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`);
-    expect(await setPostTagsAction('1', eleven)).toEqual({ ok: false, error: 'too_many' });
+    expect(await setPostTagsAction('1', eleven, [])).toEqual({ ok: false, error: 'too_many' });
     expect(calls.some((c) => c[0] === 'session')).toBe(false);
   });
 });
@@ -127,7 +130,7 @@ describe('setPostTagsAction', () => {
 
   it('upserts the deduplicated set; nothing else on the post: nothing removed, nothing remembered', async () => {
     queue.push({ error: null }, { data: [{ tag_id: T1 }, { tag_id: T2 }] });
-    expect(await setPostTagsAction(M, [T1, T1.toUpperCase(), T2])).toEqual({ ok: true });
+    expect(await setPostTagsAction(M, [T1, T1.toUpperCase(), T2], [])).toEqual({ ok: true });
     expect(has('upsert', [{ media_id: M, tag_id: T1 }, { media_id: M, tag_id: T2 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
     expect(calls.some((c) => c[0] === 'delete')).toBe(false);
     expect(calls.some((c) => c[0] === 'from' && c[1] === 'media_tag_rejections')).toBe(false);
@@ -136,7 +139,7 @@ describe('setPostTagsAction', () => {
 
   it('a removed tag is remembered BEFORE it is deleted, so a rule never adds it back (Plan 17c)', async () => {
     queue.push({ error: null }, { data: [{ tag_id: T1 }, { tag_id: T3 }] }, { error: null }, { error: null });
-    expect(await setPostTagsAction(M, [T1])).toEqual({ ok: true });
+    expect(await setPostTagsAction(M, [T1], [T1, T3])).toEqual({ ok: true }); // the picker showed T1 and T3 ticked; the owner unticked T3
     const memo = calls.findIndex((c) => c[0] === 'from' && c[1] === 'media_tag_rejections');
     const del = calls.findIndex((c) => c[0] === 'delete');
     expect(memo).toBeGreaterThan(-1);
@@ -147,7 +150,7 @@ describe('setPostTagsAction', () => {
 
   it('an empty list clears the post (no tag upsert) and remembers every removed tag', async () => {
     queue.push({ data: [{ tag_id: T2 }] }, { error: null }, { error: null });
-    expect(await setPostTagsAction('1', [])).toEqual({ ok: true });
+    expect(await setPostTagsAction('1', [], [T2])).toEqual({ ok: true });
     expect(has('upsert', [{ media_id: '1', tag_id: T2 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
     expect(calls.filter((c) => c[0] === 'upsert')).toHaveLength(1);
     expect(has('eq', 'media_id', '1')).toBe(true);
@@ -156,16 +159,60 @@ describe('setPostTagsAction', () => {
 
   it('without the 17c migration the removal still works; any other memo error stops before deleting', async () => {
     queue.push({ data: [{ tag_id: T2 }] }, { error: { code: 'PGRST205' } }, { error: null });
-    expect(await setPostTagsAction('1', [])).toEqual({ ok: true });
+    expect(await setPostTagsAction('1', [], [T2])).toEqual({ ok: true });
     expect(has('delete')).toBe(true);
     calls.length = 0;
     queue.push({ data: [{ tag_id: T2 }] }, { error: { code: '500', message: 'secret' } });
-    expect(await setPostTagsAction('1', [])).toEqual({ ok: false, error: 'unexpected' });
+    expect(await setPostTagsAction('1', [], [T2])).toEqual({ ok: false, error: 'unexpected' });
     expect(has('delete')).toBe(false);
   });
 
   it('a missing post or tag (foreign key) returns not_found', async () => {
     queue.push({ error: { code: '23503' } });
-    expect(await setPostTagsAction('1', [T1])).toEqual({ ok: false, error: 'not_found' });
+    expect(await setPostTagsAction('1', [T1], [])).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  // The owner's rule (Plan 17c): a tag the owner did not remove is never deleted and never remembered. A rule (the sync, or
+  // "Apply to existing posts" in another tab) can add a tag after a picker was opened; saving that stale picker must keep it.
+  it('a stale picker: a tag a rule added after it opened survives and is NOT remembered', async () => {
+    // picker opened with nothing ticked; meanwhile a rule added T3; the owner ticks T1 and saves
+    queue.push({ error: null }, { data: [{ tag_id: T3 }, { tag_id: T1 }] });
+    expect(await setPostTagsAction(M, [T1], [])).toEqual({ ok: true });
+    expect(calls.some((c) => c[0] === 'delete')).toBe(false);
+    expect(calls.some((c) => c[0] === 'from' && c[1] === 'media_tag_rejections')).toBe(false);
+    expect(has('revalidate', '/accounts/[id]', 'page')).toBe(true);
+  });
+
+  it('only what the picker showed ticked and the owner unticked is removed and remembered; a tag added meanwhile stays', async () => {
+    // opened with T1 and T2 ticked; a rule added T3 meanwhile; the owner unticks T2
+    queue.push({ error: null }, { data: [{ tag_id: T1 }, { tag_id: T2 }, { tag_id: T3 }] }, { error: null }, { error: null });
+    expect(await setPostTagsAction(M, [T1], [T1, T2])).toEqual({ ok: true });
+    expect(has('upsert', [{ media_id: M, tag_id: T2 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
+    expect(has('in', 'tag_id', [T2])).toBe(true);
+    expect(JSON.stringify(calls)).not.toContain(T3);
+  });
+
+  it('an untick of a tag that is already gone from the post (another tab) removes and remembers nothing', async () => {
+    queue.push({ data: [] });
+    expect(await setPostTagsAction(M, [], [T2])).toEqual({ ok: true });
+    expect(calls.some((c) => c[0] === 'delete')).toBe(false);
+    expect(calls.some((c) => c[0] === 'from' && c[1] === 'media_tag_rejections')).toBe(false);
+  });
+
+  it('a pick of a tag the post already has is a no-op (upsert ignores the duplicate; nothing removed)', async () => {
+    queue.push({ error: null }, { data: [{ tag_id: T3 }] });
+    expect(await setPostTagsAction(M, [T3], [])).toEqual({ ok: true });
+    expect(has('upsert', [{ media_id: M, tag_id: T3 }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true })).toBe(true);
+    expect(calls.some((c) => c[0] === 'delete')).toBe(false);
+    expect(calls.some((c) => c[0] === 'from' && c[1] === 'media_tag_rejections')).toBe(false);
+  });
+
+  it('the cap: more than 10 picked is too_many before any database call; exactly 10 is accepted', async () => {
+    const ids = Array.from({ length: 10 }, (_, i) => `00000000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`);
+    queue.push({ error: null }, { data: ids.map((tag_id) => ({ tag_id })) });
+    expect(await setPostTagsAction(M, ids, [])).toEqual({ ok: true });
+    calls.length = 0;
+    expect(await setPostTagsAction(M, [...ids, T1], ids)).toEqual({ ok: false, error: 'too_many' });
+    expect(calls.some((c) => c[0] === 'session')).toBe(false);
   });
 });
