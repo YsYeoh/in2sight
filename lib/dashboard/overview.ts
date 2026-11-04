@@ -26,6 +26,10 @@ export interface AccountCard {
   flags: Flag[];
 }
 
+/** The account needs a reconnect or its sync is failing: what we have stopped arriving, so the findings (Plan 17b) say nothing
+ *  about "now" and the problem line / banner speaks instead. Works on a card and on the account Overview model. Not range-dependent. */
+export const isStale = (x: { state: CardState; syncErrorKey: string | null }): boolean => x.state === 'needs_reconnect' || !!x.syncErrorKey;
+
 export interface Scope {
   id: string; // 'all' or 'g:<group name>'
   group: string | null; // null = all accounts

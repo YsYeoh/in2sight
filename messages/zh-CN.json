@@ -1344,7 +1344,7 @@
   },
   "insights": {
     "title": "发现",
-    "source": "基于规则，来自此账号的帖子和每日数据。发布不满 7 天的帖子不计入任何中位数。这是规律，不是证明。",
+    "source": "基于规则，来自此账号的帖子和每日数据。发布不满 7 天的帖子不计入时段、形式和话题标签的比较；突出表现的帖子则与你之前的 20 篇帖子比较。这是规律，不是证明。",
     "dayparts": "按你的时区划分时段：凌晨至 {a}，上午至 {b}，下午至 {c}，之后为晚上。",
     "empty": "目前没有值得注意的情况。",
     "basis": "n = {n} · 可信度{confidence} · {date}",
@@ -1398,7 +1398,8 @@
       "noTop": "@{username}：近 7 天没有发帖",
       "nextTitle": "下一步",
       "slot": "@{username}：下一个好时段为{weekday}{daypart}，{date}（n = {n}，可信度{confidence}）",
-      "noSlot": "@{username}：帖子还不够，无法建议时段（需要 20 篇有数据的帖子）",
+      "noSlotFew": "@{username}：帖子还不够，无法建议时段（需要 20 篇有数据的帖子）",
+      "noSlotClear": "@{username}：目前还没有哪个星期几和时段明显好于其他时段",
       "lastPost": "上次发帖：{days, plural, =0 {今天} other {# 天前}}",
       "noPost": "尚未读取到帖子",
       "proof": "这是规律，不是证明。"

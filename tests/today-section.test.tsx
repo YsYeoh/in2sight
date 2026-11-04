@@ -35,7 +35,12 @@ const input: OverviewInput = {
   posts: { [A]: [...Array.from({ length: 6 }, (_, i) => post(`h${i}`, `${addDays('2026-09-20', i)}T02:00:00Z`, 100)), post('hit', '2026-10-12T02:00:00Z', 900, { mediaType: 'REELS' })] },
 };
 const model = buildOverview(input, { scope: resolveScope(parseTimeScope(new URLSearchParams('from=7d')), TODAY, '2026-01-01'), today: TODAY, now: NOW, tz: KL, locale: 'en', weekStart: 'mon' });
-const briefing = buildToday(input, model.sections.flatMap((s) => s.cards), todayFindings(input, { [A]: 2, [B]: null }, o), [], o);
+const cards = model.sections.flatMap((s) => s.cards);
+const briefing = buildToday(input, cards, todayFindings(input, cards, { [A]: 2, [B]: null }, o), [], o);
+// 25 mature posts, every slot like the rest: enough posts, but no slot clearly ahead
+const flat = Array.from({ length: 25 }, (_, i) => post(`f${i}`, `${addDays('2026-06-01', 3 * i)}T02:00:00Z`, 100));
+const enough = { ...input, posts: { [A]: flat } };
+const enoughBriefing = buildToday(enough, cards, todayFindings(enough, cards, {}, o), [], o);
 
 function view(locale: 'en' | 'zh-CN' = 'en', b: typeof briefing | null = briefing) {
   return render(
@@ -79,6 +84,22 @@ describe('Today on the Overview', () => {
     const next = screen.getByRole('region', { name: en.insights.today.nextTitle });
     expect(within(next).getByText(/not enough posts yet for a slot suggestion/)).toBeInTheDocument();
     expect(within(next).getByText('Last post 3 days ago')).toBeInTheDocument();
+  });
+
+  it('next: with enough posts but no slot clearly ahead, it says that instead of "not enough posts" (both languages)', () => {
+    view('en', enoughBriefing);
+    const next = screen.getByRole('region', { name: en.insights.today.nextTitle });
+    expect(within(next).getByText(en.insights.today.noSlotClear.replace('{username}', 'brand.one'))).toBeInTheDocument();
+    expect(within(next).queryByText(/not enough posts/)).toBeNull();
+    expect(en.insights.today.noSlotClear).not.toMatch(/high|20|certain|proven/i);
+  });
+
+  it('next (zh-CN): both reasons render their own Simplified Chinese text', () => {
+    const { unmount } = view('zh-CN', enoughBriefing);
+    expect(screen.getByText(zh.insights.today.noSlotClear.replace('{username}', 'brand.one'))).toBeInTheDocument();
+    unmount();
+    view('zh-CN');
+    expect(screen.getByText(zh.insights.today.noSlotFew.replace('{username}', 'brand.one'))).toBeInTheDocument();
   });
 
   it('no briefing (no accounts or an old caller): no Today section; zh-CN renders cleanly', () => {

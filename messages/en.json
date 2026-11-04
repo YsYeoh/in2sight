@@ -1344,7 +1344,7 @@
   },
   "insights": {
     "title": "Findings",
-    "source": "Rule-based, from this account's posts and daily insights. Posts younger than 7 days are left out of every median. Patterns, not proof.",
+    "source": "Rule-based, from this account's posts and daily insights. Posts younger than 7 days are left out of the slot, format and hashtag comparisons; a breakout is compared with your previous 20 posts. Patterns, not proof.",
     "dayparts": "Day parts in your timezone: night until {a}, morning until {b}, afternoon until {c}, evening after.",
     "empty": "Nothing stands out right now.",
     "basis": "n = {n} · {confidence} confidence · {date}",
@@ -1398,7 +1398,8 @@
       "noTop": "@{username}: no posts in the last 7 days",
       "nextTitle": "Next",
       "slot": "@{username}: next good slot {weekday} {daypart}, {date} (n = {n}, {confidence})",
-      "noSlot": "@{username}: not enough posts yet for a slot suggestion (needs 20 measured posts)",
+      "noSlotFew": "@{username}: not enough posts yet for a slot suggestion (needs 20 measured posts)",
+      "noSlotClear": "@{username}: no weekday and time of day clearly beats the others yet",
       "lastPost": "Last post {days, plural, =0 {earlier today} one {# day ago} other {# days ago}}",
       "noPost": "No posts read yet",
       "proof": "Patterns, not proof."

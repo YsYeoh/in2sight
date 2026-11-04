@@ -104,7 +104,7 @@ export function TodaySection({ model, dismiss }: { model: TodayModel; dismiss?: 
               <li key={a.id} className="min-w-0 break-words">
                 {a.slot
                   ? t('slot', { username: a.username, weekday: tg(`weekday.${a.slot.weekday}`), daypart: ti(`daypart.${a.slot.daypart}`), date: formatDay(a.slot.day, prefs), n: a.slot.n, confidence: ti(`confidence.${a.slot.confidence}`) })
-                  : t('noSlot', { username: a.username })}{' '}
+                  : t(a.noSlot === 'few_posts' ? 'noSlotFew' : 'noSlotClear', { username: a.username })}{' '}
                 <span className="text-xs text-muted-foreground">{a.lastPostDays === null ? t('noPost') : t('lastPost', { days: a.lastPostDays })}</span>
               </li>
             ))}

@@ -31,8 +31,9 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   const o = { today, now, tz: prefs.timezone };
   // both never throw: [] when nothing imports; null per account when the unanswered count cannot be read
   const [progress, unanswered] = await Promise.all([loadSyncProgress(db, input.accounts, now), loadUnansweredCounts(db, input.accounts, today, prefs.timezone)]);
-  const found = todayFindings(input, unanswered, o);
+  const cards = model.sections.flatMap((s) => s.cards);
+  const found = todayFindings(input, cards, unanswered, o);
   const dismissals = await loadDismissals(db, Object.values(found).flat().map((f) => f.key)); // null = migration missing: no dismiss buttons
-  const briefing = buildToday(input, model.sections.flatMap((s) => s.cards), found, dismissals, o);
+  const briefing = buildToday(input, cards, found, dismissals, o);
   return <OverviewView model={model} today={today} progress={progress} briefing={briefing} dismiss={dismissFindingAction} exportButton={<ExportDialog scopes={exportScopes(input.accounts)} defaultScope="all" time={scope} />} />;
 }

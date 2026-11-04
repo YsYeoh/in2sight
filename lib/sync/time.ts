@@ -4,8 +4,13 @@
 const DAY_MS = 86_400_000;
 const pad = (n: number) => String(n).padStart(2, '0');
 
+// One formatter per timezone: building an Intl.DateTimeFormat is the slow part, and the post rules call this ~10 times a post.
+// The offset still comes from formatting the instant, so DST is unchanged. ponytail: unbounded, but a handful of IANA names.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
 function parts(at: Date, tz: string) {
-  const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  let f = formatters.get(tz);
+  if (!f) formatters.set(tz, (f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })));
   const p = Object.fromEntries(f.formatToParts(at).map((x) => [x.type, x.value]));
   return { y: Number(p.year), m: Number(p.month), d: Number(p.day), h: Number(p.hour), min: Number(p.minute), s: Number(p.second) };
 }

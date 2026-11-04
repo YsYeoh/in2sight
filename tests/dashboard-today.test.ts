@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StoredAccount } from '@/lib/accounts/types';
+import { INSIGHTS } from '@/lib/analysis/insights';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 import { buildOverview } from '@/lib/dashboard/overview';
 import type { OverviewInput } from '@/lib/dashboard/read';
@@ -31,8 +32,8 @@ const input: OverviewInput = {
   daily: { [A]: days(60, (d) => (d === '2026-10-14' ? { reach: 500 } : {})), [B]: days(60), [C]: days(60) },
   posts: { [A]: [...ordinary, ...tuesdays, post('hit', '2026-10-12T02:00:00Z', 2000, { mediaType: 'REELS' }), post('new', '2026-10-13T02:00:00Z', 50)] },
 };
-const model = buildOverview(input, { scope: resolveScope(parseTimeScope(new URLSearchParams('from=7d')), TODAY, '2026-01-01'), today: TODAY, now: NOW, tz: KL, locale: 'en', weekStart: 'mon' });
-const cards = model.sections.flatMap((s) => s.cards);
+const cardsOf = (i: OverviewInput) => buildOverview(i, { scope: resolveScope(parseTimeScope(new URLSearchParams('from=7d')), TODAY, '2026-01-01'), today: TODAY, now: NOW, tz: KL, locale: 'en', weekStart: 'mon' }).sections.flatMap((s) => s.cards);
+const cards = cardsOf(input);
 
 describe('nextSlotDay', () => {
   it('today while the day part has not ended, else the next such weekday', () => {
@@ -43,7 +44,7 @@ describe('nextSlotDay', () => {
 });
 
 describe('buildToday', () => {
-  const found = todayFindings(input, { [A]: 3, [B]: null, [C]: null }, o);
+  const found = todayFindings(input, cards, { [A]: 3, [B]: null, [C]: null }, o);
   const today = buildToday(input, cards, found, [], o);
 
   it('the latest settled day vs the same weekday: values, typical, n, unusual', () => {
@@ -73,7 +74,18 @@ describe('buildToday', () => {
   it('next: days since the last post and the next best slot', () => {
     expect(today.accounts[0].lastPostDays).toBe(2);
     expect(today.accounts[0].slot).toEqual({ weekday: 2, daypart: 'evening', day: '2026-10-20', n: 6, confidence: 'low' });
-    expect(today.accounts[1]).toMatchObject({ top: null, lastPostDays: null, slot: null });
+    expect(today.accounts[0].noSlot).toBeNull();
+    expect(today.accounts[1]).toMatchObject({ top: null, lastPostDays: null, slot: null, noSlot: 'few_posts' });
+  });
+
+  it('no slot: says whether there are too few posts (under the rules\' minimum) or enough posts and no slot clearly ahead', () => {
+    const flat = [...ordinary, ...Array.from({ length: 6 }, (_, i) => post(`f${i}`, `${addDays('2026-09-01', 7 * i)}T11:00:00Z`, 100))]; // 25 mature posts, every slot like the rest
+    const enough = { ...input, posts: { [A]: flat } };
+    expect(buildToday(enough, cards, todayFindings(enough, cards, {}, o), [], o).accounts[0]).toMatchObject({ slot: null, noSlot: 'no_clear_slot' });
+    const few = { ...input, posts: { [A]: flat.slice(0, INSIGHTS.minPosts - 1) } };
+    expect(buildToday(few, cards, todayFindings(few, cards, {}, o), [], o).accounts[0]).toMatchObject({ slot: null, noSlot: 'few_posts' });
+    const exact = { ...input, posts: { [A]: flat.slice(0, INSIGHTS.minPosts) } };
+    expect(buildToday(exact, cards, todayFindings(exact, cards, {}, o), [], o).accounts[0].noSlot).toBe('no_clear_slot'); // the minimum itself is enough
   });
 
   it('dismissed findings leave the list; null dismissals = no dismiss button', () => {
@@ -86,5 +98,32 @@ describe('buildToday', () => {
 
   it('no accounts: an empty briefing', () => {
     expect(buildToday({ accounts: [], sync: {}, daily: {}, posts: {} }, [], {}, [], o)).toEqual({ accounts: [], attention: [], canDismiss: true });
+  });
+});
+
+describe('Today for accounts whose data stopped arriving', () => {
+  // B's token expired and C's sync is failing; the owner kept posting, but what we synced ends 10 days ago
+  const old = (id: string) => Array.from({ length: 25 }, (_, k) => post(`${id.slice(0, 4)}${k}`, `${addDays('2026-10-05', -k)}T04:00:00Z`, 100, { accountId: id }));
+  const stale: OverviewInput = { ...input, posts: { [A]: input.posts[A], [B]: old(B), [C]: old(C) } };
+  const staleCards = cardsOf(stale);
+  const unanswered = { [A]: 3, [B]: 4, [C]: 5 };
+
+  it('gets no finding of any kind, so no "no post for 10 days"; only its problem line', () => {
+    const found = todayFindings(stale, staleCards, unanswered, o);
+    expect(found[B]).toEqual([]);
+    expect(found[C]).toEqual([]);
+    const t = buildToday(stale, staleCards, found, [], o);
+    const about = t.attention.flatMap((x) => (x.kind === 'finding' ? [x.finding.accountId] : []));
+    expect(about).toContain(A); // the healthy account still has its findings
+    expect(about).not.toContain(B);
+    expect(about).not.toContain(C);
+    expect(t.attention.slice(0, 2).map((x) => x.kind === 'problem' && x.problem)).toEqual(['needs_reconnect', 'sync_error']);
+  });
+
+  it('a healthy account with the same history is told about the gap, and its neighbours are unchanged', () => {
+    const healthy: OverviewInput = { ...stale, accounts: stale.accounts.map((a) => (a.id === B ? { ...a, status: 'active' as const } : a)) };
+    const found = todayFindings(healthy, cardsOf(healthy), unanswered, o);
+    expect(found[B].map((f) => f.kind)).toEqual(expect.arrayContaining(['posting_gap', 'unanswered']));
+    expect(found[A].map((f) => f.kind)).toEqual(todayFindings(stale, staleCards, unanswered, o)[A].map((f) => f.kind));
   });
 });

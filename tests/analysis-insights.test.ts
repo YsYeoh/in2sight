@@ -197,6 +197,30 @@ describe('findInsights', () => {
   it('never claims High', () => {
     for (const f of findInsights(input, o)) expect(['low', 'medium']).toContain(f.confidence);
   });
+
+  // token expired 10 days ago, the owner kept posting every day: the synced posts end 10 days ago
+  const dead = { ...input, posts: Array.from({ length: 25 }, (_, k) => post(`d${k}`, `${addDays('2026-10-05', -k)}T04:00:00Z`, 100)) };
+
+  it('a healthy account with that history is told it has not posted for 10 days', () => {
+    expect(findInsights(dead, o).map((f) => f.kind)).toContain('posting_gap');
+    expect(findInsights({ ...dead, stale: false }, o)).toEqual(findInsights(dead, o)); // false = the same as not set
+  });
+
+  it('a stale account (needs a reconnect, or its sync is failing) gets no finding at all: its synced data stopped arriving', () => {
+    expect(findInsights({ ...dead, stale: true }, o)).toEqual([]);
+    expect(findInsights({ ...input, stale: true }, o)).toEqual([]); // breakout, drop, slot and the questions count too
+  });
+});
+
+describe('measured posts passed down', () => {
+  it('give the same slot, format and hashtag answers as computing them in each rule', () => {
+    const list = [...ordinary(19, { caption: 'just a day #daily' }), ...tuesdayEvenings(300, { caption: 'Lunch #Food #daily' })];
+    const m = measuredPosts(list, TODAY, KL);
+    expect(bestSlot(list, A, TODAY, KL, m)).toEqual(bestSlot(list, A, TODAY, KL));
+    expect(formatWinner(list, A, TODAY, KL, m)).toEqual(formatWinner(list, A, TODAY, KL));
+    expect(hashtagWinner(list, A, TODAY, KL, m)).toEqual(hashtagWinner(list, A, TODAY, KL));
+    expect(hashtagWinner(list, A, TODAY, KL)).not.toBeNull();
+  });
 });
 
 describe('dismissals', () => {

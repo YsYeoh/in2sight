@@ -10,6 +10,7 @@ Nothing here has been verified live. Do it with the owner, signed in with 2FA, o
     node --env-file=.env.local scripts/sb.mjs db push --yes
     node --env-file=.env.local scripts/sb.mjs migration list        # N local / N remote / 0 mismatched
     node --env-file=.env.local scripts/db-probe.mjs table:insight_dismissals   # after: 401 / 42501 (exists, anon denied)
+Before `db push`, the dry-run must list exactly one pending file; if it lists an older migration too, stop and ask the owner.
 Without it: no Dismiss buttons and the line "Dismissing findings needs a database update".
 
 ## 1. Findings make sense (L1)

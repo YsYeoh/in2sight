@@ -37,7 +37,8 @@ vi.mock('@/lib/moderation/store', () => ({
 }));
 vi.mock('@/lib/prefs.server', async () => ({ getPrefs: async () => (await import('@/lib/prefs')).DEFAULT_PREFS }));
 vi.mock('@/lib/accounts/supabase-store', () => ({ supabaseAccountsStore: () => ({ list: async () => (calls.push('accounts'), accounts) }) }));
-vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => ({}) }));
+const overview = vi.hoisted(() => ({ posts: [] as Record<string, unknown>[], sync: {} as Record<string, unknown> }));
+vi.mock('@/lib/sync/store', () => ({ listSyncStatus: async () => overview.sync }));
 vi.mock('@/lib/dashboard/read', () => ({
   MEDIA_LIMIT: 500,
   loadDaily: async () => (calls.push('daily'), []),
@@ -49,7 +50,7 @@ vi.mock('@/lib/dashboard/detail-read', () => ({
   loadPostRows: async (_db: unknown, _id: string, from: string | null) => {
     if (fail.postRows) throw new Error('db down');
     since.push(from);
-    return calls.push('postRows'), [];
+    return calls.push('postRows'), overview.posts;
   },
   loadPostPage: async (_db: unknown, _id: string, a: Record<string, unknown>) => {
     if (fail.postRows) throw new Error('db down');
@@ -71,7 +72,7 @@ vi.mock('@/lib/dashboard/growth-read', () => ({
 
 import AccountPage from '@/app/(app)/accounts/[id]/(tabs)/page';
 import { DEFAULT_PREFS } from '@/lib/prefs';
-import { daysToIso, localDay } from '@/lib/sync/time';
+import { addDays, daysToIso, localDay } from '@/lib/sync/time';
 
 const ID = '3f2b8c1e-5a6d-4e7f-9a0b-1c2d3e4f5a6b';
 const acct = (id: string, status = 'active', o: Record<string, unknown> = {}) => ({ id, igUserId: id, username: `u${id.slice(0, 4)}`, displayName: null, accountType: null, profilePictureUrl: null, groupName: null, status, archivedAt: null, lastError: null, tokenExpiresAt: null, connectedAt: '2026-09-01T00:00:00Z', ...o });
@@ -95,6 +96,8 @@ beforeEach(() => {
   accounts.length = 0;
   fail.postRows = false;
   growthArgs.breakdownFrom.length = 0;
+  overview.posts = [];
+  overview.sync = {};
 });
 
 describe('account detail page', () => {
@@ -214,6 +217,41 @@ describe('account detail page', () => {
     const el = await run(ID, { tab: 'posts' });
     expect(el.props.tab).toBe('posts');
     await expect(streamTab(el)).rejects.toThrow('db down');
+  });
+});
+
+describe('account page: Findings on the Overview (Plan 17b)', () => {
+  // a post a day, the newest on 7 Oct; "today" is 17 Oct, so a healthy account has not posted for 10 days
+  const rows = Array.from({ length: 25 }, (_, k) => ({ id: `p${k}`, accountId: ID, mediaType: 'IMAGE', postedAt: `${addDays('2026-10-07', -k)}T04:00:00Z`, permalink: null, reach: 100, views: null, likes: null, comments: null, shares: null, saves: null, caption: null, tagIds: [] }));
+  const kinds = async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T04:00:00Z'));
+    try {
+      const tab = (await streamTab(await run(ID))) as ReactElement<{ findings: { items: { kind: string }[] } }>;
+      return tab.props.findings.items.map((f) => f.kind);
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+  beforeEach(() => {
+    overview.posts = rows;
+  });
+
+  it('a healthy account is told it has not posted for 10 days', async () => {
+    accounts.push(acct(ID));
+    expect(await kinds()).toContain('posting_gap');
+  });
+
+  it('an account that needs a reconnect (flag or expired token) or whose sync is failing gets no finding: the banner says what is wrong', async () => {
+    accounts.push(acct(ID, 'needs_reconnect'));
+    expect(await kinds()).toEqual([]);
+    accounts.length = 0;
+    accounts.push(acct(ID, 'active', { tokenExpiresAt: '2026-10-01T00:00:00Z' }));
+    expect(await kinds()).toEqual([]);
+    accounts.length = 0;
+    accounts.push(acct(ID));
+    overview.sync = { [ID]: { lastSuccessAt: '2026-10-07T05:00:00Z', lastErrorKey: 'rate_limited', consecutiveFailures: 3, dailyDoneThrough: '2026-10-06' } };
+    expect(await kinds()).toEqual([]);
   });
 });
 

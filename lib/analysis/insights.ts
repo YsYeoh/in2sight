@@ -18,7 +18,7 @@ import { daysBetween, weekOf } from '@/lib/time-scope/range';
 export const INSIGHTS = {
   readDays: 64, // daily rows a caller reads: 8 weeks of same-weekday history, Instagram's lag and the day before (follower change)
   lookbackDays: 180, // posts the post rules look at
-  matureDays: 7, // a post younger than this is still gathering reach: left out of every median
+  matureDays: 7, // a post younger than this is still gathering reach: left out of the slot, format and hashtag comparisons (a breakout is compared with the previous 20 posts, whatever their age)
   minPosts: CAPTION_MIN_POSTS, // measured, mature posts a post rule needs at all (20)
   minGroup: 5, // posts in a slot / format / with a hashtag, and on the other side
   mediumGroup: 10, // ... for Medium instead of Low
@@ -71,6 +71,7 @@ export interface InsightInput {
   daily: DailyRow[]; // at least INSIGHTS.readDays back
   posts: InsightPost[]; // feed posts, newest first (Stories are ignored)
   unanswered: number | null; // questions without a reply seen, last 7 days; null = not read (no comments scope, no migration)
+  stale?: boolean; // the account needs a reconnect or its sync is failing (lib/dashboard/overview.ts isStale): no finding at all
 }
 
 export type DismissMode = 'dismiss' | 'snooze';
@@ -191,9 +192,8 @@ export function unusualDays(daily: DailyRow[], accountId: string, today: string,
   });
 }
 
-/** The weekday × day part whose posts reach the most vs every other post. */
-export function bestSlot(posts: InsightPost[], accountId: string, today: string, tz: string): Finding | null {
-  const m = measuredPosts(posts, today, tz);
+/** The weekday × day part whose posts reach the most vs every other post. `m` = measuredPosts(...) when the caller has it already. */
+export function bestSlot(posts: InsightPost[], accountId: string, today: string, tz: string, m: Measured[] = measuredPosts(posts, today, tz)): Finding | null {
   if (m.length < INSIGHTS.minPosts) return null;
   const w = winner(m, (x) => [`${weekdayOf(x.day)}:${daypartOf(x.hour)}`]);
   if (!w || w.ratio < INSIGHTS.slotRatio) return null;
@@ -202,8 +202,7 @@ export function bestSlot(posts: InsightPost[], accountId: string, today: string,
 }
 
 /** The format whose posts reach the most vs the posts of every other format. */
-export function formatWinner(posts: InsightPost[], accountId: string, today: string, tz: string): Finding | null {
-  const m = measuredPosts(posts, today, tz);
+export function formatWinner(posts: InsightPost[], accountId: string, today: string, tz: string, m: Measured[] = measuredPosts(posts, today, tz)): Finding | null {
   if (m.length < INSIGHTS.minPosts) return null;
   const w = winner(m, (x) => [x.p.mediaType]);
   if (!w || w.ratio < INSIGHTS.formatRatio) return null;
@@ -211,8 +210,9 @@ export function formatWinner(posts: InsightPost[], accountId: string, today: str
 }
 
 /** The hashtag whose posts reach the most vs the posts without it (only posts whose caption was read). */
-export function hashtagWinner(posts: InsightPost[], accountId: string, today: string, tz: string): Finding | null {
-  const m = measuredPosts(posts, today, tz).filter((x) => x.p.caption !== undefined);
+export function hashtagWinner(posts: InsightPost[], accountId: string, today: string, tz: string, measured?: Measured[]): Finding | null {
+  if (!posts.some((p) => p.caption !== undefined)) return null; // the Overview reads no captions: skip the work
+  const m = (measured ?? measuredPosts(posts, today, tz)).filter((x) => x.p.caption !== undefined);
   if (m.length < INSIGHTS.minPosts) return null;
   const w = winner(m, (x) => captionFeatures(x.p.caption ?? null).hashtags.map((h) => [...h].slice(0, INSIGHTS.maxHashtag).join('')));
   if (!w || w.ratio < INSIGHTS.hashtagRatio) return null;
@@ -249,14 +249,19 @@ export const compareFindings = (a: Finding, b: Finding): number =>
 
 /** Every rule over one account, ranked. */
 export function findInsights(input: InsightInput, o: { today: string; now: Date; tz: string }): Finding[] {
+  // A reconnect-needed or failing account: every rule reads synced data (posts, daily numbers, comments) that stopped
+  // arriving, so each would describe the past as now ("no post for 10 days" while the owner kept posting). The Today
+  // problem line / the account banner says what is wrong. `unanswered` too: replies made since are not seen either.
+  if (input.stale) return [];
   const { accountId: a, daily, posts } = input;
+  const m = measuredPosts(posts, o.today, o.tz); // once: the three post rules below share it
   return [
     ...breakouts(posts, a, o.now, o.tz),
     reachDropFinding(daily, a, o.today, o.tz),
     ...unusualDays(daily, a, o.today, o.tz),
-    bestSlot(posts, a, o.today, o.tz),
-    formatWinner(posts, a, o.today, o.tz),
-    hashtagWinner(posts, a, o.today, o.tz),
+    bestSlot(posts, a, o.today, o.tz, m),
+    formatWinner(posts, a, o.today, o.tz, m),
+    hashtagWinner(posts, a, o.today, o.tz, m),
     postingGap(posts, a, o.today, o.tz),
     unansweredFinding(input.unanswered, a, o.today),
   ]

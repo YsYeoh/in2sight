@@ -26,6 +26,7 @@ import { topics } from '@/lib/comments/topics';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
 import { buildAudience } from '@/lib/dashboard/audience';
 import { loadDismissals } from '@/lib/dashboard/dismissals';
+import { isStale } from '@/lib/dashboard/overview';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
 import { buildPosts, buildStories, storyView } from '@/lib/dashboard/content';
 import { buildContentLab } from '@/lib/dashboard/content-lab';
@@ -182,13 +183,14 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
         loadAudience(db, account.id),
         loadUnansweredCounts(db, [account], today, tz), // never throws
       ]);
-      const found = findInsights({ accountId: account.id, daily, posts, unanswered: unanswered[account.id] ?? null }, { today, now, tz });
-      const dismissals = await loadDismissals(db, found.map((f) => f.key)); // null = migration missing: no dismiss buttons
-      const findings = { items: visibleFindings(found, dismissals, now), canDismiss: dismissals !== null, showAll: sp.findings === 'all' };
       const model = buildAccountOverview(
         { account, sync: sync[account.id], daily, posts, online: online[account.id] ?? [], pooled: { accounts: pool.length, posts: [...posts, ...otherPosts.flat()], online: Object.values(online).flat() } },
         { scope, today, now, tz, weekStart: prefs.weekStart },
       );
+      // a reconnect-needed or failing account gets no findings (isStale): the banner above says what is wrong
+      const found = findInsights({ accountId: account.id, daily, posts, unanswered: unanswered[account.id] ?? null, stale: isStale(model) }, { today, now, tz });
+      const dismissals = await loadDismissals(db, found.map((f) => f.key)); // null = migration missing: no dismiss buttons
+      const findings = { items: visibleFindings(found, dismissals, now), canDismiss: dismissals !== null, showAll: sp.findings === 'all' };
       return <AccountOverview model={model} account={{ id: account.id, groupName: account.groupName }} audience={buildAudience(audience)} findings={findings} dismiss={dismissFindingAction} />;
     }
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { addDays, dayRangeSec, dayStart, daysToIso, localDay, localHour } from '@/lib/sync/time';
 
 const KL = 'Asia/Kuala_Lumpur'; // UTC+8, no DST
@@ -13,6 +13,27 @@ describe('localDay / localHour', () => {
   });
   it('midnight is hour 0, never 24', () => {
     expect(localHour(new Date('2026-10-14T04:00:00Z'), NY)).toBe(0);
+  });
+  it('the same zone gives the same answer on every call, across a DST change', () => {
+    const before = new Date('2026-03-08T06:59:59Z'); // 01:59:59 EST, the last second before spring-forward
+    const after = new Date('2026-03-08T07:00:00Z'); // 03:00:00 EDT
+    for (let i = 0; i < 3; i++) {
+      expect([localDay(before, NY), localHour(before, NY)]).toEqual(['2026-03-08', 1]);
+      expect([localDay(after, NY), localHour(after, NY)]).toEqual(['2026-03-08', 3]);
+    }
+  });
+  it('builds one formatter per timezone, not one per call (the post rules call this 7-12 times a post)', () => {
+    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    try {
+      for (let i = 0; i < 1000; i++) {
+        const at = new Date(Date.UTC(2026, 0, 1) + i * 6 * 3_600_000);
+        localDay(at, 'Pacific/Auckland');
+        localHour(at, 'America/Sao_Paulo');
+      }
+      expect(spy.mock.calls.length).toBeLessThanOrEqual(2); // two distinct zones
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
