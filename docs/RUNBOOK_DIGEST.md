@@ -48,9 +48,12 @@ privacy → Download all fails on the `goals` file with the usual export error.
 2. Followers: the "straight line" number today ≈ the current count (set today); the projection says Low or Medium and
    "not enough history" when the account has under 14 days of follower counts. Never "High".
 3. Clear the posts-per-week field, save: that goal disappears from the digest's "Goals now".
-4. Wrong values: a target of 0 or 1.5, a followers target without a date, a date in the past: the form says what is
-   wrong and nothing is saved.
-5. Settings → Data & privacy → Download all: `goals.json` is one of the files; it holds only your targets.
+4. Wrong values: a target of 0 or 1.5, a followers target without a date, a followers date that is not after today: the
+   form says some values are not valid (and lists the rules) and nothing is saved.
+5. A followers goal whose due day is today or has passed (use one you set earlier, or wait for the day): it shows
+   "Missed" or the last status, you can still change posts per week or clear a goal and save; only changing the followers
+   target or day asks for a day after today.
+6. Settings → Data & privacy → Download all: `goals.json` is one of the files; it holds only your targets.
 
 ## 4. Speed (L2)
 DevTools → Network → the `/plan/digest` document → Server-Timing; warm load ≤ 1.2 s p75 with two accounts (the same reads

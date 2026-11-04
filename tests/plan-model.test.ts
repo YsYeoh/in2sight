@@ -128,10 +128,12 @@ describe('goal input and storage', () => {
     expect(sql).toContain(`target <= ${TARGET_MAX.posts_per_week})`);
   });
 
-  it('empty = no goal; whole numbers in range; followers needs a due day after today and within 5 years', () => {
+  it('empty = no goal; whole numbers in range; followers needs a due day within 5 years (a day that has passed stays valid, so a missed goal does not block the others)', () => {
+    expect(parseGoalInput({ followers: '10', followersDue: today }, today)).toEqual({ followers: { target: 10, dueDay: today }, avg_reach: null, posts_per_week: null });
+    expect(parseGoalInput({ followers: '10', followersDue: '2026-10-01' }, today)?.followers).toEqual({ target: 10, dueDay: '2026-10-01' });
     expect(parseGoalInput({ followers: '', avg_reach: '1200', posts_per_week: 3 }, today)).toEqual({ followers: null, avg_reach: { target: 1200, dueDay: null }, posts_per_week: { target: 3, dueDay: null } });
     expect(parseGoalInput({ followers: ' 5000 ', followersDue: '2026-12-31' }, today)).toEqual({ followers: { target: 5000, dueDay: '2026-12-31' }, avg_reach: null, posts_per_week: null });
-    for (const bad of [null, 'x', { posts_per_week: '51' }, { avg_reach: '0' }, { avg_reach: '1.5' }, { avg_reach: '-3' }, { avg_reach: '1e3' }, { followers: '10' }, { followers: '10', followersDue: today }, { followers: '10', followersDue: '2031-11-03' }, { followers: '10', followersDue: '2026-02-30' }])
+    for (const bad of [null, 'x', { posts_per_week: '51' }, { avg_reach: '0' }, { avg_reach: '1.5' }, { avg_reach: '-3' }, { avg_reach: '1e3' }, { followers: '10' }, { followers: '10', followersDue: '2031-11-03' }, { followers: '10', followersDue: '2026-02-30' }])
       expect(parseGoalInput(bad, today), JSON.stringify(bad)).toBeNull();
   });
 

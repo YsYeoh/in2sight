@@ -70,18 +70,16 @@ export interface DigestModel {
 const byReach = (a: DigestPost, b: DigestPost) => b.reach - a.reach || (a.postedAt < b.postedAt ? 1 : -1);
 
 /** The goals of one account, computed for today (never for a past period: a goal's pace is a "now" answer). */
-export function goalsNow(goals: Goal[], input: OverviewInput, accountId: string, o: { today: string; now: Date; tz: string; weekStart: WeekStart }): GoalProgress[] {
+function goalsNow(goals: Goal[], input: OverviewInput, accountId: string, o: { today: string; now: Date; tz: string; weekStart: WeekStart }): GoalProgress[] {
   const daily = input.daily[accountId] ?? [];
   const posts = input.posts[accountId] ?? [];
   return goals
     .filter((g) => g.accountId === accountId)
-    .map((g) =>
-      g.metric === 'followers' && g.dueDay !== null
-        ? followersProgress({ ...g, dueDay: g.dueDay }, daily, o.today)
-        : g.metric === 'avg_reach'
-          ? avgReachProgress(g, posts, monthOf(o.today), o.now, o.tz)
-          : postsPerWeekProgress(g, posts, weekOf(o.today, o.weekStart), o.today, o.tz),
-    );
+    .flatMap((g): GoalProgress[] => {
+      if (g.metric === 'followers') return g.dueDay !== null ? [followersProgress({ ...g, dueDay: g.dueDay }, daily, o.today)] : []; // the migration requires a due day for followers
+      if (g.metric === 'avg_reach') return [avgReachProgress(g, posts, monthOf(o.today), o.now, o.tz)];
+      return [postsPerWeekProgress(g, posts, weekOf(o.today, o.weekStart), o.today, o.tz)];
+    });
 }
 
 /** The first day the Plan page reads: the period and its comparison (readFrom), this month and last week, 28 days of follower history before today, and each followers goal's start day. */

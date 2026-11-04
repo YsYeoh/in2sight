@@ -32,8 +32,9 @@ export async function loadGoals(db: SupabaseClient, tz: string): Promise<Goal[] 
 
 /**
  * The form's raw values -> what to store. Per metric: '' (or missing) = no goal; else a whole number 1..TARGET_MAX;
- * followers also needs a due day after today and at most DUE_MAX_DAYS ahead. null = anything invalid (the form
- * validates the same rules first, so this only refuses hostile or stale input).
+ * followers also needs a due day, at most DUE_MAX_DAYS ahead. A day that has passed is kept: a goal that is due or missed
+ * stays editable (the form asks for a day after today only when the owner sets or changes the followers goal, and the
+ * progress says "Missed"). null = anything invalid (the form validates first, so this only refuses hostile or stale input).
  */
 export function parseGoalInput(raw: unknown, today: string): GoalInput | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -52,7 +53,7 @@ export function parseGoalInput(raw: unknown, today: string): GoalInput | null {
       continue;
     }
     const due = r.followersDue;
-    if (!isDay(due) || due <= today || due > addDays(today, DUE_MAX_DAYS)) return null;
+    if (!isDay(due) || due > addDays(today, DUE_MAX_DAYS)) return null;
     out[m] = { target: n, dueDay: due };
   }
   return out;

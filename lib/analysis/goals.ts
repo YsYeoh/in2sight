@@ -104,7 +104,7 @@ export function avgReachProgress(g: Goal, posts: Post[], month: DayRange, now: D
   });
   const n = inMonth.length;
   const actual = n ? Math.round(inMonth.reduce((a, p) => a + p.reach!, 0) / n) : null;
-  const young = inMonth.filter((p) => now.getTime() - Date.parse(p.postedAt) < YOUNG_DAYS * 86_400_000).length;
+  const young = inMonth.filter((p) => daysBetween(localDay(new Date(p.postedAt), tz), localDay(now, tz)) < YOUNG_DAYS).length; // owner-timezone days, as the digest's post lists
   const status: Status | null = actual === null || n < AVG_MIN_POSTS ? null : actual >= g.target ? 'ahead' : 'behind';
   return { metric: 'avg_reach', target: g.target, month, actual, n, young, status };
 }

@@ -19,6 +19,7 @@ import { TARGET_MAX, type Goal } from '@/lib/analysis/goals';
 import { formatNumber } from '@/lib/format';
 import { parseGoalInput, type GoalError } from '@/lib/plan/goals';
 import type { GoalsAccount } from '@/lib/plan/model';
+import { addDays } from '@/lib/sync/time';
 
 type Values = { followers: string; followersDue: string; avg_reach: string; posts_per_week: string };
 export type SaveGoals = (accountId: string, raw: Values) => Promise<{ ok: true } | { ok: false; error: GoalError }>;
@@ -38,7 +39,9 @@ function AccountGoals({ a, today, save }: { a: GoalsAccount; today: string; save
   const [error, setError] = useState<GoalError>('unexpected');
   const [pending, start] = useTransition();
   const dirty = JSON.stringify(v) !== JSON.stringify(stored);
-  const valid = parseGoalInput(v, today) !== null;
+  // A followers goal whose day has passed stays as it is (it says "Missed"); it must not block the other goals. Setting or changing the followers goal needs a day after today.
+  const followersTouched = v.followers !== stored.followers || v.followersDue !== stored.followersDue;
+  const valid = parseGoalInput(v, today) !== null && (!followersTouched || v.followers === '' || v.followersDue > today);
   const set = (k: keyof Values) => (e: React.ChangeEvent<HTMLInputElement>) => setV((s) => ({ ...s, [k]: e.target.value }));
   const max = (m: Goal['metric']) => formatNumber(TARGET_MAX[m], prefs);
 
@@ -86,7 +89,7 @@ function AccountGoals({ a, today, save }: { a: GoalsAccount; today: string; save
               {(p) => <Input {...p} type="number" inputMode="numeric" min={1} max={TARGET_MAX.followers} step={1} value={v.followers} onChange={set('followers')} />}
             </FormField>
             <FormField id={`${a.id}-due`} label={t('followersDue')} hint={t('followersDueHint')}>
-              {(p) => <Input {...p} type="date" min={today} value={v.followersDue} onChange={set('followersDue')} disabled={v.followers === ''} />}
+              {(p) => <Input {...p} type="date" min={addDays(today, 1)} value={v.followersDue} onChange={set('followersDue')} disabled={v.followers === ''} />}
             </FormField>
             <FormField id={`${a.id}-avg`} label={t('avgReach')} hint={t('avgReachHint', { max: max('avg_reach') })}>
               {(p) => <Input {...p} type="number" inputMode="numeric" min={1} max={TARGET_MAX.avg_reach} step={1} value={v.avg_reach} onChange={set('avg_reach')} />}

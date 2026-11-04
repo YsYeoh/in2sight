@@ -42,7 +42,7 @@ describe('saveGoalsAction', () => {
   });
 
   it('invalid input or a non-string id never reaches the database', async () => {
-    expect(await saveGoalsAction(A, { followers: '10', followersDue: '2026-10-29' })).toEqual({ ok: false, error: 'invalid' });
+    expect(await saveGoalsAction(A, { followers: '10', followersDue: '2026-02-30' })).toEqual({ ok: false, error: 'invalid' });
     expect(await saveGoalsAction(42, {})).toEqual({ ok: false, error: 'invalid' });
     expect(calls).toEqual(['owner', 'owner']);
   });

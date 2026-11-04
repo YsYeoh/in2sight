@@ -117,6 +117,20 @@ describe('GoalsView', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(G.errors.needs_update);
   });
 
+  it('a followers goal that is due today does not block the other goals; changing it asks for a new day', async () => {
+    const user = userEvent.setup();
+    const goals = [{ id: 'g', accountId: A, metric: 'followers' as const, target: 5000, dueDay: today, startDay: '2026-10-01' }];
+    wrap(<GoalsView accounts={buildGoals(input, goals, o)} ready today={today} save={save} />);
+    await user.type(screen.getByLabelText(G.postsPerWeek), '3');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(save).toHaveBeenCalledWith(A, { followers: '5000', followersDue: today, avg_reach: '', posts_per_week: '3' });
+    save.mockClear();
+    await user.type(screen.getByLabelText(G.followers), '0'); // 50000 with the same, passed, day
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(G.errors.invalid);
+  });
+
   it('stored goals fill the form and their progress shows with a status word', () => {
     const goals = [{ id: 'g', accountId: A, metric: 'posts_per_week' as const, target: 2, dueDay: null, startDay: '2026-10-01' }];
     wrap(<GoalsView accounts={buildGoals(input, goals, o)} ready today={today} save={save} />);

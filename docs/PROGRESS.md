@@ -81,6 +81,13 @@ Each line: plan, what it gives, where to read more.
 - **17c: Auto-tagging (code done, NOT verified live; migration 20261102000001 applied 2026-11-04).** Tags page → Rules per tag (hashtag / caption word / format); new posts tagged by the sync's media-list job; older posts via "Apply to existing posts" with a preview count; rules only add; removed tags are remembered and never re-added (trigger). Plan: docs/superpowers/plans/2026-11-01-17c-auto-tagging.md. Runbook: docs/RUNBOOK_AUTOTAG.md.
 - **17d: Goals + digest (code done, NOT verified live; migration 20261103000001 written, NOT applied).** New side-nav item **Plan** (/plan/digest, /plan/goals): one calendar week or month per account and for all accounts with the Overview's numbers vs the period before, best and weakest posts, goals now; goals per account (followers by a date, average reach per post this month, posts per week) with pace, Theil-Sen projection (Low/Medium) and status, explicit save. Plan: docs/superpowers/plans/2026-11-01-17d-goals-digest.md. Runbook: docs/RUNBOOK_DIGEST.md.
 
+  Known gaps and follow-ups from the 17d review (the one defect found, a followers goal on or after its due day blocking every save of that account, is fixed: a passed due day stays valid and only setting or changing the followers goal asks for a day after today):
+  - (a) Read cost grows with the age of a followers goal: the Plan page reads daily rows and posts back to the goal's start day only to find the baseline count (`planReadFrom`); a one-row query for the start-day count would fix it. Watch the L2 speed check in RUNBOOK_DIGEST §4. `loadGoals` also runs before `loadOverviewInput` (one extra round trip; they could run together).
+  - (b) Phone bottom bar at 360 px now has 7 columns (about 51 px each, labels not truncated): RUNBOOK_DIGEST §1 is the live check.
+  - (c) Saving goals is an upsert then a delete, not one transaction: if the delete fails the upserted goals are stored while the form shows an error; saving again fixes it.
+  - (d) Unused for now: `plan.sections.*.description` in both catalogs and the `lastWeek.met` field of the posts-per-week progress.
+  - (e) The invalid-value message lists the rules (whole numbers in range, a day after today for followers) instead of naming the field.
+
 Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
 
 Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d), Settings.
