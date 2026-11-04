@@ -59,7 +59,7 @@ export function weekdayAnomaly(series: Record<string, number | null>, day: strin
 export const rank = (sorted: number[], p: number) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
 
 // ponytail: the pair-slope loop is O(n²) on at most 28 points (378 slopes); never run it on longer series.
-export function projectFollowers(points: { day: string; value: number }[]): ProjectionResult {
+export function projectFollowers(points: { day: string; value: number }[], horizons: readonly number[] = PROJECTION.horizons): ProjectionResult {
   const sorted = [...points].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
   const last = sorted[sorted.length - 1];
   const w = last ? sorted.filter((p) => p.day >= addDays(last.day, -(PROJECTION.days - 1))) : [];
@@ -70,11 +70,11 @@ export function projectFollowers(points: { day: string; value: number }[]): Proj
   const perDay = median(slopes)!;
   const q25 = rank(slopes, 0.25);
   const q75 = rank(slopes, 0.75);
-  const horizons = PROJECTION.horizons.map((days) => {
+  const result = horizons.map((days) => {
     const at = (s: number) => Math.max(0, last.value + s * days);
     const step = 10 ** Math.max(0, Math.floor(Math.log10(Math.max(1, at(q75) - at(q25)))));
     return { days, value: Math.round(at(perDay) / step) * step, low: Math.floor(at(q25) / step) * step, high: Math.ceil(at(q75) / step) * step };
   });
   const clear = q25 >= 0 === q75 >= 0;
-  return { method: 'median_slope', n: w.length, from: w[0].day, to: last.day, last: last.value, perDay, confidence: w.length >= PROJECTION.mediumPoints && clear ? 'medium' : 'low', horizons };
+  return { method: 'median_slope', n: w.length, from: w[0].day, to: last.day, last: last.value, perDay, confidence: w.length >= PROJECTION.mediumPoints && clear ? 'medium' : 'low', horizons: result };
 }
