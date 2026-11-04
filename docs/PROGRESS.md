@@ -26,6 +26,7 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 | Plan 16b (Security) | **code complete on local `main`, NOT pushed, nothing verified live. NO migration.** Change password, forgot / reset password, sign out other devices. **Owner prerequisites first (code cannot do them; forgot / reset does not work without them):** custom SMTP in Supabase, Auth Site URL and Redirect URLs set to `<app-url>`, the Reset Password email template linking to `/auth/confirm?token_hash=...&type=recovery` (one bilingual template), email rate limit 10 per hour, minimum password length 12, sign-ups kept off (`docs/RUNBOOK_SECURITY.md` §0) |
 | Plan 16c (Data & privacy) | **pushed; nothing verified live.** Migration 20261031000001_data_privacy (two functions, two cascade indexes) APPLIED 2026-10-27 (anon probes 401/42501); next: RUNBOOK_DATA live checks |
 | Plan 17b (Insights feed + Today) | **code complete, reviewed and pushed 2026-11-04; nothing verified live.** Migration 20261101000001_insight_dismissals **applied** 2026-11-04 (dry-run listed exactly this file; `migration list` 17 / 17; anon probe 401 / 42501; RUNBOOK_INSIGHTS §0) |
+| Plan 17c (Auto-tagging) | **code done; nothing verified live.** Migration 20261102000001_tag_rules: file written, **NOT applied** (owner's go-ahead, apply BEFORE deploying; RUNBOOK_AUTOTAG §0). Without it the Tags page shows "Automatic tagging needs a database update" and the sync skips the rules |
 | Open agents / worktrees | none expected after the 15c merge; check `git worktree list` and remove leftovers (section 10) |
 
 ## 3. What is built (all merged and pushed)
@@ -77,6 +78,7 @@ Each line: plan, what it gives, where to read more.
   - (a) Today follows the selected range through the card state: Today keeps only cards in state `ok` and the card state is worked out from the range bar, so a past range with no data hides the day/working/next lines (contradicts the subtitle); fix = compute the card state from the latest sync, not the range.
   - (b) The "Views: - not enough history to compare (n = 0)" line when the settled day has no value should say there is no value for that day.
   - (c) 17a overlap to unify later: `DAYPARTS`/`Daypart` copied from lib/analysis/splits.ts; posting_gap (5+ gaps, 2x usual gap, at least 3 days, 180 days) vs lib/analysis/cadence.ts (4+ gaps, 2x, within the selected range) can disagree; format_winner vs 17a's per-format split and hashtag_winner vs hashtagLab are accepted duplicates; day-part labels exist in both the 17a content keys and `insights.daypart`.
+- **17c: Auto-tagging (code done, NOT verified live; migration 20261102000001 file written, NOT applied).** Tags page → Rules per tag (hashtag / caption word / format); new posts tagged by the sync's media-list job; older posts via "Apply to existing posts" with a preview count; rules only add; removed tags are remembered and never re-added (trigger). Plan: docs/superpowers/plans/2026-11-01-17c-auto-tagging.md. Runbook: docs/RUNBOOK_AUTOTAG.md.
 
 Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
 
@@ -119,6 +121,7 @@ Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Mo
 
 | 20261031000001_data_privacy | data_usage() (owner-only sizes) and delete_all_data() (service_role only) (Plan 16c; applied 2026-10-27; also adds indexes on moderation_log.undo_of and notifications.account_id so the delete cascade stays linear) |
 | 20261101000001_insight_dismissals | owner-authored dismissed / snoozed finding keys (Plan 17b; applied 2026-11-04) |
+| 20261102000001_tag_rules | tag_rules, media_tag_rejections, media_tags.source, trigger media_tags_skip_rejected (Plan 17c; **file written, NOT applied**: owner go-ahead, apply BEFORE deploying; RUNBOOK_AUTOTAG §0) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -150,6 +153,7 @@ the owner. Each runbook lists exact steps.
 9. **docs/RUNBOOK_DATA.md** (Plan 16c): §0 migration, §1 storage, §2 export (L1 keyset), §4 refusal paths; §3.3 the real delete only when the owner wants everything gone.
 10. **docs/RUNBOOK_CONTENT.md** (Plan 17a): §1 numbers match Post Lab (L1), §2 guards and empty states, §3 speed at "All time" (L2), §4 phone and themes.
 11. **docs/RUNBOOK_INSIGHTS.md** (Plan 17b): §0 migration, then §1–§6.
+12. **docs/RUNBOOK_AUTOTAG.md** (Plan 17c): §0 migration, then §1–§5.
 Record outcomes in the runbooks and TODO ("code done; live verification pending" becomes ticked only after the owner has looked).
 
 ## 7. What is left to build (priority order; the owner's order is data and analysis first, planning last)
@@ -167,7 +171,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 3. **Weekly planning tools** (spec §6 "Content intelligence"): insights feed, leaderboards, format and time lab, cadence, hashtag lab, compare accounts,
    goals, planner board (no publishing to Instagram), weekly/monthly digest.
 4. **Later:** weekly AI summary per account (use the `claude-api` skill), shareable report links (frozen snapshot, expiring token, spec §0b), "Today
-   briefing" Overview, smart alerts with one daily digest, auto-tagging from hashtags.
+   briefing" Overview, smart alerts with one daily digest, auto-tagging from hashtags (built as Plan 17c, not verified live).
 5. **Pitch readiness (owner idea, NOT designed):** on 2026-10-22 the owner said they want to show the system to investors "about the overall idea"
    and asked to finish the TODO features first. The assistant's untested guess for later: a demo mode with realistic sample accounts (never show real
    people's names), a "Today briefing" screen, the Why-did-this-change and Growth views (built), the AI weekly summary, and a one-sentence story
@@ -197,6 +201,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 - 16c: delete all keeps login, 2FA, preferences, alert rules and push devices; password + typed DELETE (no extra TOTP); JSON per table, no zip, no covers in the export; third-party data only when ticked; the app does not revoke the Instagram grant; table groups + covers per account, no per-account database bytes.
 - 17a: Content tab after Stories (the roadmap said after Growth), medians from 5 posts, hashtag rows from 20, frequency from 8 complete weeks, caption bands 125 / 500, repeat = top quarter in 2 kinds of number, retire = median below the 25th percentile with 5+ posts, picks via replaceState (a range change resets them).
 - 17b: 8 rules (thresholds in lib/analysis/insights.ts INSIGHTS), problems → good news → tips, dismiss for good + hide 7 days, Findings replaces Flags on the account Overview, Today above the range bar, hashtag rule on the account page only.
+- 17c: automatic for new posts only, older posts via Apply with a preview; every manual removal remembered; no suggested chips; source column not shown; Storage used does not count the two new tables.
 
 ## 9. How to work here
 **Commands:** `npm run dev`, `npm test`, `npm run check` (lint + tsc + tests + build; must pass before anything is called done), `npm run check:env`.

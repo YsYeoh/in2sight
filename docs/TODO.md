@@ -252,6 +252,12 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] RUNBOOK_INSIGHTS §1–§6 with the owner (L1 rules make sense, L2 dismiss survives, L3 Overview ≤ 1.2 s, L4 unanswered count matches)
 - Known: hashtag rule only on the account Overview (the Overview reads no captions); no hidden-findings list / undo; day parts and gap/hashtag medians duplicated with 17a until unified.
 
+## 6t. Auto-tagging (Plan 17c)
+- [x] Tag rules (hashtag / caption word / format), automatic on new posts, Apply to existing posts with a preview, removed tags remembered (code done; live verification pending: docs/RUNBOOK_AUTOTAG.md)
+- [ ] Apply migration `20261102000001_tag_rules` (file written, NOT applied; owner's go-ahead, before deploying)
+- [ ] RUNBOOK_AUTOTAG §1–§5 walked through by the owner; live checks L1 (PostgREST upsert + trigger), L2 (real captions), L3 (tick duration) (plan 2026-11-01-17c)
+- Known: Storage used does not count `tag_rules` / `media_tag_rejections` (data_usage() lists tables literally); "Apply to existing posts" reads at most 20,000 posts; no suggested chips, no auto badge, no undo of an apply.
+
 ## Brand identity (logo and icons)
 - [x] Logo system "in2Sight" (Outfit outlines, i / 2 / S as the mark, icon grows into the wordmark), exports in `docs/brand/` (SVG, PNG, ICO, social preview), `Logo` component, `--brand-*` tokens, PWA / apple-touch / favicon icons, manifest and title, README header (code done; look at it in a browser at 360 / 768 / 1280 in all four themes, light and dark: not verified)
 - [ ] Optional: the animated icon-to-wordmark transition in the app (spec in `docs/brand/README.md`); set the GitHub social preview image (Settings, manual); the old "in2sight" spelling in prose strings
