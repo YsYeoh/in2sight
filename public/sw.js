@@ -78,7 +78,7 @@ const safePath = (u) => {
   }
 };
 /** The app's tab pages (the shell lives on them): the same sections as NAV_ITEMS in lib/nav.ts (the worker test checks). */
-const TAB_PAGE = /^\/(overview|accounts|tags|calendar|explorer|settings)(\/|$)/;
+const TAB_PAGE = /^\/(overview|accounts|tags|calendar|explorer|plan|settings)(\/|$)/;
 const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 
 self.addEventListener('push', (event) => {

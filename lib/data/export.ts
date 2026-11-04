@@ -32,6 +32,7 @@ export const EXPORT_TABLES = [
   { name: 'tag_rules', keys: ['id'] },
   { name: 'media_tag_rejections', keys: ['media_id', 'tag_id'] },
   { name: 'explorer_views', keys: ['id'] },
+  { name: 'goals', keys: ['id'] },
   { name: 'insight_dismissals', keys: ['finding_key'] },
   { name: 'notifications', keys: ['id'] },
   { name: 'moderation_settings', keys: ['account_id'] },

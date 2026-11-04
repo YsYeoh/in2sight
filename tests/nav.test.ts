@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { NAV_ITEMS, isActive, navHref } from '@/lib/nav';
 
 describe('navigation model', () => {
-  it('lists the six main destinations in order', () => {
-    expect(NAV_ITEMS.map((i) => i.href)).toEqual(['/overview', '/accounts', '/tags', '/calendar', '/explorer', '/settings']);
-    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['overview', 'accounts', 'tags', 'calendar', 'explorer', 'settings']);
+  it('lists the seven main destinations in order (Plan 17d added Plan before Settings)', () => {
+    expect(NAV_ITEMS.map((i) => i.href)).toEqual(['/overview', '/accounts', '/tags', '/calendar', '/explorer', '/plan', '/settings']);
+    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['overview', 'accounts', 'tags', 'calendar', 'explorer', 'plan', 'settings']);
   });
 
   it('navHref: Overview, Calendar and Explorer carry the current Time Scope parameters, nothing else does', () => {
@@ -12,7 +12,7 @@ describe('navigation model', () => {
     expect(navHref('/overview', search)).toBe('/overview?from=90d&cmp=yoy');
     expect(navHref('/calendar', search)).toBe('/calendar?from=90d&cmp=yoy');
     expect(navHref('/explorer', search)).toBe('/explorer?from=90d&cmp=yoy');
-    for (const href of ['/accounts', '/tags', '/settings']) expect(navHref(href, search)).toBe(href);
+    for (const href of ['/accounts', '/tags', '/plan', '/settings']) expect(navHref(href, search)).toBe(href);
     expect(navHref('/overview', new URLSearchParams('tab=posts'))).toBe('/overview');
     expect(navHref('/overview', null)).toBe('/overview');
   });

@@ -1,9 +1,9 @@
-import { CalendarDays, ChartNoAxesCombined, CircleUserRound, LayoutDashboard, Settings, Tag, type LucideIcon } from 'lucide-react';
+import { CalendarDays, ChartNoAxesCombined, CircleUserRound, ClipboardList, LayoutDashboard, Settings, Tag, type LucideIcon } from 'lucide-react';
 import { scopeQueryOf } from '@/lib/time-scope/scope';
 
 export interface NavItem {
-  href: '/overview' | '/accounts' | '/tags' | '/calendar' | '/explorer' | '/settings';
-  key: 'overview' | 'accounts' | 'tags' | 'calendar' | 'explorer' | 'settings';
+  href: '/overview' | '/accounts' | '/tags' | '/calendar' | '/explorer' | '/plan' | '/settings';
+  key: 'overview' | 'accounts' | 'tags' | 'calendar' | 'explorer' | 'plan' | 'settings';
   icon: LucideIcon;
 }
 
@@ -13,6 +13,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/tags', key: 'tags', icon: Tag },
   { href: '/calendar', key: 'calendar', icon: CalendarDays },
   { href: '/explorer', key: 'explorer', icon: ChartNoAxesCombined },
+  { href: '/plan', key: 'plan', icon: ClipboardList }, // Plan 17d: Digest and Goals (Plan 17f adds the board)
   { href: '/settings', key: 'settings', icon: Settings },
 ];
 

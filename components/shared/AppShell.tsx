@@ -84,7 +84,7 @@ export function AppShell({ children, userEmail, signOutAction, bell, install, fr
         </div>
 
         {/* phones: bottom tab bar; it navigates inside the current tab */}
-        <nav aria-label={t('tabs')} data-tab-open="current" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
+        <nav aria-label={t('tabs')} data-tab-open="current" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-7 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
           {NAV_ITEMS.map(({ href, key, icon: Icon }) => (
             <NavLink
               key={href}

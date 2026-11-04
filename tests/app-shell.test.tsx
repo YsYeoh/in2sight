@@ -144,7 +144,7 @@ describe('AppShell (top window: the shell and its tabs)', () => {
     expect(side.className).toContain('md:flex');
     expect(side.className).toContain('lg:w-56');
     expect(screen.getByRole('navigation', { name: 'Main tabs' }).className).toContain('md:hidden');
-    expect(screen.getByRole('navigation', { name: 'Main tabs' }).className).toContain('grid-cols-6'); // one column per item
+    expect(screen.getByRole('navigation', { name: 'Main tabs' }).className).toContain('grid-cols-7'); // one column per item (Plan 17d: seven)
   });
 
   it('the mode toggle flips light/dark through the preferences provider', async () => {

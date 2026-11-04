@@ -8,9 +8,9 @@ const open = (url: string, mode: OpenMode, now = 1000): TabsAction => ({ type: '
 const report = (url: string, title = '', id = 't0'): TabsAction => ({ type: 'report', id, url, title });
 
 describe('tab paths', () => {
-  it('isTabPath: the six main pages and everything below them, nothing else', () => {
-    for (const p of ['/overview', '/accounts', '/accounts/7b0c', '/accounts/7b0c/media/123', '/tags', '/calendar', '/explorer', '/settings']) expect(isTabPath(p), p).toBe(true);
-    for (const p of ['/', '/login', '/login/verify', '/setup', '/auth/signout', '/report', '/report/print', '/styleguide', '/api/export/xlsx', '/offline', '/accounts-x']) expect(isTabPath(p), p).toBe(false);
+  it('isTabPath: the seven main pages and everything below them, nothing else', () => {
+    for (const p of ['/overview', '/accounts', '/accounts/7b0c', '/accounts/7b0c/media/123', '/tags', '/calendar', '/explorer', '/plan', '/plan/goals', '/settings']) expect(isTabPath(p), p).toBe(true);
+    for (const p of ['/', '/login', '/login/verify', '/setup', '/auth/signout', '/report', '/report/print', '/styleguide', '/api/export/xlsx', '/offline', '/accounts-x', '/planner']) expect(isTabPath(p), p).toBe(false);
   });
 
   it('pathOf drops query and hash; navMatches: "Accounts" matches the list page only, the others match their sub-pages', () => {
