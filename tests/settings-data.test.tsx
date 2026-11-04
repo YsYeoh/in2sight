@@ -81,15 +81,15 @@ describe('Settings -> Data & privacy', () => {
     await show();
     await user.click(screen.getByRole('button', { name: D.export.all }));
     const urls = server.download.mock.calls.map((c) => c[0] as string);
-    expect(urls).toHaveLength(18);
+    expect(urls).toHaveLength(19); // Plan 17b: + insight_dismissals
     expect(urls.some((u) => /table=(comments|follower_exports)\b/.test(u))).toBe(false);
     expect(server.download.mock.calls.every((c) => c[1] === 'json')).toBe(true);
-    expect(await screen.findByText('18 files downloaded.')).toBeInTheDocument();
+    expect(await screen.findByText('19 files downloaded.')).toBeInTheDocument();
 
     server.download.mockClear();
     await user.click(screen.getByRole('checkbox', { name: D.export.others }));
     await user.click(screen.getByRole('button', { name: D.export.all }));
-    expect(server.download.mock.calls).toHaveLength(20);
+    expect(server.download.mock.calls).toHaveLength(21);
   });
 
   it('a failed file stops the run and shows the export error', async () => {

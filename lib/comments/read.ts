@@ -4,11 +4,14 @@
 // admin client. Every read is filtered by the account id. Errors are fixed texts: a Supabase error can echo row values,
 // i.e. third-party usernames and comment texts. Nothing here logs.
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
+import type { StoredAccount } from '@/lib/accounts/types';
 import { isQuestion, QUESTION_PATTERN } from '@/lib/comments/question';
 import type { FanMode } from '@/lib/comments/state';
 import type { TopicInput } from '@/lib/comments/topics';
 import { COMMENT_PAGE, FAN_PAGE, FAN_RULES, TOPIC_SAMPLE, type CommentPost, type CommentView, type Fan, type Outsider, type Paged } from '@/lib/comments/view';
 import { MISSING_FUNCTION } from '@/lib/dashboard/read';
+import { addDays, daysToIso } from '@/lib/sync/time';
 
 type Row = Record<string, unknown>;
 const missing = (e: unknown): boolean => MISSING_FUNCTION.includes(String((e as { code?: unknown } | null)?.code));
@@ -138,4 +141,23 @@ export async function loadCommentStart(db: SupabaseClient, accountId: string): P
   const { data, error } = await db.from('comments').select('first_seen_at').eq('account_id', accountId).order('first_seen_at', { ascending: true }).limit(1);
   if (error) return fail('start');
   return str(((data ?? []) as Row[])[0]?.first_seen_at);
+}
+
+/** Questions of the last 7 owner-timezone days without a reply seen, per account (Plan 17b: COUNTS only, no row leaves
+ *  this module). One comment_list call of one row per account with the comments scope. null = not read: no scope (an
+ *  empty list would not mean "none"), the 15c migration missing, or a failed read (the Overview must not break on it). */
+export async function loadUnansweredCounts(db: SupabaseClient, accounts: Pick<StoredAccount, 'id' | 'username' | 'grantedScopes'>[], today: string, tz: string): Promise<Record<string, number | null>> {
+  const { fromIso, toIso } = daysToIso(addDays(today, -6), today, tz);
+  const counts = await Promise.all(
+    accounts.map(async (a) => {
+      if (!hasScope(a, COMMENTS_SCOPE)) return null;
+      const args = { p_account: a.id, p_from: fromIso, p_to: toIso, p_q: null, p_media: null, p_question_re: QUESTION_PATTERN, p_unanswered: true, p_fan_min: null, p_owner: a.username.toLowerCase() };
+      try {
+        return (await paged(db, 'comment_list', args, 1, 1, () => null))?.total ?? null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(accounts.map((a, i) => [a.id, counts[i]]));
 }
