@@ -3,7 +3,7 @@
 Plan 16a is code complete on local `main`, NOT pushed. Nothing here has been verified live. Do it with the owner, signed in with 2FA, on the deployed app, in this order. Report yes/no per step.
 
 ## 0. The migration (Auto mode) — BEFORE deploying, on the owner's go-ahead
-`supabase/migrations/20261030000001_prefs_auto_mode.sql` widens the `profiles.mode` CHECK list to `light, dark, auto` (nothing else). It is NOT applied.
+`supabase/migrations/20261030000001_prefs_auto_mode.sql` widens the `profiles.mode` CHECK list to `light, dark, auto` (nothing else). It is applied (confirmed with `migration list` on 2026-11-04).
 ```
 node --env-file=.env.local scripts/sb.mjs migration list        # expect only 20261030000001 pending
 node --env-file=.env.local scripts/sb.mjs db push --dry-run     # expect exactly that file

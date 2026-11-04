@@ -3,14 +3,15 @@
 Nothing here has been verified live. Do it with the owner, signed in with 2FA, on the deployed app. Report yes/no and counts only.
 
 ## 0. The migration — on the owner's go-ahead, BEFORE deploying
-`supabase/migrations/20261101000001_insight_dismissals.sql` adds one table. File written, NOT applied.
-    node --env-file=.env.local scripts/sb.mjs migration list        # expect only 20261101000001 pending
+`supabase/migrations/20261101000001_insight_dismissals.sql` adds one table. Applied 2026-11-04 (the dry-run listed exactly this file, `migration list` showed 17 / 17, the anon probe gave 401 / 42501). The commands stay for reference; with Supabase CLI 3.x add `--remote` to each.
+    node --env-file=.env.local scripts/sb.mjs migration list --remote        # expect only 20261101000001 pending
     node --env-file=.env.local scripts/db-probe.mjs table:insight_dismissals   # before: 404 PGRST205 (absent)
-    node --env-file=.env.local scripts/sb.mjs db push --dry-run     # expect exactly that file
-    node --env-file=.env.local scripts/sb.mjs db push --yes
-    node --env-file=.env.local scripts/sb.mjs migration list        # N local / N remote / 0 mismatched
+    node --env-file=.env.local scripts/sb.mjs db push --remote --dry-run     # expect exactly that file
+    node --env-file=.env.local scripts/sb.mjs db push --remote --yes
+    node --env-file=.env.local scripts/sb.mjs migration list --remote        # N local / N remote / 0 mismatched
     node --env-file=.env.local scripts/db-probe.mjs table:insight_dismissals   # after: 401 / 42501 (exists, anon denied)
 Before `db push`, the dry-run must list exactly one pending file; if it lists an older migration too, stop and ask the owner.
+Not checked from the CLI: that the signed-in owner can read and write the table (RLS passes `is_owner()`); the first dismiss in section 2 is that check.
 Without it: no Dismiss buttons and the line "Dismissing findings needs a database update".
 
 ## 1. Findings make sense (L1)

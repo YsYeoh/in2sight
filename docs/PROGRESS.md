@@ -22,10 +22,10 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 | Live database | all 14 migrations applied (`migration list`: 14 local / 14 remote / 0 mismatched). Last applied: 15c `20261029000001` and 15d `20261029000002` (2026-10-26, applied in that order, then pushed). The anon probe answers 401 `42501` for the 3 `comment_*` functions and the 3 `moderation_*` tables (they exist, anon is denied) |
 | Verified in a browser by the owner | **nothing from Plans 11b to 15d has been verified live yet** (see section 6). The owner glanced at the app and said it "looks good", no runbook was walked through. **Nothing has ever been sent to Instagram by Plan 15d** |
 | Unpushed work | none (Plans 15c and 15d were pushed on 2026-10-26 after the migrations). **Auto-hide is OFF and must stay off until RUNBOOK_MODERATION §1 (probes P1-P8) has passed on a throwaway comment; each account must Reconnect once for the comments scope** |
-| Plan 16a (Settings redesign) | **code complete on local `main`, NOT pushed, nothing verified live.** Its migration `20261030000001_prefs_auto_mode` (Auto theme mode) is **NOT applied**: apply only on the owner's go-ahead, BEFORE deploying; until then choosing Auto applies on the device and the profile save fails with a visible toast + Retry (`docs/RUNBOOK_SETTINGS.md` §0) |
+| Plan 16a (Settings redesign) | **code complete on local `main`, NOT pushed, nothing verified live.** Its migration `20261030000001_prefs_auto_mode` (Auto theme mode) is **applied** (confirmed with `migration list` on 2026-11-04; `docs/RUNBOOK_SETTINGS.md` §0) |
 | Plan 16b (Security) | **code complete on local `main`, NOT pushed, nothing verified live. NO migration.** Change password, forgot / reset password, sign out other devices. **Owner prerequisites first (code cannot do them; forgot / reset does not work without them):** custom SMTP in Supabase, Auth Site URL and Redirect URLs set to `<app-url>`, the Reset Password email template linking to `/auth/confirm?token_hash=...&type=recovery` (one bilingual template), email rate limit 10 per hour, minimum password length 12, sign-ups kept off (`docs/RUNBOOK_SECURITY.md` §0) |
 | Plan 16c (Data & privacy) | **pushed; nothing verified live.** Migration 20261031000001_data_privacy (two functions, two cascade indexes) APPLIED 2026-10-27 (anon probes 401/42501); next: RUNBOOK_DATA live checks |
-| Plan 17b (Insights feed + Today) | **code complete, NOT pushed, nothing verified live.** Migration 20261101000001_insight_dismissals: file written, NOT applied (owner go-ahead, before deploying; RUNBOOK_INSIGHTS §0); without it no dismiss buttons |
+| Plan 17b (Insights feed + Today) | **code complete, reviewed and pushed 2026-11-04; nothing verified live.** Migration 20261101000001_insight_dismissals **applied** 2026-11-04 (dry-run listed exactly this file; `migration list` 17 / 17; anon probe 401 / 42501; RUNBOOK_INSIGHTS §0) |
 | Open agents / worktrees | none expected after the 15c merge; check `git worktree list` and remove leftovers (section 10) |
 
 ## 3. What is built (all merged and pushed)
@@ -62,7 +62,7 @@ Each line: plan, what it gives, where to read more.
   (theme, light / dark / auto, density, corners, live preview), **language** (language, formats with samples, timezone explanation), **notifications** (this device, test push to this device only, alert rules with a
   sticky save bar, devices list with remove), **accounts** (overview with Sync now / Reconnect; management stays on `/accounts`), **security** (email, 2FA, and since Plan 16b change password and sign out other devices) and **data** (placeholder until Plan 16c).
   Desktop = left section list, phone = a "Section" select. One save model (UI standard 18): preferences instant with a "Saved" toast or an error toast with Retry (`PrefsProvider` no longer swallows errors),
-  forms explicit with dirty tracking, `SaveBar` and an unsaved-changes guard. Migration `20261030000001_prefs_auto_mode` (Auto mode) NOT applied (owner applies before deploying). Runbook: `RUNBOOK_SETTINGS`.
+  forms explicit with dirty tracking, `SaveBar` and an unsaved-changes guard. Migration `20261030000001_prefs_auto_mode` (Auto mode) applied. Runbook: `RUNBOOK_SETTINGS`.
   Plan: `docs/superpowers/plans/2026-10-30-16a-settings-shell.md`; Plan 16b (`2026-10-30-16b-security.md`) replaces `SecuritySection.tsx`.
 - **16b: Security (code done on local `main`, NOT pushed, NOT verified live; no migration).** Change password (Settings → Security: current + new + confirm, strength meter, show / hide; the current password is re-checked on a
   separate memory-only client, then every OTHER session is signed out), forgot / reset password (login page link → `/login/forgot` → Supabase recovery email → `/auth/confirm` "Continue" (POST) → the existing 2FA step → `/login/reset`
@@ -115,10 +115,10 @@ Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Mo
 | 20261028000002_follower_exports | `follower_exports` (owner-uploaded follower/following snapshots, RLS, cascade) |
 | 20261029000001_comment_insights | `comment_list`, `comment_fans`, `comment_outsiders` and the `comments_owner_select` policy rewritten into InitPlan form (written and tested as of Plan 15c; **APPLIED to the live database on 2026-10-26 (older wording: NOT applied)**: owner go-ahead, apply BEFORE deploying, and BEFORE (or together with) the next row; `docs/RUNBOOK_COMMENTS.md` §0) |
 | 20261029000002_comment_moderation | `moderation_settings`, `moderation_rules`, `moderation_log` (RLS, cascade from `accounts`) , owner update (`hidden` only)/delete on `comments`, and `moderation_paused` added to the `notifications` kind check (written and tested as of Plan 15d; **APPLIED to the live database on 2026-10-26 (older wording: NOT applied)**: owner go-ahead, apply BEFORE deploying the 15d code and AFTER (or together with) `20261029000001`; `docs/RUNBOOK_MODERATION.md` §0) |
-| 20261030000001_prefs_auto_mode | `profiles.mode` CHECK list gains `'auto'` (Plan 16a; **NOT applied**: owner go-ahead, apply BEFORE deploying; `docs/RUNBOOK_SETTINGS.md` §0) |
+| 20261030000001_prefs_auto_mode | `profiles.mode` CHECK list gains `'auto'` (Plan 16a; applied; `docs/RUNBOOK_SETTINGS.md` §0) |
 
 | 20261031000001_data_privacy | data_usage() (owner-only sizes) and delete_all_data() (service_role only) (Plan 16c; applied 2026-10-27; also adds indexes on moderation_log.undo_of and notifications.account_id so the delete cascade stays linear) |
-| 20261101000001_insight_dismissals | owner-authored dismissed / snoozed finding keys (Plan 17b; file written, **NOT applied**) |
+| 20261101000001_insight_dismissals | owner-authored dismissed / snoozed finding keys (Plan 17b; applied 2026-11-04) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -209,13 +209,13 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 4. After the last wave: an opus read-only whole-change review (brief it with focus lists like the earlier ones), then ONE fix wave by one sonnet agent, then check, commit.
 5. Update TODO/SPEC/RUNBOOK/HANDOVER honestly ("code done; live verification pending").
 **Migrations (needs the owner's explicit go-ahead; apply BEFORE deploying code that needs it):** the CLI is linked on the owner's machine. Use the scripts (they
-keep secrets in the process environment and mask them in the output; never print `.env.local`):
+keep secrets in the process environment and mask them in the output; never print `.env.local`). Supabase CLI 3.x defaults to the LOCAL Docker stack: add `--remote` to every command below to target the linked project (`db query` against production needs an extra consent flag and is not used):
 ```
-node --env-file=.env.local scripts/sb.mjs migration list        # expect only the new file pending, nothing remote-only
+node --env-file=.env.local scripts/sb.mjs migration list --remote        # expect only the new file pending, nothing remote-only
 node --env-file=.env.local scripts/db-probe.mjs table:NAME rpc:NAME:'{"real_arg":1}'   # baseline: 404 PGRST205/PGRST202 = absent
-node --env-file=.env.local scripts/sb.mjs db push --dry-run     # expect exactly the pending file
-node --env-file=.env.local scripts/sb.mjs db push --yes
-node --env-file=.env.local scripts/sb.mjs migration list        # expect N local / N remote / 0 mismatched
+node --env-file=.env.local scripts/sb.mjs db push --remote --dry-run     # expect exactly the pending file
+node --env-file=.env.local scripts/sb.mjs db push --remote --yes
+node --env-file=.env.local scripts/sb.mjs migration list --remote        # expect N local / N remote / 0 mismatched
 node --env-file=.env.local scripts/db-probe.mjs ...             # after: 401 with code 42501 = exists, anon denied
 ```
 **Commits and pushes:** do not commit or push unless the owner asks (CLAUDE.md). Commit messages end with the `Co-Authored-By` line from the harness. Never

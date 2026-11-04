@@ -222,7 +222,7 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Appearance with live preview and Auto mode; Language & formats with samples and the timezone explanation (code done; live verification pending — §2)
 - [x] Notifications: test notification to this device, devices list with remove (code done; live verification pending — §3)
 - [x] Accounts & sync overview with Sync now / Reconnect (code done; live verification pending — §4)
-- [ ] Apply migration `20261030000001_prefs_auto_mode` (owner go-ahead, before deploying; RUNBOOK_SETTINGS §0; NOT applied: until then choosing Auto shows a save-failed toast with Retry)
+- [x] Apply migration `20261030000001_prefs_auto_mode` (applied; confirmed with `migration list` on 2026-11-04; RUNBOOK_SETTINGS §0)
 - [x] Security section: password and sessions added by Plan 16b (see 6p); [x] Data & privacy (Plan 16c, see 6q)
 - Known: the unsaved-changes guard does not cover the shell's own navigation; the devices list does not mark this device.
 
@@ -248,7 +248,7 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6s. Insights feed + Today (Plan 17b)
 - [x] Findings (8 rules, n, Low/Medium, dismiss / hide 7 days) on the account Overview; Today briefing on the Overview (code done; live verification pending: docs/RUNBOOK_INSIGHTS.md)
-- [ ] Apply migration `20261101000001_insight_dismissals` (file written, NOT applied; owner go-ahead; RUNBOOK_INSIGHTS §0)
+- [x] Apply migration `20261101000001_insight_dismissals` (applied 2026-11-04; anon probe 401 / 42501; RUNBOOK_INSIGHTS §0)
 - [ ] RUNBOOK_INSIGHTS §1–§6 with the owner (L1 rules make sense, L2 dismiss survives, L3 Overview ≤ 1.2 s, L4 unanswered count matches)
 - Known: hashtag rule only on the account Overview (the Overview reads no captions); no hidden-findings list / undo; day parts and gap/hashtag medians duplicated with 17a until unified.
 
