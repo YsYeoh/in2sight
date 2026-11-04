@@ -254,7 +254,7 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6t. Auto-tagging (Plan 17c)
 - [x] Tag rules (hashtag / caption word / format), automatic on new posts, Apply to existing posts with a preview, removed tags remembered (code done; live verification pending: docs/RUNBOOK_AUTOTAG.md)
-- [ ] Apply migration `20261102000001_tag_rules` (file written, NOT applied; owner's go-ahead, before deploying)
+- [x] Apply migration `20261102000001_tag_rules` (applied 2026-11-04; anon probe 401 / 42501)
 - [ ] RUNBOOK_AUTOTAG §1–§5 walked through by the owner; live checks L1 (PostgREST upsert + trigger), L2 (real captions), L3 (tick duration) (plan 2026-11-01-17c)
 - Known: Storage used does not count `tag_rules` / `media_tag_rejections` (data_usage() lists tables literally); "Apply to existing posts" reads at most 20,000 posts; no suggested chips, no auto badge, no undo of an apply.
 

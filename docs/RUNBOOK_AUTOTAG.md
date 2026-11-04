@@ -3,7 +3,7 @@
 Nothing here has been verified live. Do it with the owner, signed in with 2FA, on the deployed app (`<app-url>`). The SQL was verified on PGlite (Postgres 17 in WASM) on top of all migrations (see the plan's "Scratch-run result"); the UI only in jsdom tests. Report counts and yes/no only. Use the owner's account for every check; never paste captions, hashtags or handles into a chat or an issue.
 
 ## 0. The migration — on the owner's go-ahead, BEFORE deploying
-`supabase/migrations/20261102000001_tag_rules.sql`: file written, NOT applied. It adds `tag_rules`, `media_tag_rejections`, `media_tags.source` (default `manual` for every existing row) and the trigger `media_tags_skip_rejected`. Nothing existing is dropped. Supabase CLI 3.x defaults to the local Docker stack, so every `sb.mjs` command carries `--remote`.
+`supabase/migrations/20261102000001_tag_rules.sql`: applied 2026-11-04 (the dry-run listed exactly this file, `migration list` showed 18 / 18, the anon probe gave 401 / 42501 on both new tables). It adds `tag_rules`, `media_tag_rejections`, `media_tags.source` (default `manual` for every existing row) and the trigger `media_tags_skip_rejected`. Nothing existing is dropped. Supabase CLI 3.x defaults to the local Docker stack, so every `sb.mjs` command carries `--remote`.
 
     node --env-file=.env.local scripts/sb.mjs migration list --remote        # expect only 20261102000001 pending, nothing remote-only
     node --env-file=.env.local scripts/db-probe.mjs table:tag_rules table:media_tag_rejections   # before: 404 PGRST205 (absent)
