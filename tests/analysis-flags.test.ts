@@ -12,7 +12,7 @@ const history = (n: number, reach: number | null = 100) => Array.from({ length: 
 describe('takingOff', () => {
   it('flags a post with ≥ 2× the median reach of the previous 20 posts', () => {
     const flags = takingOff([...history(20), post('hit', hoursAgo(30), 200), post('meh', hoursAgo(26), 150)], NOW);
-    expect(flags).toEqual([{ kind: 'taking_off', postId: 'hit', permalink: 'https://instagram.com/p/hit', postedAt: hoursAgo(30), ratio: 2 }]);
+    expect(flags).toEqual([{ kind: 'taking_off', postId: 'hit', permalink: 'https://instagram.com/p/hit', postedAt: hoursAgo(30), ratio: 2, n: 20 }]);
   });
 
   it('waits 24 h after posting and ignores posts older than the window', () => {

@@ -11,7 +11,7 @@ export const MIN_AGE_HOURS = 24;
 export const REACH_DROP = -0.2;
 
 export type Flag =
-  | { kind: 'taking_off'; postId: string; permalink: string | null; postedAt: string; ratio: number }
+  | { kind: 'taking_off'; postId: string; permalink: string | null; postedAt: string; ratio: number; n: number } // n = prior posts behind the median
   | { kind: 'reach_drop'; change: number };
 
 const HOUR = 3_600_000;
@@ -31,7 +31,7 @@ export function takingOff(posts: Post[], now: Date, withinDays = 7, ratio = TAKI
     if (age < MIN_AGE_HOURS * HOUR || age > withinDays * 24 * HOUR || p.reach === null) return;
     const prior = feed.slice(Math.max(0, i - PRIOR_POSTS), i).map((x) => x.reach).filter((r): r is number => r !== null);
     const m = prior.length >= MIN_PRIOR_POSTS ? median(prior) : null;
-    if (m !== null && m > 0 && p.reach >= ratio * m) out.push({ kind: 'taking_off', postId: p.id, permalink: p.permalink, postedAt: p.postedAt, ratio: p.reach / m });
+    if (m !== null && m > 0 && p.reach >= ratio * m) out.push({ kind: 'taking_off', postId: p.id, permalink: p.permalink, postedAt: p.postedAt, ratio: p.reach / m, n: prior.length });
   });
   return out.reverse();
 }
