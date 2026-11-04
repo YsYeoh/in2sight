@@ -1821,7 +1821,7 @@ describe('AccountParts (shared by /accounts and Settings)', () => {
     wrap(<Identity a={A} />);
     expect(screen.getByText('@alice')).toBeInTheDocument();
     expect(screen.getByText('Alice Demo')).toBeInTheDocument();
-    expect(screen.getByText('Y')).toBeInTheDocument();
+    expect(screen.getByText('A')).toBeInTheDocument();
   });
 
   it('SyncInfo: never synced, and a translated error only while failures continue', () => {

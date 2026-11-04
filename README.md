@@ -23,9 +23,9 @@ Your data stays in your own database. Next: an optional AI strategist, with you 
 
 <br>
 
-<img src="docs/images/overview-dark.png" alt="in2Sight account overview in the dark theme: KPI cards, reach and views chart, followers curve, format comparison, flags and best time to post" width="100%">
+<img src="docs/images/overview.png" alt="in2Sight account overview in the dark theme: KPI cards, reach and views chart, followers curve, format comparison, flags and best time to post" width="100%">
 
-<sub>The account overview (dark theme), running on real data. Tabs: Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers.</sub>
+<sub>The account overview (dark theme), running on real data, with the account names replaced. Tabs: Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers.</sub>
 
 </div>
 
