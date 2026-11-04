@@ -5,7 +5,7 @@
 > 2. Build next, in the owner's order: Plan 15c comments, fans and moderation -> Settings redesign + change/forgot password -> weekly planning tools -> later items (AI summary, report links, Today briefing, auto-tagging) (PROGRESS §7).
 > 3. Owner idea, not designed: make the product impressive for investors (demo mode with sample data, Today briefing): brainstorm first (PROGRESS §7.5).
 
-Status: all roadmap plans 1–9 built and live on <app-url>; Supabase migrations applied (5/5); cron-job.org tick configured. Now building the creator toolkit (docs/superpowers/specs/2026-10-15-creator-toolkit-design.md): Plan 10 loading → 11 covers → 12 Post Lab → 13 toolkit → 14 settings. "code done; live verification pending" means the owner still has to look at it on the deployed site. Check items off as done.
+Status: all roadmap plans 1–9 built and live on the owner's private deployment; Supabase migrations applied (5/5); cron-job.org tick configured. Now building the creator toolkit (docs/superpowers/specs/2026-10-15-creator-toolkit-design.md): Plan 10 loading → 11 covers → 12 Post Lab → 13 toolkit → 14 settings. "code done; live verification pending" means the owner still has to look at it on the deployed site. Check items off as done.
 
 ## 0. Owner actions (Claude can't do these)
 - [x] Convert each Instagram account to **Creator** (Settings → Account type and tools → Switch to professional account)
@@ -19,7 +19,7 @@ See `docs/META_SETUP.md` for click-by-click notes.
 
 ## 1. Foundation
 - [x] Next.js (TS, App Router) scaffold
-- [x] Deploy to Vercel (done by owner, live at <app-url>)
+- [x] Deploy to Vercel (done by owner, live on the owner's private deployment)
 - [x] Supabase migrations: all tables + RLS (5 migrations applied to the live project 2026-10-14/15 via `npx supabase db push`; local and remote lists match)
 - [x] Supabase Auth: single owner login (sign-ups disabled); middleware guards all pages (code done; live verification pending — docs/RUNBOOK_AUTH.md)
 - [x] 2FA: TOTP enroll/verify UI in Settings → Account; middleware enforces AAL2 once enrolled (code done; live verification pending — docs/RUNBOOK_AUTH.md)

@@ -1,6 +1,6 @@
 # Sync live-verification runbook
 
-Run this once, after: the Meta runbook (`docs/RUNBOOK_META.md`) passes with at least one connected **Creator** account, migration `20261015000001_sync.sql` is applied (step 0), and the app is deployed on its HTTPS URL. Below, `<app-url>` is your `NEXT_PUBLIC_APP_URL` from `.env.local` (production: `<app-url>`). Who: owner, or Claude with the owner (Claude never sees the secret or tokens).
+Run this once, after: the Meta runbook (`docs/RUNBOOK_META.md`) passes with at least one connected **Creator** account, migration `20261015000001_sync.sql` is applied (step 0), and the app is deployed on its HTTPS URL. Below, `<app-url>` is your `NEXT_PUBLIC_APP_URL` from `.env.local`. Who: owner, or Claude with the owner (Claude never sees the secret or tokens).
 
 Never paste `CRON_SECRET`, tokens or the secret key into chats, screenshots or tickets. Copy `CRON_SECRET` straight from your `.env.local` into the tool that needs it.
 

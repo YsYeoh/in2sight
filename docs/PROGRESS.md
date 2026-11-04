@@ -10,7 +10,7 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 `/api/cron/tick` every 30 minutes (cron-job.org). Owner access only (email + password + TOTP 2FA; sign-ups are disabled).
 
 - Repo: https://github.com/YsYeoh/in2sight (`main`, linear history, about 520 commits). Pushing `main` auto-deploys on Vercel.
-- Live: <app-url>. Supabase project ref `<supabase-ref>`.
+- Live: the owner's private deployment (address kept out of the public repo).
 - Secrets are NOT in git. `.env.local` must be recreated from the owner (names in `.env.example`; `npm run check:env` validates names only).
 - The Supabase MCP connector cannot see this project (it only sees two unrelated ones: never touch those). Use the CLI scripts in section 9.
 

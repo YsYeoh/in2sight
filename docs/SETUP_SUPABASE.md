@@ -49,7 +49,7 @@ If your dashboard only shows the legacy tab, use `anon` for the publishable vari
 4. **URL configuration:** *Authentication → URL Configuration* *(label may differ)*:
    - **Site URL:** `<your-app-url>` (your Vercel URL, no trailing slash)
    - **Redirect URLs:** add `http://localhost:3000/**` and `<your-app-url>/**`
-5. **Password reset email (Plan 16b):** custom SMTP, the Reset Password template, password minimum 12 and the Site URL <app-url>: see docs/RUNBOOK_SECURITY.md §0.
+5. **Password reset email (Plan 16b):** custom SMTP, the Reset Password template, password minimum 12 and the Site URL `<app-url>`: see docs/RUNBOOK_SECURITY.md §0.
 
 ## 5. Database extensions
 
