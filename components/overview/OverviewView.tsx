@@ -7,12 +7,14 @@ import { CircleUserRound, TrendingDown, TrendingUp, TriangleAlert } from 'lucide
 import { useTranslations } from 'next-intl';
 import { SyncBadge } from '@/components/accounts/SyncBadge';
 import { useSyncProgress } from '@/components/accounts/useSyncProgress';
+import { TodaySection } from '@/components/overview/TodaySection';
 import { SeriesChart } from '@/components/charts/SeriesChart';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { EmptyState } from '@/components/shared/EmptyState';
+import type { DismissAction } from '@/components/shared/FindingsList';
 import { startProgress } from '@/components/shared/NavigationProgress';
 import { NavLink } from '@/components/shared/NavLink';
 import { OpenInTab } from '@/components/shared/OpenInTab';
@@ -26,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Kpi, KpiId } from '@/lib/analysis/growth';
 import type { AccountCard, OverviewModel } from '@/lib/dashboard/overview';
+import type { TodayModel } from '@/lib/dashboard/today';
 import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
 import type { AccountProgress } from '@/lib/sync/progress';
 import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
@@ -234,7 +237,8 @@ function Comparison({ model }: { model: OverviewModel }) {
   );
 }
 
-export function OverviewView({ model, today, exportButton, progress = NO_PROGRESS }: { model: OverviewModel; today: string; exportButton?: ReactNode; progress?: AccountProgress[] }) {
+/** `briefing` = the Today section (Plan 17b): above the range bar, because the range does not apply to it. */
+export function OverviewView({ model, today, exportButton, progress = NO_PROGRESS, briefing, dismiss }: { model: OverviewModel; today: string; exportButton?: ReactNode; progress?: AccountProgress[]; briefing?: TodayModel; dismiss?: DismissAction }) {
   const t = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
   const tR = useTranslations('analysis.reasons');
@@ -248,6 +252,7 @@ export function OverviewView({ model, today, exportButton, progress = NO_PROGRES
   const header = (
     <>
       <PageHeader title={t('title')} subtitle={t('subtitle')} actions={exportButton} />
+      {briefing && model.sections.length > 0 ? <TodaySection model={briefing} dismiss={dismiss} /> : null}
       <RangeBar scope={model.scope} today={today} />
     </>
   );
