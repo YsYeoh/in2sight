@@ -266,7 +266,7 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Side-nav item Plan (/plan/digest, /plan/goals); digest = Overview numbers for one week or month + best / weakest posts + goals now; goals per account with pace, projection and status (code done; live verification pending: docs/RUNBOOK_DIGEST.md)
 - [ ] Apply migration `20261103000001_goals` (written, NOT applied; owner's go-ahead, before deploying)
 - [ ] RUNBOOK_DIGEST §0–§5 walked through by the owner (L1 digest = Overview, L2 speed, L3 the migration live)
-- Known: no findings block until Plan 17b; no digest export or email; a goal's progress is always "now" (no history per past period); goals are not counted in Storage used.
+- Known: no findings block in the digest (17b is built now, so it is a small follow-up: one `FindingsList` in `DigestView`); no digest export or email; a goal's progress is always "now" (no history per past period); goals are not counted in Storage used.
 
 ## 6b. Next (Plan 14/15 Settings)
 - [x] **Forgot / reset password** (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md) (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
