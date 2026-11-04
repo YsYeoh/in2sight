@@ -41,6 +41,9 @@ privacy → Download all fails on the `goals` file with the usual export error.
 5. Best / weakest posts: open one; its Post Lab reach equals the digest number (latest snapshot). Posts under 7 days
    old say "still gaining reach". With fewer than 7 measured posts there is no weakest list (the line says why).
 6. Week start: switch Settings → Language & formats → week starts on Sunday; the default week shifts by one day.
+7. Findings now: each account card lists the same findings as its Overview tab (first 3, then "Show all (N)" opens the
+   account page). Dismiss one: it leaves the list at once and stays gone after a reload, on the digest and on the account
+   page. The block shows "now", also when you look at an older week.
 
 ## 3. Goals (L3)
 1. Set for one account: followers = current + 100 by a day 60 days ahead; average reach = a round number; posts per

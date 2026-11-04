@@ -3,6 +3,7 @@
 // totals) for ONE calendar week or month, compared with the one before, plus per account the top 3 / bottom 3 feed posts
 // by reach and the goals' current progress. Weeks follow the week-start setting; days are owner-timezone days.
 import { avgReachProgress, followersProgress, postsPerWeekProgress, YOUNG_DAYS, type Goal, type GoalProgress } from '@/lib/analysis/goals';
+import { INSIGHTS, visibleFindings, type Dismissal, type Finding } from '@/lib/analysis/insights';
 import type { Post } from '@/lib/analysis/types';
 import { buildOverview, type OverviewModel } from '@/lib/dashboard/overview';
 import type { OverviewInput } from '@/lib/dashboard/read';
@@ -82,10 +83,10 @@ function goalsNow(goals: Goal[], input: OverviewInput, accountId: string, o: { t
     });
 }
 
-/** The first day the Plan page reads: the period and its comparison (readFrom), this month and last week, 28 days of follower history before today, and each followers goal's start day. */
+/** The first day the Plan page reads: the period and its comparison (readFrom), this month and last week, INSIGHTS.readDays before today (the findings compare the latest day with the same weekday of the 8 weeks before; it also covers the 28 days of follower history), and each followers goal's start day. */
 export function planReadFrom(time: TimeScope, today: string, weekStart: WeekStart, goals: Goal[]): string {
   let from = minDay(readFrom(time, today), minDay(`${today.slice(0, 7)}-01`, addDays(weekOf(today, weekStart).from, -7)));
-  from = minDay(from, addDays(today, -30));
+  from = minDay(from, addDays(today, -INSIGHTS.readDays));
   for (const g of goals) if (g.metric === 'followers') from = minDay(from, g.startDay);
   return from;
 }
@@ -111,6 +112,18 @@ export function buildDigest(input: OverviewInput, goals: Goal[], o: { period: Di
     };
   }
   return { period: o.period, overview, accounts };
+}
+
+/** Findings shown per account in the digest before the link to the account page (Plan 17d follow-up). */
+export const DIGEST_FINDINGS = 3;
+export interface DigestFindings {
+  byAccount: Record<string, Finding[]>; // the account's findings that are not dismissed or snoozed, in the feed's order
+  canDismiss: boolean; // false = the dismissals table could not be read (no buttons)
+}
+
+/** The digest's findings per account: the insights feed of Plan 17b, "now" (like the goals, not tied to the period shown). */
+export function digestFindings(accountIds: string[], found: Record<string, Finding[]>, dismissals: Dismissal[] | null, now: Date): DigestFindings {
+  return { byAccount: Object.fromEntries(accountIds.map((id) => [id, visibleFindings(found[id] ?? [], dismissals, now)])), canDismiss: dismissals !== null };
 }
 
 export interface GoalsAccount {

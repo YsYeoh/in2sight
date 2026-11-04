@@ -7,7 +7,8 @@ import type { DailyRow, Post } from '@/lib/analysis/types';
 import type { StoredAccount } from '@/lib/accounts/types';
 import type { OverviewInput } from '@/lib/dashboard/read';
 import { loadGoals, parseGoalInput, saveGoals } from '@/lib/plan/goals';
-import { buildDigest, buildGoals, digestHref, lastComplete, parseDigestPeriod, planReadFrom, periodScope } from '@/lib/plan/model';
+import type { Finding } from '@/lib/analysis/insights';
+import { buildDigest, buildGoals, digestFindings, digestHref, lastComplete, parseDigestPeriod, planReadFrom, periodScope } from '@/lib/plan/model';
 import { DEFAULT_PLAN_SECTION, PLAN_SECTIONS, isPlanSection, planHref, routePlan } from '@/lib/plan/sections';
 import { addDays } from '@/lib/sync/time';
 
@@ -62,12 +63,34 @@ describe('digest period', () => {
     expect(periodScope(parseDigestPeriod({}, today, 'mon'))).toEqual({ range: { from: '2026-10-19', to: '2026-10-25' }, cmp: 'prev', gran: 'day' });
   });
 
-  it('reads far enough back for the comparison, this month, last week, 30 days of followers and each followers goal start', () => {
+  it('reads far enough back for the comparison, this month, last week, the findings (INSIGHTS.readDays) and each followers goal start', () => {
     const p = parseDigestPeriod({}, today, 'mon');
-    expect(planReadFrom(periodScope(p), today, 'mon', [])).toBe('2026-09-29'); // 30 days before today
+    expect(planReadFrom(periodScope(p), today, 'mon', [])).toBe('2026-08-26'); // 64 days before today: 8 weeks of the same weekday for the findings
     const g: Goal = { id: 'g', accountId: A, metric: 'followers', target: 9, dueDay: '2027-01-01', startDay: '2026-06-01' };
     expect(planReadFrom(periodScope(p), today, 'mon', [g])).toBe('2026-06-01');
     expect(planReadFrom({ range: { from: '2026-08-01', to: '2026-08-31' }, cmp: 'prev', gran: 'day' }, today, 'mon', [])).toBe('2026-06-27');
+  });
+});
+
+describe('digestFindings', () => {
+  const B = '7a1d9e2c-4b3f-4c8d-8e5a-6f7b8c9d0e1f';
+  const f = (id: string, accountId: string): Finding => ({ key: `breakout:${accountId}:${id}`, accountId, kind: 'breakout', tone: 'good', params: {}, n: 20, confidence: 'low', day: '2026-10-28', postId: id, href: '/x' });
+  const found = { [A]: [f('p1', A), f('p2', A)], [B]: [f('p3', B)] };
+  const now = new Date('2026-10-29T10:00:00Z');
+
+  it('keeps each account its own findings, minus the dismissed ones and the snoozed ones still hidden', () => {
+    const dismissals = [{ key: found[A][0].key, until: null }, { key: found[B][0].key, until: '2026-10-29T09:00:00Z' }]; // forever; a snooze that ended an hour ago
+    const r = digestFindings([A, B, 'c'], found, dismissals, now);
+    expect(r.byAccount[A].map((x) => x.postId)).toEqual(['p2']);
+    expect(r.byAccount[B].map((x) => x.postId)).toEqual(['p3']);
+    expect(r.byAccount.c).toEqual([]);
+    expect(r.canDismiss).toBe(true);
+  });
+
+  it('dismissals that cannot be read (null): everything shows and nothing can be dismissed', () => {
+    const r = digestFindings([A], found, null, now);
+    expect(r.byAccount[A]).toHaveLength(2);
+    expect(r.canDismiss).toBe(false);
   });
 });
 

@@ -10,6 +10,7 @@ import { useTranslations } from 'next-intl';
 import { GoalLine } from '@/components/plan/GoalLine';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { FindingsList, type DismissAction } from '@/components/shared/FindingsList';
 import { startProgress } from '@/components/shared/NavigationProgress';
 import { Segmented } from '@/components/shared/Segmented';
 import { StatCard } from '@/components/shared/StatCard';
@@ -20,7 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import type { Kpi, KpiId } from '@/lib/analysis/growth';
 import { formatDay, formatMonth, formatNumber } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
-import { digestHref, lastComplete, TOP_POSTS, type DigestModel, type DigestPost, type PeriodKind } from '@/lib/plan/model';
+import { DIGEST_FINDINGS, digestHref, lastComplete, TOP_POSTS, type DigestFindings, type DigestModel, type DigestPost, type PeriodKind } from '@/lib/plan/model';
 import { planHref } from '@/lib/plan/sections';
 import { localDay } from '@/lib/sync/time';
 
@@ -65,8 +66,10 @@ function Posts({ title, posts, accountId }: { title: string; posts: DigestPost[]
   );
 }
 
-export function DigestView({ model, today, goalsReady }: { model: DigestModel; today: string; goalsReady: boolean }) {
+/** `findings` (Plan 17b's feed, "now"): omitted = no findings block; `dismiss` is the Overview's dismiss action. */
+export function DigestView({ model, today, goalsReady, findings, dismiss }: { model: DigestModel; today: string; goalsReady: boolean; findings?: DigestFindings; dismiss?: DismissAction }) {
   const t = useTranslations('plan.digest');
+  const ti = useTranslations('insights');
   const { prefs } = usePrefs();
   const router = useRouter();
   const { vs } = useScopeText(model.overview.scope);
@@ -145,6 +148,17 @@ export function DigestView({ model, today, goalsReady }: { model: DigestModel; t
                       ) : (
                         <p className="text-sm text-muted-foreground">{t('noPosts')}</p>
                       )}
+                      {findings ? (
+                        <div className="grid gap-1">
+                          <h4 className="text-sm font-medium">{t('findingsTitle')}</h4>
+                          <FindingsList items={(findings.byAccount[c.id] ?? []).slice(0, DIGEST_FINDINGS)} canDismiss={findings.canDismiss} dismiss={dismiss} />
+                          {(findings.byAccount[c.id] ?? []).length > DIGEST_FINDINGS ? (
+                            <Link href={`/accounts/${c.id}?findings=all`} className="text-xs font-medium text-primary underline-offset-4 hover:underline">
+                              {ti('showAll', { count: formatNumber(findings.byAccount[c.id].length, prefs) })}
+                            </Link>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {goalsReady ? (
                         <div className="grid gap-1">
                           <h4 className="text-sm font-medium">{t('goalsTitle')}</h4>

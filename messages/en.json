@@ -1315,6 +1315,7 @@
       "reach": "Reach {value}",
       "young": "still gaining reach",
       "openPostLab": "Open the {format} of {date} in the Post Lab",
+      "findingsTitle": "Findings now",
       "goalsTitle": "Goals now",
       "noGoals": "No goals for this account.",
       "setGoals": "Set goals"

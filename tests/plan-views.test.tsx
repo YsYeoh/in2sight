@@ -13,6 +13,7 @@ import { DigestView } from '@/components/plan/DigestView';
 import { GoalsView, type SaveGoals } from '@/components/plan/GoalsView';
 import { PlanNav } from '@/components/plan/PlanNav';
 import { PrefsProvider } from '@/components/providers/PrefsProvider';
+import type { Finding } from '@/lib/analysis/insights';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 import type { StoredAccount } from '@/lib/accounts/types';
 import type { OverviewInput } from '@/lib/dashboard/read';
@@ -79,6 +80,39 @@ describe('DigestView', () => {
     expect(screen.queryByText(D.goalsTitle)).toBeNull(); // no goals block before the migration
     await userEvent.click(screen.getByRole('button', { name: D.month }));
     expect(push).toHaveBeenCalledWith('/plan/digest?month=2026-09');
+  });
+});
+
+describe('DigestView findings (Plan 17b feed, now)', () => {
+  const f = (id: string): Finding => ({ key: `breakout:${A}:${id}`, accountId: A, kind: 'breakout', tone: 'good', params: { ratio: 3, format: 'REELS' }, n: 20, confidence: 'low', day: '2026-10-22', postId: id, href: `/accounts/${A}/media/${id}` });
+  const model = () => buildDigest(input, [], { ...o, period: parseDigestPeriod({}, today, 'mon') });
+
+  it('no findings prop: no findings block', () => {
+    wrap(<DigestView model={model()} today={today} goalsReady={false} />);
+    expect(screen.queryByText(D.findingsTitle)).toBeNull();
+  });
+
+  it('shows the first three, links to the rest on the account page, and dismisses through the Overview action', async () => {
+    const user = userEvent.setup();
+    const dismiss = vi.fn().mockResolvedValue({ ok: true });
+    const items = ['a', 'b', 'c', 'd'].map(f);
+    wrap(<DigestView model={model()} today={today} goalsReady={false} findings={{ byAccount: { [A]: items }, canDismiss: true }} dismiss={dismiss} />);
+    expect(screen.getByText(D.findingsTitle)).toBeInTheDocument();
+    expect(screen.getAllByText(en.insights.dismiss)).toHaveLength(3);
+    expect(screen.getByRole('link', { name: 'Show all (4)' })).toHaveAttribute('href', `/accounts/${A}?findings=all`);
+    await user.click(screen.getAllByText(en.insights.dismiss)[0]);
+    expect(dismiss).toHaveBeenCalledWith(items[0].key, 'dismiss');
+  });
+
+  it('an account without findings says so', () => {
+    wrap(<DigestView model={model()} today={today} goalsReady={false} findings={{ byAccount: { [A]: [] }, canDismiss: true }} dismiss={vi.fn()} />);
+    expect(screen.getByText(en.insights.empty)).toBeInTheDocument();
+  });
+
+  it('without the dismissals table: no buttons and the "needs a database update" hint', () => {
+    wrap(<DigestView model={model()} today={today} goalsReady={false} findings={{ byAccount: { [A]: [f('a')] }, canDismiss: false }} />);
+    expect(screen.queryByText(en.insights.dismiss)).toBeNull();
+    expect(screen.getByText(en.insights.needsUpdate)).toBeInTheDocument();
   });
 });
 

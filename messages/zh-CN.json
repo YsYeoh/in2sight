@@ -1315,6 +1315,7 @@
       "reach": "触达 {value}",
       "young": "触达仍在增长",
       "openPostLab": "在帖子实验室中打开 {date} 的{format}",
+      "findingsTitle": "目前的发现",
       "goalsTitle": "目前的目标",
       "noGoals": "此账号还没有目标。",
       "setGoals": "设置目标"
