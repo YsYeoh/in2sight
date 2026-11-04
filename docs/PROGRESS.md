@@ -25,6 +25,7 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 | Plan 16a (Settings redesign) | **code complete on local `main`, NOT pushed, nothing verified live.** Its migration `20261030000001_prefs_auto_mode` (Auto theme mode) is **NOT applied**: apply only on the owner's go-ahead, BEFORE deploying; until then choosing Auto applies on the device and the profile save fails with a visible toast + Retry (`docs/RUNBOOK_SETTINGS.md` §0) |
 | Plan 16b (Security) | **code complete on local `main`, NOT pushed, nothing verified live. NO migration.** Change password, forgot / reset password, sign out other devices. **Owner prerequisites first (code cannot do them; forgot / reset does not work without them):** custom SMTP in Supabase, Auth Site URL and Redirect URLs set to `<app-url>`, the Reset Password email template linking to `/auth/confirm?token_hash=...&type=recovery` (one bilingual template), email rate limit 10 per hour, minimum password length 12, sign-ups kept off (`docs/RUNBOOK_SECURITY.md` §0) |
 | Plan 16c (Data & privacy) | **pushed; nothing verified live.** Migration 20261031000001_data_privacy (two functions, two cascade indexes) APPLIED 2026-10-27 (anon probes 401/42501); next: RUNBOOK_DATA live checks |
+| Plan 17b (Insights feed + Today) | **code complete, NOT pushed, nothing verified live.** Migration 20261101000001_insight_dismissals: file written, NOT applied (owner go-ahead, before deploying; RUNBOOK_INSIGHTS §0); without it no dismiss buttons |
 | Open agents / worktrees | none expected after the 15c merge; check `git worktree list` and remove leftovers (section 10) |
 
 ## 3. What is built (all merged and pushed)
@@ -71,6 +72,7 @@ Each line: plan, what it gives, where to read more.
   Opus security review (no Critical): the "current password" check and "code before a new password" are enforced by OUR server actions only; a session token can call Supabase Auth directly (SSR cookie is JS-readable),
   so they are UI-level protection, not a Supabase boundary. Data stays behind `is_owner()` (aal2) either way. **Before enabling the reset template: enrol 2FA, and run `RUNBOOK_SECURITY` §7 (L10 `PUT /user` and L11 `POST /factors` at aal1 must be refused; if L11 is allowed, do NOT enable it).**
 - **17a: Content lab (code complete, NOT verified live; no migration).** Account tab Content (after Stories): leaderboards with repeat / retire, formats and times, hashtags, cadence; numbers from post_lab_latest. Landed: i18n, pure analysis, read and model, the tab in the frame, the tab UI and page wiring. Opus review and its fix wave are still to do. Plan: docs/superpowers/plans/2026-11-01-17a-content-lab.md. Runbook: docs/RUNBOOK_CONTENT.md.
+- **17b: Insights feed + Today (NOT verified live).** Eight rule-based findings per account with n and Low/Medium (account Overview Findings card, replaces Flags; dismiss / hide 7 days), Today briefing above the Overview range bar. Plan: docs/superpowers/plans/2026-11-01-17b-insights-feed-today.md. Runbook: RUNBOOK_INSIGHTS.
 
 Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
 
@@ -112,6 +114,7 @@ Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Mo
 | 20261030000001_prefs_auto_mode | `profiles.mode` CHECK list gains `'auto'` (Plan 16a; **NOT applied**: owner go-ahead, apply BEFORE deploying; `docs/RUNBOOK_SETTINGS.md` §0) |
 
 | 20261031000001_data_privacy | data_usage() (owner-only sizes) and delete_all_data() (service_role only) (Plan 16c; applied 2026-10-27; also adds indexes on moderation_log.undo_of and notifications.account_id so the delete cascade stays linear) |
+| 20261101000001_insight_dismissals | owner-authored dismissed / snoozed finding keys (Plan 17b; file written, **NOT applied**) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -142,6 +145,7 @@ the owner. Each runbook lists exact steps.
    "Sign out other devices", a change or a reset). Until these pass, do not rely on forgot / reset; the old way (assistant + Auth admin API) still works.
 9. **docs/RUNBOOK_DATA.md** (Plan 16c): §0 migration, §1 storage, §2 export (L1 keyset), §4 refusal paths; §3.3 the real delete only when the owner wants everything gone.
 10. **docs/RUNBOOK_CONTENT.md** (Plan 17a): §1 numbers match Post Lab (L1), §2 guards and empty states, §3 speed at "All time" (L2), §4 phone and themes.
+11. **docs/RUNBOOK_INSIGHTS.md** (Plan 17b): §0 migration, then §1–§6.
 Record outcomes in the runbooks and TODO ("code done; live verification pending" becomes ticked only after the owner has looked).
 
 ## 7. What is left to build (priority order; the owner's order is data and analysis first, planning last)
@@ -188,6 +192,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 
 - 16c: delete all keeps login, 2FA, preferences, alert rules and push devices; password + typed DELETE (no extra TOTP); JSON per table, no zip, no covers in the export; third-party data only when ticked; the app does not revoke the Instagram grant; table groups + covers per account, no per-account database bytes.
 - 17a: Content tab after Stories (the roadmap said after Growth), medians from 5 posts, hashtag rows from 20, frequency from 8 complete weeks, caption bands 125 / 500, repeat = top quarter in 2 kinds of number, retire = median below the 25th percentile with 5+ posts, picks via replaceState (a range change resets them).
+- 17b: 8 rules (thresholds in lib/analysis/insights.ts INSIGHTS), problems → good news → tips, dismiss for good + hide 7 days, Findings replaces Flags on the account Overview, Today above the range bar, hashtag rule on the account page only.
 
 ## 9. How to work here
 **Commands:** `npm run dev`, `npm test`, `npm run check` (lint + tsc + tests + build; must pass before anything is called done), `npm run check:env`.

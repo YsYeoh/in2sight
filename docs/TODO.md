@@ -246,6 +246,12 @@ Follow-ups from the Plan 12b review (not done):
 - [ ] RUNBOOK_CONTENT §1–§4 walked through by the owner (L1 numbers match Post Lab, L2 speed at "All time")
 - Known: feed posts only (Stories as Story days); medians from 5 posts, hashtag rows from 20 posts with reach, posts-per-week vs reach from 8 complete weeks; a range change resets the tab's picks.
 
+## 6s. Insights feed + Today (Plan 17b)
+- [x] Findings (8 rules, n, Low/Medium, dismiss / hide 7 days) on the account Overview; Today briefing on the Overview (code done; live verification pending: docs/RUNBOOK_INSIGHTS.md)
+- [ ] Apply migration `20261101000001_insight_dismissals` (file written, NOT applied; owner go-ahead; RUNBOOK_INSIGHTS §0)
+- [ ] RUNBOOK_INSIGHTS §1–§6 with the owner (L1 rules make sense, L2 dismiss survives, L3 Overview ≤ 1.2 s, L4 unanswered count matches)
+- Known: hashtag rule only on the account Overview (the Overview reads no captions); no hidden-findings list / undo; day parts and gap/hashtag medians duplicated with 17a until unified.
+
 ## Brand identity (logo and icons)
 - [x] Logo system "in2Sight" (Outfit outlines, i / 2 / S as the mark, icon grows into the wordmark), exports in `docs/brand/` (SVG, PNG, ICO, social preview), `Logo` component, `--brand-*` tokens, PWA / apple-touch / favicon icons, manifest and title, README header (code done; look at it in a browser at 360 / 768 / 1280 in all four themes, light and dark: not verified)
 - [ ] Optional: the animated icon-to-wordmark transition in the app (spec in `docs/brand/README.md`); set the GitHub social preview image (Settings, manual); the old "in2sight" spelling in prose strings
