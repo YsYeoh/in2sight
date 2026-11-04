@@ -9,6 +9,7 @@ import type { Tag } from '@/lib/analysis/types';
 import { buildTagStats } from '@/lib/dashboard/content';
 import type { PostRow } from '@/lib/dashboard/detail-read';
 import { DEFAULT_PREFS } from '@/lib/prefs';
+import type { TagRule } from '@/lib/tag-rules/rules';
 
 // jsdom lacks the pointer-capture / scroll APIs and ResizeObserver that Radix uses; patch them for this file only
 const DOM_STUBS = { hasPointerCapture: () => false, setPointerCapture: () => {}, releasePointerCapture: () => {}, scrollIntoView: () => {} };
@@ -35,9 +36,11 @@ const TAGS: Tag[] = [
 const row = (id: string, tagIds: string[], reach = 100): PostRow => ({ id, accountId: 'a1', mediaType: 'IMAGE', postedAt: '2026-10-01T00:00:00Z', permalink: null, reach, views: null, likes: 5, comments: null, shares: null, saves: null, caption: null, tagIds });
 const POSTS = [...Array.from({ length: 5 }, (_, i) => row(`p${i}`, [T1], 300)), row('x', [T2]), row('u', [])];
 const ok = async () => ({ ok: true as const });
+const RULES: TagRule[] = [{ id: 'r1', tagId: T1, kind: 'hashtag', value: 'food', createdAt: '2026-10-01T00:00:00.000Z' }];
+const ruleActions = () => ({ add: vi.fn(ok), remove: vi.fn(ok), preview: vi.fn(async () => ({ ok: true as const, posts: 23 })), apply: vi.fn(async () => ({ ok: true as const, posts: 23 })) });
 
 function view(o: Partial<TagsViewProps> = {}) {
-  const props: TagsViewProps = { tags: TAGS, stats: buildTagStats(POSTS, TAGS), create: vi.fn(ok), rename: vi.fn(ok), remove: vi.fn(ok), ...o };
+  const props: TagsViewProps = { tags: TAGS, stats: buildTagStats(POSTS, TAGS), create: vi.fn(ok), rename: vi.fn(ok), remove: vi.fn(ok), rules: RULES, ruleActions: ruleActions(), ...o };
   render(
     <NextIntlClientProvider locale="en" messages={en}>
       <PrefsProvider initial={DEFAULT_PREFS} persist={vi.fn()}>
@@ -98,5 +101,64 @@ describe('TagsView', () => {
     expect(screen.getByRole('status')).toHaveTextContent(en.pages.tags.empty);
     expect(screen.getByLabelText(en.pages.tags.newTag)).toBeInTheDocument();
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(2);
+  });
+});
+
+describe('TagsView rules (Plan 17c)', () => {
+  it('each tag row has a Rules button with its count; the dialog lists the rules and adds a hashtag rule', async () => {
+    const user = userEvent.setup();
+    const props = view();
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('button', { name: `Rules for ${LONG}` })).toHaveTextContent('Rules (0)');
+    await user.click(within(table).getByRole('button', { name: 'Rules for عروض' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Hashtag #food')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText(en.pages.tags.rules.valueLabel.hashtag), '#Travel');
+    await user.click(within(dialog).getByRole('button', { name: en.pages.tags.rules.add }));
+    expect(props.ruleActions.add).toHaveBeenCalledWith(T1, 'hashtag', '#Travel');
+    await user.click(within(dialog).getByRole('button', { name: 'Remove the rule: Hashtag #food' }));
+    expect(props.ruleActions.remove).toHaveBeenCalledWith('r1');
+  });
+
+  it('a format rule is picked from the formats, not typed', async () => {
+    const user = userEvent.setup();
+    const props = view();
+    await user.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rules for عروض' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: en.pages.tags.rules.kinds.format }));
+    await user.click(within(dialog).getByRole('button', { name: en.analysis.format.CAROUSEL_ALBUM }));
+    await user.click(within(dialog).getByRole('button', { name: en.pages.tags.rules.add }));
+    expect(props.ruleActions.add).toHaveBeenCalledWith(T1, 'format', 'CAROUSEL_ALBUM');
+  });
+
+  it('Apply to existing posts shows how many posts change BEFORE it writes', async () => {
+    const user = userEvent.setup();
+    const props = view();
+    await user.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rules for عروض' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: en.pages.tags.rules.applyExisting }));
+    expect(props.ruleActions.preview).toHaveBeenCalledWith(T1);
+    expect(props.ruleActions.apply).not.toHaveBeenCalled();
+    expect(await within(dialog).findByText(/Adds this tag to 23 posts\./)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: en.pages.tags.rules.apply }));
+    expect(props.ruleActions.apply).toHaveBeenCalledWith(T1);
+    expect(await within(dialog).findByText('Tagged 23 posts.')).toBeInTheDocument();
+  });
+
+  it('an error comes back as its translated key', async () => {
+    const user = userEvent.setup();
+    const actions = { ...ruleActions(), add: vi.fn(async () => ({ ok: false as const, error: 'duplicate_rule' as const })) };
+    view({ ruleActions: actions });
+    await user.click(within(screen.getByRole('table')).getByRole('button', { name: 'Rules for عروض' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText(en.pages.tags.rules.valueLabel.hashtag), 'food');
+    await user.click(within(dialog).getByRole('button', { name: en.pages.tags.rules.add }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(en.pages.tags.errors.duplicate_rule);
+  });
+
+  it('without the database update: no Rules buttons, one quiet line', () => {
+    view({ rules: null });
+    expect(screen.queryByRole('button', { name: /^Rules for / })).toBeNull();
+    expect(screen.getByText(en.pages.tags.rulesNeedUpdate)).toBeInTheDocument();
   });
 });

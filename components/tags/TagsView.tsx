@@ -19,12 +19,14 @@ import {
   ResponsiveDialogTitle,
 } from '@/components/shared/ResponsiveDialog';
 import { TagBadge } from '@/components/shared/TagBadge';
+import { TagRulesDialog, type RuleActions } from '@/components/tags/TagRulesDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import type { Tag } from '@/lib/analysis/types';
 import type { TagStat } from '@/lib/dashboard/content';
 import { formatCompact, formatNumber, formatPercent } from '@/lib/format';
+import type { TagRule } from '@/lib/tag-rules/rules';
 import { cn } from '@/lib/utils';
 import type { TagResult } from '@/app/(app)/tags/actions';
 
@@ -35,6 +37,9 @@ export interface TagsViewProps {
   create: (name: string) => Promise<TagResult>;
   rename: (id: string, name: string) => Promise<TagResult>;
   remove: (id: string) => Promise<TagResult>;
+  /** Plan 17c: every tag rule, oldest first; null = the database update for rules is not applied yet. */
+  rules: TagRule[] | null;
+  ruleActions: RuleActions;
 }
 
 function CreateForm({ create }: { create: TagsViewProps['create'] }) {
@@ -112,7 +117,7 @@ function RenameDialog({ tag, rename, onClose }: { tag: Tag | null; rename: TagsV
   );
 }
 
-export function TagsView({ tags, stats, create, rename, remove }: TagsViewProps) {
+export function TagsView({ tags, stats, create, rename, remove, rules, ruleActions }: TagsViewProps) {
   const t = useTranslations('pages.tags');
   const tm = useTranslations('metrics');
   const ta = useTranslations('analysis');
@@ -120,6 +125,8 @@ export function TagsView({ tags, stats, create, rename, remove }: TagsViewProps)
   const { prefs } = usePrefs();
   const [renaming, setRenaming] = useState<Tag | null>(null);
   const [deleting, setDeleting] = useState<Tag | null>(null);
+  const [ruling, setRuling] = useState<Tag | null>(null);
+  const rulesOf = (id: string) => (rules ?? []).filter((r) => r.tagId === id);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -137,6 +144,11 @@ export function TagsView({ tags, stats, create, rename, remove }: TagsViewProps)
       cell: (r) =>
         r.tag ? (
           <span className="flex gap-1">
+            {rules !== null ? (
+              <Button type="button" variant="ghost" size="sm" aria-label={t('rulesButtonNamed', { name: r.tag.name })} onClick={() => setRuling(r.tag)}>
+                {t('rulesButton', { count: rulesOf(r.tag.id).length })}
+              </Button>
+            ) : null}
             <Button type="button" variant="ghost" size="sm" aria-label={t('renameNamed', { name: r.tag.name })} onClick={() => setRenaming(r.tag)}>
               {t('rename')}
             </Button>
@@ -155,12 +167,14 @@ export function TagsView({ tags, stats, create, rename, remove }: TagsViewProps)
         <Card className="min-w-0">
           <CardContent>
             <CreateForm create={create} />
+            {rules === null ? <p className="mt-2 text-sm text-muted-foreground">{t('rulesNeedUpdate')}</p> : null}
           </CardContent>
         </Card>
         {tags.length === 0 ? <EmptyState icon={<TagIcon className="size-5" aria-hidden />} title={t('empty')} description={t('emptyHint')} /> : null}
         <DataTable rows={rows} columns={columns} rowKey={(r) => r.id} caption={t('caption')} initialSort={{ key: 'avgReach', dir: 'desc' }} />
       </div>
       <RenameDialog key={renaming?.id ?? 'none'} tag={renaming} rename={rename} onClose={() => setRenaming(null)} />
+      <TagRulesDialog tag={ruling} rules={ruling ? rulesOf(ruling.id) : []} actions={ruleActions} onClose={() => setRuling(null)} />
       <ConfirmDialog
         open={deleting !== null}
         title={t('deleteTitle', { name: deleting?.name ?? '' })}
