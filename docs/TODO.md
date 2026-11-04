@@ -262,6 +262,12 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Logo system "in2Sight" (Outfit outlines, i / 2 / S as the mark, icon grows into the wordmark), exports in `docs/brand/` (SVG, PNG, ICO, social preview), `Logo` component, `--brand-*` tokens, PWA / apple-touch / favicon icons, manifest and title, README header (code done; look at it in a browser at 360 / 768 / 1280 in all four themes, light and dark: not verified)
 - [ ] Optional: the animated icon-to-wordmark transition in the app (spec in `docs/brand/README.md`); set the GitHub social preview image (Settings, manual); the old "in2sight" spelling in prose strings
 
+## 6u. Goals + weekly / monthly digest (Plan 17d)
+- [x] Side-nav item Plan (/plan/digest, /plan/goals); digest = Overview numbers for one week or month + best / weakest posts + goals now; goals per account with pace, projection and status (code done; live verification pending: docs/RUNBOOK_DIGEST.md)
+- [ ] Apply migration `20261103000001_goals` (written, NOT applied; owner's go-ahead, before deploying)
+- [ ] RUNBOOK_DIGEST §0–§5 walked through by the owner (L1 digest = Overview, L2 speed, L3 the migration live)
+- Known: no findings block until Plan 17b; no digest export or email; a goal's progress is always "now" (no history per past period); goals are not counted in Storage used.
+
 ## 6b. Next (Plan 14/15 Settings)
 - [x] **Forgot / reset password** (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md) (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [x] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md; no session list is possible, one "Sign out other devices" button) (owner currently changes it via the Auth admin API on request)

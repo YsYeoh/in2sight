@@ -79,8 +79,11 @@ Each line: plan, what it gives, where to read more.
   - (b) The "Views: - not enough history to compare (n = 0)" line when the settled day has no value should say there is no value for that day.
   - (c) 17a overlap to unify later: `DAYPARTS`/`Daypart` copied from lib/analysis/splits.ts; posting_gap (5+ gaps, 2x usual gap, at least 3 days, 180 days) vs lib/analysis/cadence.ts (4+ gaps, 2x, within the selected range) can disagree; format_winner vs 17a's per-format split and hashtag_winner vs hashtagLab are accepted duplicates; day-part labels exist in both the 17a content keys and `insights.daypart`.
 - **17c: Auto-tagging (code done, NOT verified live; migration 20261102000001 applied 2026-11-04).** Tags page → Rules per tag (hashtag / caption word / format); new posts tagged by the sync's media-list job; older posts via "Apply to existing posts" with a preview count; rules only add; removed tags are remembered and never re-added (trigger). Plan: docs/superpowers/plans/2026-11-01-17c-auto-tagging.md. Runbook: docs/RUNBOOK_AUTOTAG.md.
+- **17d: Goals + digest (code done, NOT verified live; migration 20261103000001 written, NOT applied).** New side-nav item **Plan** (/plan/digest, /plan/goals): one calendar week or month per account and for all accounts with the Overview's numbers vs the period before, best and weakest posts, goals now; goals per account (followers by a date, average reach per post this month, posts per week) with pace, Theil-Sen projection (Low/Medium) and status, explicit save. Plan: docs/superpowers/plans/2026-11-01-17d-goals-digest.md. Runbook: docs/RUNBOOK_DIGEST.md.
 
 Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
+
+Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d), Settings.
 
 ## 4. Architecture notes a new session needs
 - **Pages = wiring, logic in `lib/`.** Analysis is pure functions in `lib/analysis/` with Vitest tests. Reads use the OWNER session (RLS); the
@@ -122,6 +125,7 @@ Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Mo
 | 20261031000001_data_privacy | data_usage() (owner-only sizes) and delete_all_data() (service_role only) (Plan 16c; applied 2026-10-27; also adds indexes on moderation_log.undo_of and notifications.account_id so the delete cascade stays linear) |
 | 20261101000001_insight_dismissals | owner-authored dismissed / snoozed finding keys (Plan 17b; applied 2026-11-04) |
 | 20261102000001_tag_rules | tag_rules, media_tag_rejections, media_tags.source, trigger media_tags_skip_rejected (Plan 17c; applied 2026-11-04; RUNBOOK_AUTOTAG §0) |
+| 20261103000001_goals | goals (owner-all RLS, cascade from accounts, unique (account_id, metric)) (Plan 17d; **NOT applied**: owner go-ahead, apply BEFORE deploying; RUNBOOK_DIGEST §0) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -154,6 +158,7 @@ the owner. Each runbook lists exact steps.
 10. **docs/RUNBOOK_CONTENT.md** (Plan 17a): §1 numbers match Post Lab (L1), §2 guards and empty states, §3 speed at "All time" (L2), §4 phone and themes.
 11. **docs/RUNBOOK_INSIGHTS.md** (Plan 17b): §0 migration, then §1–§6.
 12. **docs/RUNBOOK_AUTOTAG.md** (Plan 17c): §0 migration, then §1–§5.
+13. **docs/RUNBOOK_DIGEST.md** (Plan 17d): §0 migration, then §1–§5.
 Record outcomes in the runbooks and TODO ("code done; live verification pending" becomes ticked only after the owner has looked).
 
 ## 7. What is left to build (priority order; the owner's order is data and analysis first, planning last)
@@ -202,6 +207,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 - 17a: Content tab after Stories (the roadmap said after Growth), medians from 5 posts, hashtag rows from 20, frequency from 8 complete weeks, caption bands 125 / 500, repeat = top quarter in 2 kinds of number, retire = median below the 25th percentile with 5+ posts, picks via replaceState (a range change resets them).
 - 17b: 8 rules (thresholds in lib/analysis/insights.ts INSIGHTS), problems → good news → tips, dismiss for good + hide 7 days, Findings replaces Flags on the account Overview, Today above the range bar, hashtag rule on the account page only.
 - 17c: automatic for new posts only, older posts via Apply with a preview; every manual removal remembered; no suggested chips; source column not shown; Storage used does not count the two new tables.
+- 17d: Plan between Explorer and Settings; /plan/<section> URLs; default = last complete week; no range bar; goals = 3 kinds, one each per account, no period column; avg-reach guard 3 posts; weakest posts from 7; young = 7 days; no findings block until 17b; no digest export; goals not counted in Storage used.
 
 ## 9. How to work here
 **Commands:** `npm run dev`, `npm test`, `npm run check` (lint + tsc + tests + build; must pass before anything is called done), `npm run check:env`.
