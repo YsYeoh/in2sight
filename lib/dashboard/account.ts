@@ -2,7 +2,6 @@
 import type { StoredAccount } from '@/lib/accounts/types';
 import { onlineHeatmap, postHeatmap, type Heatmap } from '@/lib/analysis/best-time';
 import { bucketize } from '@/lib/analysis/buckets';
-import { reachDrop, takingOff, type Flag } from '@/lib/analysis/flags';
 import { kpis, summarize, type Kpi, type KpiId } from '@/lib/analysis/growth';
 import { formatComparison } from '@/lib/analysis/posts';
 import type { DailyRow, OnlineFollowersRow, Post } from '@/lib/analysis/types';
@@ -45,7 +44,6 @@ export interface AccountOverviewModel {
   formats: ReturnType<typeof formatComparison>; // posts published in the scope's days
   heat: { online: { account: Heatmap; pooled: Heatmap }; posts: { account: Heatmap; pooled: Heatmap } };
   pooledAccounts: number;
-  flags: Flag[];
   lastSyncedAt: string | null;
   syncErrorKey: string | null;
 }
@@ -55,7 +53,6 @@ export function buildAccountOverview(input: AccountOverviewInput, o: { scope: Re
   const { window, gran, range } = o.scope;
   const s = summarize(daily, posts, window, o.today, o.tz, o.scope.scope.cmp);
   const byDay = new Map(daily.map((r) => [r.day, r]));
-  const drop = reachDrop(daily, o.today, o.tz);
   const state = cardState(account.status, account.tokenExpiresAt, o.now, sync, s, daily.length > 0);
   const trend = bucketize(
     s.reachByDay.map(({ day }) => ({ day, reach: byDay.get(day)?.reach ?? null, views: byDay.get(day)?.views ?? null, followers: byDay.get(day)?.followers ?? null })),
@@ -79,7 +76,6 @@ export function buildAccountOverview(input: AccountOverviewInput, o: { scope: Re
       posts: { account: postHeatmap(posts, o.tz, o.weekStart), pooled: postHeatmap(input.pooled.posts, o.tz, o.weekStart) },
     },
     pooledAccounts: input.pooled.accounts,
-    flags: [...takingOff(posts, o.now, 'last' in window ? window.last : 7), ...(drop ? [drop] : [])], // "right now" signals
     lastSyncedAt: sync?.lastSuccessAt ?? null,
     syncErrorKey: sync && sync.consecutiveFailures > 0 ? sync.lastErrorKey : null,
   };

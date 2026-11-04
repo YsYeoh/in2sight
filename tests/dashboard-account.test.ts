@@ -32,7 +32,7 @@ describe('poolFor', () => {
 });
 
 describe('buildAccountOverview', () => {
-  it('KPIs with comparison, a trend over the window, formats, heatmaps, flags and sync status', () => {
+  it('KPIs with comparison, a trend over the window, formats, heatmaps and sync status (flags moved to the findings, Plan 17b)', () => {
     const history = Array.from({ length: 6 }, (_, i) => post(`h${i}`, `${addDays('2026-09-20', i)}T02:00:00Z`, 100));
     const hit = post('hit', '2026-10-12T02:00:00Z', 900, { mediaType: 'REELS', permalink: 'https://www.instagram.com/reel/hit/' });
     const m = buildAccountOverview(
@@ -49,7 +49,6 @@ describe('buildAccountOverview', () => {
     expect(m.heat.online.pooled.reason).toBe('needs_100_followers');
     expect(m.heat.posts.pooled.sample).toBe(8);
     expect(m.pooledAccounts).toBe(2);
-    expect(m.flags).toEqual([expect.objectContaining({ kind: 'taking_off', postId: 'hit' })]);
     expect(m.lastSyncedAt).toBe('2026-10-15T03:00:00Z');
     expect(m.syncErrorKey).toBe('rate_limited');
   });
@@ -62,7 +61,6 @@ describe('buildAccountOverview', () => {
     expect(m.formats).toEqual([]);
     expect(m.heat.online.account.reason).toBe('needs_100_followers');
     expect(m.heat.posts.account.reason).toBe('not_enough_posts');
-    expect(m.flags).toEqual([]);
     expect(m.syncErrorKey).toBeNull();
     for (const k of Object.values(m.kpis)) for (const v of [k.value, k.diff, k.change]) if (v !== null) expect(Number.isFinite(v)).toBe(true);
   });

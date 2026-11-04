@@ -14,15 +14,18 @@ import { StoriesTab } from '@/components/account/StoriesTab';
 import { TabSkeleton } from '@/components/account/TabSkeleton';
 import { setPostTagsAction } from '@/app/(app)/tags/actions';
 import { deleteFollowerSnapshotAction } from '@/app/(app)/accounts/followers-actions';
+import { dismissFindingAction } from '@/app/(app)/overview/insight-actions';
 import { deleteCommentAction, deleteRuleAction, hideCommentAction, previewWordRuleAction, replyCommentAction, saveWordRuleAction, setAutoHideAction, setSpamRuleAction, undoModerationAction } from '@/app/(app)/accounts/moderation-actions';
 import { COMMENTS_SCOPE, hasScope } from '@/lib/accounts/scopes';
 import type { StoredAccount } from '@/lib/accounts/types';
+import { findInsights, INSIGHTS, visibleFindings } from '@/lib/analysis/insights';
 import { requireOwner } from '@/lib/auth/require-owner';
-import { loadCommentPage, loadCommentPosts, loadCommentStart, loadFans, loadOutsiders, loadTopicSample } from '@/lib/comments/read';
+import { loadCommentPage, loadCommentPosts, loadCommentStart, loadFans, loadOutsiders, loadTopicSample, loadUnansweredCounts } from '@/lib/comments/read';
 import { COMMENT_KEYS, parseCommentState } from '@/lib/comments/state';
 import { topics } from '@/lib/comments/topics';
 import { buildAccountOverview, parseTab, poolFor, type Tab } from '@/lib/dashboard/account';
 import { buildAudience } from '@/lib/dashboard/audience';
+import { loadDismissals } from '@/lib/dashboard/dismissals';
 import { loadAccounts, loadSyncStatus } from '@/lib/dashboard/cached';
 import { buildPosts, buildStories, storyView } from '@/lib/dashboard/content';
 import { buildContentLab } from '@/lib/dashboard/content-lab';
@@ -41,7 +44,7 @@ import { getPrefs } from '@/lib/prefs.server';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { addDays, dayStart, daysToIso, localDay } from '@/lib/sync/time';
 import { isUuid } from '@/lib/tags';
-import { daysIn } from '@/lib/time-scope/range';
+import { daysIn, minDay } from '@/lib/time-scope/range';
 import { parseTimeScope, readFrom, resolveScope, type ResolvedScope } from '@/lib/time-scope/scope';
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -166,22 +169,27 @@ async function TabContent({ tab, account, sp, scope }: { tab: Tab; account: Stor
       return <FollowersTab ready snapshots={snapshots} state={state} newer={view ? pair.newer : null} older={older ? pair.older : null} view={view} {...props} />;
     }
     default: {
-      const fromDay = readFrom(scope.scope, today);
+      // at least INSIGHTS.readDays back: the findings compare the latest day with the same weekday of the 8 weeks before
+      const fromDay = minDay(readFrom(scope.scope, today), addDays(today, -INSIGHTS.readDays));
       const pool = poolFor(account, await liveAccounts());
       const others = pool.filter((a) => a.id !== account.id);
-      const [daily, posts, sync, online, otherPosts, audience] = await Promise.all([
+      const [daily, posts, sync, online, otherPosts, audience, unanswered] = await Promise.all([
         loadDaily(db, account.id, fromDay),
-        loadPosts(db, account.id, MEDIA_LIMIT, dayStart(fromDay, tz).toISOString()),
+        loadPostRows(db, account.id, dayStart(fromDay, tz).toISOString()), // with captions: the hashtag rule reads them
         loadSyncStatus(),
         loadOnline(db, pool.map((a) => a.id), addDays(today, -30)), // Instagram keeps 30 days of online_followers
         Promise.all(others.map((a) => loadPosts(db, a.id))), // best time pools the newest posts, whatever the scope
         loadAudience(db, account.id),
+        loadUnansweredCounts(db, [account], today, tz), // never throws
       ]);
+      const found = findInsights({ accountId: account.id, daily, posts, unanswered: unanswered[account.id] ?? null }, { today, now, tz });
+      const dismissals = await loadDismissals(db, found.map((f) => f.key)); // null = migration missing: no dismiss buttons
+      const findings = { items: visibleFindings(found, dismissals, now), canDismiss: dismissals !== null, showAll: sp.findings === 'all' };
       const model = buildAccountOverview(
         { account, sync: sync[account.id], daily, posts, online: online[account.id] ?? [], pooled: { accounts: pool.length, posts: [...posts, ...otherPosts.flat()], online: Object.values(online).flat() } },
         { scope, today, now, tz, weekStart: prefs.weekStart },
       );
-      return <AccountOverview model={model} account={{ id: account.id, groupName: account.groupName }} audience={buildAudience(audience)} />;
+      return <AccountOverview model={model} account={{ id: account.id, groupName: account.groupName }} audience={buildAudience(audience)} findings={findings} dismiss={dismissFindingAction} />;
     }
   }
 }

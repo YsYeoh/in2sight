@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { TrendingDown, TrendingUp, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { AudienceTab } from '@/components/account/AudienceTab';
 import { Heatmap } from '@/components/charts/Heatmap';
@@ -10,6 +10,7 @@ import { SeriesChart } from '@/components/charts/SeriesChart';
 import { useBestTimeRows } from '@/components/charts/useBestTimeRows';
 import { usePrefs } from '@/components/providers/PrefsProvider';
 import { ChartCard } from '@/components/shared/ChartCard';
+import { FindingsList, type DismissAction } from '@/components/shared/FindingsList';
 import { DataTable } from '@/components/shared/DataTable';
 import { NavLink } from '@/components/shared/NavLink';
 import { StatCard } from '@/components/shared/StatCard';
@@ -17,14 +18,18 @@ import { useBucketFormat, useScopeText } from '@/components/shared/RangeBar';
 import { useKpiDelta } from '@/components/shared/useKpiDelta';
 import { Button } from '@/components/ui/button';
 import type { KpiId } from '@/lib/analysis/growth';
+import type { Finding } from '@/lib/analysis/insights';
 import type { AccountOverviewModel } from '@/lib/dashboard/account';
 import type { AudienceModel } from '@/lib/dashboard/audience';
 import { explorerHref, parseExplorerState } from '@/lib/explorer/state';
-import { formatCompact, formatDateTime, formatDelta, formatNumber, formatPercent } from '@/lib/format';
+import { formatCompact, formatDateTime, formatHour, formatNumber, formatPercent } from '@/lib/format';
 import { formatMetric } from '@/lib/metrics';
 import { scopeQuery } from '@/lib/time-scope/scope';
 
 const KPI_IDS: KpiId[] = ['followers', 'reach', 'views', 'engagementRate', 'posts', 'netFollows'];
+/** Findings shown before "Show all" (Plan 17b). */
+const FINDINGS_SHOWN = 5;
+const NO_FINDINGS = { items: [] as Finding[], canDismiss: false, showAll: false };
 
 function Toggle<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { id: T; text: string }[]; onChange: (v: T) => void }) {
   return (
@@ -38,8 +43,9 @@ function Toggle<T extends string>({ label, value, options, onChange }: { label: 
   );
 }
 
-/** `account` set: formats and best-time cells link into the Explorer (drill-down), scoped to this account. */
-export function AccountOverview({ model, account, audience }: { model: AccountOverviewModel; account?: { id: string; groupName: string | null }; audience?: AudienceModel }) {
+/** `account` set: formats and best-time cells link into the Explorer (drill-down), scoped to this account. `findings`: the
+ *  insights feed (Plan 17b); `showAll` mirrors ?findings=all, a view-only pick written with history.replaceState. */
+export function AccountOverview({ model, account, audience, findings = NO_FINDINGS, dismiss }: { model: AccountOverviewModel; account?: { id: string; groupName: string | null }; audience?: AudienceModel; findings?: { items: Finding[]; canDismiss: boolean; showAll: boolean }; dismiss?: DismissAction }) {
   const t = useTranslations('pages.account');
   const to = useTranslations('pages.overview');
   const tm = useTranslations('metrics');
@@ -52,6 +58,16 @@ export function AccountOverview({ model, account, audience }: { model: AccountOv
   const bestTime = useBestTimeRows();
   const [view, setView] = useState<'online' | 'posts'>('online'); // SPEC §7: followers online is the default
   const [scope, setScope] = useState<'account' | 'pooled'>('account');
+  const ti = useTranslations('insights');
+  const items = findings.items;
+  const [allFindings, setAllFindings] = useState(findings.showAll);
+  const toggleFindings = () => {
+    const q = new URLSearchParams(window.location.search);
+    if (allFindings) q.delete('findings');
+    else q.set('findings', 'all');
+    setAllFindings(!allFindings);
+    window.history.replaceState(null, '', `?${q.toString()}`);
+  };
   const heat = model.heat[view][scope];
   // drill-down: a cell of "your post performance" lists the posts behind it. The grid uses every stored post, so the
   // link asks for the whole history ("all"), this account or its pool (its group, or every account when isolated).
@@ -129,35 +145,13 @@ export function AccountOverview({ model, account, audience }: { model: AccountOv
           />
         </ChartCard>
 
-        <ChartCard title={t('flagsTitle')}>
-          {model.flags.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('noFlags')}</p>
-          ) : (
-            <ul className="grid gap-2 text-sm">
-              {model.flags.map((f) =>
-                f.kind === 'taking_off' ? (
-                  <li key={f.postId} className="flex min-w-0 items-center gap-2 text-success">
-                    <TrendingUp aria-hidden="true" className="size-4 shrink-0" />
-                    <span className="min-w-0 truncate">
-                      {f.permalink ? (
-                        <a href={f.permalink} target="_blank" rel="noopener noreferrer" className="underline-offset-4 hover:underline">
-                          {to('takingOff', { ratio: formatNumber(f.ratio, prefs, { maximumFractionDigits: 1 }) })}
-                        </a>
-                      ) : (
-                        to('takingOff', { ratio: formatNumber(f.ratio, prefs, { maximumFractionDigits: 1 }) })
-                      )}
-                      <span className="ml-1.5 text-xs text-muted-foreground">{formatDateTime(f.postedAt, prefs)}</span>
-                    </span>
-                  </li>
-                ) : (
-                  <li key="drop" className="flex items-center gap-2 text-destructive">
-                    <TrendingDown aria-hidden="true" className="size-4 shrink-0" />
-                    {to('reachDrop', { change: formatDelta(f.change, prefs) })}
-                  </li>
-                ),
-              )}
-            </ul>
-          )}
+        <ChartCard title={ti('title')} subtitle={`${ti('source')} ${ti('dayparts', { a: formatHour(6, prefs), b: formatHour(12, prefs), c: formatHour(18, prefs) })}`}>
+          <FindingsList items={allFindings ? items : items.slice(0, FINDINGS_SHOWN)} canDismiss={findings.canDismiss} dismiss={dismiss} />
+          {items.length > FINDINGS_SHOWN ? (
+            <Button type="button" variant="ghost" className="mt-2" aria-expanded={allFindings} onClick={toggleFindings}>
+              {allFindings ? ti('showFewer') : ti('showAll', { count: items.length })}
+            </Button>
+          ) : null}
         </ChartCard>
       </div>
 

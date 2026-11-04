@@ -154,7 +154,7 @@ describe('AccountView', () => {
 });
 
 describe('AccountOverview', () => {
-  it('KPIs with comparison, charts, formats, flags and the best-time toggles', async () => {
+  it('KPIs with comparison, charts, formats, the findings card and the best-time toggles', async () => {
     const user = userEvent.setup();
     const history = Array.from({ length: 6 }, (_, i) => post(`h${i}`, addDays('2026-09-20', i), 100));
     const model = buildAccountOverview({ ...empty, sync: { lastSuccessAt: '2026-10-15T03:00:00Z', lastErrorKey: null, consecutiveFailures: 0, dailyDoneThrough: '2026-10-14' }, daily: days(14), posts: [...history, post('hit', '2026-10-12', 900)], pooled: { accounts: 3, posts: history, online: [] } }, opts);
@@ -162,7 +162,8 @@ describe('AccountOverview', () => {
     const kpis = screen.getByRole('region', { name: en.pages.account.kpis });
     expect(within(kpis).getAllByText(en.timeScope.vsPrevious.replace('{days}', '7')).length).toBeGreaterThan(0);
     expect(screen.getByRole('heading', { name: en.pages.account.trendTitle })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Post taking off/ })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('heading', { name: en.insights.title })).toBeInTheDocument(); // Plan 17b: findings replace the flags card
+    expect(screen.getByText(en.insights.empty)).toBeInTheDocument();
     expect(screen.getAllByText(en.analysis.format.REELS).length).toBeGreaterThan(0);
     // default = followers online (SPEC §7); no online data → the reason shows
     expect(screen.getByRole('button', { name: en.pages.account.bestTimeOnline })).toHaveAttribute('aria-pressed', 'true');
@@ -171,6 +172,20 @@ describe('AccountOverview', () => {
     expect(screen.getByText(en.analysis.reasons.not_enough_posts)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '3 accounts pooled' }));
     expect(screen.getByRole('button', { name: '3 accounts pooled' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('findings: five, then "Show all" (a view-only pick: history.replaceState, findings=all)', async () => {
+    const user = userEvent.setup();
+    const replace = vi.spyOn(window.history, 'replaceState');
+    const items = Array.from({ length: 6 }, (_, i) => ({ key: `best_slot:${ID}:${i}`, accountId: ID, kind: 'best_slot' as const, tone: 'tip' as const, params: { weekday: i, daypart: 'evening', ratio: 2 }, n: 6, confidence: 'low' as const, day: TODAY, postId: null, href: `/accounts/${ID}` }));
+    wrap(<AccountOverview model={buildAccountOverview(empty, opts)} findings={{ items, canDismiss: true, showAll: false }} dismiss={vi.fn()} />);
+    expect(screen.getAllByRole('link', { name: en.insights.open })).toHaveLength(5);
+    await user.click(screen.getByRole('button', { name: 'Show all (6)' }));
+    expect(screen.getAllByRole('link', { name: en.insights.open })).toHaveLength(6);
+    expect(String(replace.mock.calls.at(-1)?.[2])).toContain('findings=all');
+    await user.click(screen.getByRole('button', { name: en.insights.showFewer }));
+    expect(String(replace.mock.calls.at(-1)?.[2])).not.toContain('findings=all');
+    replace.mockRestore();
   });
 
   it('Audience is the last section of Overview (#audience); its snapshots say they are the latest snapshot', () => {
@@ -186,7 +201,7 @@ describe('AccountOverview', () => {
   it('account with no data renders every reason and no NaN (zh-CN)', () => {
     const { container } = wrap(<AccountOverview model={buildAccountOverview(empty, opts)} />, 'zh-CN');
     expect(screen.getAllByText(zh.analysis.reasons.backfilling).length).toBeGreaterThan(0); // the state note and the KPI reasons
-    expect(screen.getByText(zh.pages.account.noFlags)).toBeInTheDocument();
+    expect(screen.getByText(zh.insights.empty)).toBeInTheDocument();
     expect(screen.getByText(zh.pages.overview.neverSynced)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/NaN|Infinity|undefined/);
   });

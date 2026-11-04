@@ -28,7 +28,9 @@ vi.mock('@/lib/comments/read', () => ({
   loadFans: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('fans'), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
   loadOutsiders: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('outsiders'), comments.args.push(a), comments.migrated ? { rows: [], total: 0, page: 1 } : null),
   loadTopicSample: async (_db: unknown, _id: string, a: Record<string, unknown>) => (calls.push('topicSample'), comments.args.push(a), []),
+  loadUnansweredCounts: async () => (calls.push('unanswered'), {}),
 }));
+vi.mock('@/lib/dashboard/dismissals', () => ({ loadDismissals: async () => (calls.push('dismissals'), []) }));
 const moderation = vi.hoisted(() => ({ data: null as Record<string, unknown> | null, loads: [] as unknown[][] }));
 vi.mock('@/lib/moderation/store', () => ({
   loadModeration: async (...a: unknown[]) => (calls.push('moderation'), moderation.loads.push(a.slice(1)), moderation.data),
@@ -146,6 +148,7 @@ describe('account detail page', () => {
     expect(el.props.tab).toBe('overview');
     expect(isValidElement(await streamTab(el))).toBe(true);
     expect(calls).toContain('daily');
+    expect(calls).toEqual(expect.arrayContaining(['postRows', 'unanswered', 'dismissals'])); // Plan 17b: captions for the hashtag rule, counts, dismissals
     expect(calls).not.toContain('ADMIN');
     expect(calls).not.toContain('stories');
   });
