@@ -130,6 +130,22 @@ describe('media jobs', () => {
     expect(patch.lastRun.mediaList).toBeUndefined();
   });
 
+  it("the listed posts go through the owner's tag rules (Plan 17c); a rule failure never costs the list", async () => {
+    const { c, ig, mem } = ctx();
+    ig.listMedia.mockResolvedValue([post('p1', '2026-10-13T00:00:00.000Z'), post('p2', '2026-10-12T00:00:00.000Z')]);
+    await run(c, ['mediaList']);
+    expect(mem.autoTagged).toEqual([['p1', 'p2']]);
+    const failing = ctx();
+    failing.ig.listMedia.mockResolvedValue([post('p1', '2026-10-13T00:00:00.000Z')]);
+    failing.mem.store.autoTag = async () => {
+      throw new Error('tag rules: read failed');
+    };
+    const { result, patch } = await run(failing.c, ['mediaList']);
+    expect(result.outcome).toBe('ok');
+    expect(failing.mem.media.has('p1')).toBe(true);
+    expect(patch.lastRun.mediaList).toBe(NOW.toISOString());
+  });
+
   it('backfill: every listed post gets its lifetime metrics on the first pass', async () => {
     const { c, ig, mem } = ctx();
     ig.listMedia.mockResolvedValue([post('p1', '2026-10-13T00:00:00.000Z'), post('p2', '2025-01-01T00:00:00.000Z')]);

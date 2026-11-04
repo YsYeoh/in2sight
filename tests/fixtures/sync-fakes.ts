@@ -71,6 +71,8 @@ export function memoryStore(init: MemoryInit = {}) {
   const runs: SyncRun[] = [];
   const saved: { accountId: string; patch: StatePatch }[] = [];
   const progress: { accountId: string; p: ProgressWrite }[] = [];
+  /** ids passed to autoTag, one entry per call (Plan 17c) */
+  const autoTagged: string[][] = [];
   const store: SyncStore = {
     ownerTimezone: async () => init.tz ?? 'Asia/Kuala_Lumpur',
     loadStates: async (ids) => new Map(ids.map((id) => [id, states.get(id) ?? emptyState(id)])),
@@ -94,6 +96,7 @@ export function memoryStore(init: MemoryInit = {}) {
       for (const i of items) media.set(i.id, { id: i.id, accountId, postedAt: i.postedAt, lastMetricsAt: media.get(i.id)?.lastMetricsAt ?? null, kind: i.kind, gone: media.get(i.id)?.gone ?? false });
       for (const i of items) (i.details?.children ?? []).forEach((ch, position) => children.push({ mediaId: i.id, position, mediaType: ch.mediaType }));
     },
+    autoTag: async (items) => void autoTagged.push(items.map((i) => i.id)),
     mediaForMetrics: async (accountId, since) =>
       [...media.values()].filter((m) => m.accountId === accountId && m.kind !== 'STORY' && !m.gone && (m.postedAt >= since || m.lastMetricsAt === null)).map(({ id, postedAt, lastMetricsAt, kind, productType }) => ({ id, postedAt, lastMetricsAt, kind, productType })),
     insertMetrics: async (mediaId, capturedAt) => void metrics.push({ mediaId, capturedAt }),
@@ -144,7 +147,7 @@ export function memoryStore(init: MemoryInit = {}) {
     recordRun: async (r) => void runs.push(r),
     writeProgress: async (accountId, p) => void progress.push({ accountId, p }),
   };
-  return { store, states, media, children, covers, uploads, commentCounts, comments, archived, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress };
+  return { store, states, media, children, covers, uploads, commentCounts, comments, archived, daily, followers, metrics, extras, audience, online, snapshots, breakdowns, runs, saved, progress, autoTagged };
 }
 
 export function fakeAccounts(list: StoredAccount[]) {

@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyTagRules, loadRuleMedia, loadRules } from '@/lib/tag-rules/apply';
 import type { RuleMedia, TagRule } from '@/lib/tag-rules/rules';
+import { supabaseSyncStore } from '@/lib/sync/store';
 
 type Call = { table: string; op: string; args: unknown[]; filters: [string, ...unknown[]][] };
 
@@ -88,5 +89,27 @@ describe('applyTagRules', () => {
   it('a read or write error throws a fixed message (never the Supabase text)', async () => {
     await expect(applyTagRules(recorder([{ error: { message: 'secret' } }]).db, { media: [post('p1', '#food')], rules: [R], scope: 'all', dryRun: false })).rejects.toThrow(/^tag rules: media_tags read failed$/);
     await expect(applyTagRules(recorder([{ data: [] }, { data: [] }, { error: { message: 'secret' } }]).db, { media: [post('p1', '#food')], rules: [R], scope: 'all', dryRun: false })).rejects.toThrow(/^tag rules: media_tags write failed$/);
+  });
+});
+
+describe('supabaseSyncStore.autoTag (the sync, admin client)', () => {
+  const item = (id: string, kind: 'IMAGE' | 'REELS' | 'STORY', caption: string | null) => ({ id, kind, caption, permalink: null, postedAt: '2026-10-10T00:00:00.000Z' });
+
+  it('Stories only, no rules, or no migration: stops early', async () => {
+    const none = recorder();
+    await supabaseSyncStore(none.db).autoTag([item('s1', 'STORY', '#food')]);
+    expect(none.calls).toEqual([]);
+    const noRules = recorder([{ data: [] }]);
+    await supabaseSyncStore(noRules.db).autoTag([item('p1', 'IMAGE', '#food')]);
+    expect(noRules.calls.map((c) => c.table)).toEqual(['tag_rules']);
+    const missing = recorder([{ error: { code: 'PGRST205' } }]);
+    await supabaseSyncStore(missing.db).autoTag([item('p1', 'IMAGE', '#food')]);
+    expect(missing.calls.map((c) => c.table)).toEqual(['tag_rules']);
+  });
+
+  it('tags the listed posts published after the rule was written', async () => {
+    const r = recorder([{ data: [{ id: 'r1', tag_id: 't1', kind: 'hashtag', value: 'food', created_at: '2026-10-05T00:00:00.000Z' }] }, { data: [] }, { data: [] }, { error: null }]);
+    await supabaseSyncStore(r.db).autoTag([item('p1', 'IMAGE', '#Food'), { ...item('old', 'IMAGE', '#food'), postedAt: '2026-10-01T00:00:00.000Z' }, item('s1', 'STORY', '#food')]);
+    expect(r.calls.at(-1)).toMatchObject({ table: 'media_tags', op: 'upsert', args: [[{ media_id: 'p1', tag_id: 't1', source: 'auto' }], { onConflict: 'media_id,tag_id', ignoreDuplicates: true }] });
   });
 });

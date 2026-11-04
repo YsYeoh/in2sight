@@ -230,6 +230,7 @@ const mediaList: Job = async (c) => {
   const since = new Date(c.now.getTime() - MEDIA_DAILY_UNDER_DAYS * DAY_MS).toISOString();
   const items = await c.ig.listMedia(c.token, first ? MEDIA_BACKFILL_MAX : MEDIA_RECENT_MAX, first ? undefined : since, () => outOfTime(c));
   await c.store.upsertMedia(c.account.id, items);
+  await c.store.autoTag(items).catch(() => {}); // Plan 17c: best-effort, a rule problem never costs the media list
   return { done: !outOfTime(c) }; // out of time mid-paging: keep what we got, stay due (the first run's backfill must finish)
 };
 

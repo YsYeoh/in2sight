@@ -10,6 +10,7 @@ import { parseCapabilities, type Capabilities } from '@/lib/sync/capabilities';
 import { COVERS_BUCKET, type CoverRef, type CoverStatus } from '@/lib/sync/covers';
 import type { LiveState, Stage } from '@/lib/sync/progress';
 import { emptyState, isBackfilling, type JobKind, type MediaRef, type SyncState } from '@/lib/sync/schedule';
+import { applyTagRules, loadRules } from '@/lib/tag-rules/apply';
 
 export interface StatePatch {
   lastAttemptAt: string;
@@ -61,6 +62,8 @@ export interface SyncStore {
   upsertFollowers(accountId: string, day: string, followers: number): Promise<void>;
   /** Media rows (+ listing details when present) and, for carousels, their children rows. */
   upsertMedia(accountId: string, items: IgMediaItem[]): Promise<void>;
+  /** Plan 17c: the owner's tag rules on these listed posts (Stories never), only for posts published after the rule was written. Adds tags, never removes or overwrites one. */
+  autoTag(items: IgMediaItem[]): Promise<void>;
   mediaForMetrics(accountId: string, sinceIso: string): Promise<MediaRef[]>;
   insertMetrics(mediaId: string, capturedAt: string, v: MediaMetricValues): Promise<void>;
   /** Adds optional extras to the snapshot inserted for (mediaId, capturedAt). Only the given fields are written. */
@@ -222,6 +225,13 @@ export function supabaseSyncStore(db: SupabaseClient): SyncStore {
       }
       const children = items.flatMap((i) => (i.details?.children ?? []).map((ch, position) => ({ media_id: i.id, position, media_type: ch.mediaType })));
       if (children.length > 0) check('upsertMediaChildren')(await db.from('media_children').upsert(children, { onConflict: 'media_id,position' }));
+    },
+    async autoTag(items) {
+      const media = items.filter((i) => i.kind !== 'STORY').map((i) => ({ id: i.id, caption: i.caption, kind: i.kind, postedAt: i.postedAt }));
+      if (media.length === 0) return;
+      const rules = await loadRules(db); // null: the 17c migration is not applied yet
+      if (!rules || rules.length === 0) return;
+      await applyTagRules(db, { media, rules, scope: 'new', dryRun: false });
     },
     async mediaForMetrics(accountId, sinceIso) {
       const { data, error } = await db
