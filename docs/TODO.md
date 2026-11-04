@@ -264,7 +264,7 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6u. Goals + weekly / monthly digest (Plan 17d)
 - [x] Side-nav item Plan (/plan/digest, /plan/goals); digest = Overview numbers for one week or month + best / weakest posts + goals now; goals per account with pace, projection and status (code done; live verification pending: docs/RUNBOOK_DIGEST.md)
-- [ ] Apply migration `20261103000001_goals` (written, NOT applied; owner's go-ahead, before deploying)
+- [x] Apply migration `20261103000001_goals` (applied 2026-11-04; anon probe 401 / 42501)
 - [ ] RUNBOOK_DIGEST §0–§5 walked through by the owner (L1 digest = Overview, L2 speed, L3 the migration live)
 - Known: no findings block in the digest (17b is built now, so it is a small follow-up: one `FindingsList` in `DigestView`); no digest export or email; a goal's progress is always "now" (no history per past period); goals are not counted in Storage used.
 

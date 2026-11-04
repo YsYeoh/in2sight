@@ -6,8 +6,8 @@ was tested with fakes and the migration on PGlite only (plan `docs/superpowers/p
 yes/no and numbers only; never paste captions or handles into a chat or an issue.
 
 ## 0. The migration (apply BEFORE deploying; the owner says go)
-`supabase/migrations/20261103000001_goals.sql` adds the table `goals` (owner-only RLS, deleted with its account). It is
-written and NOT applied. Nothing existing is dropped. Supabase CLI 3.x defaults to the local Docker stack, so every
+`supabase/migrations/20261103000001_goals.sql` adds the table `goals` (owner-only RLS, deleted with its account). It was
+applied 2026-11-04 (dry-run listed exactly this file; `migration list` 19 / 19; anon probe 401 / 42501; advisors unchanged). Nothing existing is dropped. Supabase CLI 3.x defaults to the local Docker stack, so every
 `sb.mjs` command carries `--remote` (`db query` against production needs an extra consent flag and is not used).
 ```
 node --env-file=.env.local scripts/sb.mjs migration list --remote        # only 20261103000001 pending (plus any earlier pending file); nothing remote-only
