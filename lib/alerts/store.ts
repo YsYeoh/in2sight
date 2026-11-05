@@ -22,6 +22,10 @@ export interface AlertStore {
   moderationPausedAt?(accountId: string): Promise<string | null>;
   /** INSERT … ON CONFLICT (dedupe_key) DO NOTHING RETURNING: only the alerts that were really new come back. */
   insertNew(alerts: Alert[]): Promise<Alert[]>;
+  /** Plan 17e: reach by follow type (account_daily_breakdown, metric reach) for these owner-timezone days; ~12 rows a day. */
+  reachByFollow(accountId: string, days: string[]): Promise<{ day: string; followType: string; value: number }[]>;
+  /** Plan 17e: kind + created_at of the UNREAD notifications created in [fromIso, toIso), for the morning summary. */
+  unreadBetween(fromIso: string, toIso: string): Promise<{ kind: string; createdAt: string }[]>;
   subscriptions(): Promise<PushSub[]>;
   deleteSubscription(endpoint: string): Promise<void>;
 }
@@ -68,6 +72,19 @@ export function supabaseAlertStore(db: SupabaseClient): AlertStore {
       if (error) fail('insertNew');
       const inserted = new Set(((data ?? []) as Row[]).map((r) => r.dedupe_key));
       return alerts.filter((a) => inserted.has(a.dedupeKey));
+    },
+    async reachByFollow(accountId, days) {
+      if (days.length === 0) return [];
+      // spikeDays = 18 days x (3 follow types x 4 formats) = at most 216 rows: under PostgREST's 1,000-row cap
+      const { data, error } = await db.from('account_daily_breakdown').select('day,follow_type,value').eq('account_id', accountId).eq('metric', 'reach').in('day', days).limit(1000);
+      if (error) fail('reachByFollow');
+      return ((data ?? []) as Row[]).flatMap((r) => (isStr(r.day) && isStr(r.follow_type) && typeof r.value === 'number' && Number.isFinite(r.value) ? [{ day: r.day, followType: r.follow_type, value: r.value }] : []));
+    },
+    async unreadBetween(fromIso, toIso) {
+      // a day of alerts is a handful of rows; the 1,000 cap only matters if something floods the table (then the count is a floor)
+      const { data, error } = await db.from('notifications').select('kind,created_at').is('read_at', null).gte('created_at', fromIso).lt('created_at', toIso).limit(1000);
+      if (error) fail('unreadBetween');
+      return ((data ?? []) as Row[]).flatMap((r) => (isStr(r.kind) && isStr(r.created_at) ? [{ kind: r.kind, createdAt: r.created_at }] : []));
     },
     async subscriptions() {
       const { data, error } = await db.from('push_subscriptions').select('endpoint,keys').limit(50);

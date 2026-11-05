@@ -17,7 +17,7 @@ function recorder(results: { data?: unknown; error?: unknown }[] = []) {
       const chain: Record<string, unknown> = {};
       for (const op of ['insert', 'update', 'upsert', 'delete']) chain[op] = (...a: unknown[]) => ((call.op = op), call.args.push(...a), chain);
       chain.select = (...a: unknown[]) => ((call.op ||= 'select'), call.args.push(...a), chain);
-      for (const f of ['eq', 'neq', 'in', 'is', 'or', 'gte', 'order', 'limit', 'range']) chain[f] = (...a: unknown[]) => (call.filters.push([f, ...a]), chain);
+      for (const f of ['eq', 'neq', 'in', 'is', 'or', 'gte', 'lt', 'order', 'limit', 'range']) chain[f] = (...a: unknown[]) => (call.filters.push([f, ...a]), chain);
       chain.maybeSingle = next;
       chain.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => next().then(res, rej);
       return chain;
@@ -81,5 +81,22 @@ describe('supabaseAlertStore', () => {
     await s.posts('a1');
     expect(r.calls.map((c) => c.table)).toEqual(['account_daily', 'media']);
     expect(r.calls[1].filters).toContainEqual(['range', 0, 59]); // ALERT_POSTS newest, one page
+  });
+
+  it('reachByFollow (Plan 17e): reach rows of the given days only, explicit columns, capped; bad rows dropped; none for no days', async () => {
+    const r = recorder([{ data: [{ day: '2026-10-13', follow_type: 'NON_FOLLOWER', value: 60 }, { day: '2026-10-13', follow_type: 'FOLLOWER', value: 'x' }] }]);
+    expect(await supabaseAlertStore(r.db).reachByFollow('a1', ['2026-10-13', '2026-10-06'])).toEqual([{ day: '2026-10-13', followType: 'NON_FOLLOWER', value: 60 }]);
+    expect(r.calls[0]).toMatchObject({ table: 'account_daily_breakdown', args: ['day,follow_type,value'], filters: [['eq', 'account_id', 'a1'], ['eq', 'metric', 'reach'], ['in', 'day', ['2026-10-13', '2026-10-06']], ['limit', 1000]] });
+    const none = recorder();
+    expect(await supabaseAlertStore(none.db).reachByFollow('a1', [])).toEqual([]);
+    expect(none.calls).toEqual([]);
+    await expect(supabaseAlertStore(recorder([{ error: { message: 'secret' } }]).db).reachByFollow('a1', ['2026-10-13'])).rejects.toThrow('alert store: reachByFollow failed');
+  });
+
+  it('unreadBetween (Plan 17e): unread notifications of [from, to), kind and time only', async () => {
+    const r = recorder([{ data: [{ kind: 'needs_reconnect', created_at: '2026-10-13T18:00:00+00:00' }, { kind: null, created_at: 'x' }] }]);
+    expect(await supabaseAlertStore(r.db).unreadBetween('2026-10-13T00:00:00.000Z', '2026-10-14T00:00:00.000Z')).toEqual([{ kind: 'needs_reconnect', createdAt: '2026-10-13T18:00:00+00:00' }]);
+    expect(r.calls[0]).toMatchObject({ table: 'notifications', args: ['kind,created_at'], filters: [['is', 'read_at', null], ['gte', 'created_at', '2026-10-13T00:00:00.000Z'], ['lt', 'created_at', '2026-10-14T00:00:00.000Z'], ['limit', 1000]] });
+    await expect(supabaseAlertStore(recorder([{ error: { message: 'secret' } }]).db).unreadBetween('a', 'b')).rejects.toThrow('alert store: unreadBetween failed');
   });
 });

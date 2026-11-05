@@ -13,7 +13,8 @@ function setup(list: StoredAccount[], o: Parameters<typeof memoryAlertStore>[0] 
   const mem = memoryAlertStore({ subs: [pushSub(1)], ...o });
   const sync = memoryStore({ states: list.map((a) => ({ ...emptyState(a.id), lastSuccessAt: '2026-10-13T00:00:00.000Z' })) });
   const deps: AlertDeps = { store: mem.store, push };
-  const ctx: AlertRunContext = { accounts: fakeAccounts(list).accounts, sync: sync.store, now: new Date(T0), tz: 'UTC', deadline: T0 + 10_000, clock: () => T0 };
+  // 02:00 UTC = 10:00 in Kuala Lumpur: outside the default quiet hours (22:00-08:00, Plan 17e)
+  const ctx: AlertRunContext = { accounts: fakeAccounts(list).accounts, sync: sync.store, now: new Date(T0), tz: 'Asia/Kuala_Lumpur', deadline: T0 + 10_000, clock: () => T0 };
   return { mem, deps, ctx, push };
 }
 

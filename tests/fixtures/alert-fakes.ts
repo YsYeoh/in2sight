@@ -14,6 +14,8 @@ export interface AlertMemInit {
   daily?: Record<string, DailyRow[]>;
   posts?: Record<string, Post[]>;
   subs?: PushSub[];
+  /** Plan 17e: account_daily_breakdown reach rows per account */
+  breakdown?: Record<string, { day: string; followType: string; value: number }[]>;
 }
 
 export const pushSub = (n: number): PushSub => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) } });
@@ -31,6 +33,9 @@ export function memoryAlertStore(init: AlertMemInit = {}) {
       rows.push(...fresh.map((a) => ({ ...a, createdAt: '2026-10-14T02:00:00.000Z' })));
       return fresh;
     }),
+    reachByFollow: vi.fn(async (id: string, days: string[]) => (init.breakdown?.[id] ?? []).filter((r) => days.includes(r.day))),
+    // every stored row counts as unread; seed rows with mem.rows.push(...) to test the morning summary
+    unreadBetween: vi.fn(async (fromIso: string, toIso: string) => rows.filter((r) => r.createdAt >= fromIso && r.createdAt < toIso).map((r) => ({ kind: r.kind, createdAt: r.createdAt }))),
     subscriptions: vi.fn(async () => [...subs]),
     deleteSubscription: vi.fn(async (endpoint: string) => {
       subs = subs.filter((s) => s.endpoint !== endpoint);
