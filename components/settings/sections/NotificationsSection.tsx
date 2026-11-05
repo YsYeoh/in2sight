@@ -4,6 +4,8 @@ import { DeviceList } from '@/components/settings/DeviceList';
 import { NotificationsCard } from '@/components/settings/NotificationsCard';
 import { parseAlertSettings } from '@/lib/alerts/settings';
 import { requireOwner } from '@/lib/auth/require-owner';
+import { formatHour } from '@/lib/format';
+import { getPrefs } from '@/lib/prefs.server';
 import { listPushDevices } from '@/lib/push/devices';
 import { createServerSupabase } from '@/lib/supabase/server';
 
@@ -11,14 +13,14 @@ import { createServerSupabase } from '@/lib/supabase/server';
 export async function NotificationsSection() {
   const { userId } = await requireOwner();
   const db = await createServerSupabase();
-  const [profile, devices] = await Promise.all([db.from('profiles').select('alert_settings').eq('user_id', userId).maybeSingle(), listPushDevices(db)]);
+  const [profile, devices, prefs] = await Promise.all([db.from('profiles').select('alert_settings').eq('user_id', userId).maybeSingle(), listPushDevices(db), getPrefs()]);
   const alertSettings = parseAlertSettings(profile.error ? null : profile.data?.alert_settings);
   // only the PUBLIC VAPID key reaches the browser, as a prop (the private key stays in lib/push/send.ts)
   const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() || null;
   return (
     <div className="grid gap-[var(--gp)]">
       <NotificationsCard vapidPublicKey={vapidPublicKey} swEnabled={process.env.NODE_ENV === 'production'} save={saveSubscriptionAction} remove={deleteSubscriptionAction} test={sendTestPushAction} />
-      <AlertSettingsForm initial={alertSettings} save={saveAlertSettingsAction} />
+      <AlertSettingsForm initial={alertSettings} save={saveAlertSettingsAction} hourLabels={Array.from({ length: 24 }, (_, h) => formatHour(h, prefs))} />
       <DeviceList devices={devices} remove={deleteDeviceAction} />
     </div>
   );
