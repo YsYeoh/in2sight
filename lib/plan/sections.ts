@@ -1,6 +1,6 @@
 // Plan sections (Plan 17d; the Settings pattern of lib/settings/sections.ts): ids and order in ONE place, URL
 // /plan/<id>. Titles and descriptions are `plan.sections.<id>.title` / `.description`. Plan 17f adds 'board'.
-export const PLAN_SECTIONS = ['digest', 'goals'] as const;
+export const PLAN_SECTIONS = ['digest', 'goals', 'board'] as const;
 export type PlanSection = (typeof PLAN_SECTIONS)[number];
 export const DEFAULT_PLAN_SECTION: PlanSection = 'digest';
 

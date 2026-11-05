@@ -19,12 +19,13 @@ const post = (id: string, postedAt: string, reach: number | null, mediaType: Pos
 
 describe('plan sections (the Settings pattern)', () => {
   it('digest then goals; /plan redirects to the digest; unknown or deeper paths are 404', () => {
-    expect(PLAN_SECTIONS).toEqual(['digest', 'goals']);
+    expect(PLAN_SECTIONS).toEqual(['digest', 'goals', 'board']);
     expect(DEFAULT_PLAN_SECTION).toBe('digest');
     expect(routePlan(undefined)).toEqual({ redirect: '/plan/digest' });
     expect(routePlan([])).toEqual({ redirect: '/plan/digest' });
     expect(routePlan(['goals'])).toEqual({ section: 'goals' });
-    for (const s of [['Goals'], ['board'], ['goals', 'x'], ['constructor']]) expect(routePlan(s)).toBeNull();
+    expect(routePlan(['board'])).toEqual({ section: 'board' }); // Plan 17f
+    for (const s of [['Goals'], ['Board'], ['board', 'x'], ['goals', 'x'], ['constructor']]) expect(routePlan(s)).toBeNull();
     for (const v of ['', 'Digest', 'toString', null, 1]) expect(isPlanSection(v)).toBe(false);
   });
 

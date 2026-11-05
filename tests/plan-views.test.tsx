@@ -51,7 +51,7 @@ describe('PlanNav', () => {
   it('underline tabs Digest and Goals; the current path is selected; choosing one navigates to /plan/<id>', async () => {
     wrap(<PlanNav />);
     const list = screen.getByRole('tablist', { name: en.plan.sections.label });
-    expect(within(list).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Digest', 'Goals']);
+    expect(within(list).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Digest', 'Goals', 'Board']);
     expect(screen.getByRole('tab', { name: 'Digest' })).toHaveAttribute('aria-selected', 'true');
     await userEvent.click(screen.getByRole('tab', { name: 'Goals' }));
     expect(push).toHaveBeenCalledWith('/plan/goals');
