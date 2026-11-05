@@ -88,7 +88,7 @@ Each line: plan, what it gives, where to read more.
   - (d) Unused for now: `plan.sections.*.description` in both catalogs and the `lastWeek.met` field of the posts-per-week progress.
   - (e) The invalid-value message lists the rules (whole numbers in range, a day after today for followers) instead of naming the field.
 
-- **17e: Smart alerts (code done, review pending, NOT verified live; migration 20261104000001 written, NOT applied: the owner applies it BEFORE deploying).** Quiet hours (default 22:00–08:00, owner timezone), instant pushes only for unusual events and never at night, ONE morning summary push of what was held, the weekly review push on the week's first day (links to the 17d digest page, /plan/digest), non-follower spike alert, unfollow spike rule OFF until RUNBOOK_GROWTH §2. Plan: docs/superpowers/plans/2026-11-01-17e-smart-alerts.md. Runbook: docs/RUNBOOK_ALERTS.md §8.
+- **17e: Smart alerts (code done, reviewed, NOT verified live; migration 20261104000001 applied 2026-11-05 (dry-run listed exactly this file; `migration list` 20 / 20; anon probe on notifications 401 / 42501; advisors unchanged), before the code was pushed).** Quiet hours (default 22:00–08:00, owner timezone), instant pushes only for unusual events and never at night, ONE morning summary push of what was held, the weekly review push on the week's first day (links to the 17d digest page, /plan/digest), non-follower spike alert, unfollow spike rule OFF until RUNBOOK_GROWTH §2. Plan: docs/superpowers/plans/2026-11-01-17e-smart-alerts.md. Runbook: docs/RUNBOOK_ALERTS.md §8.
 
   Known gaps and follow-ups from the 17e review (nothing blocked shipping; the migration was judged safe to apply as written; DEPLOY ORDER: apply the migration first, otherwise any tick that finds a `nonfollower_spike` has its whole batched alert insert refused and stores and pushes nothing for any account, and the summaries fail every morning):
   - (a) The spike rules check yesterday and the day before, but Instagram can fill a day up to 48 h late (`SETTLE_DAYS = 3`): a half-filled yesterday could raise one alert that is never corrected. If RUNBOOK_ALERTS §8.5 shows noise, change `SPIKE_DAYS_BACK` in `lib/alerts/rules.ts` to `[2, 3]` (still inside the 60 daily rows read).
@@ -142,7 +142,7 @@ Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d
 | 20261101000001_insight_dismissals | owner-authored dismissed / snoozed finding keys (Plan 17b; applied 2026-11-04) |
 | 20261102000001_tag_rules | tag_rules, media_tag_rejections, media_tags.source, trigger media_tags_skip_rejected (Plan 17c; applied 2026-11-04; RUNBOOK_AUTOTAG §0) |
 | 20261103000001_goals | goals (owner-all RLS, cascade from accounts, unique (account_id, metric)) (Plan 17d; applied 2026-11-04; RUNBOOK_DIGEST §0) |
-| 20261104000001_smart_alerts | notifications kind check gains nonfollower_spike, unfollow_spike, digest, weekly_digest (Plan 17e; **NOT applied**: owner go-ahead, apply BEFORE deploying; RUNBOOK_ALERTS §8.0) |
+| 20261104000001_smart_alerts | notifications kind check gains nonfollower_spike, unfollow_spike, digest, weekly_digest (Plan 17e; applied 2026-11-05, before the code was pushed; RUNBOOK_ALERTS §8.0) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with

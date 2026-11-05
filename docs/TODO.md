@@ -271,7 +271,7 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6v. Smart alerts (Plan 17e)
 - [x] Quiet hours (default 22:00–08:00), one morning summary push, the weekly review push on the week's first day (links to /plan/digest), non-follower spike alert, unfollow spike rule (OFF until the follows mapping is verified) (code done, review pending; live verification pending: docs/RUNBOOK_ALERTS.md §8)
-- [ ] Apply migration `20261104000001_smart_alerts` (written, NOT applied; owner's go-ahead, BEFORE deploying the 17e code)
+- [x] Apply migration `20261104000001_smart_alerts` (applied 2026-11-05, before the 17e code was pushed; anon probe 401 / 42501)
 - [ ] RUNBOOK_ALERTS §8 walked through by the owner; live checks L1 (morning summary once, nothing at night), L2 (spike noise), L3 (tick duration), L4 (lock-screen grouping) (plan 2026-11-01-17e)
 - [ ] After RUNBOOK_GROWTH §2 passes: switch on the unfollow-spike rule (`UNFOLLOW_SPIKE_ENABLED`)
 - Known: a push that fails is not retried (the summary row exists); the summary is a count, not a list; no separate summary hour.
