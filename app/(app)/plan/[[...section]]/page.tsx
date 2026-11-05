@@ -14,6 +14,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { localDay } from '@/lib/sync/time';
 import { dismissFindingAction } from '@/app/(app)/overview/insight-actions';
 import { saveGoalsAction } from '@/app/(app)/plan/actions';
+import { PlannerSection } from '@/app/(app)/plan/planner-section';
 
 // Plan 17d: /plan -> /plan/digest; /plan/digest?week=|month= and /plan/goals. Pages = wiring; logic in lib/plan.
 export default async function PlanSectionPage({ params, searchParams }: { params: Promise<{ section?: string[] }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -22,6 +23,7 @@ export default async function PlanSectionPage({ params, searchParams }: { params
   const route = routePlan(section);
   if (!route) notFound();
   if ('redirect' in route) redirect(route.redirect);
+  if (route.section === 'board') return <PlannerSection sp={sp} basePath="/plan/board" />; // Plan 17f
   const prefs = await getPrefs();
   const now = new Date();
   const today = localDay(now, prefs.timezone);
