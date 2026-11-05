@@ -90,6 +90,13 @@ Each line: plan, what it gives, where to read more.
 
 - **17e: Smart alerts (code done, review pending, NOT verified live; migration 20261104000001 written, NOT applied: the owner applies it BEFORE deploying).** Quiet hours (default 22:00–08:00, owner timezone), instant pushes only for unusual events and never at night, ONE morning summary push of what was held, the weekly review push on the week's first day (links to the 17d digest page, /plan/digest), non-follower spike alert, unfollow spike rule OFF until RUNBOOK_GROWTH §2. Plan: docs/superpowers/plans/2026-11-01-17e-smart-alerts.md. Runbook: docs/RUNBOOK_ALERTS.md §8.
 
+  Known gaps and follow-ups from the 17e review (nothing blocked shipping; the migration was judged safe to apply as written; DEPLOY ORDER: apply the migration first, otherwise any tick that finds a `nonfollower_spike` has its whole batched alert insert refused and stores and pushes nothing for any account, and the summaries fail every morning):
+  - (a) The spike rules check yesterday and the day before, but Instagram can fill a day up to 48 h late (`SETTLE_DAYS = 3`): a half-filled yesterday could raise one alert that is never corrected. If RUNBOOK_ALERTS §8.5 shows noise, change `SPIKE_DAYS_BACK` in `lib/alerts/rules.ts` to `[2, 3]` (still inside the 60 daily rows read).
+  - (b) `localTime` resolves a skipped DST hour forward only in zones east of UTC; in a US zone, on the one spring day, an alert from 01:00 to 01:59 can be counted in the next summary (nothing is lost or doubled). `dayStart` has the same quirk; the comment now says so.
+  - (c) Push-now uses the tick clock but the held count uses the database `created_at`: a manual Sync now straddling the end (or start) of quiet hours can leave one alert only in the bell, or count it twice. Rare (scheduled ticks start after :00).
+  - (d) `unfollow_spike.body` prints `{count}` without a thousands separator; fix in `lib/alerts/message.ts` before flipping `UNFOLLOW_SPIKE_ENABLED` (a comment sits on the constant).
+  - (e) After the day's summary exists, each tick until quiet hours still reads the window and tries a duplicate insert (about 28 a day, bounded, accepted). The summary row itself is unread, so the bell badge shows one more than the count in the push.
+
 Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
 
 Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d), Settings.

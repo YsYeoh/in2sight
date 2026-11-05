@@ -75,7 +75,7 @@ export function supabaseAlertStore(db: SupabaseClient): AlertStore {
     },
     async reachByFollow(accountId, days) {
       if (days.length === 0) return [];
-      // spikeDays = 18 days x (3 follow types x 4 formats) = at most 216 rows: under PostgREST's 1,000-row cap
+      // spikeDays = 18 days x (3 follow types x 5 formats) = at most 270 rows: under PostgREST's 1,000-row cap
       const { data, error } = await db.from('account_daily_breakdown').select('day,follow_type,value').eq('account_id', accountId).eq('metric', 'reach').in('day', days).limit(1000);
       if (error) fail('reachByFollow');
       return ((data ?? []) as Row[]).flatMap((r) => (isStr(r.day) && isStr(r.follow_type) && typeof r.value === 'number' && Number.isFinite(r.value) ? [{ day: r.day, followType: r.follow_type, value: r.value }] : []));

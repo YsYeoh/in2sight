@@ -11,7 +11,7 @@ export const TOKEN_STAGES_DAYS = [7, 2] as const; // "token expiring" fires at 7
 export const REACH_DROP_COOLDOWN_DAYS = 7;
 export const TAKING_OFF_WITHIN_DAYS = 3; // only fresh posts: enabling alerts must not dump a week of old wins
 /** Spike rules (Plan 17e) look at yesterday and the day before: today is partial, and Instagram may fill yesterday late. */
-export const SPIKE_DAYS_BACK = [1, 2] as const;
+const SPIKE_DAYS_BACK = [1, 2] as const; // ponytail: yesterday can still be filling in (SETTLE_DAYS = 3); use [2, 3] if the live check shows noise
 /** A day's follower + non-follower reach below this is too small for a share to mean anything. */
 export const NONFOLLOWER_MIN_REACH = 50;
 

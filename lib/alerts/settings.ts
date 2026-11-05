@@ -6,6 +6,7 @@ export type AlertKind = (typeof ALERT_KINDS)[number];
 
 /** Plan 17e: the unfollow-spike rule stays OFF until docs/RUNBOOK_GROWTH.md §2 has verified FOLLOW_TYPE on real data (a swapped
  *  mapping would report a follow spike as unfollows). Flip to true in a reviewed commit after that check; nothing else changes. */
+// Before flipping this: RUNBOOK_GROWTH §2 must pass, and `unfollow_spike.body` prints {count} as a plain number (no thousands separator): pass it through formatNumber in message.ts first.
 export const UNFOLLOW_SPIKE_ENABLED = false;
 
 export interface AlertSettings {

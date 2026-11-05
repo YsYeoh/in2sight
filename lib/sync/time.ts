@@ -36,7 +36,8 @@ function offsetMs(at: number, tz: string): number {
 }
 
 /** The instant a wall-clock hour (0-23) of a day starts in tz. Two passes so a DST change between the UTC guess and the
- *  local time is handled; an hour skipped by a DST jump resolves to the instant right after the gap. */
+ *  local time is handled. An hour skipped by a DST jump resolves to just after the gap in zones east of UTC (Berlin) but an
+ *  hour early, just before it, in zones west of UTC (New York): one day a year, and `dayStart` has the same quirk. */
 export function localTime(day: string, hour: number, tz: string): Date {
   const utcGuess = Date.parse(`${day}T00:00:00Z`) + hour * 3_600_000;
   let t = utcGuess - offsetMs(utcGuess, tz);

@@ -10,9 +10,9 @@ import { addDays, localDay, localHour, localTime } from '@/lib/sync/time';
 type Quiet = Pick<AlertSettings, 'quietFrom' | 'quietTo'>;
 
 /** Never pushed on their own: nothing breaks before the next morning (the 2-day token stage still leaves a day). */
-export const DIGEST_ONLY: readonly AlertKind[] = ['token_expiring', 'moderation_paused'];
+const DIGEST_ONLY: readonly AlertKind[] = ['token_expiring', 'moderation_paused'];
 /** The summaries themselves: stored for dedupe and the bell, never counted inside another summary. */
-export const SUMMARY_KINDS: readonly AlertKind[] = ['digest', 'weekly_digest'];
+const SUMMARY_KINDS: readonly AlertKind[] = ['digest', 'weekly_digest'];
 
 /** Inside quiet hours at this instant? [from, to) in the owner's wall-clock hours; the window may cross midnight; from === to = never. */
 export function isQuiet(at: Date, s: Quiet, tz: string): boolean {
