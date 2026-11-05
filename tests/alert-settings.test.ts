@@ -1,18 +1,21 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ALERT_SETTINGS, parseAlertSettings } from '@/lib/alerts/settings';
+import { ALERT_KINDS, DEFAULT_ALERT_SETTINGS, parseAlertSettings, UNFOLLOW_SPIKE_ENABLED } from '@/lib/alerts/settings';
 import { reachDrop, takingOff } from '@/lib/analysis/flags';
 import type { DailyRow, Post } from '@/lib/analysis/types';
 
 describe('parseAlertSettings', () => {
   it('empty, null, arrays and strings give the SPEC defaults (push on for all except taking off)', () => {
     for (const raw of [undefined, null, {}, [], 'x', 42]) expect(parseAlertSettings(raw)).toEqual(DEFAULT_ALERT_SETTINGS);
-    expect(DEFAULT_ALERT_SETTINGS.push).toEqual({ token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: true, taking_off: false, moderation_paused: true });
+    expect(DEFAULT_ALERT_SETTINGS.push).toEqual({ token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: true, taking_off: false, moderation_paused: true, nonfollower_spike: true, unfollow_spike: true, digest: true, weekly_digest: true });
+    expect(DEFAULT_ALERT_SETTINGS).toMatchObject({ quietFrom: 22, quietTo: 8 });
   });
 
   it('keeps valid values, drops unknown keys, non-boolean toggles fall back per key', () => {
     const s = parseAlertSettings({ push: { taking_off: true, reach_drop: false, sync_failing: 'yes', evil: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4, __proto__x: 1 });
-    expect(s).toEqual({ push: { token_expiring: true, needs_reconnect: true, sync_failing: true, reach_drop: false, taking_off: true, moderation_paused: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4 });
-    expect(Object.keys(s).sort()).toEqual(['push', 'reachDropPct', 'syncFailures', 'takingOffRatio']);
+    expect(s).toEqual({ push: { ...DEFAULT_ALERT_SETTINGS.push, reach_drop: false, taking_off: true }, reachDropPct: 30, takingOffRatio: 3.5, syncFailures: 4, quietFrom: 22, quietTo: 8 });
+    expect(Object.keys(s).sort()).toEqual(['push', 'quietFrom', 'quietTo', 'reachDropPct', 'syncFailures', 'takingOffRatio']);
   });
 
   it('clamps and rounds thresholds; NaN, Infinity and junk strings fall back', () => {
@@ -20,6 +23,25 @@ describe('parseAlertSettings', () => {
     expect(parseAlertSettings({ reachDropPct: 33.6, takingOffRatio: 2.04, syncFailures: 2.6 })).toMatchObject({ reachDropPct: 34, takingOffRatio: 2, syncFailures: 3 });
     expect(parseAlertSettings({ reachDropPct: '25', takingOffRatio: 'abc', syncFailures: Infinity })).toMatchObject({ reachDropPct: 25, takingOffRatio: 2, syncFailures: 2 });
     expect(parseAlertSettings({ reachDropPct: NaN, takingOffRatio: '', syncFailures: null })).toMatchObject({ reachDropPct: 20, takingOffRatio: 2, syncFailures: 2 });
+  });
+
+  it('quiet hours (Plan 17e): whole hours 0-23, clamped and rounded; junk falls back to 22 and 8; equal hours are kept (= off)', () => {
+    expect(parseAlertSettings({ quietFrom: 23, quietTo: 0 })).toMatchObject({ quietFrom: 23, quietTo: 0 });
+    expect(parseAlertSettings({ quietFrom: -1, quietTo: 24 })).toMatchObject({ quietFrom: 0, quietTo: 23 });
+    expect(parseAlertSettings({ quietFrom: 21.6, quietTo: '7' })).toMatchObject({ quietFrom: 22, quietTo: 7 });
+    expect(parseAlertSettings({ quietFrom: 'x', quietTo: null })).toMatchObject({ quietFrom: 22, quietTo: 8 });
+    expect(parseAlertSettings({ quietFrom: 9, quietTo: 9 })).toMatchObject({ quietFrom: 9, quietTo: 9 });
+  });
+
+  it('the four Plan 17e kinds have toggles, all on by default; the unfollow-spike rule itself stays off', () => {
+    expect(parseAlertSettings({ push: { digest: false, weekly_digest: 'no' } }).push).toMatchObject({ digest: false, weekly_digest: true, nonfollower_spike: true, unfollow_spike: true });
+    expect(UNFOLLOW_SPIKE_ENABLED).toBe(false);
+  });
+
+  it('ALERT_KINDS equals the kind list of the newest migration that sets notifications_kind_check (code and database agree)', () => {
+    const dir = join(process.cwd(), 'supabase/migrations');
+    const lists = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().map((f) => readFileSync(join(dir, f), 'utf8').replace(/--.*$/gm, '').match(/notifications_kind_check\s+check\s*\(\s*kind\s+in\s*\(([^)]*)\)/i)?.[1]).filter((l): l is string => l !== undefined);
+    expect(lists.at(-1)?.split(',').map((s) => s.trim().replace(/^'|'$/g, ''))).toEqual([...ALERT_KINDS]);
   });
 });
 

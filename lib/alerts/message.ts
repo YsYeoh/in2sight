@@ -3,7 +3,7 @@
 // Client-safe: no message catalogs are imported here (the bell gets them from NextIntlClientProvider).
 import type { AlertPayload } from '@/lib/alerts/rules';
 import type { AlertKind } from '@/lib/alerts/settings';
-import { formatNumber, type FormatPrefs } from '@/lib/format';
+import { formatDay, formatNumber, type FormatPrefs } from '@/lib/format';
 
 /** A translator scoped to `notifications.kinds` (next-intl's useTranslations / createTranslator both fit). */
 export type KindTranslator = (key: string, values?: Record<string, string | number>) => string;
@@ -18,13 +18,22 @@ export function alertText(kind: AlertKind, p: AlertPayload, t: KindTranslator, p
     runs: p.runs ?? 0,
     pct: formatNumber(p.pct ?? null, prefs),
     ratio: formatNumber(p.ratio ?? null, prefs, { maximumFractionDigits: 1 }),
+    count: p.count ?? 0, // a number: the summaries' plural
+    usual: formatNumber(p.usual ?? null, prefs, { maximumFractionDigits: 0 }),
+    day: formatDay(p.day ?? '', prefs),
   };
   return { title: t(`${kind}.title`, values), body: t(`${kind}.body`, values) };
 }
 
+/** Where the weekly review opens. Plan 17d's digest page.
+ *  tests/alert-message-smart.test.ts fails as soon as app/(app)/plan exists and this still says /overview. */
+export const WEEKLY_REVIEW_HREF = '/plan/digest';
+
 /** Same-origin path the notification opens. */
 export function alertHref(kind: AlertKind, accountId: string | null): string {
+  if (kind === 'weekly_digest') return WEEKLY_REVIEW_HREF;
   if (!accountId) return '/overview';
+  if (kind === 'nonfollower_spike' || kind === 'unfollow_spike') return `/accounts/${accountId}?tab=growth`;
   if (kind === 'taking_off') return `/accounts/${accountId}?tab=posts`;
   if (kind === 'moderation_paused') return `/accounts/${accountId}?tab=moderation`;
   if (kind === 'reach_drop') return `/accounts/${accountId}`;

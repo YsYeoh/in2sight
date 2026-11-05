@@ -35,12 +35,18 @@ function offsetMs(at: number, tz: string): number {
   return Date.UTC(p.y, p.m - 1, p.d, p.h, p.min, p.s) - Math.floor(at / 1000) * 1000;
 }
 
-/** The instant the day starts in tz. Two passes so a DST change between UTC midnight and local midnight is handled. */
-export function dayStart(day: string, tz: string): Date {
-  const utcMidnight = Date.parse(`${day}T00:00:00Z`);
-  let t = utcMidnight - offsetMs(utcMidnight, tz);
-  t = utcMidnight - offsetMs(t, tz);
+/** The instant a wall-clock hour (0-23) of a day starts in tz. Two passes so a DST change between the UTC guess and the
+ *  local time is handled; an hour skipped by a DST jump resolves to the instant right after the gap. */
+export function localTime(day: string, hour: number, tz: string): Date {
+  const utcGuess = Date.parse(`${day}T00:00:00Z`) + hour * 3_600_000;
+  let t = utcGuess - offsetMs(utcGuess, tz);
+  t = utcGuess - offsetMs(t, tz);
   return new Date(t);
+}
+
+/** The instant the day starts in tz. */
+export function dayStart(day: string, tz: string): Date {
+  return localTime(day, 0, tz);
 }
 
 /** [first day 00:00, the day after the last day 00:00) in tz as ISO instants: the posted_at bounds of owner-timezone days. */

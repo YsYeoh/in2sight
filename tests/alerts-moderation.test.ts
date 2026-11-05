@@ -28,7 +28,7 @@ const input = (o: Partial<RuleInput> = {}): RuleInput => ({
 
 describe('moderation_paused alert', () => {
   it('is a known kind, pushed by default, kept by the settings parser', () => {
-    expect(ALERT_KINDS.at(-1)).toBe('moderation_paused');
+    expect(ALERT_KINDS).toContain('moderation_paused');
     expect(DEFAULT_ALERT_SETTINGS.push.moderation_paused).toBe(true);
     expect(parseAlertSettings({ push: { moderation_paused: false } }).push.moderation_paused).toBe(false);
   });

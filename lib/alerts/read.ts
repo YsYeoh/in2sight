@@ -25,11 +25,12 @@ export function rowToNotification(r: Row): NotificationItem | null {
   if (!(ALERT_KINDS as readonly unknown[]).includes(r.kind) || typeof r.id !== 'number' || typeof r.created_at !== 'string') return null;
   const p = (r.payload !== null && typeof r.payload === 'object' ? r.payload : {}) as Row;
   const payload: AlertPayload = { username: typeof p.username === 'string' ? p.username : '' };
-  for (const k of ['days', 'runs', 'pct', 'ratio'] as const) {
+  for (const k of ['days', 'runs', 'pct', 'ratio', 'count', 'usual'] as const) {
     const v = num(p[k]);
     if (v !== undefined) payload[k] = v;
   }
   if (typeof p.postId === 'string') payload.postId = p.postId;
+  if (typeof p.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.day)) payload.day = p.day;
   return {
     id: r.id,
     kind: r.kind as AlertKind,
