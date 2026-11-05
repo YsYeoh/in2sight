@@ -27,6 +27,7 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 | Plan 16c (Data & privacy) | **pushed; nothing verified live.** Migration 20261031000001_data_privacy (two functions, two cascade indexes) APPLIED 2026-10-27 (anon probes 401/42501); next: RUNBOOK_DATA live checks |
 | Plan 17b (Insights feed + Today) | **code complete, reviewed and pushed 2026-11-04; nothing verified live.** Migration 20261101000001_insight_dismissals **applied** 2026-11-04 (dry-run listed exactly this file; `migration list` 17 / 17; anon probe 401 / 42501; RUNBOOK_INSIGHTS §0) |
 | Plan 17c (Auto-tagging) | **code done, reviewed, pushed 2026-11-04; nothing verified live.** Migration 20261102000001_tag_rules **applied** 2026-11-04 (dry-run listed exactly this file; `migration list` 18 / 18; anon probe 401 / 42501 on both new tables; RUNBOOK_AUTOTAG §0) |
+| Plan 17f (Planner board) | **code done (review pending), NOT pushed, nothing verified live.** Migration 20261105000001_planner_items is written and NOT applied (owner go-ahead, apply BEFORE deploying; RUNBOOK_PLANNER §0); without it the Board tab says "The planner needs a database update". Nothing is ever sent to Instagram |
 | Open agents / worktrees | none expected after the 15c merge; check `git worktree list` and remove leftovers (section 10) |
 
 ## 3. What is built (all merged and pushed)
@@ -97,6 +98,8 @@ Each line: plan, what it gives, where to read more.
   - (d) `unfollow_spike.body` prints `{count}` without a thousands separator; fix in `lib/alerts/message.ts` before flipping `UNFOLLOW_SPIKE_ENABLED` (a comment sits on the constant).
   - (e) After the day's summary exists, each tick until quiet hours still reads the window and tries a duplicate insert (about 28 a day, bounded, accepted). The summary row itself is unread, so the bell badge shows one more than the count in the push.
 
+- **17f: Planner board (code done, review pending, NOT verified live; migration 20261105000001 written, NOT applied).** Plan → Board (/plan/board, Plan 17d's page): Ideas / Drafting / Ready / Posted, moves by drag or arrow buttons, planned day + hour, tags, "Suggest a time" from the post-performance heatmap, link a card to the real post (owner confirms). No publishing, scheduling or reminders. Plan: docs/superpowers/plans/2026-11-01-17f-planner-board.md. Runbook: docs/RUNBOOK_PLANNER.md.
+
 Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
 
 Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d), Settings.
@@ -143,6 +146,7 @@ Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d
 | 20261102000001_tag_rules | tag_rules, media_tag_rejections, media_tags.source, trigger media_tags_skip_rejected (Plan 17c; applied 2026-11-04; RUNBOOK_AUTOTAG §0) |
 | 20261103000001_goals | goals (owner-all RLS, cascade from accounts, unique (account_id, metric)) (Plan 17d; applied 2026-11-04; RUNBOOK_DIGEST §0) |
 | 20261104000001_smart_alerts | notifications kind check gains nonfollower_spike, unfollow_spike, digest, weekly_digest (Plan 17e; applied 2026-11-05, before the code was pushed; RUNBOOK_ALERTS §8.0) |
+| 20261105000001_planner_items | planner_items: owner-authored planner cards (Plan 17f; **written, NOT applied**: owner go-ahead, apply BEFORE deploying; RUNBOOK_PLANNER §0) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -177,6 +181,7 @@ the owner. Each runbook lists exact steps.
 12. **docs/RUNBOOK_AUTOTAG.md** (Plan 17c): §0 migration, then §1–§5.
 13. **docs/RUNBOOK_DIGEST.md** (Plan 17d): §0 migration, then §1–§5.
 14. **docs/RUNBOOK_ALERTS.md §8** (Plan 17e): §8.0 migration (apply BEFORE deploying), then §8.1–§8.6.
+15. **docs/RUNBOOK_PLANNER.md** (Plan 17f): §0 migration (apply BEFORE deploying), then §1–§5.
 Record outcomes in the runbooks and TODO ("code done; live verification pending" becomes ticked only after the owner has looked).
 
 ## 7. What is left to build (priority order; the owner's order is data and analysis first, planning last)
@@ -227,6 +232,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 - 17c: automatic for new posts only, older posts via Apply with a preview; every manual removal remembered; no suggested chips; source column not shown; Storage used does not count the two new tables.
 - 17d: Plan between Explorer and Settings; /plan/<section> URLs; default = last complete week; no range bar; goals = 3 kinds, one each per account, no period column; avg-reach guard 3 posts; weakest posts from 7; young = 7 days; no findings block until 17b; no digest export; goals not counted in Storage used.
 - 17e: summary at the end of quiet hours (no separate hour), token-expiring and auto-hide-paused are digest-only, the summary counts unread alerts only, the summaries are push switches (no separate weekly setting), the weekly review follows the week-start setting, unfollow spikes off in code.
+- 17f: columns Ideas / Drafting / Ready / Posted, every card has one account, planned day + hour in the owner timezone (wall clock), no manual order, arrows + native drag, link offered from the last 30 days and confirmed by the owner (±3 h = match), Suggest a time from the post-performance heatmap on demand, 500 cards, no reminders / Calendar entries, data_usage() not replaced (for whoever next replaces it: add insight_dismissals, tag_rules, media_tag_rejections, goals and planner_items to its array; names of absent tables are harmless there).
 
 ## 9. How to work here
 **Commands:** `npm run dev`, `npm test`, `npm run check` (lint + tsc + tests + build; must pass before anything is called done), `npm run check:env`.
