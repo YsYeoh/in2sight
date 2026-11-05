@@ -490,6 +490,10 @@
       "takingOffRatioHint": "Alert when a post reaches this multiple of the account's median reach (1.5–10).",
       "syncFailures": "Failed syncs in a row",
       "syncFailuresHint": "Alert after this many consecutive failed sync runs (1–10).",
+      "quietTitle": "Quiet hours",
+      "quietFrom": "From",
+      "quietTo": "Until",
+      "quietHint": "No push notifications between these hours (your timezone). Alerts from that time, and the less urgent ones, arrive as one summary at {time}. The same hour twice means no quiet hours.",
       "saved": "Saved",
       "saveError": "Couldn't save. Try again.",
       "testSend": "Send a test notification",
@@ -1540,6 +1544,22 @@
       "moderation_paused": {
         "title": "Auto-hide paused",
         "body": "Auto-hide for @{username} is paused because Instagram refused to hide a comment. Open Moderation to see why and switch it on again."
+      },
+      "nonfollower_spike": {
+        "title": "Unusual reach from non-followers",
+        "body": "@{username}: {pct}% of the reach on {day} came from people who don't follow you, well above the usual {usual}% for that weekday."
+      },
+      "unfollow_spike": {
+        "title": "Unusual number of unfollows",
+        "body": "@{username}: {count} unfollows on {day}, against about {usual} on that weekday usually."
+      },
+      "digest": {
+        "title": "Morning summary",
+        "body": "{count, plural, one {# alert is} other {# alerts are}} waiting under the bell."
+      },
+      "weekly_digest": {
+        "title": "Weekly review",
+        "body": "{count, plural, =0 {Time to look back at last week.} one {Time to look back at last week. # alert is also waiting under the bell.} other {Time to look back at last week. # alerts are also waiting under the bell.}}"
       }
     }
   },

@@ -490,6 +490,10 @@
       "takingOffRatioHint": "帖子触达达到该账号中位数触达的这个倍数时提醒（1.5–10）。",
       "syncFailures": "连续同步失败次数",
       "syncFailuresHint": "连续这么多次同步失败后提醒（1–10）。",
+      "quietTitle": "免打扰时段",
+      "quietFrom": "开始",
+      "quietTo": "结束",
+      "quietHint": "这段时间内（按你的时区）不发送推送通知。这段时间的提醒以及不紧急的提醒，会在 {time} 合并为一条摘要发送。两个时间相同表示不设免打扰时段。",
       "saved": "已保存",
       "saveError": "保存失败，请重试。",
       "testSend": "发送测试通知",
@@ -1540,6 +1544,22 @@
       "moderation_paused": {
         "title": "自动隐藏已暂停",
         "body": "Instagram 拒绝隐藏评论，@{username} 的自动隐藏已暂停。打开“评论管理”查看原因并重新开启。"
+      },
+      "nonfollower_spike": {
+        "title": "非粉丝触达异常",
+        "body": "@{username}：{day} 的触达中有 {pct}% 来自未关注你的人，明显高于该星期几通常的 {usual}%。"
+      },
+      "unfollow_spike": {
+        "title": "取关数异常",
+        "body": "@{username}：{day} 有 {count} 次取关，而该星期几通常约为 {usual} 次。"
+      },
+      "digest": {
+        "title": "早间摘要",
+        "body": "{count, plural, other {铃铛下有 # 条提醒等你查看。}}"
+      },
+      "weekly_digest": {
+        "title": "每周回顾",
+        "body": "{count, plural, =0 {来回顾一下上周的表现吧。} other {来回顾一下上周的表现吧。铃铛下还有 # 条提醒等你查看。}}"
       }
     }
   },
