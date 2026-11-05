@@ -75,6 +75,46 @@ Other alerts happen on their own: "Reconnect needed" when a token is revoked (In
 2. Lighthouse (Chrome DevTools) → "Installable" passes; the manifest shows name `in2sight`, start URL `/overview`, 192/512 and maskable icons.
 3. Switch theme/mode in Settings: on Android/desktop app windows the title bar colour follows.
 
+## 8. Smart alerts: quiet hours, morning summary, weekly review, spikes (Plan 17e)
+
+Status: code done (review pending), NOTHING verified live. The timing maths was dry-run with fakes (48 ticks of a day, DST days in Europe/Berlin) and the SQL on PGlite (plan `docs/superpowers/plans/2026-11-01-17e-smart-alerts.md`, "Scratch-run result"). Report yes/no and numbers only; never paste endpoints or handles into a chat or an issue.
+
+### 8.0 Migration (apply BEFORE deploying; the owner says go)
+`supabase/migrations/20261104000001_smart_alerts.sql` is written and NOT applied. It only replaces the `notifications_kind_check` constraint (adds `nonfollower_spike`, `unfollow_spike`, `digest`, `weekly_digest`); nothing existing is dropped and RLS is untouched. Do NOT deploy the 17e code first: the tick stores a tick's alerts in one batch, and a new kind refused by the old constraint would drop that whole batch (`alerts.failed` +1). Supabase CLI 3.x defaults to the local Docker stack, so every `sb.mjs` command carries `--remote` (`db query` against production needs an extra consent flag and is not used).
+```
+node --env-file=.env.local scripts/sb.mjs migration list --remote        # only 20261104000001 pending (plus any earlier pending file); nothing remote-only
+node --env-file=.env.local scripts/db-probe.mjs table:notifications      # before: 401 with code 42501 (anon denied)
+node --env-file=.env.local scripts/sb.mjs db push --remote --dry-run     # exactly the pending file(s)
+node --env-file=.env.local scripts/sb.mjs db push --remote --yes
+node --env-file=.env.local scripts/sb.mjs migration list --remote        # N local / N remote / 0 mismatched
+node --env-file=.env.local scripts/db-probe.mjs table:notifications      # after: still 401 with code 42501 (RLS untouched)
+```
+Before `db push`, the dry-run must list exactly the files you expect; if it lists an older migration too, stop and ask the owner. `db-probe.mjs` only sees tables and functions, so it cannot see a constraint: here it only shows that the table stays closed to anon. Check the constraint itself in the Supabase Dashboard SQL editor (read only): `select pg_get_constraintdef(oid) from pg_constraint where conname = 'notifications_kind_check';` lists ten kinds.
+
+### 8.1 Settings
+1. Settings → Notifications → Alerts: "Quiet hours" From 22:00, Until 08:00 (in your time format); the hint names 08:00. New switches "Unusual reach from non-followers", "Morning summary", "Weekly review" (all on); no "unfollows" switch.
+2. Change Until to 07:00 → the hint says 07:00 → Save → reload: kept. Put it back (08:00), Save. 360 / 768 / 1280 px, light and dark.
+
+### 8.2 Nothing at night (L1)
+1. Leave a phone with notifications enabled overnight. Next morning: `sync_runs` rows between 22:00 and 08:00 may show `alerts.created` > 0 but `alerts.pushed` 0.
+2. Quick test instead of waiting: set quiet hours to cover the current hour, Save, then Accounts → Sync now on an account with an alert due (e.g. "Post taking off" switched on at 1.5×, §4): the bell gets it, no push.
+
+### 8.3 The morning summary (L1)
+1. The first tick after 08:00: ONE push "Morning summary — N alerts are waiting under the bell." (N = unread alerts held overnight + token/auto-hide alerts of the last 24 h). Tapping it opens the Overview. The bell has a "Morning summary" item.
+2. `notifications`: one row with `dedupe_key = 'digest:<today>'`; later ticks add none (`select count(*) from notifications where kind = 'digest' and created_at > now() - interval '1 day'` = 1).
+3. Read every alert in the bell before 08:00 on another night: no summary that morning (only unread ones count).
+
+### 8.4 The weekly review and lock-screen grouping (L4)
+1. On your week's first day (Settings → Language & formats → week start), the morning push is "Weekly review" (with the held count if any) and opens the digest page (`/plan/digest`, Plan 17d).
+2. A new summary replaces yesterday's on the lock screen (same tag) on Android and iPhone.
+
+### 8.5 Non-follower spikes (L2)
+1. Over the first two weeks, count `nonfollower_spike` rows. If they feel like noise, switch their push off (they stay in the bell) and tell the assistant (the guard is `NONFOLLOWER_MIN_REACH` = 50 in `lib/alerts/rules.ts`).
+2. Unfollow spikes stay off until `docs/RUNBOOK_GROWTH.md` §2 passed; then flip `UNFOLLOW_SPIKE_ENABLED` in `lib/alerts/settings.ts` in a reviewed commit.
+
+### 8.6 Tick duration (L3)
+Compare `sync_runs.summary.durationMs` of three ticks before and after deploying: no visible change (one extra small read per account, one per tick).
+
 ## What to send me if it fails
 
 The failing step number, the browser + OS, a screenshot without endpoints/keys, and the `summary` JSON of the latest `sync_runs` row.

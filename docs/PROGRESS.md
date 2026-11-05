@@ -88,6 +88,8 @@ Each line: plan, what it gives, where to read more.
   - (d) Unused for now: `plan.sections.*.description` in both catalogs and the `lastWeek.met` field of the posts-per-week progress.
   - (e) The invalid-value message lists the rules (whole numbers in range, a day after today for followers) instead of naming the field.
 
+- **17e: Smart alerts (code done, review pending, NOT verified live; migration 20261104000001 written, NOT applied: the owner applies it BEFORE deploying).** Quiet hours (default 22:00–08:00, owner timezone), instant pushes only for unusual events and never at night, ONE morning summary push of what was held, the weekly review push on the week's first day (links to the 17d digest page, /plan/digest), non-follower spike alert, unfollow spike rule OFF until RUNBOOK_GROWTH §2. Plan: docs/superpowers/plans/2026-11-01-17e-smart-alerts.md. Runbook: docs/RUNBOOK_ALERTS.md §8.
+
 Account page tabs now: **Overview, Growth, Posts, Stories, Content, Comments, Moderation, Followers** (the range bar shows on Overview, Growth and Content; list pages have their own filters).
 
 Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d), Settings.
@@ -133,6 +135,7 @@ Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d
 | 20261101000001_insight_dismissals | owner-authored dismissed / snoozed finding keys (Plan 17b; applied 2026-11-04) |
 | 20261102000001_tag_rules | tag_rules, media_tag_rejections, media_tags.source, trigger media_tags_skip_rejected (Plan 17c; applied 2026-11-04; RUNBOOK_AUTOTAG §0) |
 | 20261103000001_goals | goals (owner-all RLS, cascade from accounts, unique (account_id, metric)) (Plan 17d; applied 2026-11-04; RUNBOOK_DIGEST §0) |
+| 20261104000001_smart_alerts | notifications kind check gains nonfollower_spike, unfollow_spike, digest, weekly_digest (Plan 17e; **NOT applied**: owner go-ahead, apply BEFORE deploying; RUNBOOK_ALERTS §8.0) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with
@@ -166,6 +169,7 @@ the owner. Each runbook lists exact steps.
 11. **docs/RUNBOOK_INSIGHTS.md** (Plan 17b): §0 migration, then §1–§6.
 12. **docs/RUNBOOK_AUTOTAG.md** (Plan 17c): §0 migration, then §1–§5.
 13. **docs/RUNBOOK_DIGEST.md** (Plan 17d): §0 migration, then §1–§5.
+14. **docs/RUNBOOK_ALERTS.md §8** (Plan 17e): §8.0 migration (apply BEFORE deploying), then §8.1–§8.6.
 Record outcomes in the runbooks and TODO ("code done; live verification pending" becomes ticked only after the owner has looked).
 
 ## 7. What is left to build (priority order; the owner's order is data and analysis first, planning last)
@@ -215,6 +219,7 @@ change goes through `superpowers:brainstorming` and SPEC first; an item already 
 - 17b: 8 rules (thresholds in lib/analysis/insights.ts INSIGHTS), problems → good news → tips, dismiss for good + hide 7 days, Findings replaces Flags on the account Overview, Today above the range bar, hashtag rule on the account page only.
 - 17c: automatic for new posts only, older posts via Apply with a preview; every manual removal remembered; no suggested chips; source column not shown; Storage used does not count the two new tables.
 - 17d: Plan between Explorer and Settings; /plan/<section> URLs; default = last complete week; no range bar; goals = 3 kinds, one each per account, no period column; avg-reach guard 3 posts; weakest posts from 7; young = 7 days; no findings block until 17b; no digest export; goals not counted in Storage used.
+- 17e: summary at the end of quiet hours (no separate hour), token-expiring and auto-hide-paused are digest-only, the summary counts unread alerts only, the summaries are push switches (no separate weekly setting), the weekly review follows the week-start setting, unfollow spikes off in code.
 
 ## 9. How to work here
 **Commands:** `npm run dev`, `npm test`, `npm run check` (lint + tsc + tests + build; must pass before anything is called done), `npm run check:env`.

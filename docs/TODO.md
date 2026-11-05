@@ -269,6 +269,13 @@ Follow-ups from the Plan 12b review (not done):
 - [x] Findings block in the digest (17b feed, per account, "now"; code done, live check RUNBOOK_DIGEST §2 step 7)
 - Known: no digest export or email; a goal's progress is always "now" (no history per past period); goals are not counted in Storage used.
 
+## 6v. Smart alerts (Plan 17e)
+- [x] Quiet hours (default 22:00–08:00), one morning summary push, the weekly review push on the week's first day (links to /plan/digest), non-follower spike alert, unfollow spike rule (OFF until the follows mapping is verified) (code done, review pending; live verification pending: docs/RUNBOOK_ALERTS.md §8)
+- [ ] Apply migration `20261104000001_smart_alerts` (written, NOT applied; owner's go-ahead, BEFORE deploying the 17e code)
+- [ ] RUNBOOK_ALERTS §8 walked through by the owner; live checks L1 (morning summary once, nothing at night), L2 (spike noise), L3 (tick duration), L4 (lock-screen grouping) (plan 2026-11-01-17e)
+- [ ] After RUNBOOK_GROWTH §2 passes: switch on the unfollow-spike rule (`UNFOLLOW_SPIKE_ENABLED`)
+- Known: a push that fails is not retried (the summary row exists); the summary is a count, not a list; no separate summary hour.
+
 ## 6b. Next (Plan 14/15 Settings)
 - [x] **Forgot / reset password** (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md) (login page link → Supabase recovery email → `/login/reset` set-new-password page). Needs: Auth Site URL + redirect URL set to the real domain, custom SMTP (Supabase default mail is rate-limited and often spam-filtered), recovery link opens a session at aal1 so 2FA is still required afterwards, rate-limit + generic response (never reveal whether the email exists), expiry, i18n en/zh-CN, tests
 - [x] Settings → Security: **change password** form (current + new, strength meter), active sessions / sign out everywhere (Plan 16b; code done, live verification pending: docs/RUNBOOK_SECURITY.md; no session list is possible, one "Sign out other devices" button) (owner currently changes it via the Auth admin API on request)
