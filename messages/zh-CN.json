@@ -1573,7 +1573,7 @@
       "not_found": "此卡片、账号或帖子已不存在，请刷新页面。",
       "too_many": "看板最多容纳 500 张卡片，请先删除一些已发布的卡片。",
       "needs_update": "计划看板需要先更新数据库。",
-      "unexpected": "无法保存，请重试。"
+      "unexpected": "出了点问题，请重试。"
     }
   },
   "notifications": {

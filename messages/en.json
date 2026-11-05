@@ -1573,7 +1573,7 @@
       "not_found": "This card, account or post no longer exists. Reload the page.",
       "too_many": "The board holds at most 500 cards. Delete some posted ones first.",
       "needs_update": "The planner needs a database update.",
-      "unexpected": "Could not save. Try again."
+      "unexpected": "Something went wrong. Try again."
     }
   },
   "notifications": {

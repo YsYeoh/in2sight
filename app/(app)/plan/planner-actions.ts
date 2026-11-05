@@ -16,7 +16,7 @@ import { isUuid } from '@/lib/tags';
 const fail = (error: PlannerError) => ({ ok: false, error }) as const;
 
 function done(): PlannerResult {
-  revalidatePath('/plan');
+  revalidatePath('/plan', 'layout'); // /plan itself only redirects; the board is /plan/board (as the goals action does)
   return { ok: true };
 }
 

@@ -2,7 +2,7 @@
 -- post ideas with a status column, an optional planned day/hour (owner timezone) and, once posted, the post they became.
 -- Nothing here is ever sent to Instagram: no publishing, no scheduling, no reminders.
 -- Owner session under RLS (is_owner(), like tags / explorer_views); never the admin client. The app checks the same
--- limits first (lib/planner/items.ts) and the same media account (app/(app)/plan/actions.ts).
+-- limits first (lib/planner/items.ts) and the same media account (app/(app)/plan/planner-actions.ts).
 -- account_id cascades, so deleting an account (and "Delete all data", which deletes every account) removes its items:
 -- delete_all_data() needs no change. data_usage() (16c) lists tables literally and is not replaced for a table of a few
 -- hundred rows (it counts in the database total), as in Plans 17b / 17c. tag_ids is an array (at most 10, no join

@@ -219,13 +219,13 @@ function ItemForm({ item, accountId, accounts, tags, media, linked, save, remove
           <legend className="mb-1 text-sm font-medium">{t('dialog.link')}</legend>
           <p className="text-xs text-muted-foreground">{t('dialog.linkHint')}</p>
           <label className="flex items-center gap-2 text-sm">
-            <input type="radio" name="plan-item-link" checked={v.mediaId === null} onChange={() => set({ mediaId: null })} />
+            <input type="radio" className="accent-[var(--primary)]" name="plan-item-link" checked={v.mediaId === null} onChange={() => set({ mediaId: null })} />
             {t('dialog.noLink')}
           </label>
           {candidates.length === 0 ? <p className="text-xs text-muted-foreground">{t('dialog.noCandidates')}</p> : null}
           {candidates.map((c) => (
             <label key={c.media.id} className="flex min-w-0 items-center gap-2 text-sm">
-              <input type="radio" name="plan-item-link" checked={v.mediaId === c.media.id} onChange={() => set({ mediaId: c.media.id, status: 'posted' })} />
+              <input type="radio" className="accent-[var(--primary)]" name="plan-item-link" checked={v.mediaId === c.media.id} onChange={() => set({ mediaId: c.media.id, status: 'posted' })} />
               <MediaThumb media={c.media} badges={false} className="w-10 shrink-0 rounded-sm" />
               <span className="min-w-0">
                 <span className="block">
