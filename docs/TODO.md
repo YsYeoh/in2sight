@@ -278,7 +278,7 @@ Follow-ups from the Plan 12b review (not done):
 
 ## 6w. Planner board (Plan 17f)
 - [x] Plan page: Board tab (/plan/board) with Ideas / Drafting / Ready / Posted, moves by drag or arrow buttons, Suggest a time, link a card to its post (code done, review pending; live verification pending: docs/RUNBOOK_PLANNER.md)
-- [ ] Apply migration `20261105000001_planner_items` (file written, NOT applied; owner go-ahead, before deploying; RUNBOOK_PLANNER §0)
+- [x] Apply migration `20261105000001_planner_items` (applied 2026-11-05, before the code was pushed; anon probe 401 / 42501; RUNBOOK_PLANNER §0)
 - [ ] RUNBOOK_PLANNER §1–§5 walked through by the owner (L1 360 px and the Digest / Goals / Board tab strip, L2 drag inside a tab, L3 suggestions, L4 a real post links, L5 PostgREST writes)
 - Known: no reminders and no Calendar entries; only posts of the last 30 days can be newly linked; no manual order inside a column; at most 500 cards; drag and drop is mouse / pen only (touch uses the arrows); "Storage used" does not list the table on its own (`data_usage()` lists tables literally; the plan that next replaces it should add `insight_dismissals`, `tag_rules`, `media_tag_rejections`, `goals` and `planner_items`).
 

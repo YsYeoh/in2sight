@@ -27,7 +27,7 @@ Next.js (TypeScript, App Router) on Vercel, Supabase (Postgres + Auth + Storage)
 | Plan 16c (Data & privacy) | **pushed; nothing verified live.** Migration 20261031000001_data_privacy (two functions, two cascade indexes) APPLIED 2026-10-27 (anon probes 401/42501); next: RUNBOOK_DATA live checks |
 | Plan 17b (Insights feed + Today) | **code complete, reviewed and pushed 2026-11-04; nothing verified live.** Migration 20261101000001_insight_dismissals **applied** 2026-11-04 (dry-run listed exactly this file; `migration list` 17 / 17; anon probe 401 / 42501; RUNBOOK_INSIGHTS §0) |
 | Plan 17c (Auto-tagging) | **code done, reviewed, pushed 2026-11-04; nothing verified live.** Migration 20261102000001_tag_rules **applied** 2026-11-04 (dry-run listed exactly this file; `migration list` 18 / 18; anon probe 401 / 42501 on both new tables; RUNBOOK_AUTOTAG §0) |
-| Plan 17f (Planner board) | **code done (review pending), NOT pushed, nothing verified live.** Migration 20261105000001_planner_items is written and NOT applied (owner go-ahead, apply BEFORE deploying; RUNBOOK_PLANNER §0); without it the Board tab says "The planner needs a database update". Nothing is ever sent to Instagram |
+| Plan 17f (Planner board) | **code done, reviewed, nothing verified live.** Migration 20261105000001_planner_items applied 2026-11-05 (dry-run listed exactly this file; `migration list` 21 / 21; anon probe 401 / 42501; advisors unchanged), before the code was pushed (RUNBOOK_PLANNER §0); without it the Board tab says "The planner needs a database update". Nothing is ever sent to Instagram |
 | Open agents / worktrees | none expected after the 15c merge; check `git worktree list` and remove leftovers (section 10) |
 
 ## 3. What is built (all merged and pushed)
@@ -98,7 +98,7 @@ Each line: plan, what it gives, where to read more.
   - (d) `unfollow_spike.body` prints `{count}` without a thousands separator; fix in `lib/alerts/message.ts` before flipping `UNFOLLOW_SPIKE_ENABLED` (a comment sits on the constant).
   - (e) After the day's summary exists, each tick until quiet hours still reads the window and tries a duplicate insert (about 28 a day, bounded, accepted). The summary row itself is unread, so the bell badge shows one more than the count in the push.
 
-- **17f: Planner board (code done, review pending, NOT verified live; migration 20261105000001 written, NOT applied).** Plan → Board (/plan/board, Plan 17d's page): Ideas / Drafting / Ready / Posted, moves by drag or arrow buttons, planned day + hour, tags, "Suggest a time" from the post-performance heatmap, link a card to the real post (owner confirms). No publishing, scheduling or reminders. Plan: docs/superpowers/plans/2026-11-01-17f-planner-board.md. Runbook: docs/RUNBOOK_PLANNER.md.
+- **17f: Planner board (code done, reviewed, NOT verified live; migration 20261105000001 applied 2026-11-05 (dry-run listed exactly this file; `migration list` 21 / 21; anon probe 401 / 42501; advisors unchanged), before the code was pushed).** Plan → Board (/plan/board, Plan 17d's page): Ideas / Drafting / Ready / Posted, moves by drag or arrow buttons, planned day + hour, tags, "Suggest a time" from the post-performance heatmap, link a card to the real post (owner confirms). No publishing, scheduling or reminders. Plan: docs/superpowers/plans/2026-11-01-17f-planner-board.md. Runbook: docs/RUNBOOK_PLANNER.md.
 
   Known gaps and follow-ups from the 17f review (nothing blocked shipping; the migration was judged safe to apply as written; DEPLOY ORDER: apply the migration first, otherwise the Board tab only says "The planner needs a database update", every action answers needs_update, and Settings → Data → "Export all" stops at the `planner_items` file, so the later files are not downloaded):
   - (a) The 500-card cap is checked and then inserted (two tabs at 499 cards can reach 501; the read shows the newest 500, so the oldest card can drop out of view and free its linked post), and cards of archived accounts count toward the cap but are hidden.
@@ -153,7 +153,7 @@ Side navigation now: Overview, Accounts, Tags, Calendar, Explorer, **Plan** (17d
 | 20261102000001_tag_rules | tag_rules, media_tag_rejections, media_tags.source, trigger media_tags_skip_rejected (Plan 17c; applied 2026-11-04; RUNBOOK_AUTOTAG §0) |
 | 20261103000001_goals | goals (owner-all RLS, cascade from accounts, unique (account_id, metric)) (Plan 17d; applied 2026-11-04; RUNBOOK_DIGEST §0) |
 | 20261104000001_smart_alerts | notifications kind check gains nonfollower_spike, unfollow_spike, digest, weekly_digest (Plan 17e; applied 2026-11-05, before the code was pushed; RUNBOOK_ALERTS §8.0) |
-| 20261105000001_planner_items | planner_items: owner-authored planner cards (Plan 17f; **written, NOT applied**: owner go-ahead, apply BEFORE deploying; RUNBOOK_PLANNER §0) |
+| 20261105000001_planner_items | planner_items: owner-authored planner cards (Plan 17f; applied 2026-11-05, before the code was pushed; RUNBOOK_PLANNER §0) |
 
 ## 6. NOT verified live: the owner's live checks (do these together, in this order)
 Nothing below has been tried in a browser with real data. An assistant cannot do these alone (login with 2FA, real Instagram data); do them with

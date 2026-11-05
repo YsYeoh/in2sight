@@ -3,7 +3,7 @@
 The planner never talks to Instagram: nothing in it publishes, schedules or reminds. Nothing here has been tried on real data yet: the code was tested with fakes and the migration on PGlite only (plan `docs/superpowers/plans/2026-11-01-17f-planner-board.md`, "Scratch-run result"). These checks need the owner (login with 2FA, real accounts) on the deployed app (`<app-url>`). Report yes / no and counts; card texts are the owner's own.
 
 ## 0. The migration — on the owner's go-ahead, BEFORE deploying
-`supabase/migrations/20261105000001_planner_items.sql` adds one table (`planner_items`, owner-only RLS, deleted with its account). The file is written and **NOT applied**. Nothing existing is dropped. Supabase CLI 3.x defaults to the local Docker stack, so every `sb.mjs` command carries `--remote` (`db query` against production needs an extra consent flag and is not used).
+`supabase/migrations/20261105000001_planner_items.sql` adds one table (`planner_items`, owner-only RLS, deleted with its account). The file was applied 2026-11-05 (dry-run listed exactly this file; `migration list` 21 / 21; anon probe 401 / 42501; advisors unchanged), before the code was pushed. Nothing existing is dropped. Supabase CLI 3.x defaults to the local Docker stack, so every `sb.mjs` command carries `--remote` (`db query` against production needs an extra consent flag and is not used).
 
     node --env-file=.env.local scripts/sb.mjs migration list --remote        # expect only 20261105000001 pending (plus any earlier pending file); nothing remote-only
     node --env-file=.env.local scripts/db-probe.mjs table:planner_items      # before: 404 PGRST205 (absent)
